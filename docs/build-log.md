@@ -83,6 +83,23 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | no project-level version | `grep -rnE --include=*.csproj "<PackageReference[^>]*Version" .` | 1 | no output |
 | restore proof | `dotnet restore` (run by AJ-006 and AJ-007) | 0 | all 22 pins resolve; no NU1901 to NU1904 warning |
 
+### AJ-006 solution and source-project checks (2026-10-18T16:28Z to 16:34Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| one solution file | `ls *.sln *.slnx 2>/dev/null` counted with `wc -l` | 0 | 1, `AgentJoules.slnx` |
+| seven projects listed | `dotnet sln AgentJoules.slnx list` | 0 | the seven `src\AgentJoules.*` csproj paths |
+| reference graph | `grep -h ProjectReference` per csproj | 0 | Core none; Nvml Core; Metering Core; Workflow Core and Metering; Reporting Core; Dashboard Core and Metering; Cli Nvml, Workflow, Reporting, Metering and Dashboard (design 2.2) |
+| ASP.NET Core confined | `grep -l "FrameworkReference" --include=*.csproj -r src`; grep for `Microsoft.AspNetCore` in the Core, Metering, Workflow and Reporting csproj files | 0; 1 | only `src/AgentJoules.Dashboard/AgentJoules.Dashboard.csproj`, with `Microsoft.AspNetCore.App`; no match in the four libraries; Directory.Packages.props stays at 22 rows |
+| no TargetFramework in a csproj | `grep -rn --include=*.csproj "TargetFramework" .`; `dotnet msbuild src/AgentJoules.Core -getProperty:TargetFramework` | 1; 0 | no output; `net10.0` |
+| unsafe only in Nvml | `grep -rl AllowUnsafeBlocks --include=*.csproj .` | 0 | `./src/AgentJoules.Nvml/AgentJoules.Nvml.csproj` only |
+| Cli project | read `src/AgentJoules.Cli/AgentJoules.Cli.csproj` | n/a | `OutputType` Exe; `UserSecretsId` present (`dotnet user-secrets init`) |
+| packages per project | `grep -h PackageReference` per csproj; `dotnet restore` | 0; 0 | Metering 2, Workflow 8, Reporting 1, Cli 6, Core, Nvml and Dashboard 0, exactly the "Referenced by" column of design 2.4; no Version attribute; restore exit 0 |
+| placeholder CLI | `dotnet run --project src/AgentJoules.Cli` | 1 | stderr `AgentJoules: no commands implemented yet`, stdout empty |
+| strict build | `dotnet build -warnaserror -tl:off --no-incremental`; `dotnet build -warnaserror -tl:off` | 0; 0 | `0 Warning(s)`, `0 Error(s)` for both |
+| format | `dotnet format --verify-no-changes` | 0 | no diff |
+| template leftovers | `find src -name Class1.cs` | 0 | prints nothing; the only .cs file is `src/AgentJoules.Cli/Program.cs` |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -175,3 +192,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: none; the restore proof (criterion 6) is the AJ-006 and AJ-007 `dotnet restore` runs, both exit 0.
 - Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (all 22 names and versions checked against design 2.4, no preview or forbidden package); spec-compliance-reviewer APPROVED (criteria 1 to 5 PASS, criterion 6 written in this commit).
 - Velocity: estimate 1.00 h; pooled wall-clock and tokens in the AJ-003 entry.
+
+### AJ-006 Create the solution and the seven source projects (REQ-001)
+
+- Shipped: `AgentJoules.slnx` (slnx format, the seven src projects under a `/src/` solution folder), the seven csproj files with the design 2.2 reference graph and the design 2.4 package placement, `src/AgentJoules.Cli/Program.cs` as the honest placeholder (stderr line, exit 1), a `UserSecretsId` from `dotnet user-secrets init`.
+- Decisions: the Dashboard csproj carries the `Microsoft.AspNetCore.App` FrameworkReference but not the design's `wwwroot/index.html` EmbeddedResource, because that file does not exist until M3 and a missing EmbeddedResource fails the build; `dotnet user-secrets init` wrote a UTF-8 BOM into the Cli csproj and `dotnet new sln` wrote CRLF into the slnx, both normalised to ASCII and LF (0 CR bytes, measured); `Program.cs` ends without a trailing newline because the existing `.editorconfig` sets `insert_final_newline = false` for `[*.cs]` and `dotnet format` enforces it.
+- Deviations: none from the story.
+- Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (UserSecretsId is a GUID, no secret; Program.cs reads no input and no environment); spec-compliance-reviewer APPROVED (criteria 1 to 8 PASS, Class1.cs check PASS).
+- Velocity: estimate 2.00 h; pooled wall-clock and tokens in the AJ-003 entry.

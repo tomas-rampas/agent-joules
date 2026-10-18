@@ -393,9 +393,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria.
 Docs impact: none (layout defined by design section 2); check results go to docs/build-log.md.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no Class1.cs or template leftovers remain (`find src -name Class1.cs` prints nothing)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no Class1.cs or template leftovers remain (`find src -name Class1.cs` prints nothing)
 Demo relevance: no
 
 ### AJ-007: Create the test projects and the placeholder test classes

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentJoules.Cli/AgentJoules.Cli.csproj" />
+    <Project Path="src/AgentJoules.Core/AgentJoules.Core.csproj" />
+    <Project Path="src/AgentJoules.Dashboard/AgentJoules.Dashboard.csproj" />
+    <Project Path="src/AgentJoules.Metering/AgentJoules.Metering.csproj" />
+    <Project Path="src/AgentJoules.Nvml/AgentJoules.Nvml.csproj" />
+    <Project Path="src/AgentJoules.Reporting/AgentJoules.Reporting.csproj" />
+    <Project Path="src/AgentJoules.Workflow/AgentJoules.Workflow.csproj" />
+  </Folder>
+</Solution>

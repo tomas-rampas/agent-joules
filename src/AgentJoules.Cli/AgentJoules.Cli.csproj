@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>4d628eb4-390c-4ef4-acfa-440ad19bc8df</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AgentJoules.Nvml\AgentJoules.Nvml.csproj" />
+    <ProjectReference Include="..\AgentJoules.Workflow\AgentJoules.Workflow.csproj" />
+    <ProjectReference Include="..\AgentJoules.Reporting\AgentJoules.Reporting.csproj" />
+    <ProjectReference Include="..\AgentJoules.Metering\AgentJoules.Metering.csproj" />
+    <ProjectReference Include="..\AgentJoules.Dashboard\AgentJoules.Dashboard.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>
