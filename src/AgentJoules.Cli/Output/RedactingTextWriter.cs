@@ -7,7 +7,8 @@ namespace AgentJoules.Cli.Output;
 /// <summary>
 /// A <see cref="TextWriter"/> that holds text until a newline or <see cref="Flush"/> and passes it through
 /// <see cref="SecretRedactor.Redact(string?)"/> before it reaches the inner writer, so a key split across several
-/// writes never reaches the inner writer unmasked. The wrapper owns the inner writer and disposes it. Instances are not
+/// writes never reaches the inner writer unmasked. The wrapper owns and disposes the inner writer unless
+/// <c>leaveOpen</c> is true, which AJ-034 uses for Console.Out and Console.Error. Instances are not
 /// thread-safe; wrap one in <see cref="TextWriter.Synchronized(TextWriter)"/> when several threads write to it.
 /// </summary>
 public sealed class RedactingTextWriter : TextWriter
@@ -15,20 +16,25 @@ public sealed class RedactingTextWriter : TextWriter
     private readonly TextWriter _inner;
     private readonly SecretRedactor _redactor;
     private readonly StringBuilder _buffer = new();
+    private readonly bool _leaveOpen;
     private bool _disposed;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RedactingTextWriter"/> class.
     /// </summary>
-    /// <param name="inner">The writer that receives redacted text; it is owned and disposed by this instance.</param>
+    /// <param name="inner">The writer that receives redacted text.</param>
     /// <param name="redactor">The redactor applied to every line.</param>
-    public RedactingTextWriter(TextWriter inner, SecretRedactor redactor)
+    /// <param name="leaveOpen">
+    /// True to leave <paramref name="inner"/> open when this instance is disposed; false (the default) to dispose it.
+    /// </param>
+    public RedactingTextWriter(TextWriter inner, SecretRedactor redactor, bool leaveOpen = false)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(redactor);
 
         _inner = inner;
         _redactor = redactor;
+        _leaveOpen = leaveOpen;
         NewLine = inner.NewLine;
     }
 
@@ -85,7 +91,10 @@ public sealed class RedactingTextWriter : TextWriter
             }
             finally
             {
-                _inner.Dispose();
+                if (!_leaveOpen)
+                {
+                    _inner.Dispose();
+                }
             }
         }
 

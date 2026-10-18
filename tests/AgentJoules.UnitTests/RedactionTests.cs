@@ -14,6 +14,15 @@ public sealed class RedactionTests
 
     private static string BuildOpaqueKey() => Guid.NewGuid().ToString("N");
 
+    private static void AssertNoFragmentOf(string key, string result)
+    {
+        Assert.DoesNotContain(key, result, StringComparison.Ordinal);
+        for (int start = 0; start + 6 <= key.Length; start++)
+        {
+            Assert.DoesNotContain(key.Substring(start, 6), result, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     [Trait("Spec", "REQ-029")]
     public void Redact_RuntimeBuiltNvidiaKey_ReturnsPrefixPlusStarsWithoutSuffix()
@@ -28,7 +37,7 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
-    public void Redact_RegisteredValueInsideSentence_ReplacesWithFirstSixCharactersPlusStars()
+    public void Redact_RegisteredValueInsideSentence_ReplacesTheWholeValueWithStars()
     {
         string key = BuildOpaqueKey();
         var redactor = new SecretRedactor();
@@ -36,9 +45,8 @@ public sealed class RedactionTests
 
         string result = redactor.Redact($"request failed for {key} with status 401");
 
-        string expected = $"request failed for {key[..6]}**** with status 401";
-        Assert.Equal(expected, result);
-        Assert.DoesNotContain(key[6..], result, StringComparison.Ordinal);
+        Assert.Equal("request failed for **** with status 401", result);
+        AssertNoFragmentOf(key, result);
     }
 
     [Fact]
@@ -51,9 +59,8 @@ public sealed class RedactionTests
 
         string result = redactor.Redact($"first {key} then {key}");
 
-        string masked = $"{key[..6]}****";
-        Assert.Equal($"first {masked} then {masked}", result);
-        Assert.DoesNotContain(key[6..], result, StringComparison.Ordinal);
+        Assert.Equal("first **** then ****", result);
+        AssertNoFragmentOf(key, result);
     }
 
     [Fact]
@@ -141,7 +148,8 @@ public sealed class RedactionTests
         writer.Write(key[10..]);
         writer.Write("\n");
 
-        Assert.Equal($"{key[..6]}****\n", inner.ToString());
+        Assert.Equal("****\n", inner.ToString());
+        AssertNoFragmentOf(key, inner.ToString());
     }
 
     [Fact]
@@ -210,14 +218,14 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
-    public void Redact_RegisteredValueOfSevenCharacters_KeepsTheFirstSix()
+    public void Redact_RegisteredValueOfSevenCharacters_IsFullyMasked()
     {
         var redactor = new SecretRedactor();
         redactor.Register("abcdefg");
 
         string result = redactor.Redact("x abcdefg y");
 
-        Assert.Equal("x abcdef**** y", result);
+        Assert.Equal("x **** y", result);
     }
 
     [Fact]
@@ -230,7 +238,39 @@ public sealed class RedactionTests
 
         string result = redactor.Redact($"leaked {key} here");
 
-        Assert.Equal($"leaked {key[..6]}**** here", result);
+        Assert.Equal("leaked **** here", result);
+        AssertNoFragmentOf(key, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_Dispose_FlushesTheRemainderAndDisposesTheInnerWriterByDefault()
+    {
+        using var inner = new StringWriter();
+
+        using (var writer = new RedactingTextWriter(inner, new SecretRedactor()))
+        {
+            writer.Write(BuildNvidiaKey());
+        }
+
+        Assert.Equal(MaskedNvidiaKey, inner.ToString());
+        Assert.Throws<ObjectDisposedException>(() => inner.Write("x"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_LeaveOpen_DoesNotDisposeInner()
+    {
+        using var inner = new StringWriter();
+
+        using (var writer = new RedactingTextWriter(inner, new SecretRedactor(), leaveOpen: true))
+        {
+            writer.Write(BuildNvidiaKey());
+        }
+
+        inner.Write(" tail");
+
+        Assert.Equal(MaskedNvidiaKey + " tail", inner.ToString());
     }
 
     [Fact]

@@ -11,7 +11,6 @@ namespace AgentJoules.Specs.Steps;
 public sealed class ConfigurationSteps : IDisposable
 {
     private const string KeyPlaceholder = "<key>";
-    private const string Mask = "****";
     private const string NvidiaPrefix = "nvapi-";
 
     private SecretRedactor _redactor = new();
@@ -121,15 +120,17 @@ public sealed class ConfigurationSteps : IDisposable
         _writer.Write("\n");
     }
 
-    [Then(@"^both occurrences become the first six characters plus ""\*\*\*\*"" and the suffix is absent$")]
-    public void ThenBothOccurrencesBecomeTheFirstSixCharactersPlusStars()
+    [Then(@"both occurrences become ""([^""]*)"" and no character of the key remains")]
+    public void ThenBothOccurrencesBecomeTheMaskAndNoCharacterOfTheKeyRemains(string mask)
     {
-        string masked = string.Concat(_opaqueKey.AsSpan(0, 6), Mask);
-        string expected = $"request failed for {masked} twice {masked}";
+        string expected = _input.Replace(_opaqueKey, mask, StringComparison.Ordinal);
         Assert.Null(_thrown);
         Assert.Equal(expected, _result);
-        Assert.DoesNotContain(_opaqueKey[6..], _result, StringComparison.Ordinal);
-        Assert.DoesNotContain(_opaqueKey, _result, StringComparison.Ordinal);
+        Assert.Equal(2, CountOccurrences(_result, mask));
+        for (int start = 0; start + 6 <= _opaqueKey.Length; start++)
+        {
+            Assert.DoesNotContain(_opaqueKey.Substring(start, 6), _result, StringComparison.Ordinal);
+        }
     }
 
     [Then(@"the result is ""([^""]*)""")]
@@ -155,8 +156,8 @@ public sealed class ConfigurationSteps : IDisposable
         Assert.Equal(_input, _result);
     }
 
-    [Then(@"the output is ""([^""]*)"" because six characters would reveal the whole value")]
-    public void ThenTheOutputIsBecauseSixCharactersWouldRevealTheWholeValue(string expected)
+    [Then(@"the output is ""([^""]*)"" because every registered value is masked completely")]
+    public void ThenTheOutputIsBecauseEveryRegisteredValueIsMaskedCompletely(string expected)
     {
         Assert.Null(_thrown);
         Assert.Equal(expected, _result);
@@ -176,5 +177,18 @@ public sealed class ConfigurationSteps : IDisposable
         Assert.Equal(expected, _result);
         Assert.Equal(expected, _secondResult);
         Assert.Equal(_result, _redactor.Redact(_result));
+    }
+
+    private static int CountOccurrences(string? text, string value)
+    {
+        int count = 0;
+        int index = 0;
+        while (text is not null && (index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+
+        return count;
     }
 }

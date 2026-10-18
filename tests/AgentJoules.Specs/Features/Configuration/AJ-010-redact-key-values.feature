@@ -1,10 +1,10 @@
 @unit @AJ-S010 @REQ-029
 Feature: Redact key values in any text output
   @positive
-  Scenario: AJ-010 A registered key is masked to six characters plus stars
+  Scenario: AJ-010 A registered key is masked completely
     Given a redactor registered with a runtime-built opaque key
     When I redact "request failed for <key> twice <key>"
-    Then both occurrences become the first six characters plus "****" and the suffix is absent
+    Then both occurrences become "****" and no character of the key remains
   @positive
   Scenario: AJ-010 An unregistered nvapi value is masked by pattern
     Given a redactor with no registered values
@@ -24,7 +24,7 @@ Feature: Redact key values in any text output
   Scenario: AJ-010 A short configured value is fully masked
     Given a redactor registered with the 5-character value "abc12"
     When I redact "token abc12 failed"
-    Then the output is "token **** failed" because six characters would reveal the whole value
+    Then the output is "token **** failed" because every registered value is masked completely
   @negative
   Scenario: AJ-010 Null input yields an empty string
     Given a redactor

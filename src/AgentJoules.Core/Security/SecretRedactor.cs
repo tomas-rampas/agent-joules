@@ -3,13 +3,13 @@ using System.Text.RegularExpressions;
 namespace AgentJoules.Core.Security;
 
 /// <summary>
-/// Masks configured key values and <c>nvapi-</c> keys in any text so that no key entropy reaches a log or a console.
+/// Masks configured key values and <c>nvapi-</c> keys in any text so that no key entropy reaches a log or a console:
+/// every registered value becomes <c>****</c>; <c>nvapi-</c> keys keep only the public prefix.
 /// </summary>
 public sealed partial class SecretRedactor
 {
     private const string Stars = "****";
     private const string MaskedNvidiaKey = "nvapi-****";
-    private const int RevealedCharacters = 6;
 
     private readonly Lock _gate = new();
     private readonly HashSet<string> _registered = new(StringComparer.Ordinal);
@@ -64,7 +64,7 @@ public sealed partial class SecretRedactor
         string result = NvidiaKeyPattern().Replace(text, MaskedNvidiaKey);
         foreach (string value in Volatile.Read(ref _longestFirst))
         {
-            result = result.Replace(value, MaskOf(value), StringComparison.Ordinal);
+            result = result.Replace(value, Stars, StringComparison.Ordinal);
         }
 
         return result;
@@ -75,11 +75,6 @@ public sealed partial class SecretRedactor
         int byLength = right.Length.CompareTo(left.Length);
         return byLength != 0 ? byLength : string.CompareOrdinal(left, right);
     }
-
-    private static string MaskOf(string value) =>
-        value.Length > RevealedCharacters
-            ? string.Concat(value.AsSpan(0, RevealedCharacters), Stars)
-            : Stars;
 
     [GeneratedRegex("nvapi-[A-Za-z0-9_-]{4,}", RegexOptions.CultureInvariant)]
     private static partial Regex NvidiaKeyPattern();
