@@ -49,24 +49,29 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Create the AI Cloud account, card and SSH key pair
+  @positive
   Scenario: AJ-120 the user confirms the funded account
     Given the user has created the AI Cloud account and project and paid the minimum first payment
     When the user confirms in the chat
     Then docs/build-log.md records a dated confirmation line without account details
+  @positive
   Scenario: AJ-120 the key pair stays outside the repository
     Given the user ran "ssh-keygen -t ed25519" and stored the private key outside the repository
     When the builder lists the tracked files
     Then no tracked file name contains "id_ed25519", "id_rsa" or ".pem"
     And "git check-ignore" prints all three ignore patterns
+  @negative
   Scenario: AJ-120 a private key inside the repository is rejected
     Given a file named "id_ed25519" exists in the repository working tree
     When the builder runs the key hygiene check
     Then the check fails and the file is reported without printing its content
+  @negative
   Scenario: AJ-120 no card or payment blocks the tier
     Given the user has not added a card or made the first payment
     When the builder prepares the VM request
     Then the request is not sent
     And the final report lists the cloudgpu tier as blocked on step 10
+  @negative
   Scenario: AJ-120 hackathon credits are assumed to cover AI Cloud
     Given the user expects Token Factory credits to pay for the VM
     When the builder states the cost rules
@@ -101,37 +106,45 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Gate the cloudgpu tier on SSH variables, MIG and the tier flag
+  @positive
   Scenario: AJ-121 both SSH variables set passes the gate
     Given CloudGpu:RequireSshVariables is true and both SSH variables are set to runtime-built fake values
     When I run "run --tier cloudgpu --dry-run"
     Then the SSH variable check passes
+  @positive
   Scenario: AJ-121 the VM does not require the SSH variables
     Given CloudGpu:RequireSshVariables is false and the SSH variables are unset
     When I run "run --tier cloudgpu --dry-run"
     Then the SSH variable check passes
+  @positive
   Scenario: AJ-121 MIG not supported counts as MIG off
     Given the fake NVML returns return code 3 for the MIG mode
     When I run "run --tier cloudgpu --dry-run"
     Then the MIG check passes and the probe reports migMode "not-supported"
+  @positive
   Scenario: AJ-121 an enabled tier is placed second in the all-tier order
     Given Tiers:cloudgpu:Enabled is true
     When I run "run --tier all --dry-run"
     Then the tiers are listed in the order local, cloudgpu, nvidia, nebius
+  @negative
   Scenario: AJ-121 a missing host variable exits 3
     Given CloudGpu:RequireSshVariables is true and CLOUDGPU_SSH_HOST is unset
     When I run "run --tier cloudgpu --dry-run"
     Then the exit code is 3
     And the output names "CLOUDGPU_SSH_HOST"
+  @negative
   Scenario: AJ-121 both SSH variables missing are reported in one message
     Given both SSH variables are unset and RequireSshVariables is true
     When I run "run --tier cloudgpu --dry-run"
     Then the exit code is 3
     And the output names "CLOUDGPU_SSH_HOST" and "CLOUDGPU_SSH_USER" and prints no value
+  @negative
   Scenario: AJ-121 MIG enabled exits 6
     Given the fake NVML reports MIG mode enabled
     When I run "run --tier cloudgpu --dry-run"
     Then the exit code is 6
     And the output names MIG
+  @negative
   Scenario: AJ-121 the committed configuration leaves cloudgpu out of the all-tier run
     Given the committed configuration with Tiers:cloudgpu:Enabled false
     When I run "run --tier all --dry-run"
@@ -168,33 +181,40 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Enforce the 4-hour and USD 25 stop
+  @positive
   Scenario: AJ-122 a run under both limits continues
     Given the observed cost is 12.40 USD and 1 hour has passed since the tier start
     When the guard is checked
     Then the decision is Continue
+  @positive
   Scenario: AJ-122 one second before four hours still continues
     Given the observed cost is 6.00 USD and 3 hours 59 minutes 59 seconds have passed
     When the guard is checked
     Then the decision is Continue
+  @negative
   Scenario: AJ-122 an observed cost of 25 USD stops new work
     Given the observed cost is 25.00 USD
     When the guard is checked before the run
     Then the decision is Stop with reason "cost-cap"
     And "run --tier cloudgpu" exits 6 and starts no workflow call
+  @negative
   Scenario: AJ-122 four hours stop new work
     Given 4 hours have passed since the tier start and the observed cost is 6.00 USD
     When the guard is checked before the next repeat
     Then the decision is Stop with reason "time-box"
+  @negative
   Scenario: AJ-122 a mid-run stop keeps the finished repeats as a partial file
     Given repeats 1 and 2 of task one finished and the time box expires before repeat 3
     When the orchestrator checks the guard
     Then no further repeat starts
     And the run file has run.status "partial" and run.stopReason "time-box"
     And the exit code is 0 and the output tells the user to delete the VM
+  @negative
   Scenario: AJ-122 cost cap wins when both limits hold
     Given the observed cost is 25.50 USD and 4 hours have passed
     When the guard is checked
     Then the stop reason is "cost-cap"
+  @negative
   Scenario: AJ-122 a stop threshold above the cap is rejected
     Given CloudGpu:CostStopUsd is 31
     When I run "run --tier cloudgpu --dry-run"
@@ -231,28 +251,34 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Keep incomplete cloudgpu run files out of reports
+  @positive
   Scenario: AJ-123 a mid-stream connection drop yields one incomplete step
     Given a fake transport that drops the connection during the second agent call
     When I run "run --tier cloudgpu --repeat 1 --task incident-brief"
     Then the second step has outcome "incomplete" and run.status is "incomplete"
     And the exit code is 5
     And the output asks the user to check the VM state in the console
+  @positive
   Scenario: AJ-123 a completed file is unaffected
     Given a completed cloudgpu run file and an older incomplete one
     When the latest file for tier "cloudgpu" is selected
     Then the completed file is returned
+  @negative
   Scenario: AJ-123 no retry follows the drop
     Given a fake transport that drops the connection and ample time and budget remain
     When the run stops
     Then the fake recorded no attempt after the drop
+  @negative
   Scenario: AJ-123 the report renders no row for an incomplete file
     Given a report input whose only cloudgpu file has status "incomplete"
     When the report is rendered
     Then the summary contains "cloudgpu | not run" and no cloudgpu step row
+  @negative
   Scenario: AJ-123 a file left as running is skipped
     Given a copied cloudgpu file with run.status "running"
     When the latest file for tier "cloudgpu" is selected
     Then no file is returned
+  @negative
   Scenario: AJ-123 rate-limit exhaustion is an error and not incomplete
     Given the fake endpoint answers HTTP 429 five times
     When I run "run --tier cloudgpu --repeat 1 --task incident-brief"
@@ -290,37 +316,45 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Use power sampling when the energy counter is unsupported on the VM
+  @positive
   Scenario: AJ-124 a supported counter keeps the counter method
     Given the fake NVML supports the energy counter and the tier is "cloudgpu"
     When I run "run --tier cloudgpu --repeat 1 --task incident-brief"
     Then every reading has method "counter" and no "sampling-fallback" flag
+  @positive
   Scenario: AJ-124 the suffix names the probe and calibration files
     Given the tier is "cloudgpu"
     When I run "probe --json --save --suffix cloudgpu" and "calibrate --seconds 60"
     Then the files match "probe-<yyyyMMddTHHmmssZ>-cloudgpu.json" and "calibration-<yyyyMMddTHHmmssZ>-cloudgpu.json"
+  @positive
   Scenario: AJ-124 an unsupported counter falls back to sampling with the flag
     Given the fake NVML returns NOT_SUPPORTED for the counter and the tier is "cloudgpu"
     When I run "run --tier cloudgpu --repeat 1 --task incident-brief"
     Then every reading has method "sampling" and the flag "sampling-fallback"
     And the console shows the fallback line
+  @positive
   Scenario: AJ-124 the calibration states the counter as N/A with the probe reason
     Given the fake NVML returns NOT_SUPPORTED for the counter
     When I run "calibrate --seconds 60"
     Then counterJoules is null with label "N/A" and a non-empty reason
     And relativeDifference is null with label "N/A"
+  @positive
   Scenario: AJ-124 the report and README fixture disclose sampling
     Given a cloudgpu run file with method "sampling"
     When the report and the README block are rendered
     Then the header contains "Energy method: sampling (counter unsupported)"
     And the cloudgpu README row contains "sampling"
+  @negative
   Scenario: AJ-124 a forced counter method with no counter exits 6
     Given Meter:Method is "counter" and the counter is unsupported
     When I run "run --tier cloudgpu --dry-run"
     Then the exit code is 6
+  @negative
   Scenario: AJ-124 an unsupported counter never yields a zero counter value
     Given the fake NVML returns NOT_SUPPORTED for the counter
     When I run "calibrate --seconds 60"
     Then counterJoules has a null value and the file contains no counterJoules value of 0
+  @negative
   Scenario: AJ-124 a forced sampling method is not labelled as a fallback
     Given Meter:Method is "sampling" and the counter is supported
     When I run "run --tier cloudgpu --repeat 1 --task incident-brief"
@@ -358,37 +392,45 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Create the VM when asked, deliver the CLI and probe the GPU over SSH
+  @positive
   Scenario: AJ-125 the self-contained publish is ready before the VM exists
     Given the local Definition of Done commit exists
     When I run "dotnet publish src/AgentJoules.Cli -c Release -r linux-x64 --self-contained true -o artifacts/linux-x64"
     Then the exit code is 0
     And "git check-ignore artifacts/linux-x64" prints the path
+  @positive
   Scenario: AJ-125 the VM matches the request and the probe is committed
     Given the user created the VM as requested and set CLOUDGPU_SSH_HOST and CLOUDGPU_SSH_USER
     When the builder copies the CLI and runs "./AgentJoules.Cli probe --json --save --suffix cloudgpu" on the VM
     Then the probe file has an L40S gpuName, a gpuUuid, migMode "disabled" or "not-supported" and a boolean energyCounterSupported
     And the file validates against the probe schema definition
+  @positive
   Scenario: AJ-125 a fallback preset is accepted and recorded
     Given the preferred preset is unavailable and the user created preset "1gpu-8vcpu-32gb" on the same platform
     When the builder records the instance
     Then the Instance section names the preset used and why the fallback was needed
+  @negative
   Scenario: AJ-125 a GPU class other than L40S stops the story
     Given nvidia-smi on the VM reports a GPU that is not an L40S
     When the builder checks the instance
     Then the builder stops and asks the user for a new decision
+  @negative
   Scenario: AJ-125 a boot disk below 150 GB stops the story
     Given df on the VM reports a boot disk below 150 GB
     When the builder checks the instance
     Then the builder stops and asks the user to recreate the VM with a larger disk
+  @negative
   Scenario: AJ-125 MIG enabled stops the story
     Given the VM probe reports migMode "enabled"
     When I run "run --tier cloudgpu --dry-run" on the VM
     Then the exit code is 6
     And the builder asks the user to disable MIG or recreate the VM
+  @negative
   Scenario: AJ-125 the SSH variables are missing on the laptop
     Given CLOUDGPU_SSH_HOST is unset on the laptop
     When the builder tries to copy the CLI
     Then no scp command runs and the user is asked to set the variable
+  @negative
   Scenario: AJ-125 Docker is absent from the image
     Given "docker --version" fails on the VM
     When the builder prepares the container runtime
@@ -427,31 +469,38 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Serve Nemotron 3 Nano in FP8 with NIM on the VM
+  @positive
   Scenario: AJ-126 the pull succeeds and the digest is recorded
     Given the NGC login on the VM succeeded through standard input
     When the builder pulls "nvcr.io/nim/nvidia/nemotron-3-nano"
     Then the pull string is confirmed and the digest is recorded as ContainerDigest
+  @positive
   Scenario: AJ-126 the FP8 profile serves and the models call returns the model ID
     Given the NIM profile listing contains a single-GPU FP8 profile
     When the container starts with NIM_MODEL_PROFILE set to it
     Then GET /v1/models from the VM returns a model ID
     And the "## cloudgpu" section of docs/endpoints.md records the ID, the date and the command
+  @negative
   Scenario: AJ-126 the pull path is wrong and the fallback image is used
     Given the pull of "nvcr.io/nim/nvidia/nemotron-3-nano" returns a not-found error
     When the builder uses "nvcr.io/nim/nvidia/model-free-nim"
     Then the Commands section records the error and the substitution
+  @negative
   Scenario: AJ-126 no FP8 profile is listed
     Given the NIM profile listing contains only BF16 profiles
     When the builder reads the listing
     Then the builder stops and reports instead of using BF16
+  @negative
   Scenario: AJ-126 the container runs out of KV-cache memory
     Given the container exits with a memory error at the default context length
     When the builder sets NIM_MAX_MODEL_LEN to a lower value
     Then the value used is recorded and the models call succeeds
+  @negative
   Scenario: AJ-126 the NGC login is rejected
     Given the NGC login returns an authorization error
     When the builder records the result
     Then the error is recorded without any key value
+  @negative
   Scenario: AJ-126 another process holds the GPU during measurement
     Given nvidia-smi lists a compute process other than the NIM process
     When the builder checks exclusivity
@@ -491,39 +540,47 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Run the cloudgpu workload on the VM and copy the results back
+  @positive
   Scenario: AJ-127 the dry-run passes on the VM
     Given the NIM container serves the model and the session environment is set
     When I run "./AgentJoules.Cli run --tier cloudgpu --dry-run" on the VM
     Then the exit code is 0
     And the output is recorded in docs/cloudgpu-run.md
+  @positive
   Scenario: AJ-127 the full run completes with FP8 metadata
     Given the dry-run passed and the guard allows a run
     When I run "./AgentJoules.Cli run --tier cloudgpu --repeat 3" on the VM
     Then the run file has 36 steps, run.repeat 3 and run.status "completed"
     And environment.provider is "nebius-ai-cloud" and environment.precision is "FP8"
+  @positive
   Scenario: AJ-127 the copied files validate on the laptop
     Given the run file was copied back with scp
     When I run "validate results/"
     Then the exit code is 0
     And the output contains "Validated" followed by the number of run files
+  @positive
   Scenario: AJ-127 an SSH drop does not stop the run
     Given the run executes inside a tmux session on the VM
     When the SSH connection breaks and is re-established
     Then the run continues and finishes with status "completed"
+  @negative
   Scenario: AJ-127 a lost VM leaves an excluded incomplete file
     Given the VM becomes unreachable during the run
     When the builder copies what exists and asks the user to check the console
     Then no retry is made past the box or the cap
     And the incident is recorded and the file is not used in any report
+  @negative
   Scenario: AJ-127 the reported cost reaches 25 USD
     Given the user reports 25.00 USD observed on the billing page
     When the builder is about to start the next invocation
     Then no new invocation starts
     And the builder copies the existing results and tells the user to delete the VM
+  @negative
   Scenario: AJ-127 the four-hour mark is reached
     Given 4 hours have passed since the handover
     When the builder is about to start the next invocation
     Then no new invocation starts and the stop reason "time-box" is recorded
+  @negative
   Scenario: AJ-127 the judge key is missing on the VM
     Given the judge key is not set in the VM session
     When I run "./AgentJoules.Cli run --tier cloudgpu --dry-run" on the VM
@@ -562,30 +619,37 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Document the cloudgpu run, the cost and the user's teardown
+  @positive
   Scenario: AJ-128 a complete document passes
     Given a run document with the six headings, a Cost section of "USD 6.12" and a Teardown section containing "deleted"
     When the contract test runs
     Then the result is pass
+  @positive
   Scenario: AJ-128 a cost of exactly 30 USD passes
     Given the Cost section states "USD 30.00"
     When the contract test runs
     Then the result is pass
+  @negative
   Scenario: AJ-128 a missing Teardown heading fails
     Given the document has no "Teardown" heading
     When the contract test runs
     Then the result is fail and the message names "Teardown"
+  @negative
   Scenario: AJ-128 a cost above the cap fails
     Given the Cost section states "USD 31.20"
     When the contract test runs
     Then the result is fail and the message names the 30 USD cap
+  @negative
   Scenario: AJ-128 a pending teardown fails
     Given the Teardown section says "pending user confirmation" and does not contain "deleted"
     When the contract test runs
     Then the result is fail and the message says the teardown is not confirmed
+  @negative
   Scenario: AJ-128 an IP address literal fails
     Given the Commands section contains a dotted IPv4 address
     When the contract test runs
     Then the result is fail without echoing the address
+  @negative
   Scenario: AJ-128 a runtime-built key fails
     Given the document contains a key built at runtime as "nvapi-" plus a random suffix
     When the contract test runs
@@ -621,37 +685,45 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Apply the partial-tier consequences to the report, README and Devpost texts
+  @positive
   Scenario: AJ-129 a completed cloudgpu file keeps candidate A
     Given a committed cloudgpu run file with status "completed" and gpuName containing "L40S"
     When the tagline rule is evaluated
     Then the tagline is candidate A and no change is required
+  @positive
   Scenario: AJ-129 a partial file keeps candidate A and the row says partial
     Given a committed cloudgpu run file with status "partial"
     When the README block is rendered
     Then the cloudgpu row contains "partial"
     And the tagline rule keeps candidate A
+  @positive
   Scenario: AJ-129 a different GPU name replaces the name in candidate A
     Given the committed cloudgpu file names a GPU other than the L40S
     When the tagline rule is evaluated
     Then candidate A uses the file's gpuName
     And docs/build-log.md contains an entry for the change
+  @negative
   Scenario: AJ-129 no usable cloudgpu file selects candidate A-local
     Given no cloudgpu file with status "completed" or "partial" is committed
     When the tagline rule is evaluated
     Then the tagline is candidate A-local
     And the README block renders "cloudgpu | not run"
+  @negative
   Scenario: AJ-129 an incomplete file counts as absent
     Given the only cloudgpu file has status "incomplete"
     When the tagline rule is evaluated
     Then the tier state is absent and candidate A-local is selected
+  @negative
   Scenario: AJ-129 a story sentence changed without a log entry fails
     Given docs/devpost-story.md differs from its pre-drafted sentence and docs/build-log.md has no matching entry
     When the consequence check runs
     Then the check fails and names the sentence
+  @negative
   Scenario: AJ-129 laptop and cloud rows must stay separate
     Given a report fixture with a laptop local file and a cloudgpu file
     When the report is rendered
     Then the summary has separate rows and contains no merged or averaged figure
+  @positive
   Scenario: AJ-129 a sampling-method cloudgpu row names the method
     Given a completed cloudgpu file with method "sampling"
     When the README block is rendered
@@ -696,7 +768,7 @@ Conflict: REQ-028 switches the tagline to A-local when the cloudgpu tier "produc
 
 ## Estimate
 
-Sum of task estimates, computed from the task tables (builder hours exclude the five USER ACTION tasks, 1.6 h in total).
+Sum of task estimates, computed from the task tables: 36.95 h including the five USER ACTION tasks (35.35 h builder-only; user actions total 1.60 h).
 
 | Story | Tasks | Hours |
 |---|---|---|

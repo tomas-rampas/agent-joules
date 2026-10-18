@@ -88,46 +88,57 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-150 Laptop and hosted run evidence
+  @positive
   Scenario: AJ-150 Each tier has a completed run file with at least three repeats
     Given the committed results folder
     When the newest non-baseline file per tier is read
     Then local, nvidia and nebius each have status "completed" and run.repeat 3 or more
+  @positive
   Scenario: AJ-150 The local file carries baseline and runtime evidence
     Given the newest local run file
     When baseline.seconds, modelLoadSeconds, powerSource, localRuntime and gpuOffloadPercent are read
     Then baseline.seconds is 30 or more and the other four fields are present and valid
+  @positive
   Scenario: AJ-150 Validate counts every committed result file
     Given the committed results folder
     When "validate results/" runs
     Then the exit code is 0 and "Validated <n> files" equals the number of .json files
+  @negative
   Scenario: AJ-150 A tier with run.repeat 1 is rejected
     Given a results folder whose newest nvidia file has run.repeat 1
     When the evidence check runs
     Then it fails with "run.repeat 1 is below 3: nvidia"
+  @negative
   Scenario: AJ-150 A missing tier file is rejected
     Given a results folder without a nebius run file
     When the evidence check runs
     Then it fails with "no run file for tier: nebius"
+  @negative
   Scenario: AJ-150 A hosted energy value of 0 is rejected
     Given a nebius fixture whose grossJoules is {value:0,label:"measured"}
     When "validate" runs on the folder
     Then the exit code is 2 and the failure names the hosted step
+  @negative
   Scenario: AJ-150 A baseline of 20 seconds is rejected
     Given a local fixture with baseline.seconds 20
     When the evidence check runs
     Then it fails with "baseline.seconds 20 is below 30"
+  @positive
   Scenario: AJ-150 Replay of the committed nebius file emits one event per step
     Given the newest committed nebius run file
     When "dashboard --replay <file> --speed 50 --exit-after 5" runs in process
     Then the exit code is 0 and the number of events equals the number of steps in the file
+  @negative
   Scenario: AJ-150 Replay of a file that does not exist is rejected
     Given no file at results/absent.json
     When "dashboard --replay results/absent.json" runs
     Then the exit code is not 0 and the message names the file
+  @negative
   Scenario: AJ-150 The build log lacks the no-browser statement and is rejected
     Given a build log without the sentence that the published runs were recorded without a browser open
     When the evidence check runs
     Then it fails with "missing statement: published runs recorded without a browser"
+  @negative
   Scenario: AJ-150 A leftover partial file is rejected
     Given a results folder containing "x.json.partial"
     When the evidence check runs
@@ -135,18 +146,22 @@ Feature: AJ-150 Laptop and hosted run evidence
 
 @integration
 Feature: AJ-150 Probe and dashboard dry run on the laptop
+  @positive
   Scenario: AJ-150 The dashboard dry run prints a loopback URL
     Given the laptop GPU and the local runtime are up
     When "run --tier local --dashboard --dry-run" runs
     Then the exit code is 0 and a line starts with "Dashboard:" and contains "http://127.0.0.1:"
+  @negative
   Scenario: AJ-150 The dashboard dry run without a local runtime fails with a code and prints no key
     Given the local runtime is down
     When "run --tier local --dashboard --dry-run" runs
     Then the exit code is 5 and the output names the endpoint
+  @positive
   Scenario: AJ-150 The committed probe matches the driver now installed
     Given the laptop GPU and nvidia-smi
     When "probe --json" runs
     Then the exit code is 0 and driverVersion equals the driver of the committed probe file
+  @negative
   Scenario: AJ-150 A changed driver version is reported
     Given the committed probe names driver 616.92 and the installed driver is another version
     When the comparison runs
@@ -185,35 +200,43 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-151 cloudgpu evidence
+  @positive
   Scenario: AJ-151 A completed cloudgpu file with FP8 on a named preset is accepted
     Given a results folder with a completed cloudgpu file whose provider is "nebius-ai-cloud" and precision "FP8"
     When the cloudgpu evidence check runs
     Then it passes and records the preset
+  @positive
   Scenario: AJ-151 The run record has six headings and a cost within the cap
     Given the committed docs/cloudgpu-run.md
     When its sections are parsed
     Then it has Instance, Commands, Probe, Runs, Cost and Teardown
     And the Cost section holds a USD value of 30 or less and the Teardown section holds "deleted"
+  @positive
   Scenario: AJ-151 The README results block names cloudgpu
     Given the committed README.md
     When the results block is read
     Then it contains "cloudgpu"
+  @negative
   Scenario: AJ-151 A cost above the cap is rejected
     Given a cloudgpu-run.md whose Cost section states "USD 31.20"
     When the cloudgpu evidence check runs
     Then it fails with "cost 31.20 exceeds 30"
+  @negative
   Scenario: AJ-151 A missing deletion confirmation is rejected
     Given a cloudgpu-run.md whose Teardown section lacks the word "deleted"
     When the cloudgpu evidence check runs
     Then it fails with "teardown not confirmed"
+  @negative
   Scenario: AJ-151 An incomplete cloudgpu file does not count as evidence
     Given a results folder whose only cloudgpu file has run.status "incomplete"
     When the cloudgpu evidence check runs
     Then it fails with "no completed or partial cloudgpu run file"
+  @negative
   Scenario: AJ-151 A probe with MIG enabled is rejected
     Given a cloudgpu probe fixture with migMode "enabled"
     When the cloudgpu evidence check runs
     Then it fails with "MIG enabled: measurement invalid"
+  @negative
   Scenario: AJ-151 A missing run-record heading is rejected
     Given a cloudgpu-run.md without the heading "Teardown"
     When the cloudgpu evidence check runs
@@ -221,10 +244,12 @@ Feature: AJ-151 cloudgpu evidence
 
 @integration
 Feature: AJ-151 cloudgpu record carries no key
+  @positive
   Scenario: AJ-151 The NGC key value is absent from the run record
     Given NGC_API_KEY is set
     When "grep -F" for its value runs over docs/cloudgpu-run.md
     Then the exit code is 1 and no line is printed
+  @negative
   Scenario: AJ-151 A key value in the run record fails the scan
     Given a copy of the run record containing the value of NGC_API_KEY
     When the scan runs
@@ -261,38 +286,47 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-152 Generated outputs match the committed results
+  @positive
   Scenario: AJ-152 Report generation is deterministic
     Given a workspace with the committed results and a README with markers
     When "report --in results/ --out docs/report/ --update-readme --render-content" runs twice
     Then the second run changes no file and "report --verify-readme" exits 0
+  @positive
   Scenario: AJ-152 The report page has no script and links the chart
     Given the generated docs/report/index.html and docs/.nojekyll
     When the page is read
     Then it contains no "<script", contains "joules-per-step.svg" and "GPU-board energy only"
+  @positive
   Scenario: AJ-152 The rendered posts have three variants and no placeholder
     Given the committed content/linkedin-posts.md
     When it is parsed
     Then it has three variants, no "{{results." text, and a Sources line naming existing files
+  @positive
   Scenario: AJ-152 The shot list totals 170 seconds or less
     Given the committed content/demo-script.md
     When the duration column is summed
     Then the sum is 170 or less
+  @negative
   Scenario: AJ-152 A hand-edited README block is rejected
     Given a README whose results block has one number edited
     When "report --verify-readme" runs
     Then the exit code is 7
+  @negative
   Scenario: AJ-152 A script element in the page is rejected
     Given a page fixture containing "<script>"
     When the evidence check runs
     Then it fails with "script element in docs/report/index.html"
+  @negative
   Scenario: AJ-152 A missing nojekyll file is rejected
     Given a workspace without docs/.nojekyll
     When the evidence check runs
     Then it fails with "missing docs/.nojekyll"
+  @negative
   Scenario: AJ-152 A shot list above 170 seconds is rejected
     Given a script whose durations sum to 171
     When the evidence check runs
     Then it fails with "shot list totals 171 s, limit 170 s"
+  @negative
   Scenario: AJ-152 A post with an unresolved placeholder is rejected
     Given rendered posts containing "{{results.local.totals.netJoules.value}}"
     When the evidence check runs
@@ -329,38 +363,47 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-153 Documentation and Devpost file evidence
+  @positive
   Scenario: AJ-153 Each reference document carries a verification date
     Given the four committed documents
     When the "Verified:" lines are read
     Then each document has a date of 2026-10-17 or later
+  @positive
   Scenario: AJ-153 The checklist has the Demo URL line and the four headings
     Given the committed docs/devpost-checklist.md
     When it is parsed
     Then it has one "Demo URL:" line and the headings Registration, Tracks, Judging criteria, Credits
+  @positive
   Scenario: AJ-153 The story has no placeholder and no checklist section
     Given the committed docs/devpost-story.md
     When placeholders and headings are counted
     Then "[[FILL:" occurs 0 times and no heading contains "Fill-after-build"
+  @positive
   Scenario: AJ-153 The feedback file has seven user placeholders listed in the checklist
     Given the committed feedback file and checklist
     When the owner markers and the checklist heading are read
     Then "owner: builder" occurs 0 times, "owner: user" occurs 7 times and the checklist lists seven bullets
+  @negative
   Scenario: AJ-153 A document without a verification date is rejected
     Given a copy of docs/methodology.md without a "Verified:" line
     When the documentation check runs
     Then it fails with "no verification date: docs/methodology.md"
+  @negative
   Scenario: AJ-153 A not-verified checklist leaves box 9 unchecked
     Given a checklist whose line reads "Verified: not verified (checked 2026-10-29, HTTP 403)"
     When the documentation check runs
     Then box 9 is reported unchecked with the reason "rules page not verified"
+  @negative
   Scenario: AJ-153 A leftover story placeholder is rejected
     Given a copy of the story with one "[[FILL:" left
     When the documentation check runs
     Then it fails with "leftover placeholder in docs/devpost-story.md"
+  @negative
   Scenario: AJ-153 A leftover builder placeholder in the feedback file is rejected
     Given a copy of the feedback file with one "owner: builder" placeholder
     When the documentation check runs
     Then it fails with "builder placeholder left in docs/devpost-feedback.md"
+  @negative
   Scenario: AJ-153 A checklist without the Feedback heading is rejected
     Given a copy of the checklist without "Feedback form, user fills"
     When the documentation check runs
@@ -397,34 +440,42 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-154 Spec conformance evidence
+  @positive
   Scenario: AJ-154 The acceptance matrix has a row for every requirement and edge case
     Given the committed docs/build-log.md
     When the Acceptance matrix is parsed
     Then it has 51 rows with no empty status
+  @positive
   Scenario: AJ-154 The Spec filter table covers the 36 unit-test IDs
     Given the committed docs/build-log.md
     When the Spec filter results table is parsed
     Then it has 36 rows each with passed 1 or more and failed 0
+  @positive
   Scenario: AJ-154 No out-of-scope package is referenced
     Given the committed Directory.Packages.props
     When it is searched for alpha, preview, charting and Semantic Kernel packages
     Then nothing is found
+  @negative
   Scenario: AJ-154 A matrix with a missing row is rejected
     Given a build log whose Acceptance matrix lacks EDGE-014
     When the matrix check runs
     Then it fails with "missing row: EDGE-014"
+  @negative
   Scenario: AJ-154 A Spec filter row with a failed test is rejected
     Given a filter table row "REQ-009 | passed 3 | failed 1"
     When the matrix check runs
     Then it fails with "REQ-009 has failed tests"
+  @negative
   Scenario: AJ-154 An alpha package is rejected
     Given a Directory.Packages.props that references Microsoft.Agents.AI.AgentHooks
     When the scope check runs
     Then it fails with "out-of-scope package: Microsoft.Agents.AI.AgentHooks"
+  @negative
   Scenario: AJ-154 A stretch commit before all boxes are ticked is rejected
     Given a git history with a commit "STRETCH: energy budget" and one unchecked box
     When the scope check runs
     Then it fails with "stretch started before the Definition of Done was complete"
+  @negative
   Scenario: AJ-154 An UNMET row without a reason is rejected
     Given a matrix row "REQ-031 | ... | UNMET" with an empty reason
     When the matrix check runs
@@ -463,39 +514,48 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-155 Final hardening
+  @positive
   Scenario: AJ-155 A clean build output is accepted
     Given a captured build output containing "0 Warning(s)" and "0 Error(s)" and exit code 0
     When the hardening check runs
     Then box 4 passes
+  @positive
   Scenario: AJ-155 The test summary line is recorded with the three counts
     Given a captured test run with 412 passed, 0 failed and 9 skipped
     When the hardening check formats the summary
     Then the line reads "dotnet test: passed=412 failed=0 skipped=9 exit=0"
+  @positive
   Scenario: AJ-155 The CI workflow has both runners and no secrets
     Given the committed .github/workflows/ci.yml
     When it is searched
     Then it contains windows-latest, ubuntu-latest, the build, format and test commands and a probe step
     And it contains no "secrets."
+  @positive
   Scenario: AJ-155 The secret scan fallback records its name and exit codes
     Given gitleaks is not installed
     When the scan step runs
     Then the build log records "git grep fallback" with the exit codes of the four commands
+  @negative
   Scenario: AJ-155 A build with a warning is rejected
     Given a captured build output containing "1 Warning(s)"
     When the hardening check runs
     Then it fails with "build has warnings"
+  @negative
   Scenario: AJ-155 A test run with a failure is rejected
     Given a captured test run with 1 failed
     When the hardening check runs
     Then it fails with "tests failed: 1"
+  @negative
   Scenario: AJ-155 A format difference is rejected
     Given a captured "dotnet format --verify-no-changes" exit code 2
     When the hardening check runs
     Then it fails with "format check failed"
+  @negative
   Scenario: AJ-155 A key-shaped string in a tracked file is rejected
     Given a tracked fixture file containing a runtime-built "nvapi-" plus 16 characters value
     When the secret scan runs
     Then it fails with "key-shaped string in tracked file"
+  @negative
   Scenario: AJ-155 A workflow that references a secret is rejected
     Given a workflow fixture containing "secrets.NVIDIA_API_KEY"
     When the CI check runs
@@ -503,10 +563,12 @@ Feature: AJ-155 Final hardening
 
 @integration
 Feature: AJ-155 Key scan with the real keys
+  @positive
   Scenario: AJ-155 No tracked line contains a key value
     Given NVIDIA_API_KEY, NEBIUS_API_KEY and NGC_API_KEY are set
     When "git grep -nF" runs for each value
     Then each exits 1 and prints no line
+  @negative
   Scenario: AJ-155 A key value found in the tree fails the scan
     Given a temporary tracked file containing the NGC_API_KEY value
     When "git grep -nF" runs for it
@@ -546,30 +608,37 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-156 Git history and push boundary
+  @positive
   Scenario: AJ-156 Every build commit starts with a requirement ID
     Given a temporary repository whose commits are "REQ-001: scaffold" and "EDGE-006: retry on 429"
     When the history check runs
     Then it passes
+  @positive
   Scenario: AJ-156 Nothing is pushed when origin main equals the recorded base
     Given a temporary repository with origin/main at the recorded base and three local commits
     When the push-boundary check runs
     Then it reports 3 commits ahead and passes
+  @positive
   Scenario: AJ-156 The checklist holds the git push command
     Given the committed docs/devpost-checklist.md
     When it is searched for "git push"
     Then at least one fenced block contains it
+  @negative
   Scenario: AJ-156 A commit without a requirement ID is rejected
     Given a temporary repository with a commit "tidy readme"
     When the history check runs
     Then it fails with "commit without REQ or EDGE ID: tidy readme"
+  @negative
   Scenario: AJ-156 A pushed history is rejected
     Given a temporary repository where origin/main equals HEAD
     When the push-boundary check runs
     Then it fails with "origin/main moved: the builder pushed"
+  @negative
   Scenario: AJ-156 An uncommitted change blocks the review gates
     Given a temporary repository with a modified tracked file
     When the gate precondition check runs
     Then it fails with "uncommitted changes"
+  @negative
   Scenario: AJ-156 A checklist without the push command is rejected
     Given a copy of the checklist without "git push"
     When the push-boundary check runs
@@ -577,10 +646,12 @@ Feature: AJ-156 Git history and push boundary
 
 @integration
 Feature: AJ-156 Remote state
+  @positive
   Scenario: AJ-156 The remote main still points at the recorded base
     Given network access and the recorded base hash
     When "git ls-remote origin main" runs
     Then it prints the recorded hash
+  @negative
   Scenario: AJ-156 A moved remote main is reported
     Given the remote main differs from the recorded base
     When the check runs
@@ -620,34 +691,42 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-157 Release package
+  @positive
   Scenario: AJ-157 The release notes have the required headings and the scope sentence
     Given the committed docs/release-notes-v0.1.0.md
     When it is parsed
     Then it has the eight headings and the sentence "Energy is GPU-board energy only."
+  @positive
   Scenario: AJ-157 The three zip assets have the expected contents
     Given the built artifacts folder
     When the zip listings are read
     Then the fdd zip lists AgentJoules.Cli.dll, the results zip counts every results json and the report zip lists index.html
+  @positive
   Scenario: AJ-157 The checklist release command matches the files on disk
     Given the committed checklist and the artifacts folder
     When the paths in the "gh release create" block are checked
     Then every path exists and the notes path equals docs/release-notes-v0.1.0.md
+  @negative
   Scenario: AJ-157 A key-shaped string inside a zip is rejected
     Given a results zip fixture containing a runtime-built "nvapi-" plus 16 characters value
     When the package check runs
     Then it fails with "key material in agent-joules-v0.1.0-results.zip"
+  @negative
   Scenario: AJ-157 A tracked artifacts folder is rejected
     Given a repository where "artifacts/agent-joules-v0.1.0-fdd.zip" is tracked
     When the package check runs
     Then it fails with "artifacts must not be tracked"
+  @negative
   Scenario: AJ-157 A number in the notes without a source is rejected
     Given release notes containing "the local run used 310 J"
     When the package check runs
     Then it fails with "number without source: 310 J"
+  @negative
   Scenario: AJ-157 A missing asset named in the command is rejected
     Given a checklist command naming "artifacts/agent-joules-v0.1.0-report.zip" that does not exist
     When the package check runs
     Then it fails with "asset not found: artifacts/agent-joules-v0.1.0-report.zip"
+  @negative
   Scenario: AJ-157 Release notes that claim a missing tier ran are rejected
     Given release notes mentioning cloudgpu figures and no cloudgpu run file
     When the package check runs
@@ -686,39 +765,48 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-158 Submission order and cut-off plan
+  @positive
   Scenario: AJ-158 The submission order has 12 user actions in the form order
     Given the committed docs/devpost-checklist.md
     When the Submission order section is parsed
     Then it has 12 numbered items each ending with "(user)" in the specified order
+  @positive
   Scenario: AJ-158 The timeline offsets are correct
     Given the Timeline section
     When each UTC and PDT pair is compared
     Then PDT equals UTC minus 7 hours for every pair and the last target is at least 3 hours before 17:00 UTC
+  @positive
   Scenario: AJ-158 The cut-off plan has a row for every missing item
     Given the Cut-off plan table
     When its rows are read
     Then rows exist for cloudgpu, local, nvidia, nebius, judge, Pages, video and feedback
     And each row names files, a regeneration command, a fallback story and unchecked boxes
+  @positive
   Scenario: AJ-158 Regenerating without a cloudgpu file yields the not-run row
     Given a fixture workspace with run files for local, nvidia and nebius
     When the commands of the cloudgpu row are run
     Then the README block and summary contain "cloudgpu | not run" and "report --verify-readme" exits 0
+  @negative
   Scenario: AJ-158 A timeline pair with a wrong offset is rejected
     Given a Timeline line "17:00 UTC (09:00 PDT)"
     When the checklist check runs
     Then it fails with "offset must be 7 hours: 17:00 UTC (09:00 PDT)"
+  @negative
   Scenario: AJ-158 A submission step without a user marker is rejected
     Given a Submission order item without "(user)"
     When the checklist check runs
     Then it fails with "step not marked as user action: 11"
+  @negative
   Scenario: AJ-158 A cut-off row without a regeneration command is rejected
     Given the cloudgpu row with the command column empty
     When the checklist check runs
     Then it fails with "no regeneration command: cloudgpu"
+  @negative
   Scenario: AJ-158 A missing deadline string is rejected
     Given a checklist without "2026-10-30 10:00 PDT (17:00 UTC)"
     When the checklist check runs
     Then it fails with "missing deadline"
+  @negative
   Scenario: AJ-158 A claim that the builder submitted is rejected
     Given a checklist sentence "the builder submitted the project"
     When the checklist check runs
@@ -751,43 +839,52 @@ Acceptance criteria:
 3. A `Never dropped` list names the minimum submission: a `nebius` run file (or cloudgpu if nebius is BLOCKED by the user decision), the `local` run file, schema validation, the build, format and test commands, the secret scan, the README results block, the checklist with the push command, the story, the feedback draft, the demo script, `peer-review-critic` approval, and the user's video and submission.
 4. A `Buffer` table lists the freeze times of AJ-158 `Timeline` and the unallocated hours: the reserve is 3 hours before the 17:00 UTC deadline and 2 hours inside the M7 window (assumed planning values); every trigger time lies before 2026-10-30 17:00 UTC.
 5. The risk register of this milestone (`## Risks` table, ids RK-1 to RK-8) is cross-linked: each drop item names the risk that triggers it.
-6. The M6 and M7 task estimates are compared with the capacity in the same section (M6: 49.0 h versus about 18 h; M7: see `## Estimate`), with the statement that the gap is closed by the drop order, by front-loading M6 work and by the fact that most M7 tasks are commands that run in minutes (the hours are planning figures, not measurements).
+6. The M6 and M7 task estimates are compared with the capacity in the same section (M6: 54.75 h versus about 18 h; M7: see `## Estimate`), with the statement that the gap is closed by the drop order, by front-loading M6 work and by the fact that most M7 tasks are commands that run in minutes (the hours are planning figures, not measurements).
 BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-159 Drop order and buffer
+  @positive
   Scenario: AJ-159 The drop order is monotonic in damage
     Given the committed docs/build-log.md
     When the Drop order list is parsed
     Then items 1 to 7 have "boxes unticked" none and item 8 names boxes 21, 22 and 23
+  @positive
   Scenario: AJ-159 Every trigger time is before the deadline
     Given the Drop order and Buffer sections
     When each trigger time is read
     Then every time is before 2026-10-30 17:00 UTC
+  @positive
   Scenario: AJ-159 The never-dropped list names the minimum submission
     Given the committed build log
     When the Never dropped list is read
     Then it names the nebius run file, the local run file, the secret scan, the README block, the checklist with the push command, the story, the script and the user's video and submission
+  @positive
   Scenario: AJ-159 The buffer reserves three hours before the deadline
     Given the Buffer table
     When the last target and the deadline are compared
     Then the gap is 3 hours or more
+  @negative
   Scenario: AJ-159 A damaging item placed before a harmless one is rejected
     Given a drop list where the cloudgpu tier is item 3 and the article is item 8
     When the order check runs
     Then it fails with "item 3 unticks boxes before harmless items"
+  @negative
   Scenario: AJ-159 An item without a trigger time is rejected
     Given a drop item with an empty trigger
     When the order check runs
     Then it fails with "no trigger: item 4"
+  @negative
   Scenario: AJ-159 A trigger after the deadline is rejected
     Given a drop item with trigger "2026-10-30 18:00 UTC"
     When the order check runs
     Then it fails with "trigger after deadline: item 5"
+  @negative
   Scenario: AJ-159 A never-dropped item that appears in the drop list is rejected
     Given a drop list that contains the secret scan
     When the order check runs
     Then it fails with "never-dropped item in drop list: secret scan"
+  @negative
   Scenario: AJ-159 A buffer under three hours is rejected
     Given a Buffer table whose last target is 15:00 UTC
     When the order check runs

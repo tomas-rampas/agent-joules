@@ -7,6 +7,7 @@ Goal: turn the committed results files into the public face of Agent Joules. The
 Dates: 2026-10-27 to 2026-10-29 (three working days, about 18 working hours at six hours per day). Deadline for the whole project: 2026-10-30 10:00 PDT (17:00 UTC).
 
 Exit criteria:
+- [ ] `AJ report --help` exits 0 and lists `--update-readme`, `--verify-readme` and `--render-content` (AJ-144).
 - [ ] `AJ report --verify-readme` exits 0 and `grep -c "<!-- results:begin -->" README.md` prints 1.
 - [ ] `grep -c "Filled during the build" README.md` prints 0 and `grep -c '^```mermaid$' README.md` prints 1.
 - [ ] `grep -c "{{results\." content/linkedin-posts.md` prints 0 and every file named on the `Sources:` line of `content/linkedin-posts.md` exists.
@@ -20,7 +21,7 @@ Exit criteria:
 
 ## Coverage
 
-REQ-025, REQ-026, REQ-027, REQ-028.
+REQ-025, REQ-026, REQ-027, REQ-028, and REQ-016 only where its `report` flags and the content renderer live (AJ-144; the rest of REQ-016 is M3).
 
 ## Dependencies and user actions
 
@@ -28,7 +29,8 @@ Needs from earlier milestones:
 
 | Needs | From | Used by |
 |---|---|---|
-| `report --update-readme`, `--verify-readme`, `--render-content`, `index.html`, `.nojekyll` | M3 | AJ-133, AJ-134, AJ-135 |
+| Summary, SVG and HTML renderers, `ReadmeResultsBlock.Render` (AJ-087), `index.html`, `.nojekyll` | M3 | AJ-144, AJ-133, AJ-135 |
+| The three `report` flags and `ContentTemplateRenderer` | AJ-144 (this milestone) | AJ-133, AJ-134, AJ-135 |
 | `docs/endpoints.md`, `docs/methodology.md`, `docs/nim-local-attempt.md`, local run, probe and calibration files | M2, M4 | AJ-132, AJ-137, AJ-140 |
 | `results/*-nvidia.json`, `results/*-nebius.json` | M2, M3 | AJ-133, AJ-134, AJ-140 |
 | `results/*-cloudgpu.json`, `results/probe-*-cloudgpu.json`, `docs/cloudgpu-run.md` (may be absent; every story has the fallback) | M5 | AJ-132, AJ-135, AJ-140, AJ-141 |
@@ -63,33 +65,40 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-130 README pitch and architecture diagram
+  @positive
   Scenario: AJ-130 README carries a valid Mermaid architecture block
     Given the committed README.md
     When the Mermaid block is extracted
     Then exactly one block exists and its first line is "flowchart LR"
     And it names agents, metered clients, providers, the NVML meter, the sink, results, the report and OpenTelemetry
+  @positive
   Scenario: AJ-130 README pitch equals the tagline in the pitch file
     Given the committed README.md and docs/devpost-pitch.md and a completed cloudgpu run file
     When line 3 of the README is compared with the Tagline section
     Then both read "Agent Joules: energy per agent step, measured on your GPUs"
     And the text is 58 characters
+  @positive
   Scenario: AJ-130 README uses the singular tagline when the cloudgpu tier did not run
     Given the committed README.md and no completed or partial cloudgpu run file
     When line 3 of the README is checked
     Then it reads "Agent Joules: energy per agent step, measured on your GPU"
     And the change is logged in docs/build-log.md
+  @negative
   Scenario: AJ-130 README without a Mermaid fence is rejected
     Given a copy of the README with the mermaid fence line removed
     When the README structure check runs
     Then it fails with "missing mermaid block"
+  @negative
   Scenario: AJ-130 README with a missing node in the diagram is rejected
     Given a copy of the README whose diagram has no OpenTelemetry node
     When the README structure check runs
     Then it fails with "diagram lacks: OpenTelemetry"
+  @negative
   Scenario: AJ-130 README with a missing Architecture heading is rejected
     Given a copy of the README without the heading "## Architecture"
     When the README structure check runs
     Then it fails with "missing heading: Architecture"
+  @negative
   Scenario: AJ-130 README with the old status text is rejected
     Given a copy of the README that still says "Filled during the build" under Architecture
     When the README structure check runs
@@ -126,32 +135,39 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-131 README quick start, CLI reference and reproduce steps
+  @positive
   Scenario: AJ-131 Judges without a GPU needs no key and no GPU
     Given the committed README.md
     When the section "Judges without a GPU" is extracted
     Then it contains "dotnet test", "validate results/" and "docs/report/index.html"
     And it contains no "_API_KEY" text
+  @positive
   Scenario: AJ-131 Every documented option exists in the CLI help
     Given the CLI reference table of the README
     When "run --help" is executed in process
     Then the exit code is 0
     And the help text contains each option named for run: --tier --task --mode --out --baseline-seconds --repeat --dry-run
+  @positive
   Scenario: AJ-131 Exit-code table is complete
     Given the committed README.md
     When the exit-code table is parsed
     Then it has the codes 0 1 2 3 4 5 6 7 each once
+  @negative
   Scenario: AJ-131 README that documents a nonexistent option is rejected
     Given a copy of the README whose run options include "--fast"
     When the option check runs against "run --help"
     Then it fails with "option not in help: --fast"
+  @negative
   Scenario: AJ-131 README with a key value is rejected
     Given a copy of the README containing a runtime-built "nvapi-" plus 16 characters value
     When the secret check runs on the file
     Then it fails with "key material in README.md"
+  @negative
   Scenario: AJ-131 README missing the Judges without a GPU heading is rejected
     Given a copy of the README without that heading
     When the README structure check runs
     Then it fails with "missing heading: Judges without a GPU"
+  @negative
   Scenario: AJ-131 Judges section that asks for a key is rejected
     Given a copy of the README whose Judges without a GPU section mentions NVIDIA_API_KEY
     When the README structure check runs
@@ -159,10 +175,12 @@ Feature: AJ-131 README quick start, CLI reference and reproduce steps
 
 @integration
 Feature: AJ-131 Prior-art citations resolve
+  @positive
   Scenario: AJ-131 Each prior-art link answers
     Given the links in the Prior art section
     When each link is requested
     Then each answers HTTP 200 and the check date is written to docs/build-log.md
+  @negative
   Scenario: AJ-131 A dead prior-art link is reported
     Given a link in the Prior art section that answers HTTP 404
     When the link check runs
@@ -200,31 +218,38 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-132 README sections required by the Devpost form
+  @positive
   Scenario: AJ-132 Required headings and sentences are present
     Given the committed README.md and the latest local results file
     When the Devpost sections are extracted
     Then the four required headings occur once each
     And the sentence "Local numbers were produced with" names the runtime and tag of the results file
+  @positive
   Scenario: AJ-132 Model IDs in the README exist in the endpoints file
     Given every model ID named in README.md
     When they are compared with the "- model:" lines of docs/endpoints.md
     Then each ID is listed and "validate --config" exits 0
+  @positive
   Scenario: AJ-132 Cloud section without a cloudgpu run uses the fixed sentence
     Given a workspace with no completed cloudgpu run file
     When the README "Other Nebius tools or services used" section is checked
     Then it reads "None besides Token Factory." and the README labels the cloudgpu tier "not run"
+  @negative
   Scenario: AJ-132 Missing required heading is rejected
     Given a copy of the README without "Where Nebius Token Factory accelerated the workflow"
     When the README structure check runs
     Then it fails with "missing heading: Where Nebius Token Factory accelerated the workflow"
+  @negative
   Scenario: AJ-132 Model ID absent from the endpoints file is rejected
     Given a copy of the README naming the model ID "nemotron-invented"
     When the model-ID check runs
     Then it fails with "model id not in docs/endpoints.md: nemotron-invented"
+  @negative
   Scenario: AJ-132 Cloud cost without a source file is rejected
     Given a copy of the README stating an observed cost with no "docs/cloudgpu-run.md" reference
     When the source-line check runs
     Then it fails with "number without source: observed cost"
+  @negative
   Scenario: AJ-132 Leftover placeholder text is rejected
     Given a copy of the README that still contains "Filled during the build"
     When the README structure check runs
@@ -247,6 +272,91 @@ Definition of done:
 - [ ] the README sentences about the cloudgpu tier match the tier outcome (completed, partial or not run) stated in `docs/cloudgpu-run.md`
 Demo relevance: yes: shot 7 shows the `Other Nebius tools or services used` section (or the not-run fallback).
 
+### AJ-144: Build the `report` flags `--update-readme`, `--verify-readme`, `--render-content` and the content template renderer
+Covers: REQ-025, REQ-026, REQ-016
+User story: As the author of the README and the LinkedIn posts, I want `AJ report` to update and verify the README results block and to render the post template from the latest results files, so that no number in either file is typed by hand and a manual edit is detected.
+Acceptance criteria:
+1. `AJ report --help` exits 0 and lists `--in`, `--out`, `--update-readme`, `--verify-readme`, `--render-content` and `--config` (design section 3.6); `AJ report --in results/ --out docs/report/` without the new flags keeps its previous behaviour and exits 0.
+2. `AJ report --update-readme` replaces only the text between `<!-- results:begin -->` and `<!-- results:end -->` with `ReadmeResultsBlock.Render(latestPerTier)` (the render function of AJ-087) and writes LF line endings; a second run leaves `git diff --exit-code README.md` at exit 0 once the first result is committed.
+3. `AJ report --verify-readme` exits 0 when the marked block equals the generated block and exits 7 after any manual edit inside the markers; the comparison normalizes CRLF to LF on both sides, so a CRLF checkout of the same block verifies with exit 0 (design review M-02). A missing marker line exits 2 and names the marker.
+4. `AJ report --render-content` reads `content/linkedin-posts.template.md`, resolves every `{{results.<tier>.<dot.path>}}` against the latest completed or partial run file of that tier (arrays as `[index]`, label objects addressed as `.value`, optional `|F0` or `|F1` invariant format) and writes `content/linkedin-posts.md`; `{{repo.url}}` is left unresolved; the first line is `Sources:` followed by the names of the run files used.
+5. A value that is null (label `N/A` or `not-reported`) renders as its label text, never as `0`, `null` or an empty string (REQ-026 as amended 2026-10-18).
+6. A placeholder path missing from the results file, or a tier with no completed or partial run file, exits 2 and names the placeholder or the tier; a rendered variant above 1 300 characters exits 2 and names the variant and its length; variants are split on the `## Variant:` headings.
+7. The three flags are implemented in `src/AgentJoules.Cli/Commands/ReportCommand.cs` and the renderer in `src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs`; the unit tests run in `ReadmeBlockTests` and `ContentRenderingTests` with no GPU, no network and no key.
+BDD scenarios:
+```gherkin
+@unit
+Feature: AJ-144 report flags and the content template renderer
+  @positive
+  Scenario: AJ-144 Update then verify exits 0 and a second update changes nothing
+    Given a workspace with latest results files for local, nvidia and nebius and a README with markers
+    When "report --update-readme" runs twice and then "report --verify-readme" runs
+    Then the second update changes no byte and verify exits 0
+  @positive
+  Scenario: AJ-144 Verify accepts a CRLF checkout of the same block
+    Given an updated README converted to CRLF line endings
+    When "report --verify-readme" runs
+    Then the exit code is 0
+  @positive
+  Scenario: AJ-144 Render writes the variants with a Sources line first
+    Given a workspace with the template and latest results files for local and nvidia
+    When "report --render-content" runs
+    Then the first line of content/linkedin-posts.md starts with "Sources:" and names both run files
+    And "{{results." occurs 0 times and "{{repo.url}}" occurs once per variant
+  @positive
+  Scenario: AJ-144 An indexed path with the value suffix and a format resolves
+    Given a placeholder "{{results.local.steps[0].netJoules.value|F1}}" and a run file whose first step has net joules 12.34 labelled measured
+    When the placeholder is rendered
+    Then the output reads "12.3"
+  @positive
+  Scenario: AJ-144 A null label value renders as its label text
+    Given a placeholder for the nvidia gross joules whose value is null with label "N/A"
+    When the placeholder is rendered
+    Then the output reads "N/A" and never "0", "null" or an empty string
+  @negative
+  Scenario: AJ-144 A manual edit inside the markers exits 7
+    Given an updated README whose results block has one number edited by hand
+    When "report --verify-readme" runs
+    Then the exit code is 7
+  @negative
+  Scenario: AJ-144 A README without the begin marker exits 2
+    Given a README without the line "<!-- results:begin -->"
+    When "report --update-readme" runs
+    Then the exit code is 2 and the message names the marker
+  @negative
+  Scenario: AJ-144 A placeholder path missing from the results file exits 2
+    Given a template placeholder "{{results.local.totals.joulesPerToken.value}}" that the file lacks
+    When "report --render-content" runs
+    Then the exit code is 2 and the message names the placeholder
+  @negative
+  Scenario: AJ-144 A tier with no completed or partial run file exits 2
+    Given a template placeholder for cloudgpu and no completed or partial cloudgpu run file
+    When "report --render-content" runs
+    Then the exit code is 2 and the message names the tier "cloudgpu"
+  @negative
+  Scenario: AJ-144 A variant over 1300 characters exits 2
+    Given a template variant whose rendered text is 1301 characters
+    When "report --render-content" runs
+    Then the exit code is 2 and the message names the variant and its length
+```
+Tasks:
+| Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
+|---|---|---|---|---|
+| AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature | 0.5 | AJ-130-T2 |
+| AJ-144-T2 | Write the failing unit cases for block update, verify (exit 7), placeholder resolution and variant length | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.75 | AJ-144-T1 |
+| AJ-144-T3 | Add `Update` and `Verify` with LF normalization to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
+| AJ-144-T4 | Implement `ContentTemplateRenderer` (placeholders, `[index]`, `.value`, formats, null as label text, Sources line, variant split and length check) | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 2.0 | AJ-144-T2 |
+| AJ-144-T5 | Wire `--update-readme`, `--verify-readme` and `--render-content` into the report command with the exit codes 0, 2 and 7 | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-144-T3, AJ-144-T4 |
+| AJ-144-T6 | Add the exit-code 7 case to the CLI harness tests and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
+| AJ-144-T7 | Record the flags and their exit codes in the build log | docs/build-log.md | 0.25 | AJ-144-T6 |
+Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature
+Docs impact: docs/build-log.md; README.md CLI reference (option names, written in AJ-131)
+Definition of done:
+- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [ ] docs listed above updated
+- [ ] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0
+Demo relevance: yes: demo steps 7 and 8 run these flags.
+
 ### AJ-133: Generate and verify the README results block
 Covers: REQ-025
 User story: As a reader, I want a results table that the tool generated from the latest results files, so that no number in it was typed by hand and I can regenerate it.
@@ -261,27 +371,33 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-133 README results block
+  @positive
   Scenario: AJ-133 Update then verify succeeds and is idempotent
     Given a workspace with latest results files for local, nvidia and nebius and a README with markers
     When "report --update-readme" runs twice and then "report --verify-readme" runs
     Then the second update changes nothing and verify exits 0
+  @positive
   Scenario: AJ-133 Block shows one row per tier with cloudgpu not run
     Given a workspace without a cloudgpu run file
     When "report --update-readme" runs
     Then the block has rows for local, nvidia and nebius and the row "cloudgpu | not run"
     And hosted rows show "N/A" for energy and never "0"
+  @negative
   Scenario: AJ-133 Manual edit inside the markers is detected
     Given an updated README whose results block has one number edited by hand
     When "report --verify-readme" runs
     Then the exit code is 7
+  @negative
   Scenario: AJ-133 Missing markers are reported
     Given a README without the line "<!-- results:begin -->"
     When "report --update-readme" runs
     Then the exit code is 2 and the message names the missing marker
+  @positive
   Scenario: AJ-133 Block with a partial cloudgpu run says partial
     Given a latest cloudgpu file with run.status "partial" and stopReason "cost-cap"
     When "report --update-readme" runs
     Then the cloudgpu row contains "partial"
+  @negative
   Scenario: AJ-133 A hosted row with a zero energy value is rejected
     Given a fixture where a hosted step has energy value 0 and label "measured"
     When the results are validated
@@ -290,8 +406,8 @@ Feature: AJ-133 README results block
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature | 0.5 | AJ-130-T2 |
-| AJ-133-T2 | Add the missing-marker and partial-row cases if M3 left them out | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-133-T1 |
+| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature | 0.5 | AJ-130-T2, AJ-144-T6 |
+| AJ-133-T2 | Add the partial-row and not-run-row cases that AJ-144 does not cover | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-133-T1 |
 | AJ-133-T3 | Run `AJ report --in results/ --out docs/report/ --update-readme` on the final results and inspect the block | README.md, docs/report/summary.md, docs/report/joules-per-step.svg, docs/report/index.html | 0.5 | AJ-133-T2 |
 | AJ-133-T4 | Run verify, edit one number, confirm exit 7, restore, confirm exit 0, record the exit codes | docs/build-log.md | 0.25 | AJ-133-T3 |
 Test mapping: ReadmeBlockTests; tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature
@@ -318,53 +434,61 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-134 LinkedIn post drafts
+  @positive
   Scenario: AJ-134 Three variants render within the length limit
     Given a workspace with latest results files for local, nvidia and nebius and the committed template
     When "report --render-content" runs
     Then the exit code is 0
     And the output has three variants of 1300 characters or fewer
     And the first line starts with "Sources:" and names run files that exist
+  @positive
   Scenario: AJ-134 Every number is a labelled placeholder
     Given the committed template
     When hand-typed quantities are searched outside placeholders
     Then none are found
     And each metric placeholder is followed by a unit and one of measured, estimated, model-judged
+  @positive
   Scenario: AJ-134 A null hosted energy value renders as N/A
     Given a results fixture where the nvidia energy metric has value null and label "N/A"
     When a placeholder for that metric is rendered
     Then the output reads "N/A" and never "0", "null" or an empty string
+  @negative
   Scenario: AJ-134 A placeholder path missing from the results file fails the render
     Given a template placeholder "{{results.local.totals.joulesPerToken.value}}" that the file lacks
     When "report --render-content" runs
     Then the exit code is 2 and the message names the placeholder
+  @negative
   Scenario: AJ-134 A variant over 1300 characters fails the render
     Given a template variant whose rendered text is 1301 characters
     When "report --render-content" runs
     Then the exit code is 2 and the message names the variant and its length
+  @negative
   Scenario: AJ-134 A hand-typed number in the template is rejected
     Given a copy of the template containing "uses 412 J per run"
     When the template check runs
     Then it fails with "number without source: 412 J"
+  @negative
   Scenario: AJ-134 A cloudgpu placeholder without a cloudgpu run file fails
     Given a workspace without a completed cloudgpu run file and a variant citing a cloudgpu placeholder
     When "report --render-content" runs
     Then the exit code is 2 and the message names the cloudgpu placeholder
+  @negative
   Scenario: AJ-134 A variant without the repo placeholder is rejected
     Given a copy of the template whose launch variant lacks "{{repo.url}}"
     When the template check runs
     Then it fails with "missing {{repo.url}} in variant: launch"
 ```
 Conflict: REQ-026 requires one sentence stating that energy is GPU-board energy measured on one laptop, but the hackathon variant may cite the cloudgpu tier, whose energy was measured on a Nebius AI Cloud VM (prompt honesty rule 1 and REQ-031). Proposed resolution: variants that cite only laptop numbers carry the sentence `Energy is GPU-board energy measured on one laptop.` verbatim; a variant that contains a `{{results.cloudgpu.` placeholder carries `Energy is GPU-board energy only, measured on one laptop GPU and, in its own row, on one Nebius AI Cloud GPU.` instead; the check in the template test accepts exactly these two sentences.
-Conflict: REQ-026 and design section 3.5 (`ContentTemplateRenderer`) define a failure for a missing path but not the rendering of a path whose value is null (an `N/A` or `not-reported` label object addressed as `.value`). Proposed resolution: the renderer writes the label text (`N/A` or `not-reported`) for a null value and never `0`, `null` or an empty string; AJ-134-T3 adds the test and the fix if M3 left it out.
+Resolved: the rendering of a null metric value (label `N/A` or `not-reported`, addressed as `.value`) is defined by REQ-026 as amended on 2026-10-18 (the label text, never 0) and is implemented and tested in AJ-144; this story only adds template-level cases.
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2 |
+| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2, AJ-144-T4 |
 | AJ-134-T2 | Add the hand-typed-quantity and label-adjacency checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-134-T1 |
-| AJ-134-T3 | Fix `ContentTemplateRenderer` so a null metric value renders its label text | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 1.0 | AJ-134-T1 |
+| AJ-134-T3 | Add the template-level null-value and cloudgpu-absent cases against the AJ-144 renderer | tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-134-T1, AJ-144-T4 |
 | AJ-134-T4 | Write the `launch` variant with its placeholders, verified paths and the required sentence | content/linkedin-posts.template.md | 0.5 | AJ-134-T2 |
 | AJ-134-T5 | Write the `lesson-learned` and `hackathon` variants | content/linkedin-posts.template.md | 0.75 | AJ-134-T4 |
-| AJ-134-T6 | Render the posts, trim any variant above 1 300 characters, and commit the rendered file | content/linkedin-posts.md | 0.5 | AJ-134-T3, AJ-134-T5 |
+| AJ-134-T6 | Render the posts with `AJ report --render-content`, trim any variant above 1 300 characters, and commit the rendered file | content/linkedin-posts.md | 0.5 | AJ-134-T3, AJ-134-T5, AJ-144-T5 |
 | AJ-134-T7 | Record each placeholder path and its source file in the build log | docs/build-log.md | 0.25 | AJ-134-T6 |
 Test mapping: ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature
 Docs impact: content/linkedin-posts.template.md, content/linkedin-posts.md; docs/build-log.md
@@ -391,46 +515,57 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-135 Demo program end to end
-  Scenario: AJ-135 The demo section lists the eight commands in order
+  @positive
+  Scenario: AJ-135 The demo section lists the ten commands in order
     Given the committed content/demo-script.md
     When the fenced block under "## Demo program" is parsed
     Then it holds ten commands whose verbs are probe, run, run, calibrate, cloudgpu, validate, report, report, run, dashboard in that order
+  @positive
   Scenario: AJ-135 Replay of a committed hosted run emits one event per step
     Given a committed nebius run file fixture with 36 steps
     When "dashboard --replay <file> --speed 50 --exit-after 5" runs in process
     Then the exit code is 0 and 36 events were emitted, one per step
+  @negative
   Scenario: AJ-135 A missing replay file is rejected
     Given no file at results/missing.json
     When "dashboard --replay results/missing.json" runs
     Then the exit code is not 0 and the message names the file
+  @negative
   Scenario: AJ-135 A script without the browser-load statement is rejected
     Given a copy of the script without the sentence about recording without a browser open
     When the demo check runs
     Then it fails with "missing statement: published results recorded without a browser"
+  @positive
   Scenario: AJ-135 Every demo command answers help
     Given the six CLI commands used by the demo
     When each is run with "--help" in process
     Then every exit code is 0
+  @positive
   Scenario: AJ-135 The three laptop and hosted run files have the demo shape
     Given the latest committed run files for local, nvidia and nebius
     When run.repeat and the step counts are read
     Then each file has run.repeat 3 and 36 steps and no step energy is written as 0 where the label is N/A
+  @positive
   Scenario: AJ-135 Without a cloudgpu run the report shows a not-run row
     Given a workspace with run files for local, nvidia and nebius only
     When "report --in results/ --out docs/report/" runs
     Then the exit code is 0 and summary.md contains the row "cloudgpu | not run"
+  @negative
   Scenario: AJ-135 A demo command with an unknown verb is rejected
     Given a copy of the script whose block contains "dotnet run --project src/AgentJoules.Cli -- bench"
     When the demo check runs
     Then it fails with "unknown command: bench"
+  @negative
   Scenario: AJ-135 A missing demo artifact is reported by path
     Given a workspace where docs/report/index.html is deleted
     When the artifact check runs
     Then it fails with "missing artifact: docs/report/index.html"
+  @negative
   Scenario: AJ-135 A run file with fewer than three repeats is rejected
     Given a latest local run file with run.repeat 1
     When the demo shape check runs
     Then it fails with "run.repeat 1 is below 3: local"
+  @negative
   Scenario: AJ-135 A script without the cloudgpu fallback section is rejected
     Given a copy of the script without the heading "If the cloudgpu tier is absent"
     When the demo check runs
@@ -438,10 +573,12 @@ Feature: AJ-135 Demo program end to end
 
 @integration
 Feature: AJ-135 Demo rehearsal with the laptop and keys
+  @positive
   Scenario: AJ-135 Dry run of all enabled tiers prints OK
     Given NVIDIA_API_KEY and NEBIUS_API_KEY are set and the local runtime is up
     When "run --tier all --dry-run" runs
     Then the exit code is 0 and each enabled tier prints its endpoint, matched model IDs and "OK"
+  @negative
   Scenario: AJ-135 Dry run without a key exits 3 and names the variable
     Given NEBIUS_API_KEY is unset
     When "run --tier all --dry-run" runs
@@ -519,47 +656,58 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-136 Demo video script
+  @positive
   Scenario: AJ-136 Shot durations fit the budget and are contiguous
     Given the committed content/demo-script.md
     When the shot list is parsed
     Then the durations sum to 165 and are at most 170
     And each start second equals the previous start plus the previous duration
+  @positive
   Scenario: AJ-136 Narration is speakable in each shot
     Given the parsed shot list
     When words per second are computed for each narration cell
     Then no shot exceeds 2.5 words per second
+  @positive
   Scenario: AJ-136 Commands shown all answer help
     Given the commands listed under "Commands shown"
     When each CLI command is run with "--help" in process
     Then every exit code is 0
+  @negative
   Scenario: AJ-136 A script over three minutes is rejected
     Given a copy of the script whose durations sum to 181
     When the script check runs
     Then it fails with "total 181 s exceeds 170 s"
+  @negative
   Scenario: AJ-136 A script over the 170 second budget but under three minutes is rejected
     Given a copy of the script whose durations sum to 175
     When the script check runs
     Then it fails with "total 175 s exceeds 170 s"
+  @negative
   Scenario: AJ-136 Narration that is too long for its shot is rejected
     Given a copy of the script whose 12 second shot 1 has 40 narration words
     When the script check runs
     Then it fails with "shot 1: 3.3 words per second exceeds 2.5"
+  @negative
   Scenario: AJ-136 A number without a results file is rejected
     Given a copy of the script whose shot 5 narration says "123 J" with no results file
     When the script check runs
     Then it fails with "number without source: 123 J"
+  @negative
   Scenario: AJ-136 A command that does not exist is rejected
     Given a copy of the script that shows "AJ bench"
     When the script check runs
     Then it fails with "unknown command: bench"
+  @negative
   Scenario: AJ-136 A script without the browser statement is rejected
     Given a copy of the script without the sentence that published results were recorded without a browser open
     When the script check runs
     Then it fails with "missing statement: recorded without a browser"
+  @negative
   Scenario: AJ-136 A script without the dashboard commands is rejected
     Given a copy of the script that never mentions "--dashboard" or "dashboard --replay"
     When the script check runs
     Then it fails with "missing command: dashboard"
+  @negative
   Scenario: AJ-136 A script without the upload target is rejected
     Given a copy of the script without the line "Upload target: public YouTube video"
     When the script check runs
@@ -598,31 +746,38 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-137 Long-form article
+  @positive
   Scenario: AJ-137 The article cites the required prior art and has a Limitations section
     Given the committed content/article.md
     When the citations and headings are checked
     Then it contains 2407.16893, TokenPowerBench, 2604.09048, greentoken and one "Limitations" heading
     And the Limitations section contains GPU-only, display, power limit, sampling, offload, hosted and cloud
+  @positive
   Scenario: AJ-137 Every quantity names an existing results file and a label
     Given the committed article
     When each line with a measured quantity is checked
     Then each names an existing results file and one label word
+  @positive
   Scenario: AJ-137 The article is within the length bounds
     Given the committed article
     When the words are counted
     Then the count is between 800 and 2500
+  @negative
   Scenario: AJ-137 A quantity without a results file is rejected
     Given a copy of the article with the line "The Writer used 55 J."
     When the article check runs
     Then it fails with "number without source: 55 J"
+  @negative
   Scenario: AJ-137 A missing Limitations heading is rejected
     Given a copy of the article without the heading "Limitations"
     When the article check runs
     Then it fails with "missing heading: Limitations"
+  @negative
   Scenario: AJ-137 A ranking claim is rejected
     Given a copy of the article saying "the local tier is greener than the hosted tier"
     When the article check runs
     Then it fails with "ranking claim: greener"
+  @negative
   Scenario: AJ-137 A missing citation is rejected
     Given a copy of the article without "greentoken"
     When the article check runs
@@ -630,10 +785,12 @@ Feature: AJ-137 Long-form article
 
 @integration
 Feature: AJ-137 Article citations resolve
+  @positive
   Scenario: AJ-137 Each cited link answers
     Given the four links of the article
     When each link is requested
     Then each answers HTTP 200 and the date is recorded in docs/build-log.md
+  @negative
   Scenario: AJ-137 A link that answers 404 is reported
     Given a cited link that answers HTTP 404
     When the link check runs
@@ -673,39 +830,48 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-138 Devpost checklist rules and fields
+  @positive
   Scenario: AJ-138 The checklist records the 13 rule items with an evidence class
     Given the committed docs/devpost-checklist.md
     When the Rules section is parsed
     Then it has 13 items and each ends with an evidence class
+  @positive
   Scenario: AJ-138 Every field maps to an existing artifact
     Given the Fields to artifacts checkbox list
     When each artifact path is checked
     Then every path exists or is marked "(user)"
     And the About the project row names "docs/devpost-story.md"
+  @positive
   Scenario: AJ-138 The Demo URL line names a satisfier and a reason
     Given the committed checklist
     When the line starting "Demo URL:" is read
     Then it names the GitHub Pages report page and gives a reason
+  @positive
   Scenario: AJ-138 The deadline is written in both zones
     Given the committed checklist
     When the deadline line is read
     Then it contains "2026-10-30 10:00 PDT (17:00 UTC)"
+  @negative
   Scenario: AJ-138 A checklist without a Demo URL line is rejected
     Given a copy of the checklist without the line "Demo URL:"
     When the checklist check runs
     Then it fails with "missing line: Demo URL:"
+  @negative
   Scenario: AJ-138 A field that maps to a missing file is rejected
     Given a copy of the checklist mapping "About the project" to "docs/missing-story.md"
     When the checklist check runs
     Then it fails with "artifact not found: docs/missing-story.md"
+  @negative
   Scenario: AJ-138 More than 25 Built-with tags are rejected
     Given a copy of the checklist whose Built-with list has 26 tags
     When the checklist check runs
     Then it fails with "26 tags exceed 25"
+  @negative
   Scenario: AJ-138 A rule item without an evidence class is rejected
     Given a copy of the checklist with the line "- license requirement: MIT"
     When the checklist check runs
     Then it fails with "no evidence class: license requirement"
+  @negative
   Scenario: AJ-138 A Nebius AI Cloud tag without a cloudgpu run is rejected
     Given a workspace with no completed or partial cloudgpu run file and a Built-with list containing "Nebius AI Cloud"
     When the checklist check runs
@@ -713,10 +879,12 @@ Feature: AJ-138 Devpost checklist rules and fields
 
 @integration
 Feature: AJ-138 Official rules page fetch
+  @positive
   Scenario: AJ-138 The rules page answers or the checklist says not verified
     Given network access
     When the builder requests https://nebiusglobalaihackathon.devpost.com/rules
     Then either the text is recorded with the fetch date or the checklist says "not verified" with the HTTP status
+  @negative
   Scenario: AJ-138 A 403 answer is recorded and the user is asked to paste the rules
     Given the page answers HTTP 403
     When the checklist is written
@@ -755,35 +923,43 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-139 Devpost checklist user actions
+  @positive
   Scenario: AJ-139 Registration lines are present and left for the user
     Given the committed docs/devpost-checklist.md
     When the Registration section is read
     Then it has the four exact lines and three values read "<user fills>"
+  @positive
   Scenario: AJ-139 The three user commands are in labelled fenced blocks
     Given the committed checklist
     When the fenced blocks are extracted
     Then blocks contain "git push", "gh release create" and the Pages settings
     And each is preceded by "User action (the builder never runs this):"
+  @positive
   Scenario: AJ-139 Judging criteria map to existing artifacts
     Given the Judging criteria section
     When each mapped artifact is checked
     Then the four criteria map to paths or README headings that exist
+  @positive
   Scenario: AJ-139 Tracks name a recommendation and leave the pick to the user
     Given the Tracks section
     When it is read
     Then it recommends one track with one reason and says "Final pick: the user decides"
+  @negative
   Scenario: AJ-139 A filled Devpost handle is rejected
     Given a copy of the checklist with "Devpost handle: tomas-rampas"
     When the checklist check runs
     Then it fails with "builder filled a user field: Devpost handle"
+  @negative
   Scenario: AJ-139 A missing release block is rejected
     Given a copy of the checklist without the string "gh release create"
     When the checklist check runs
     Then it fails with "missing command block: gh release create"
+  @negative
   Scenario: AJ-139 A command block not labelled as a user action is rejected
     Given a copy of the checklist where the push block lacks the user-action label
     When the checklist check runs
     Then it fails with "block not marked as user action: git push"
+  @negative
   Scenario: AJ-139 A missing Credits heading is rejected
     Given a copy of the checklist without the heading "Credits"
     When the checklist check runs
@@ -820,39 +996,48 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-140 Devpost story fill
+  @positive
   Scenario: AJ-140 All nine placeholders are replaced and the checklist is gone
     Given the committed docs/devpost-story.md
     When placeholders and headings are counted
     Then "[[FILL:" occurs 0 times and no heading contains "Fill-after-build"
+  @positive
   Scenario: AJ-140 Each filled passage names its source file and a label
     Given the nine filled passages
     When each is checked
     Then each names an existing results file or document, a unit and one label word
+  @positive
   Scenario: AJ-140 Unchanged sentences are byte-identical to the pre-fill story
     Given the pre-fill story and the filled story
     When the lines outside the nine passages are diffed
     Then every difference has a "Story change:" entry in docs/build-log.md
+  @positive
   Scenario: AJ-140 Without a cloudgpu run the story drops its cloudgpu claims
     Given a workspace with no completed or partial cloudgpu run file
     When the story is checked
     Then the cloud passage says "The cloudgpu tier did not run in this submission"
     And no sentence claims a measured Nebius AI Cloud or L40S figure
+  @negative
   Scenario: AJ-140 A leftover placeholder is rejected
     Given a copy of the story with one "[[FILL: ... ]]" left
     When the story check runs
     Then it fails with "leftover placeholder: 1"
+  @negative
   Scenario: AJ-140 A number without a source is rejected
     Given a copy of the story where the local median is written as "212 J" with no results file
     When the story check runs
     Then it fails with "number without source: 212 J"
+  @negative
   Scenario: AJ-140 An unlogged change to an existing sentence is rejected
     Given a copy of the story where the sentence "Energy here means GPU-board energy, not CPU, system memory or wall power." is edited
     When the diff check runs without a build-log entry
     Then it fails with "unlogged story change"
+  @negative
   Scenario: AJ-140 A leftover Fill-after-build section is rejected
     Given a copy of the story that still has the heading "Fill-after-build checklist"
     When the story check runs
     Then it fails with "checklist section not deleted"
+  @negative
   Scenario: AJ-140 A merged laptop and cloud figure is rejected
     Given a copy of the story with "the average of the laptop and the cloud instance"
     When the story check runs
@@ -905,33 +1090,40 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-141 Devpost pitch rule
+  @positive
   Scenario: AJ-141 A cloudgpu file naming an L40S keeps candidate A
     Given a workspace with a completed cloudgpu run file whose gpuName is "NVIDIA L40S"
     When the pitch rule is applied
     Then the chosen pitch is candidate A and is 197 characters
     And the checklist block equals candidate A byte for byte
+  @positive
   Scenario: AJ-141 No cloudgpu file selects A-local
     Given a workspace with no completed or partial cloudgpu run file
     When the pitch rule is applied
     Then the chosen pitch is A-local and is 192 characters
     And it contains neither "Nebius AI Cloud" nor "L40S"
+  @positive
   Scenario: AJ-141 A cloudgpu file naming another GPU swaps the GPU token
     Given a workspace with a completed cloudgpu run file whose gpuName is "NVIDIA H100 80GB HBM3"
     When the pitch rule is applied
     Then candidate A has "L40S" replaced by "H100" and is 200 characters or fewer
     And docs/build-log.md has a "Pitch change:" entry
+  @negative
   Scenario: AJ-141 A pitch over 200 characters is rejected
     Given a pitch candidate of 201 characters
     When the pitch check runs
     Then it fails with "201 characters exceed 200"
+  @negative
   Scenario: AJ-141 A-local used although a cloudgpu file exists is rejected
     Given a workspace with a completed cloudgpu run file and a checklist block equal to A-local
     When the pitch check runs
     Then it fails with "A-local chosen but cloudgpu run exists"
+  @negative
   Scenario: AJ-141 Candidate A used without a cloudgpu file is rejected
     Given a workspace with no cloudgpu run file and a checklist block equal to candidate A
     When the pitch check runs
     Then it fails with "candidate A chosen without cloudgpu run"
+  @negative
   Scenario: AJ-141 A checklist block that differs from the pitch file is rejected
     Given a checklist pitch block that differs from candidate A by one character
     When the pitch check runs
@@ -968,39 +1160,48 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-142 Devpost feedback answers
+  @positive
   Scenario: AJ-142 Builder placeholders are gone and user placeholders are untouched
     Given the committed docs/devpost-feedback.md and its pre-fill version
     When the owner markers are counted and the user lines compared
     Then "owner: builder" occurs 0 times and "owner: user" occurs 7 times
     And the seven user lines are byte-identical to the pre-fill file
+  @positive
   Scenario: AJ-142 The checklist lists the seven user placeholders
     Given the committed docs/devpost-checklist.md
     When the heading "Feedback form, user fills" is read
     Then it has seven bullets naming Q2, Q4, Q5, Q6, Q7, Q8 and Q9 and docs/devpost-feedback.md
+  @positive
   Scenario: AJ-142 Filled passages name sources and labels
     Given the eight filled passages
     When each is checked
     Then each names an existing file and a label word or an explicit not-run statement
+  @positive
   Scenario: AJ-142 Without a baseline file the baseline passage says so
     Given a workspace with no baseline run file
     When the Q4 baseline passage is checked
     Then it reads "No Qwen3 8B baseline run was made."
+  @negative
   Scenario: AJ-142 A leftover builder placeholder is rejected
     Given a copy of the feedback file with one "owner: builder" placeholder left
     When the feedback check runs
     Then it fails with "builder placeholder left: 1"
+  @negative
   Scenario: AJ-142 A user placeholder filled by the builder is rejected
     Given a copy of the feedback file where the Q6 user placeholder is replaced by "9"
     When the feedback check runs
     Then it fails with "user placeholder modified: Q6"
+  @negative
   Scenario: AJ-142 A missing checklist heading is rejected
     Given a copy of the checklist without "Feedback form, user fills"
     When the feedback check runs
     Then it fails with "missing heading: Feedback form, user fills"
+  @negative
   Scenario: AJ-142 An invented credits answer is rejected
     Given a feedback file claiming the credits covered all runs and no user statement in docs/build-log.md
     When the feedback check runs
     Then it fails with "credits answer without a user statement"
+  @negative
   Scenario: AJ-142 A passage with a number and no source is rejected
     Given a copy of the Q7 passage with "latency 842 ms" and no results file
     When the feedback check runs
@@ -1042,38 +1243,47 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: AJ-143 Content honesty audit
+  @positive
   Scenario: AJ-143 The committed content set passes every rule
     Given the audited files and the committed results files
     When the honesty audit runs
     Then it reports 0 findings for the rules source, label, zero, scope, ranking, format and cloudgpu
+  @positive
   Scenario: AJ-143 A cloudgpu-free submission passes the consistency rule
     Given a workspace with no cloudgpu run file and content updated by the fallback paths
     When the honesty audit runs
     Then it reports 0 findings
+  @negative
   Scenario: AJ-143 A number without a source is a finding
     Given a copy of the article with "The Planner used 40 J."
     When the honesty audit runs
     Then a finding reads "number without source: 40 J"
+  @negative
   Scenario: AJ-143 A hosted energy value written as zero is a finding
     Given a copy of the README with "nvidia energy 0 J"
     When the honesty audit runs
     Then a finding reads "hidden zero: nvidia energy 0 J"
+  @negative
   Scenario: AJ-143 A ranking claim is a finding
     Given a copy of a post saying "local beats the cloud on energy"
     When the honesty audit runs
     Then a finding reads "ranking claim"
+  @negative
   Scenario: AJ-143 A key-shaped string is a finding
     Given a copy of a file containing a runtime-built "nvapi-" plus 16 characters value
     When the honesty audit runs
     Then a finding reads "key material"
+  @negative
   Scenario: AJ-143 An em-dash is a finding
     Given a copy of a file containing the character U+2014
     When the honesty audit runs
     Then a finding reads "non-ASCII character"
+  @negative
   Scenario: AJ-143 A cloudgpu claim without a run file is a finding
     Given a workspace with no cloudgpu run file and a story sentence "the Nebius AI Cloud L40S used 90 J"
     When the honesty audit runs
     Then a finding reads "cloudgpu claim without run file"
+  @negative
   Scenario: AJ-143 A post variant without the GPU-board sentence is a finding
     Given a copy of the posts where the hackathon variant lacks "GPU-board energy"
     When the honesty audit runs
@@ -1081,10 +1291,12 @@ Feature: AJ-143 Content honesty audit
 
 @integration
 Feature: AJ-143 Key scan with the real keys
+  @positive
   Scenario: AJ-143 No tracked line contains a key value
     Given NVIDIA_API_KEY, NEBIUS_API_KEY and NGC_API_KEY are set
     When "git grep -nF" runs for each value
     Then each returns exit code 1 and prints no line
+  @negative
   Scenario: AJ-143 A tracked line containing a key value fails the scan
     Given a temporary tracked file containing the value of NGC_API_KEY
     When "git grep -nF" runs for that value
@@ -1109,7 +1321,7 @@ Demo relevance: no.
 
 | Risk | Trigger | Mitigation | Owner |
 |---|---|---|---|
-| Estimate exceeds the window: 49.0 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, about 23 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
+| Estimate exceeds the window: 54.75 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, AJ-144, about 29 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
 | Official rules page unreadable (HTTP 403 on 2026-10-17) | fetch returns 403 or a login wall | record `not verified` with the status, mark the 13 rule items `user-stated, not verified`, ask the user to paste the Rules tab text; never write `verified` without a date | builder, user |
 | cloudgpu tier absent or partial | no completed or partial `results/*Z-cloudgpu.json` by 2026-10-28 | fallback paths in AJ-132, AJ-134, AJ-135, AJ-140, AJ-141, AJ-142: `cloudgpu | not run` row, `None besides Token Factory.`, pitch A-local, singular tagline, no cloudgpu sentence anywhere; AJ-143 rule 8 enforces it | builder |
 | A new run file lands after the text was filled | a results file newer than the one a passage cites | rerun `AJ report --update-readme --render-content`, re-extract AJ-140 numbers from the recorded expressions, rerun AJ-143 | builder |
@@ -1128,7 +1340,7 @@ Demo relevance: no.
 | AJ-131 README quick start, CLI, reproduce | 6 | 3.75 |
 | AJ-132 README Devpost-form sections | 6 | 3.5 |
 | AJ-133 README results block | 4 | 1.75 |
-| AJ-134 LinkedIn post drafts | 7 | 4.0 |
+| AJ-134 LinkedIn post drafts | 7 | 3.5 |
 | AJ-135 Demo program end to end | 5 | 3.25 |
 | AJ-136 Demo video script | 6 | 3.5 |
 | AJ-137 Long-form article | 7 | 5.25 |
@@ -1138,6 +1350,7 @@ Demo relevance: no.
 | AJ-141 Pitch rule | 4 | 1.75 |
 | AJ-142 Feedback fill | 7 | 4.5 |
 | AJ-143 Honesty audit | 4 | 4.0 |
-| Total | 79 | 49.0 |
+| AJ-144 report flags and content renderer | 7 | 6.25 |
+| Total | 86 | 54.75 |
 
 Capacity of the window: about 18 hours (three days at six hours). The gap and its mitigation are the first risk above.

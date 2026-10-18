@@ -52,35 +52,42 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Validate configured model IDs against docs/endpoints.md
+  @positive
   Scenario: AJ-100 every configured ID is recorded
     Given a docs/endpoints.md with sections local, nvidia and nebius, each with a Verified date and its model lines
     And a configuration whose tier and agent model IDs all appear in those sections
     When I run "validate --config"
     Then the exit code is 0
     And the output contains "Validated" and "model IDs"
+  @positive
   Scenario: AJ-100 the judge ID is looked up in the judge tier section
     Given Judge:Tier is "nvidia" and Judge:ModelId is listed only under "## nvidia"
     When I run "validate --config"
     Then the exit code is 0
+  @positive
   Scenario: AJ-100 a disabled tier is skipped
     Given Tiers:cloudgpu:Enabled is false and "## cloudgpu" has no Verified line
     When I run "validate --config"
     Then the exit code is 0
+  @negative
   Scenario: AJ-100 an absent ID exits 4 without network access
     Given the configuration names a model ID that is not listed in its section
     When I run "validate --config"
     Then the exit code is 4
     And the output names the missing ID and its section
     And the fake HTTP handler recorded 0 requests
+  @negative
   Scenario: AJ-100 a tag differing only by case exits 4
     Given the section lists "nemotron-3-nano:30b" and the configuration names "nemotron-3-nano:30B"
     When I run "validate --config"
     Then the exit code is 4
+  @negative
   Scenario: AJ-100 an enabled tier without a Verified date exits 4
     Given the "## nebius" section has model lines but no Verified line
     When I run "validate --config"
     Then the exit code is 4
     And the output contains "Verified date missing in section ## nebius"
+  @negative
   Scenario: AJ-100 a judge ID listed only under another tier exits 4
     Given Judge:Tier is "nvidia" and the judge ID is listed only under "## nebius"
     When I run "validate --config"
@@ -117,31 +124,37 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Record the nvidia and nebius endpoint verification
+  @positive
   Scenario: AJ-101 the nvidia listing is recorded with date and redacted command
     Given NVIDIA_API_KEY is set in the environment
     When the builder calls GET {BaseUrl}/models for the nvidia tier and writes the "## nvidia" section
     Then the section has "Verified:" with a UTC date of 2026-10-17 or later
     And the section lists every returned Nemotron and Qwen model as "- model: <id>"
     And the recorded command shows "Bearer ****" and no key value
+  @positive
   Scenario: AJ-101 the nebius tier uses the same model when it is listed
     Given NEBIUS_API_KEY is set and the nebius listing contains the model chosen for nvidia
     When the builder writes the "## nebius" section
     Then the chosen nebius model equals the chosen nvidia model
     And "AJ validate --config" exits 0
+  @positive
   Scenario: AJ-101 the smallest listed Nemotron 3 model is chosen when the nvidia model is absent
     Given the nebius listing lacks the nvidia model but lists two other Nemotron 3 models
     When the builder chooses the nebius model
     Then the smaller of the two is chosen and the reason is recorded in the section
+  @negative
   Scenario: AJ-101 no Nemotron model on nebius is reported as blocked
     Given the nebius listing contains no model whose ID contains "nemotron"
     When the builder writes the "## nebius" section
     Then the section says "BLOCKED" and names the missing item
     And the final report lists the nebius tier as blocked and not skipped
+  @negative
   Scenario: AJ-101 a missing key stops the check before any call
     Given NEBIUS_API_KEY is not set
     When I run "run --tier nebius --dry-run"
     Then the exit code is 3
     And the output names "NEBIUS_API_KEY" and the user-secrets alternative
+  @negative
   Scenario: AJ-101 the 45-minute box expires
     Given the nebius onboarding started more than 45 minutes ago without a listed model
     When the builder closes the box
@@ -177,30 +190,37 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Enforce the NIM attempt document contract
+  @positive
   Scenario: AJ-102 a complete document passes
     Given a NIM attempt document with the four headings, Started and Ended 62 minutes apart and "Local runtime: ollama"
     When the contract test runs
     Then the result is pass
+  @positive
   Scenario: AJ-102 exactly 90 minutes passes
     Given Started and Ended are exactly 90 minutes apart
     When the contract test runs
     Then the result is pass
+  @positive
   Scenario: AJ-102 an exceeded box with a stated reason passes
     Given Started and Ended are 104 minutes apart and a line "Box exceeded: image pull stalled"
     When the contract test runs
     Then the result is pass
+  @negative
   Scenario: AJ-102 a missing heading fails
     Given the document has no "Outcome" heading
     When the contract test runs
     Then the result is fail and the message names "Outcome"
+  @negative
   Scenario: AJ-102 91 minutes without a statement fails
     Given Started and Ended are 91 minutes apart and no "Box exceeded:" line
     When the contract test runs
     Then the result is fail and the message names the 90-minute box
+  @negative
   Scenario: AJ-102 a docker login with a password argument fails
     Given the Commands section contains a docker login line with "--password" followed by a value
     When the contract test runs
     Then the result is fail and the message says the login must use --password-stdin
+  @negative
   Scenario: AJ-102 a runtime-built key in the text fails
     Given the document contains a key built at runtime as "nvapi-" plus a random suffix
     When the contract test runs
@@ -236,31 +256,37 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Run the NIM-local attempt within 90 minutes
+  @positive
   Scenario: AJ-103 the attempt succeeds and nim becomes the local runtime
     Given Docker Desktop with GPU support is running and NGC_API_KEY is set
     When the builder pulls and starts a Nemotron NIM and GET /v1/models returns a model ID within 90 minutes
     Then the Outcome section records the model ID and the memory readings
     And the Decision section says "Local runtime: nim"
+  @positive
   Scenario: AJ-103 the attempt fails and the local tier falls back to Ollama with a README link
     Given the NIM container exits during start-up with an error
     When the builder records the decision
     Then the Decision section says "Local runtime: ollama"
     And README.md links "docs/nim-local-attempt.md" and states why NIM-local was not used
+  @negative
   Scenario: AJ-103 the box expires at 90 minutes
     Given 90 minutes have passed since the first catalog search without a successful models call
     When the builder applies the hard stop
     Then the container is stopped and removed
     And the document records the status, the errors and the switch to Ollama
+  @negative
   Scenario: AJ-103 the NGC login is rejected
     Given the NGC login to nvcr.io returns an authorization error
     When the builder writes the Outcome section
     Then the error text is recorded without any key value
     And the grep of the document for NGC_API_KEY prints nothing
+  @negative
   Scenario: AJ-103 the container runs out of GPU memory
     Given the container starts and exits with an out-of-memory error on the 16 GB GPU
     When the builder writes the Outcome section
     Then the memory readings and the error are recorded
     And the Decision section says "Local runtime: ollama"
+  @negative
   Scenario: AJ-103 no supported image exists for this GPU
     Given the catalog search finds no Nemotron NIM that supports compute capability 8.6
     When the builder writes the Image section
@@ -296,31 +322,37 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Report Ollama failures with the exact fix command
+  @positive
   Scenario: AJ-104 Ollama is up and the tag is present
     Given the fake Ollama endpoint answers /api/version and lists "nemotron-3-nano:30b"
     When I run "run --tier local --dry-run"
     Then the exit code is 0
     And the output contains "OK"
+  @positive
   Scenario: AJ-104 the configured tag is found among many listed tags
     Given the fake endpoint lists 25 tags including "nemotron-3-nano:30b"
     When I run "run --tier local --dry-run"
     Then the exit code is 0
+  @negative
   Scenario: AJ-104 Ollama refuses connections
     Given the fake endpoint refuses connections
     When I run "run --tier local --dry-run"
     Then the exit code is 5
     And the output contains the configured endpoint and "ollama serve"
+  @negative
   Scenario: AJ-104 the endpoint times out
     Given the fake endpoint never answers within the configured timeout
     When I run "run --tier local --dry-run"
     Then the exit code is 5
     And the output contains "ollama serve"
+  @negative
   Scenario: AJ-104 the tag is not pulled
     Given the fake endpoint lists tags that do not include "nemotron-3-nano:30b"
     When I run "run --tier local --dry-run"
     Then the exit code is 4
     And the output contains "ollama pull nemotron-3-nano:30b"
     And no request ended in "/chat/completions"
+  @negative
   Scenario: AJ-104 another configured tag is named in the pull command
     Given Tiers:local:ModelId is "qwen3:8b" and the endpoint does not list it
     When I run "run --tier local --dry-run"
@@ -356,31 +388,37 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Disclose the local runtime, tag, offload and precision
+  @positive
   Scenario: AJ-105 full offload on Ollama
     Given the fake /api/ps reports size_vram equal to size for the configured tag
     When I run "run --tier local --repeat 1 --task incident-brief"
     Then environment.localRuntime is "ollama" and environment.gpuOffloadPercent is 100
     And run.flags does not contain "partial-offload"
+  @positive
   Scenario: AJ-105 the NIM runtime reports 100 by construction
     Given Local:Runtime is "nim" and Tiers:local:Precision is "BF16"
     When I run "run --tier local --repeat 1 --task incident-brief"
     Then environment.localRuntime is "nim" and environment.gpuOffloadPercent is 100
     And environment.precision is "BF16"
+  @positive
   Scenario: AJ-105 precision comes from the Ollama quantization level
     Given the fake /api/show reports quantization level "Q4_K_M"
     When I run "run --tier local --repeat 1 --task incident-brief"
     Then environment.precision is "Q4_K_M"
+  @negative
   Scenario: AJ-105 partial offload sets the flag and the header
     Given the fake /api/ps reports size_vram at 62 percent of size
     When I run "run --tier local --repeat 1 --task incident-brief"
     Then environment.gpuOffloadPercent is 62
     And run.flags contains "partial-offload"
     And the rendered report header contains "partial-offload"
+  @negative
   Scenario: AJ-105 the model is missing from the process list
     Given the fake /api/ps lists no model after warm-up
     When I run "run --tier local --repeat 1 --task incident-brief"
     Then the exit code is 6
     And the output says the offload could not be determined
+  @negative
   Scenario: AJ-105 a zero size is refused
     Given the fake /api/ps reports size 0 for the configured tag
     When I run "run --tier local --repeat 1 --task incident-brief"
@@ -418,36 +456,44 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Order warm-up, idle baseline and repeats in local runs
+  @positive
   Scenario: AJ-106 the call order is warm-up, baseline, tasks
     Given a local run with fakes recording every operation
     When I run "run --tier local --task incident-brief --repeat 1 --baseline-seconds 30"
     Then the recorded order is probe, meter start, warm-up, baseline window, task calls
     And no step reading exists for the warm-up call
+  @positive
   Scenario: AJ-106 the warm-up keeps the model loaded for 30 minutes
     Given the Ollama runtime is used
     When the warm-up call is made
     Then the request body contains keep_alive "30m" and an empty prompt
     And environment.modelLoadSeconds equals the fake warm-up duration
+  @positive
   Scenario: AJ-106 three repeats produce twelve steps for one task
     When I run "run --tier local --task incident-brief --repeat 3"
     Then the run file has 12 steps with repeat values 1, 2 and 3 four times each
     And run.repeat is 3
+  @positive
   Scenario: AJ-106 the power source is recorded
     Given the fake power source detector returns "battery"
     When I run "run --tier local --task incident-brief --repeat 1"
     Then environment.powerSource is "battery"
+  @negative
   Scenario: AJ-106 a zero repeat is refused
     When I run "run --tier local --repeat 0"
     Then the exit code is 2
+  @negative
   Scenario: AJ-106 a short baseline is flagged as not publishable
     When I run "run --tier local --task incident-brief --repeat 1 --baseline-seconds 10"
     Then the output contains "baseline shorter than 30 s is not publishable"
     And baseline.seconds is 10
+  @negative
   Scenario: AJ-106 a failing warm-up stops before the baseline
     Given the fake Ollama endpoint refuses the warm-up request
     When I run "run --tier local --repeat 1"
     Then the exit code is 5
     And no baseline window was opened
+  @negative
   Scenario: AJ-106 a hosted tier has no warm-up and no baseline window
     When I run "run --tier nvidia --task incident-brief --repeat 1 --baseline-seconds 30"
     Then no warm-up call and no baseline window were recorded
@@ -484,28 +530,34 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Select and record the local model
+  @positive
   Scenario: AJ-107 the Nemotron tag is verified and recorded
     Given Ollama is running and the Local:Runtime decision is "ollama"
     When the builder pulls and shows "nemotron-3-nano:30b" and lists the models endpoint
     Then the "## local" section holds the tag, the quantization, the size and a Verified date
+  @positive
   Scenario: AJ-107 the Qwen3 8B tag is recorded as baseline
     Given "ollama list" shows a Qwen3 8B tag
     When the builder writes the "## local" section
     Then the Qwen tag is recorded exactly and marked "baseline (non-Nemotron)"
+  @positive
   Scenario: AJ-107 partial offload is recorded with the processor split
     Given "ollama ps" after warm-up shows less than 100 percent GPU for the 30b tag
     When the builder records the model choice
     Then the processor split and the reason for keeping or replacing the tag are recorded
+  @negative
   Scenario: AJ-107 Ollama stopped gives exit 5 with the start command
     Given the Ollama service is stopped
     When I run "run --tier local --dry-run"
     Then the exit code is 5
     And the output contains "ollama serve"
+  @negative
   Scenario: AJ-107 an unpulled tag gives exit 4 with the pull command
     Given the local model ID is overridden to a tag that is not pulled
     When I run "run --tier local --dry-run"
     Then the exit code is 4
     And the output contains "ollama pull" followed by that tag
+  @negative
   Scenario: AJ-107 the library lists no smaller Nemotron tag
     Given the Ollama library page lists no smaller verified Nemotron tag
     When the builder records the model choice
@@ -542,29 +594,35 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Verify streaming usage and the reasoning toggle per tier
+  @positive
   Scenario: AJ-108 the nvidia tier reports streaming usage and honours the toggle
     Given NVIDIA_API_KEY is set
     When one streaming call is made with include_usage and the reasoning toggle JSON
     Then "Streaming usage: reported" is recorded with the token counts
     And "Reasoning result: off" is recorded with the evidence
+  @positive
   Scenario: AJ-108 the nebius tier is verified the same way
     Given NEBIUS_API_KEY is set
     When the same two calls are made against the nebius tier
     Then its section records the usage behaviour, the toggle JSON and the result
+  @negative
   Scenario: AJ-108 Ollama omits streaming usage
     Given the local Ollama endpoint returns no usage in the final stream chunk
     When the builder records the local section
     Then "Streaming usage: not-reported" is recorded
     And docs/build-log.md records the ADR-09 decision
     And a metered local call shows tokens labelled "not-reported" and never 0
+  @negative
   Scenario: AJ-108 the toggle is ignored by the endpoint
     Given the response with the toggle still contains reasoning content
     When the builder records the tier section
     Then "Reasoning result: unsupported" is recorded and Tiers:<tier>:ReasoningMode is "unsupported"
+  @negative
   Scenario: AJ-108 the endpoint rejects the unknown body field
     Given the endpoint answers HTTP 400 to the request containing the toggle JSON
     When the builder records the tier section
     Then the section records "Reasoning toggle: unsupported" with the error excerpt and no key value
+  @negative
   Scenario: AJ-108 a missing key stops the check
     Given NVIDIA_API_KEY is not set
     When I run "run --tier all --dry-run"
@@ -602,35 +660,43 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Compute the counter versus sampling calibration
+  @positive
   Scenario: AJ-109 both methods are written with the relative difference
     Given a fake meter whose counter reads 100 J and whose sampling integral reads 98 J for the window
     When I run "calibrate --seconds 60"
     Then the file has counterJoules 100, samplingJoules 98 and relativeDifference 0.02, each labelled "measured"
+  @positive
   Scenario: AJ-109 the file name and schema are valid
     When I run "calibrate --seconds 60"
     Then a file matching "calibration-<yyyyMMddTHHmmssZ>.json" exists in the output folder
     And it validates against the calibration schema definition
+  @positive
   Scenario: AJ-109 the default task is the first task in file order
     When I run "calibrate"
     Then the file names the first task file and seconds 60
+  @negative
   Scenario: AJ-109 an unsupported counter is written as N/A with the reason
     Given the fake NVML returns NOT_SUPPORTED for the energy counter
     When I run "calibrate --seconds 60"
     Then counterJoules is null with label "N/A" and a non-empty reason
     And relativeDifference is null with label "N/A"
     And the exit code is 0
+  @negative
   Scenario: AJ-109 a counter of zero gives an N/A difference
     Given the fake counter reads 0 J for the window
     When I run "calibrate --seconds 60"
     Then relativeDifference is null with reason "counter-zero"
+  @negative
   Scenario: AJ-109 no GPU exits 6 and writes nothing
     Given the NVML loader is faked as missing
     When I run "calibrate"
     Then the exit code is 6
     And no calibration file exists
+  @negative
   Scenario: AJ-109 a zero duration is refused
     When I run "calibrate --seconds 0"
     Then the exit code is 2
+  @negative
   Scenario: AJ-109 an unknown task is refused
     When I run "calibrate --task no-such-task"
     Then the exit code is 2
@@ -666,31 +732,37 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Run the preflight for the laptop measurement campaign
+  @positive
   Scenario: AJ-110 the probe is saved and matches nvidia-smi
     Given the laptop GPU and driver are present
     When I run "probe --json --save"
     Then the exit code is 0
     And the saved probe has gpuPresent true and the driver version printed by nvidia-smi
+  @positive
   Scenario: AJ-110 the dry-run passes for every enabled tier
     Given NVIDIA_API_KEY and NEBIUS_API_KEY are set and Ollama is running
     When I run "run --tier all --dry-run"
     Then the exit code is 0
     And each of "local", "nvidia" and "nebius" is followed by "OK"
+  @negative
   Scenario: AJ-110 battery power blocks the campaign
     Given the probe reports power source "battery"
     When the builder evaluates the preflight
     Then the campaign is not started
     And the user is asked to connect mains power
+  @negative
   Scenario: AJ-110 an unsupported counter proceeds with sampling
     Given the saved probe has energyCounterSupported false
     When the builder evaluates the preflight
     Then the campaign proceeds with method "sampling"
     And docs/build-log.md notes that the README results block must contain "sampling"
+  @negative
   Scenario: AJ-110 a missing key fails the dry-run before any call
     Given NEBIUS_API_KEY is not set
     When I run "run --tier all --dry-run"
     Then the exit code is 3
     And the output names "NEBIUS_API_KEY"
+  @negative
   Scenario: AJ-110 another GPU application is running
     Given nvidia-smi lists a compute process other than Ollama
     When the builder evaluates the preflight
@@ -725,24 +797,29 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Run the calibration on the laptop
+  @positive
   Scenario: AJ-111 the calibration file is written with three label objects
     Given the preflight of AJ-110 passed and Ollama serves the local model
     When I run "calibrate --seconds 60"
     Then the exit code is 0
     And the new calibration file has counterJoules, samplingJoules and relativeDifference as label objects
+  @positive
   Scenario: AJ-111 the stored difference matches the recomputed value
     Given the committed calibration file with counterJoules and samplingJoules both measured
     When the difference is recomputed as (counter - sampling) / counter
     Then it equals the stored relativeDifference within 1e-9
+  @negative
   Scenario: AJ-111 Ollama is not running
     Given the Ollama service is stopped
     When I run "calibrate --seconds 60"
     Then the exit code is 5
     And no calibration file is written
+  @negative
   Scenario: AJ-111 the counter is unsupported on this GPU
     Given the committed probe has energyCounterSupported false
     When I run "calibrate --seconds 60"
     Then counterJoules has label "N/A" with a reason and the exit code is 0
+  @negative
   Scenario: AJ-111 the laptop runs on battery
     Given the probe reports power source "battery"
     When the builder evaluates the calibration precondition
@@ -767,48 +844,60 @@ Demo relevance: yes: the README states the relative difference and the file name
 Covers: REQ-022
 User story: As a skeptical reader, I want a methodology document that states what is measured, how and with which limits, so that no energy figure is read as more than it is.
 Acceptance criteria:
-1. `docs/methodology.md` has the headings `Measurement`, `Attribution`, `Baseline`, `Labels` and `Limitations` (`grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5) and a line `Verified: <UTC date>`.
-2. Measurement explains what NVML measures, both methods and their units (millijoules and milliwatts), the sample rate, and where windows start and stop relative to the HTTP call; Attribution explains one metered client per agent and why no ambient context is used; Baseline explains gross and net energy and the concurrent-mode union totals; Labels lists the five labels and the flags.
-3. The Limitations section contains each of the strings `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted`, `cloud`, covering: GPU-board scope, GPU shared with the display, the laptop power limit, sampling resolution and possible driver averaging, partial CPU offload, hosted energy `N/A`, and the cloudgpu tier (dedicated VM GPU with the provider's driver and host power management, cost observed from the billing page, no comparison of laptop and datacenter joules as efficiency claims).
-4. The document names the committed calibration file and quotes its `relativeDifference` exactly as stored; it quotes the power limit from the committed probe and notes that the NVML enforced limit and the `nvidia-smi` limit may differ (conflict C-11); it states whether the clock-throttle reasons API worked on the laptop (EDGE-013).
-5. A contract test fails when a heading or a required string is missing, when the quoted difference differs from the file, or when no calibration file is named; `dotnet test --filter "Spec=REQ-022" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
+1. Merge rule: M3 stories may already have written sentences into `docs/methodology.md`; this story creates the headings by merging, keeps every existing sentence verbatim (placed under the heading it belongs to, or under `Limitations` when none fits), and never overwrites the file; the contract test compares the pre-existing sentences with the result.
+2. `docs/methodology.md` has the headings `Measurement`, `Attribution`, `Baseline`, `Labels` and `Limitations` (`grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5) and a line `Verified: <UTC date>`.
+3. Measurement explains what NVML measures, both methods and their units (millijoules and milliwatts), the sample rate, and where windows start and stop relative to the HTTP call; Attribution explains one metered client per agent and why no ambient context is used; Baseline explains gross and net energy and the concurrent-mode union totals; Labels lists the five labels and the flags.
+4. The Limitations section contains each of the strings `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted`, `cloud`, covering: GPU-board scope, GPU shared with the display, the laptop power limit, sampling resolution and possible driver averaging, partial CPU offload, hosted energy `N/A`, and the cloudgpu tier (dedicated VM GPU with the provider's driver and host power management, cost observed from the billing page, no comparison of laptop and datacenter joules as efficiency claims).
+5. The document names the committed calibration file and quotes its `relativeDifference` exactly as stored; it quotes the power limit from the committed probe and notes that the NVML enforced limit and the `nvidia-smi` limit may differ (conflict C-11); it states whether the clock-throttle reasons API worked on the laptop (EDGE-013).
+6. A contract test fails when a heading or a required string is missing, when the quoted difference differs from the file, or when no calibration file is named; `dotnet test --filter "Spec=REQ-022" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
 @unit
 Feature: Write the methodology document with a contract test
+  @positive
   Scenario: AJ-112 a complete document passes
     Given a methodology document with the five headings and the seven Limitations strings
     And it names a calibration file and quotes its stored relativeDifference
     When the contract test runs
     Then the result is pass
+  @positive
   Scenario: AJ-112 the Limitations section may use the strings in any order
     Given the seven strings appear in a different order
     When the contract test runs
     Then the result is pass
+  @negative
   Scenario: AJ-112 a missing heading fails
     Given the document has no "Baseline" heading
     When the contract test runs
     Then the result is fail and the message names "Baseline"
+  @negative
   Scenario: AJ-112 a missing Limitations string fails
     Given the Limitations section lacks the string "cloud"
     When the contract test runs
     Then the result is fail and the message names "cloud"
+  @negative
   Scenario: AJ-112 a quoted difference that differs from the file fails
     Given the document quotes 0.5 while the named calibration file stores a different value
     When the contract test runs
     Then the result is fail and the message names both values
+  @negative
   Scenario: AJ-112 no calibration file is named
     Given the document names no results/calibration file
     When the contract test runs
     Then the result is fail and the message says the calibration file must be named
-```
+  @negative
+  Scenario: AJ-112 an existing sentence from an earlier milestone survives the merge
+    Given docs/methodology.md already holds a sentence written by an M3 story under no required heading
+    When the headings are created by merging into the existing document
+    Then the sentence is still present verbatim in the document
+    And the five required headings exist```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-112-T1 | Write the failing feature and the contract tests | tests/AgentJoules.Specs/Features/Reporting/MethodologyContract.feature, tests/AgentJoules.UnitTests/MethodologyDocumentTests.cs | 0.5 | AJ-111-T4 |
 | AJ-112-T2 | Implement the methodology parser and rules | tests/AgentJoules.TestSupport/Docs/MethodologyDocumentParser.cs | 0.75 | AJ-112-T1 |
 | AJ-112-T3 | Bind the feature steps | tests/AgentJoules.Specs/Steps/ReportingSteps.cs | 0.25 | AJ-112-T2 |
-| AJ-112-T4 | Write the Measurement, Attribution, Baseline and Labels sections | docs/methodology.md | 1.5 | AJ-112-T3 |
+| AJ-112-T4 | Create the five headings and write the Measurement, Attribution, Baseline and Labels sections, merging into any existing text (never overwrite) | docs/methodology.md | 1.5 | AJ-112-T3 |
 | AJ-112-T5 | Write the Limitations section and the calibration and probe quotes | docs/methodology.md | 1.0 | AJ-112-T4 |
 | AJ-112-T6 | Run the contract test on the committed document and record the result | docs/build-log.md | 0.25 | AJ-112-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/MethodologyContract.feature; unit class MethodologyDocumentTests with `[Trait("Spec","REQ-022")]`.
@@ -831,27 +920,33 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Mark non-Nemotron local runs as baseline
+  @positive
   Scenario: AJ-113 a Qwen run gets the baseline suffix
     Given Tiers:local:AgentModelIds name a Qwen3 8B tag for all agents
     When I run "run --tier local --task incident-brief --repeat 1"
     Then the run file name ends with "-local-baseline.json"
     And every environment.models entry has baseline true
+  @positive
   Scenario: AJ-113 a Nemotron run has no suffix
     Given all agent model IDs contain "nemotron"
     When I run "run --tier local --task incident-brief --repeat 1"
     Then the run file name ends with "-local.json" and no model has baseline true
+  @negative
   Scenario: AJ-113 the latest-file selection skips a newer baseline file
     Given a Nemotron local file and a newer baseline local file
     When the latest file for tier "local" is selected
     Then the Nemotron file is returned
+  @positive
   Scenario: AJ-113 validate counts baseline files
     Given three run files of which one has the baseline suffix
     When I run "validate results/"
     Then the exit code is 0 and the output contains "Validated 3 files"
+  @negative
   Scenario: AJ-113 one non-Nemotron agent makes the whole file baseline
     Given only the Reviewer agent uses a Qwen tag
     When I run "run --tier local --task incident-brief --repeat 1"
     Then the run file name ends with "-local-baseline.json"
+  @negative
   Scenario: AJ-113 the report never merges a baseline row into the Nemotron row
     Given a report input with a Nemotron local file and a baseline local file
     When the report is rendered
@@ -889,37 +984,44 @@ BDD scenarios:
 ```gherkin
 @integration
 Feature: Run the laptop measurement campaign
+  @positive
   Scenario: AJ-114 the full campaign writes three completed run files
     Given the preflight passed, the keys are set and Ollama serves the local model
     When I run "run --tier all --repeat 3"
     Then the exit code is 0
     And one completed run file exists for each of "local", "nvidia" and "nebius"
     And each file has 3 tasks, run.repeat 3 and 36 steps
+  @positive
   Scenario: AJ-114 the local file carries warm-up, baseline and runtime evidence
     Given the campaign completed
     When I read the latest local run file
     Then baseline.seconds is at least 30
     And environment.modelLoadSeconds and environment.gpuOffloadPercent are numbers
     And environment.powerSource is one of "ac", "battery" and "unknown"
+  @positive
   Scenario: AJ-114 hosted steps carry no energy values
     Given the campaign completed
     When I read the latest nvidia and nebius run files
     Then every step has grossJoules and netJoules with label "N/A" and a null value
+  @positive
   Scenario: AJ-114 the committed files validate
     Given the three run files are in results/
     When I run "validate results/"
     Then the exit code is 0
     And the output contains "Validated" followed by the number of run files
+  @negative
   Scenario: AJ-114 a missing nebius key stops the campaign before any call
     Given NEBIUS_API_KEY is not set
     When I run "run --tier all --repeat 3"
     Then the exit code is 3
     And no run file was written for any tier
+  @negative
   Scenario: AJ-114 rate-limit exhaustion on a hosted tier leaves a failed file that is not committed
     Given the nvidia tier answers HTTP 429 until the five attempts are exhausted
     When the run stops
     Then the exit code is 5 and the nvidia file has run.status "failed"
     And the failed file is excluded from the commit and logged in docs/build-log.md
+  @negative
   Scenario: AJ-114 a failed tier is re-run alone
     Given the local and nebius files are completed and the nvidia file failed
     When I run "run --tier nvidia --repeat 3"
@@ -958,35 +1060,43 @@ BDD scenarios:
 ```gherkin
 @unit
 Feature: Gate the committed local evidence and the README runtime statements
+  @positive
   Scenario: AJ-115 consistent evidence passes
     Given a workspace with a local run file, endpoints, a calibration file and a README that agree
     When the evidence tests run
     Then all checks pass
+  @positive
   Scenario: AJ-115 the README sentence matches the run file
     Given the run file has localRuntime "ollama" and the tag "nemotron-3-nano:30b"
     And README.md contains "Local numbers were produced with ollama running nemotron-3-nano:30b."
     When the evidence tests run
     Then the README check passes
+  @negative
   Scenario: AJ-115 partial offload without the flag fails
     Given gpuOffloadPercent is 62 and run.flags is empty
     When the evidence tests run
     Then the check fails and names "partial-offload"
+  @negative
   Scenario: AJ-115 a baseline shorter than 30 seconds fails
     Given baseline.seconds is 20
     When the evidence tests run
     Then the check fails and names baseline.seconds
+  @negative
   Scenario: AJ-115 fewer than three repeats fails
     Given run.repeat is 2
     When the evidence tests run
     Then the check fails and names run.repeat
+  @negative
   Scenario: AJ-115 the README names a different tag than the run file
     Given the README sentence names a tag that differs from the run file
     When the evidence tests run
     Then the README check fails and names both tags
+  @negative
   Scenario: AJ-115 a fallback decision without the README link fails
     Given the Decision says "Local runtime: ollama" and README.md has no link to the attempt document
     When the evidence tests run
     Then the EDGE-010 check fails
+  @negative
   Scenario: AJ-115 a fallback decision with a run file that says nim fails
     Given the Decision says "Local runtime: ollama" and the latest local run file says "nim"
     When the evidence tests run
@@ -1025,7 +1135,7 @@ Demo relevance: no.
 
 ## Estimate
 
-Sum of task estimates, computed from the task tables (builder hours exclude the four USER ACTION tasks, 0.75 h in total).
+Sum of task estimates, computed from the task tables: 54.45 h including the four USER ACTION tasks (53.70 h builder-only; user actions total 0.75 h).
 
 | Story | Tasks | Hours |
 |---|---|---|
