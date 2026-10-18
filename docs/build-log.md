@@ -116,6 +116,22 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | Skip count | `grep -rc "Skip =" tests --include=*.cs` summed; `grep -rc 'Skip = "placeholder' tests --include=*.cs` summed | 0 | 8 and 7: the extra line is the attribute's own assignment in IntegrationFactAttribute.cs, not a placeholder; the skipped-test total is 7 |
 | strict build and format with the test projects | `dotnet build -warnaserror -tl:off --no-incremental`; `dotnet format --verify-no-changes` | 0; 0 | `0 Warning(s)`, `0 Error(s)`; no diff |
 
+### AJ-008 gate checks (2026-10-18T16:42Z to 16:44Z, measured by an executor; raw logs kept in the session scratchpad; exit codes as reported by the executor, not saved to files)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| restore | `dotnet restore` | 0 | no NU1901 to NU1904 line, no missing version; the restore was a no-op (`All projects are up-to-date for restore`), and none of the 11 `obj/project.nuget.cache` files holds an NU19 code |
+| strict build | `dotnet build -warnaserror -tl:off --no-incremental` | 0 | `0 Warning(s)`, `0 Error(s)` |
+| REQ-001 literal command | `dotnet build -warnaserror -tl:off` | 0 | `0 Warning(s)`, `0 Error(s)` |
+| test | `dotnet test` | 0 | passed 0, failed 0, skipped 7 (UnitTests 6, IntegrationTests 1, Specs no tests) |
+| format | `dotnet format --verify-no-changes` | 0 | no output |
+| target framework of all 11 projects | `dotnet msbuild <project> -getProperty:TargetFramework`, once per project | 0 each | `net10.0` for Core, Nvml, Metering, Workflow, Reporting, Dashboard, Cli, TestSupport, UnitTests, Specs, IntegrationTests; re-run by the spec reviewer at 16:52Z with the same result; the 11 `bin/Debug/net10.0/` output paths in the strict-build log agree |
+| placeholder count | `grep -rc "Skip =" tests --include=*.cs` summed; `grep -rc 'Skip = "placeholder' tests --include=*.cs` summed | 0 | 8; 7; the skipped count 7 equals the placeholder count, the eighth line is the attribute definition |
+| mutation: unused using (scratch copy m1) | `using System.Text;` prepended to `src/AgentJoules.Cli/Program.cs`, then `dotnet build -warnaserror -tl:off --no-incremental src/AgentJoules.Cli` | 1 | `error IDE0005: Using directive is unnecessary.` |
+| mutation: nullable violation (scratch copy m2) | `string s = null;` prepended and the `Console.Error.WriteLine` argument replaced by `s`, same build | 1 | `error CS8600: Converting null literal or possible null value to non-nullable type.` |
+| mutation: CRLF source file (scratch copy m3) | Program.cs given CRLF endings (one CRLF plus a lone trailing CR, 2 CR bytes), then `dotnet format --verify-no-changes` | 2 | `error ENDOFLINE: Fix end of line marker.` (the criterion) and `error FINALNEWLINE` from the trailing CR, both on Program.cs |
+| working tree unchanged by the mutations | `git status --porcelain` captured before and after, compared with `diff` | 0 | identical, 7 lines each; the copies were made with `git ls-files -co --exclude-standard` into the scratchpad, never inside the repository |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -125,6 +141,8 @@ Decision (2026-10-18, AJ-005): stay on the prompt pins. The coordinator versions
 | Package | Pinned version | Used version | Reason |
 |---|---|---|---|
 | none | | | no deviation in M0 |
+
+AJ-008 (2026-10-18T16:42Z, measured): `dotnet restore` exit 0 with no missing version and no NU1901 to NU1904 audit warning, so no deviation row and no NoWarn entry were needed; the restore was a no-op and the 11 project.nuget.cache files hold no NU19 code.
 
 ## Secret scan
 
@@ -137,6 +155,7 @@ Passed, failed and skipped counts of `dotnet test` per recorded run (AJ-007 and 
 | Run | UTC date | Command | Exit code | Passed | Failed | Skipped | Note |
 |---|---|---|---|---|---|---|---|
 | AJ-007 skeleton | 2026-10-18T16:41Z | `dotnet test` | 0 | 0 | 0 | 7 | UnitTests 6, IntegrationTests 1, Specs 0 tests (`No test is available`, exit 0); measured |
+| AJ-008 gate | 2026-10-18T16:43Z | `dotnet test` | 0 | 0 | 0 | 7 | UnitTests 6, IntegrationTests 1, Specs 0 tests; placeholder count by grep 7; measured |
 
 ## Per-ID filter results
 
@@ -228,3 +247,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: `grep -rc "Skip ="` sums to 8 against 7 skipped tests because the attribute's own assignment line counts (recorded in the check rows). The `## Test counts` purpose line now says "AJ-007 and later" because this story records the first counts. `dotnet sln add` wrote CRLF into the slnx, normalised to LF.
 - Gates: code-review-gatekeeper APPROVED (MINOR: the test-count row, written in this commit; a redundant `[AttributeUsage]` line, kept); security-specialist APPROVED (no key, no network, the `$schema` URL in reqnroll.json is editor metadata); spec-compliance-reviewer APPROVED (criteria 1 to 8 PASS; criteria 3 and 8 cannot both hold strictly, the `xunit` reference is the better reading).
 - Velocity: estimate 2.00 h; wall-clock 16:29Z (first csharp-expert call) to 16:47Z (entry written), 18 min, commit follows; sub-agent tokens 403,031 (csharp-expert 81,326 + 93,629; gates 106,191 + 80,300 + 41,585).
+
+### AJ-008 Gate the skeleton with build, test and format checks (REQ-001)
+
+- Shipped: the recorded gate run on the AJ-007 tree (restore, both strict builds, test, format, the eleven TargetFramework values, the three mutation checks in scratch copies) under `## Toolchain check`, `## Test counts` and `## Version deviations and additions`. No code change.
+- Decisions: the mutation checks ran in copies made with `git ls-files -co --exclude-standard` into the session scratchpad; the working tree was proven unchanged by comparing `git status --porcelain` before and after. The gate numbers were taken about three minutes before the AJ-007 commit on the same tracked content (the reviewer compared all 34 tracked build files byte for byte).
+- Deviations: none from the story. Exit codes come from the executor's report and are not saved to files (future gates write them to `.exit` files beside the logs); the restore was a no-op because AJ-007 had restored already, so the audit claim rests on the cached results.
+- Gates: code-review-gatekeeper APPROVED (five MINOR wording notes, applied in this commit); security-specialist APPROVED (LOW: the no-op restore, applied); spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS from the raw logs; criterion 5 re-measured by the reviewer).
+- Velocity: estimate 1.50 h; wall-clock 16:42Z (battery start) to 16:52Z (entry written), 10 min, commit follows; sub-agent tokens 274,838 (executor 56,487; gates 99,071 + 77,647 + 41,633).

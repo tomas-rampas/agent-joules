@@ -518,9 +518,9 @@ Tasks:
 Test mapping: no new xUnit class; exercises the skeleton from AJ-006 and AJ-007.
 Docs impact: docs/build-log.md `## Test counts` and `## Version deviations and additions`.
 Definition of done:
-- [ ] scenarios green, unit tests green (skipped placeholders only), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-001 commit made by the builder with a message starting `AJ-008 REQ-001:` (nothing pushed)
+- [x] scenarios green, unit tests green (skipped placeholders only), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-001 commit made by the builder with a message starting `AJ-008 REQ-001:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-009: Verify licence and README, extend the ignore and attribute files
