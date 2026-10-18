@@ -2,7 +2,7 @@
 
 Status: binding input for the build session. Date: 2026-10-18. Author: system-architect.
 
-Evidence labels used throughout: **verified (source)** = read in the named file or package, or measured with a named command; **inferred** = follows from verified facts, not executed; **assumed** = a decision input with no evidence, to be confirmed by the builder at the named step. Two source shorthands: "fork" = `D:\src\github\agent-framework\dotnet` (VersionPrefix 1.23.0, verified `dotnet/nuget/nuget-package.props` line 4); "stack-facts" = `C:\Users\User\AppData\Local\Temp\claude\D--src-github-NvidiaSDKProjects\7655907f-4f96-414e-ae90-075ebc94d47f\scratchpad\stack-facts.md` (throwaway probe projects measured on this laptop by csharp-expert, 2026-10-18).
+Evidence labels used throughout: **verified (source)** = read in the named file or package, or measured with a named command; **inferred** = follows from verified facts, not executed; **assumed** = a decision input with no evidence, to be confirmed by the builder at the named step. Two source shorthands: "fork" = `D:\src\github\agent-framework\dotnet` (VersionPrefix 1.23.0, verified `dotnet/nuget/nuget-package.props` line 4); "stack-facts" = `docs/design/stack-facts.md` (throwaway probe projects measured on this laptop by csharp-expert, 2026-10-18).
 
 ## 1. Purpose, scope and binding inputs
 
