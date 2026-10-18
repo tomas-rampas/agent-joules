@@ -769,9 +769,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. The code-side key handling (missing key exit 3, user-secrets) is built in M2.
 Docs impact: docs/build-log.md `## User actions`.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-029 commit made by the builder with a message starting `AJ-012 REQ-029:` (nothing pushed)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-029 commit made by the builder with a message starting `AJ-012 REQ-029:` (nothing pushed)
 Demo relevance: no
 
 ## Risks

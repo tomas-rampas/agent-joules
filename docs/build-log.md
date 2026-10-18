@@ -52,7 +52,7 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 
 | Check | Command | Exit code | Result |
 |---|---|---|---|
-| seven folders exist | `for d in src tests docs content results tasks config; do test -d "$d" || echo "missing $d"; done` | 0 | printed nothing |
+| seven folders exist | `for d in src tests docs content results tasks config; do test -d "$d" \|\| echo "missing $d"; done` | 0 | printed nothing |
 | empty folders trackable | `find content results tasks config -maxdepth 1 -name .gitkeep` piped to `wc -l` | 0 | 4 |
 | root allow-list | `ls -d */` | 0 | config, content, docs, results, src, tasks, tests; hidden `.git`, `.code-review-graph` and `.serena` also exist, the last two are git-ignored tool state (accepted; `.serena` is not in the story's list) |
 | no literal drive folder | `ls -A` filtered for `^[CD]:` | 1 | none |
@@ -159,6 +159,18 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | encoding of the five new files | `tr -cd '\r'` byte count and `grep -cP '[^\x00-\x7F]'` per file | 0 | 0 CR bytes and 0 non-ASCII characters in SecretRedactor.cs, RedactingTextWriter.cs, RedactionTests.cs, ConfigurationSteps.cs and the feature file |
 | review fix round | regex-first ordering in `Redact`, boundary tests (6 and 7 characters, text after the last newline, `Write(char)`, `WriteLine`), try/finally in `Dispose`, `FormatProvider` and `NewLine` pass-through, trimmed-value registration, deterministic tie-break; then `dotnet build -warnaserror -tl:off --no-incremental`, `dotnet format --verify-no-changes`, `dotnet test` | 0; 0; 0 | `0 Warning(s)`, `0 Error(s)`; no diff; 26 passed, 0 failed, 7 skipped (17:02Z) |
 
+### AJ-012 key presence and SSH hygiene checks (2026-10-18T16:48Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| keys present, non-printing | `[ -n "${NVIDIA_API_KEY:-}" ] && echo set \|\| echo "missing: NVIDIA_API_KEY"` and the same for NEBIUS_API_KEY and NGC_API_KEY; run with shell tracing off (`set +x`), because `set -x` would echo the value to stderr | 0 | `set` three times; no value, length or suffix printed |
+| NVIDIA prefix | `case "${NVIDIA_API_KEY:-}" in nvapi-*) echo prefix-ok;; esac` | 0 | `prefix-ok`; only the public prefix is tested; run with shell tracing off |
+| missing-key rule | a missing or empty variable would be logged as exactly `missing: <NAME>` (matched by `grep -nE "^missing: [A-Z_]+$"`), M2 marked BLOCKED for that tier, and the user asked to open a new terminal, never to paste a key | n/a | not triggered: no line matches because all three are set |
+| no private key tracked | `git ls-files` filtered with `grep -E "id_(rsa\|ed25519)\|\.pem$"` | 1 | no output |
+| no private key in the tree | `find . -name "id_ed25519*" -not -path "./.git/*"` and the same for `id_rsa*` and `*.pem` outside bin and obj | 0 | 0 files each |
+| build log free of key pattern | `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" -- docs/build-log.md` | 1 | no output; re-checked at 17:16Z after the user-action table was written |
+| build still green with the AJ-012 docs changes | the M0 exit battery (executor, 17:13Z): `dotnet build -warnaserror -tl:off --no-incremental`, `dotnet test`, `dotnet format --verify-no-changes` | 0; 0; 0 | `0 Warning(s)`, `0 Error(s)`; 26 passed, 0 failed, 7 skipped; no diff |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -188,6 +200,7 @@ Scan name, exact command (variable names only, never values), exit codes, UTC da
 | re-run at commit 71a1cf4 after the AJ-008, AJ-009 and AJ-010 docs commits: tracked, untracked, history | `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"`; `git grep --untracked -nE "nvapi-[A-Za-z0-9_-]{8,}"`; `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" $(git rev-list --all)` over 40 commits | 1; 1; 1 | 2026-10-18T17:07Z | clean |
 | re-run at commit 71a1cf4: key values, quiet | `git grep -qF -- "$NVIDIA_API_KEY"`, the same for NEBIUS_API_KEY and NGC_API_KEY, each also with `--untracked`; empty variables would be logged as `skipped: variable empty` | 1 for each of the six runs | 2026-10-18T17:07Z | clean; all three variables non-empty, none skipped, no value printed |
 | re-run at commit 71a1cf4: key values across history, quiet | `git grep -qF -- "$NVIDIA_API_KEY" $(git rev-list --all)`, the same for NEBIUS_API_KEY and NGC_API_KEY (NEBIUS keys have no public prefix, so only the exact-value grep covers them in history); `git grep -lE "nvapi-[A-Za-z0-9_-]{8,}" $(git rev-list --all)` | 1; 1; 1; 1 | 2026-10-18T17:09Z | clean over 40 commits; no value printed |
+| pre-commit re-run before the AJ-012 commit, at HEAD e48ba60 | `git grep -lE "nvapi-[A-Za-z0-9_-]{8,}"`; the same with `--untracked`; the same over `$(git rev-list --all)` (41 commits); `git grep -qF -- "$NAME"` for NVIDIA_API_KEY, NEBIUS_API_KEY and NGC_API_KEY, each on tracked files, with `--untracked`, and over all history | 1 for every run (twelve runs) | 2026-10-18T17:15Z | clean; no value printed |
 
 Scan of record for AJ-011: `git grep fallback` (gitleaks not installed), exit code 1 (no match), verdict clean, measured first at commit 8635b32 (2026-10-18T16:48:49Z) and re-run at commit 71a1cf4 (2026-10-18T17:07:24Z) after the AJ-008, AJ-009 and AJ-010 commits that touched docs/ and tests/. Rule (broadened on the security reviewer's finding): the scan is re-run on the working tree before each commit until M7 (tracked, untracked and history greps, so the content about to be committed is covered), not only before commits that touch docs/ or config/, because test fixtures under tests/ and src/ are the likelier leak; the latest exit code is the one that counts; each re-run is appended as the next row of the table above, the M0 exit re-run included; future pattern re-runs use `-l` instead of `-n` so a hit prints only the file name. Known limits of the fallback against gitleaks: it cannot catch keys that are not in the current environment, credentials without the `nvapi-` prefix and without a registered value, encoded or split values, dangling objects, or high-entropy strings of unknown shape.
 
@@ -218,6 +231,24 @@ Results of `probe` runs and of the Linux and WSL2 execution checks (M1 and later
 Prompt section 12 steps 1 to 13 with owner, status, gating milestone and evidence (AJ-012).
 
 Pre-M4 tool action, not one of the 13 prompt steps (added by AJ-002 on 2026-10-18, measured): Ollama is not installed on this laptop (`ollama --version` exit 127). Owner: user. Status: open. Gates: M4 local runtime (REQ-020; AJ-105, AJ-107; AJ-106 if NIM fails). Action: install Ollama and pull the Nemotron tag that REQ-020 names before M4 starts on 2026-10-24. AJ-012 adds the 13-step table after this note.
+
+Prompt section 12 steps, recorded 2026-10-18 (status: done, open, unknown, after the build, or on builder request; evidence: user-reported, measured, not reported, or not yet for steps that come after the build or on builder request). Steps 5 and 6 gate M2 (`AJ run --tier nvidia\|nebius\|all`, the judge and the `validate --config` verification calls); step 4 comes before the 45-minute Nebius onboarding box (story text: M2; plan section 3.6: AJ-101 on 2026-10-24); step 7 gates the M4 NIM attempt; steps 10 and 11 gate M5; steps 12 and 13 happen on builder request in M5; steps 8 and 9 belong to M7. The builder never creates an account, a key or a cloud resource and never asks for a key value.
+
+| Step | Action | Owner | Status | Gates | Evidence |
+|---|---|---|---|---|---|
+| 1 | Devpost account (sign in or create) | user | unknown | M6 AJ-138 (rules record), M7 submission | not reported |
+| 2 | Join the hackathon on the Devpost page; record the join date and handle in docs/devpost-checklist.md | user | unknown | M6 AJ-139 (Registration placeholders), M7 | not reported |
+| 3 | Read the Rules tab; paste its text to the builder if the fetch returns 403 | user | unknown | M6 AJ-138 | not reported |
+| 4 | Request the USD 25 Token Factory credits and join the Builders Program | user | unknown | the 45-minute Nebius onboarding box (M2 per the story; AJ-101 in M4 per plan 3.6) | not reported |
+| 5 | Nebius Token Factory API key stored as NEBIUS_API_KEY | user | done | M2: `AJ run --tier nebius\|all`, judge, `validate --config` | user-reported 2026-10-18; presence measured 16:48Z (`set`) |
+| 6 | build.nvidia.com API key stored as NVIDIA_API_KEY | user | done | M2: `AJ run --tier nvidia\|all`, judge, `validate --config` | user-reported 2026-10-18; presence and `nvapi-` prefix measured 16:48Z |
+| 7 | NGC personal key stored as NGC_API_KEY | user | done | M4 NIM-local attempt (REQ-019) | user-reported 2026-10-18; presence measured 16:48Z (`set`) |
+| 8 | Submit on Devpost before 2026-10-30 10:00 PDT, fields from docs/devpost-checklist.md | user | after the build | M7 | not yet |
+| 9 | Keep the repository public and unchanged on the submitted commit until results are announced (judging listed 2026-12-01 to 2026-12-15), or tag it v0.1.0 | user | after the build | M7 | not yet |
+| 10 | Nebius AI Cloud account at console.nebius.com, project in eu-north1, card, USD 25 minimum first payment | user | open | M5 cloudgpu tier (AJ-120) | user-reported open 2026-10-18 (kickoff line: no cloud account yet) |
+| 11 | ed25519 SSH key pair, private key kept outside the repository | user | unknown | M5 | not reported; hygiene measured 16:48Z: no id_ed25519*, id_rsa* or *.pem tracked or present |
+| 12 | Create the VM when the builder asks (platform gpu-l40s-a, preset 1gpu-16vcpu-64gb with the prompt's fallbacks, eu-north1, image ubuntu24.04-cuda12, disk >= 150 GB, public IP, preemptible off), read the hourly price, set CLOUDGPU_SSH_HOST and CLOUDGPU_SSH_USER | user | on builder request | M5 (AJ-125) | not yet |
+| 13 | Delete the VM and its boot disk after "results copied"; report deletion time and final cost (cap USD 30, stop at USD 25) | user | on builder request | M5 (AJ-128) | not yet |
 
 ## Requirements that cannot be met
 
@@ -327,3 +358,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: the first scan (16:48Z at 8635b32) was three docs commits behind by the time the record was written; the gates caught it and the 17:07Z and 17:09Z re-runs at 71a1cf4 are the record. Known limits of the fallback against gitleaks are listed in the paragraph.
 - Gates: round 1 code-review-gatekeeper CHANGES_REQUIRED (MAJOR: stale scan of record; MINOR: empty-variable command, wording), security-specialist CHANGES_REQUIRED (MAJOR: same; MINOR: exact-value greps across history, rule scope, `-l`), spec-compliance-reviewer CHANGES_REQUIRED (AC5 stale record); all applied; round 2 all three APPROVED (AC1 to AC5 PASS, AC6 N/A; reviewers re-ran every grep themselves with a positive control).
 - Velocity: estimate 1.25 h; wall-clock 16:48Z (scan battery) to 17:11Z (entry written), 23 min, commit follows; sub-agent tokens 421,519 (executor 47,631; gates round 1 81,824 + 81,075 + 30,128; round 2 75,078 + 76,981 + 28,802).
+
+### AJ-012 Record the user actions that gate M2 and M5 (REQ-029)
+
+- Shipped: the `### AJ-012` check table under `## Toolchain check` (non-printing presence tests, the `nvapi-` prefix case, the `missing: <NAME>` rule, SSH key hygiene, the build-log key grep, the build result) and, under `## User actions`, the 13-step table from prompt section 12 with owner, status, gates and evidence, plus the Ollama pre-M4 tool action recorded by AJ-002.
+- Decisions: steps 5, 6 and 7 are done (user-reported, presence measured, no value or length ever printed); step 10 is open and gates M5 (kickoff line: no cloud account yet); step 11 is unknown and gates M5; steps 1 to 4 are unknown; steps 8 and 9 come after the build (M7); steps 12 and 13 happen on builder request (M5). The story text puts the 45-minute Nebius onboarding box in M2 while plan 3.6 puts it at AJ-101 in M4; the table states both and the plan is the calendar of record.
+- Deviations: none from the criteria. Two Markdown rendering defects (unescaped pipes inside code spans) were found by the gates and fixed, one of them in the AJ-003 folder-check row from an earlier commit.
+- Gates: round 1 code-review-gatekeeper CHANGES_REQUIRED (MAJOR: unescaped pipes; MAJOR: no pre-commit scan row; MINOR: times, evidence vocabulary, row 9 wording, build result), security-specialist APPROVED (LOW: the recorded presence command should print `missing: <NAME>`, applied; INFO: shell tracing off, applied), spec-compliance-reviewer CHANGES_REQUIRED (C2 and C3 split rows); all applied; round 2 code-review-gatekeeper APPROVED and spec-compliance-reviewer APPROVED (C1 to C6 PASS).
+- Velocity: estimate 1.00 h; wall-clock 16:48Z (presence test) to 17:18Z (entry written), 30 min, commit follows; sub-agent tokens 340,207 (gates round 1 100,176 + 83,526 + 35,120; round 2 79,279 + 42,106; the presence and hygiene commands ran inline).
