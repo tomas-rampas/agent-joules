@@ -139,9 +139,10 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria, results logged under `## Toolchain check`.
 Docs impact: docs/build-log.md `## Toolchain check`.
 Definition of done:
-- [ ] scenarios green (shell checks), no projects exist yet
-- [ ] docs listed above updated
-- [ ] every blocked item names the milestone it blocks (M1 container check, M1 gated NVML test, M4 local runtime)
+- [x] scenarios green (shell checks), no projects exist yet
+- [x] docs listed above updated
+- [x] every blocked item names the milestone it blocks (M1 container check, M1 gated NVML test, M4 local runtime)
+- Note (2026-10-18): acceptance criterion 4 is unmet, Ollama is not installed (user action, recorded under Requirements that cannot be met in docs/build-log.md); the M4 local runtime is gated on it.
 Demo relevance: no
 
 ### AJ-003: Create the repository folders
