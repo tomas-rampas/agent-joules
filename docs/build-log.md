@@ -132,6 +132,20 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | mutation: CRLF source file (scratch copy m3) | Program.cs given CRLF endings (one CRLF plus a lone trailing CR, 2 CR bytes), then `dotnet format --verify-no-changes` | 2 | `error ENDOFLINE: Fix end of line marker.` (the criterion) and `error FINALNEWLINE` from the trailing CR, both on Program.cs |
 | working tree unchanged by the mutations | `git status --porcelain` captured before and after, compared with `diff` | 0 | identical, 7 lines each; the copies were made with `git ls-files -co --exclude-standard` into the scratchpad, never inside the repository |
 
+### AJ-009 hygiene checks (2026-10-18T16:41Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| licence | `head -n 1 LICENSE` then `grep -F "MIT License"` | 0 | `MIT License` |
+| README untouched | `git diff --numstat README.md` | 0 | no output; README.md is not edited in M0 |
+| ignore matrix | `git check-ignore results/x.raw results/x.partial src/AgentJoules.Core/bin/x src/AgentJoules.Core/obj/x a.pem id_ed25519 id_ed25519.pub id_rsa id_rsa.pub artifacts/linux-x64/x .code-review-graph/graph.db` | 0 | all eleven paths printed |
+| controls not ignored | `git check-ignore results/20261018T120000Z-local.json results/probe-20261018T120000Z.json docs/report/index.html` | 1 | no output |
+| eol attribute | `git check-attr eol -- global.json src/a.csproj .github/workflows/ci.yml README.md results/x.json docs/report/index.html`; `git check-attr eol -- a.ps1 a.sh` | 0; 0 | `eol: lf` for all six; `a.ps1: eol: crlf`, `a.sh: eol: lf` |
+| numstat | `git diff --numstat .gitignore .gitattributes` | 0 | `2 0 .gitignore` (a comment line and `results/*.partial`) and `1 0 .gitattributes` (`* text=auto eol=lf` as the new first line); 0 removed lines in both |
+| working-tree renormalisation | `rm .editorconfig && git checkout -- .editorconfig`; `git ls-files --eol .editorconfig .gitignore .gitattributes README.md` | 0 | `i/lf w/lf` for all four; `.editorconfig` content unchanged (`git status --short .editorconfig` empty); `.gitignore` converted to LF in place after the append |
+| negative, scratch repository: removed secret pattern | a throwaway repository in the scratchpad with this `.gitignore` minus the `id_rsa*` line; `git check-ignore id_rsa` | 1 | no output, so the deletion is caught |
+| tool state ignored | `git check-ignore .serena/project.yml` | 0 | printed |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -255,3 +269,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: none from the story. Exit codes come from the executor's report and are not saved to files (future gates write them to `.exit` files beside the logs); the restore was a no-op because AJ-007 had restored already, so the audit claim rests on the cached results.
 - Gates: code-review-gatekeeper APPROVED (five MINOR wording notes, applied in this commit); security-specialist APPROVED (LOW: the no-op restore, applied); spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS from the raw logs; criterion 5 re-measured by the reviewer).
 - Velocity: estimate 1.50 h; wall-clock 16:42Z (battery start) to 16:52Z (entry written), 10 min, commit follows; sub-agent tokens 274,838 (executor 56,487; gates 99,071 + 77,647 + 41,633).
+
+### AJ-009 Verify licence and README, extend the ignore and attribute files (REQ-002, REQ-029)
+
+- Shipped: `.gitignore` extended by a comment and `results/*.partial`; `.gitattributes` with `* text=auto eol=lf` as its first line and every other line kept; the working copies of `.editorconfig` and `.gitignore` renormalised to LF (content unchanged).
+- Decisions: `.code-review-graph/` was already ignored at HEAD (line 499, under the existing tool-state comment), so it was not added twice; the old `* text=auto` line stays as line 2 because the story forbids removing lines, and since it names only `text`, `eol=lf` from line 1 survives (checked with `git check-attr`). README.md and LICENSE are untouched.
+- Deviations: the story's criterion 3 lists `.code-review-graph/` as missing; it was present, a measurement error in the story text. Noted for later, not applied: `*.cmd` and `*.bat` would need `text eol=crlf` lines if such scripts ever appear (code-review MINOR); `results/*.raw` and `results/*.partial` do not cover subfolders of `results/`, accepted because the design writes run files directly under `results/` (security LOW).
+- Gates: code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (13 secret and tool-state paths ignored, 3 controls not ignored, no `!` rule re-includes a secret file); spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS).
+- Velocity: estimate 1.25 h; wall-clock 16:40Z (executor start) to 16:53Z (entry written), 13 min, commit follows; sub-agent tokens 257,263 (executor 51,589; gates 79,338 + 84,220 + 42,116).

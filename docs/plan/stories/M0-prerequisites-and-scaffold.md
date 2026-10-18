@@ -583,9 +583,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria (they are the REQ-002 acceptance commands).
 Docs impact: docs/build-log.md; README.md is not edited in M0.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-002 commit made by the builder with a message starting `AJ-009 REQ-002:` (nothing pushed)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-002 commit made by the builder with a message starting `AJ-009 REQ-002:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-010: Redact key values in any text output
