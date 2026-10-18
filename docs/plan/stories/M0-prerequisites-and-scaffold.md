@@ -76,9 +76,9 @@ Tasks:
 Test mapping: no xUnit class (no behaviour); shell checks listed in the criteria, results logged in docs/build-log.md.
 Docs impact: docs/build-log.md (created here); later stories append rows.
 Definition of done:
-- [ ] scenarios green (shell checks), no projects exist yet so no build or unit test is run
-- [ ] docs listed above updated
-- [ ] the file is committed with the REQ-002 commit, never with a key or an em-dash
+- [x] scenarios green (shell checks), no projects exist yet so no build or unit test is run
+- [x] docs listed above updated
+- [x] the file is committed with the REQ-002 commit, never with a key or an em-dash
 Demo relevance: no
 
 ### AJ-002: Verify toolchain and machine prerequisites
