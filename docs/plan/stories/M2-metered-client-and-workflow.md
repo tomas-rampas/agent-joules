@@ -899,7 +899,7 @@ Tasks:
 | AJ-053-T1 | Write the failing BDD feature and unit tests for the model check | tests/AgentJoules.Specs/Features/Cli/ModelNotFound.feature, tests/AgentJoules.UnitTests/DryRunTests.cs | 0.5 | AJ-052-T2 |
 | AJ-053-T2 | Implement `ModelCatalogClient.ListAsync` (`GET {BaseUrl}/models` with bearer key) | src/AgentJoules.Workflow/Providers/ModelCatalogClient.cs | 1.0 | AJ-053-T1, AJ-044-T3 |
 | AJ-053-T3 | Implement the ID ordering and the 20-entry cap formatter | src/AgentJoules.Workflow/Providers/ModelIdListFormatter.cs | 0.5 | AJ-053-T2 |
-| AJ-053-T4 | Add the model check and the exit 4 and exit 5 mapping to `PreflightService` | src/AgentJoules.Workflow/Runs/PreflightService.cs, src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.75 | AJ-053-T3 |
+| AJ-053-T4 | Add the model check and the exit 4 and exit 5 mapping to `PreflightService`; create `ModelNotFoundException` (exit 4) and `EndpointUnreachableException` (exit 5) in `AgentJoulesException.cs` (closing-pass row Y-10; AJ-057-T3 reuses them) | src/AgentJoules.Workflow/Runs/PreflightService.cs, src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.75 | AJ-053-T3 |
 | AJ-053-T5 | Record the `Spec=EDGE-008` result in the build log | docs/build-log.md | 0.25 | AJ-053-T4 |
 Test mapping: `DryRunTests` (design class, trait `Spec=EDGE-008`); feature file `tests/AgentJoules.Specs/Features/Cli/ModelNotFound.feature`.
 Docs impact: `docs/build-log.md`; the exit-code table in the README is written in M6.
@@ -1167,7 +1167,7 @@ Tasks:
 |---|---|---|---|---|
 | AJ-057-T1 | Write the failing BDD feature and unit tests for step failure and partial files | tests/AgentJoules.Specs/Features/Cli/StepFailure.feature, tests/AgentJoules.UnitTests/RetryPolicyTests.cs | 0.5 | AJ-056-T1, AJ-045-T1 |
 | AJ-057-T2 | Stop the tier on an `error` outcome, set status `failed` and checkpoint | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-057-T1, AJ-056-T2 |
-| AJ-057-T3 | Extend `StepFailedException` (created in AJ-050-T5a) and create `EndpointUnreachableException` with exit 5 | src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.5 | AJ-057-T2 |
+| AJ-057-T3 | Extend `StepFailedException` (created in AJ-050-T5a) and reuse `EndpointUnreachableException` and `ModelNotFoundException` (created in AJ-053-T4) | src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.5 | AJ-057-T2 |
 | AJ-057-T4 | Stop `--tier all` at the first failing tier and keep earlier files | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 0.75 | AJ-057-T2 |
 | AJ-057-T5 | Print the partial file path and the failing agent | src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.5 | AJ-057-T3 |
 | AJ-057-T6 | Record the `Spec=EDGE-006` end-to-end result in the build log | docs/build-log.md | 0.25 | AJ-057-T4 |
