@@ -10,7 +10,7 @@ Agent Joules is a .NET 10 command line tool and library that meters each step of
 
 Every metric value carries exactly one of five labels: measured, estimated, model-judged, N/A or not-reported. A missing value is never written as zero.
 
-The same workflow runs on four tiers: locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback, on a Nebius AI Cloud GPU instance where a Nemotron NIM container and the meter share one H100, on Nebius Token Factory serving NVIDIA Nemotron 3, and on build.nvidia.com.
+The same workflow runs on four tiers: locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback, on a Nebius AI Cloud GPU instance where a Nemotron NIM container and the meter share one L40S, on Nebius Token Factory serving NVIDIA Nemotron 3, and on build.nvidia.com.
 
 Energy is measured on the two GPUs I control, the laptop and the Nebius AI Cloud instance, and the two are reported in separate rows, never merged. The hosted API tiers report tokens and latency, and cost where a published price exists. Their energy is N/A. Energy here means GPU-board energy, not CPU, system memory or wall power.
 
@@ -78,7 +78,7 @@ NVML offers two paths, a counter and power sampling. When both are available, a 
 
 ## What's next for Agent Joules
 
-I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the H100 for a like-for-like energy comparison.
+I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the L40S for a like-for-like energy comparison.
 
 A LinkedIn post and a long-form article follow, with every number traced to a results file.
 
