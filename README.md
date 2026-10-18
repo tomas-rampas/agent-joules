@@ -6,7 +6,7 @@ Status: work in progress for the Nebius x NVIDIA Global AI Hackathon on Devpost 
 
 ## What it measures
 
-Agent Joules wraps each agent of a Microsoft Agent Framework workflow in a Microsoft.Extensions.AI IChatClient middleware that records tokens, latency and cost for every model call. On the local NVIDIA GPU the same middleware also records joules and watts through NVML, the NVIDIA Management Library. A judge model adds a quality score to each run. Every metric carries one of five labels: measured, estimated, model-judged, N/A or not-reported, and a missing value is never written as zero. The same workflow runs on Nebius Token Factory serving NVIDIA Nemotron, and locally through an NVIDIA NIM container first, with Ollama as the fallback and build.nvidia.com as the third tier. Energy is measured only on the local GPU, so hosted energy is reported as N/A.
+Agent Joules wraps each agent of a Microsoft Agent Framework workflow in a Microsoft.Extensions.AI IChatClient middleware that records tokens, latency and cost for every model call. On a GPU you control the same middleware also records joules and watts through NVML, the NVIDIA Management Library. A judge model adds a quality score to each run. Every metric carries one of five labels: measured, estimated, model-judged, N/A or not-reported, and a missing value is never written as zero. The same workflow runs on four tiers: locally through an NVIDIA NIM container first with Ollama as the fallback, on a Nebius AI Cloud GPU instance where the NIM container and the meter share one GPU, on Nebius Token Factory serving NVIDIA Nemotron, and on build.nvidia.com. Energy is measured on the laptop GPU and on the cloud GPU and reported in separate rows; hosted API energy is reported as N/A.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ Filled during the build: what ran on Nebius Token Factory, what it changed for t
 
 ## Other Nebius tools or services used
 
-Filled during the build: a list, or the sentence "None besides Token Factory".
+Filled during the build: the Nebius AI Cloud GPU virtual machine used for the measured cloud tier, with preset, region, GPU-hours and observed cost.
 
 ## Methodology and honesty rules
 

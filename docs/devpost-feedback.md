@@ -14,6 +14,8 @@ The laptop has an RTX 3080 Ti Laptop GPU with 16 GB of memory. The local tier us
 
 I do not target the larger variants, Nemotron 3 Super 120B-A12B and Nemotron 3 Ultra 550B-A55B, because the local tier cannot host them. Super appears only as the fallback on Nebius. A non-Nemotron model, Qwen3 8B, is already pulled and runs only as a local baseline, labelled as such. A hosted Nemotron model also acts as the quality judge, and the report discloses it when the judge and the step model are the same.
 
+The cloud tier runs the same Nano model in BF16 on one H100 of a Nebius AI Cloud virtual machine, so the laptop and the datacenter energy figures describe the same model at different precisions, each in its own row.
+
 Exact model IDs are verified with GET /v1/models on each endpoint and recorded in docs/endpoints.md after the build.
 
 ## Q2. How would you rate Nemotron's output quality for your use case? (1 = Poor, 10 = Excellent) Please share what worked well or fell short, e.g., reasoning, instruction-following, domain knowledge, multilingual support.
@@ -46,13 +48,15 @@ Every comparison is scoped to this workload on this laptop, and each cost stays 
 
 This answer is a design decision, written before the build.
 
-I use the Nebius Token Factory hosted API and nothing else on Nebius. The planned setup is the OpenAI-compatible chat completions API, called from a .NET 10 program through the OpenAI SDK with a custom endpoint. Research on 2026-10-17 found that Token Factory serves Nemotron 3 Super through this API at https://api.tokenfactory.nebius.com/v1/ and could not confirm whether Nano or Ultra are offered. I verify the model IDs and the base URL myself with GET /v1/models and record them in docs/endpoints.md. The API key is held in an environment variable or in dotnet user-secrets, and it is never committed. I plan to pay for the runs with the hackathon credits.
+I use two Nebius products: the Token Factory hosted API and one AI Cloud GPU virtual machine. The planned setup is the OpenAI-compatible chat completions API, called from a .NET 10 program through the OpenAI SDK with a custom endpoint. Research on 2026-10-17 found that Token Factory serves Nemotron 3 Super through this API at https://api.tokenfactory.nebius.com/v1/ and could not confirm whether Nano or Ultra are offered. I verify the model IDs and the base URL myself with GET /v1/models and record them in docs/endpoints.md. The API key is held in an environment variable or in dotnet user-secrets, and it is never committed. I plan to pay for the runs with the hackathon credits.
 
-I do not use GPU instances, self-hosted deployment or autoscaling, so I have no instance types or scaling setup to report. Running a NIM container on a Nebius cloud GPU is a stretch goal, and it is not part of this submission unless I do it, in which case it is reported separately from the laptop numbers.
+The AI Cloud part is one on-demand H100 virtual machine (platform gpu-h100-sxm, preset 1gpu-16vcpu-200gb, region eu-north1, image ubuntu24.04-cuda12) that I create in the console and delete after the runs, with a hard cap of USD 30 on total spend. A Nemotron 3 Nano 30B-A3B NIM container in BF16 and my meter run on that machine, so the GPU energy of the cloud tier is measured through NVML, not estimated. No autoscaling and no multi-GPU setup. Laptop and cloud numbers are reported in separate rows and never merged.
 
-The hosted tiers report tokens, latency, time to first token, cost where a price exists, outcome and retry counts. Energy is measured only on the local GPU and is N/A for Nebius.
+The hosted API tiers report tokens, latency, time to first token, cost where a price exists, outcome and retry counts. Energy is measured on the laptop GPU and on the AI Cloud GPU, and is N/A for the Token Factory API.
 
 [[FILL: the model IDs and base URL verified on Nebius Token Factory, and the date they were verified | source: docs/endpoints.md section nebius | owner: builder]]
+
+[[FILL: the AI Cloud instance as used: preset, region, GPU, driver, precision, GPU-hours and observed cost | source: docs/cloudgpu-run.md sections Instance and Cost | owner: builder]]
 
 [[FILL: whether the hackathon credits covered all the Nebius runs | source: docs/build-log.md | owner: builder]]
 
@@ -90,6 +94,7 @@ Latency and time to first token are measured per step, so the Nebius figures sit
 | Q4 cross-tier cost and latency | builder | Cost and latency per tier with the model named, each cost in its own currency | results/TIMESTAMP-local.json, results/TIMESTAMP-nvidia.json, results/TIMESTAMP-nebius.json |
 | Q4 other models I have used | user | My comparison with other models used for similar tasks | The user |
 | Q5 verified IDs and base URL | builder | The verified Nebius model IDs, base URL and verification date | docs/endpoints.md |
+| Q5 AI Cloud instance | builder | Preset, region, GPU, driver, precision, GPU-hours and observed cost | docs/cloudgpu-run.md |
 | Q5 credits | builder | Whether the hackathon credits covered the runs | docs/build-log.md |
 | Q5 most valuable capability | user | The Nebius capability that mattered most and how | The user |
 | Q6 recommendation | user | My rating and the reasons | The user |

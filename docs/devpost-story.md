@@ -6,13 +6,13 @@ Before building, I researched prior art. Published work I found includes arXiv 2
 
 ## What it does
 
-Agent Joules is a .NET 10 command line tool and library that meters each step of a Microsoft Agent Framework workflow. It wraps each agent's chat client in metering middleware. For every model call it records tokens, latency and cost, and on the local GPU it also records joules and watts. A judge model adds a quality score.
+Agent Joules is a .NET 10 command line tool and library that meters each step of a Microsoft Agent Framework workflow. It wraps each agent's chat client in metering middleware. For every model call it records tokens, latency and cost, and on a GPU I control it also records joules and watts. A judge model adds a quality score.
 
 Every metric value carries exactly one of five labels: measured, estimated, model-judged, N/A or not-reported. A missing value is never written as zero.
 
-The same workflow runs on Nebius Token Factory serving NVIDIA Nemotron 3, and locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback. build.nvidia.com is the third tier.
+The same workflow runs on four tiers: locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback, on a Nebius AI Cloud GPU instance where a Nemotron NIM container and the meter share one H100, on Nebius Token Factory serving NVIDIA Nemotron 3, and on build.nvidia.com.
 
-Energy is measured on the local GPU. The hosted tiers report tokens and latency, and cost where a published price exists. Their energy is N/A. Energy here means GPU-board energy, not CPU, system memory or wall power.
+Energy is measured on the two GPUs I control, the laptop and the Nebius AI Cloud instance, and the two are reported in separate rows, never merged. The hosted API tiers report tokens and latency, and cost where a published price exists. Their energy is N/A. Energy here means GPU-board energy, not CPU, system memory or wall power.
 
 The aim is energy-aware agent design. A developer can see which step to shrink, cache or move to another tier, and can set the estimated local electricity cost next to the hosted token cost on one workload, each in its own currency. Every result comes from committed files that others can regenerate on their own GPU.
 
@@ -20,7 +20,7 @@ The aim is energy-aware agent design. A developer can see which step to shrink, 
 
 The core is a Microsoft.Extensions.AI `IChatClient` middleware. Each agent gets its own metered client, created with the agent's name, so attribution is by construction.
 
-NVML is bound through P/Invoke. When the GPU supports the energy counter, the meter reads it directly. NVML reports millijoules, so
+NVML is bound through P/Invoke. On Linux the same code loads libnvidia-ml.so.1, so the meter runs unchanged on the cloud instance. When the GPU supports the energy counter, the meter reads it directly. NVML reports millijoules, so
 
 $$E = \frac{C_{\text{end}} - C_{\text{start}}}{1000}$$
 
@@ -58,6 +58,8 @@ Research set two expectations before I started: the larger Nemotron tag I consid
 
 [[FILL: median net joules per run of the demo workflow on the local tier, with the minimum to maximum range, the number of repeats, GPU, driver, date, runtime, GPU offload percentage and model tag | source: results/TIMESTAMP-local.json fields steps.netJoules, run.repeat and the environment block, as summarized in docs/report/summary.md]]
 
+[[FILL: median net joules per run of the same workload on the Nebius AI Cloud instance, with instance preset, GPU, driver, precision, repeats and observed cost, in its own row next to the laptop figure | source: results/TIMESTAMP-cloudgpu.json and docs/cloudgpu-run.md sections Instance and Cost]]
+
 [[FILL: which agent step used the largest share of local net energy, as a percentage of the summed step net joules and scoped to this workload on this laptop | source: results/TIMESTAMP-local.json fields steps.agent and steps.netJoules]]
 
 [[FILL: how the local run compares with the Nebius Token Factory run, and with the build.nvidia.com run where it has a price, on cost and latency, with the model on each tier named and each cost in its own currency, scoped to this workload | source: results/TIMESTAMP-local.json, results/TIMESTAMP-nvidia.json and results/TIMESTAMP-nebius.json fields totals.costByCurrency, totals.wallClockMs and steps.modelId]]
@@ -76,7 +78,7 @@ NVML offers two paths, a counter and power sampling. When both are available, a 
 
 ## What's next for Agent Joules
 
-I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and NIM on a Nebius cloud GPU, reported separately from laptop numbers.
+I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the H100 for a like-for-like energy comparison.
 
 A LinkedIn post and a long-form article follow, with every number traced to a results file.
 
@@ -91,6 +93,7 @@ This section is not part of the submitted story. It lists what replaces each pla
 | outcome of the time-boxed NIM container attempt on this laptop, whichever way it ended, and why | Outcome and decision in two or three sentences | docs/nim-local-attempt.md |
 | the hardest problem met during the build and how I resolved it | A short account | docs/build-log.md |
 | median net joules per run of the demo workflow on the local tier, with the minimum to maximum range, the number of repeats, GPU, driver, date, runtime, GPU offload percentage and model tag | The median with its label, the range, n and the environment | results/TIMESTAMP-local.json and docs/report/summary.md |
+| median net joules per run of the same workload on the Nebius AI Cloud instance, with instance preset, GPU, driver, precision, repeats and observed cost, in its own row next to the laptop figure | The cloud median with its label, the environment and the observed cost | results/TIMESTAMP-cloudgpu.json and docs/cloudgpu-run.md |
 | which agent step used the largest share of local net energy, as a percentage of the summed step net joules and scoped to this workload on this laptop | Agent name, its net joules and its percentage | results/TIMESTAMP-local.json |
 | how the local run compares with the Nebius Token Factory run, and with the build.nvidia.com run where it has a price, on cost and latency, with the model on each tier named and each cost in its own currency, scoped to this workload | A scoped comparison sentence per currency, no general claims | results/TIMESTAMP-local.json, results/TIMESTAMP-nvidia.json and results/TIMESTAMP-nebius.json |
 | what the calibration run showed on this GPU: the relative difference between the counter and sampling methods, or that the counter is unsupported and no comparison was possible | The measured percentage with its label, or the stated reason it is N/A | results/calibration-TIMESTAMP.json |
