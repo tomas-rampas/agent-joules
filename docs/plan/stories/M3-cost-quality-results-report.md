@@ -1594,6 +1594,8 @@ Demo relevance: no (the property it protects makes the live view safe to show).
 
 ## Estimate
 
+Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
+
 Sum of task estimates: 101.5 hours across 24 stories and 136 tasks (per story: AJ-070 3.5, AJ-071 2.75, AJ-072 3.5, AJ-073 2.0, AJ-074 2.0, AJ-075 2.5, AJ-076 5.0, AJ-077 3.0, AJ-078 5.5, AJ-079 5.75, AJ-080 2.75, AJ-081 2.5, AJ-082 3.75, AJ-083 5.25, AJ-084 4.5, AJ-085 3.5, AJ-086 3.75, AJ-087 3.5, AJ-088 3.0, AJ-089 6.0, AJ-090 7.0, AJ-091 10.0, AJ-092 6.5, AJ-093 4.0). The dashboard stories AJ-089 to AJ-093 account for 33.5 hours; the rest is 68.0 hours. The design's own dashboard estimate is 6 to 8 hours (R-11, inferred); this plan's task-level sum is about four times that because it includes red-first tests, Specs features and documentation for each story, so the figure should be re-checked with the architect.
 
 Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-23 to 2026-10-25), shared with the last day of M2. The sum is about 5.6 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M3 cannot close it. Deferral candidates in order: AJ-089 to AJ-093 dashboard (33.5 h, REQ-032 is a user-added scope item; replay AJ-092 is the part the video and judges need), AJ-087 README block function (3.5 h, only needed once M6 wires it), AJ-081 baseline-row handling. REQ-009, REQ-010, REQ-015, REQ-016, REQ-023, REQ-030 and EDGE-012 must still be met before the Definition of Done.

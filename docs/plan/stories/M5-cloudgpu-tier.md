@@ -768,6 +768,8 @@ Conflict: REQ-028 switches the tagline to A-local when the cloudgpu tier "produc
 
 ## Estimate
 
+Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
+
 Sum of task estimates, computed from the task tables: 36.95 h including the five USER ACTION tasks (35.35 h builder-only; user actions total 1.60 h).
 
 | Story | Tasks | Hours |

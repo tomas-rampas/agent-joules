@@ -922,6 +922,8 @@ Demo relevance: no.
 
 ## Estimate
 
+Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
+
 | Story | Tasks | Hours |
 |---|---|---|
 | AJ-150 Laptop, hosted and dashboard evidence | 7 | 3.0 |

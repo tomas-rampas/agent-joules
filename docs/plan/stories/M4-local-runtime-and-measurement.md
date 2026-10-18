@@ -1152,6 +1152,8 @@ Demo relevance: no.
 
 ## Estimate
 
+Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
+
 Sum of task estimates, computed from the task tables: 55.45 h including the four USER ACTION tasks (54.70 h builder-only; user actions total 0.75 h).
 
 | Story | Tasks | Hours |

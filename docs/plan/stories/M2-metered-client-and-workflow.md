@@ -1246,6 +1246,8 @@ Demo relevance: no.
 
 ## Estimate
 
+Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
+
 Sum of task estimates: 80.75 hours across 19 stories and 111 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 9.25, AJ-057 3.5, AJ-058 3.25).
 
 Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours. REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).
