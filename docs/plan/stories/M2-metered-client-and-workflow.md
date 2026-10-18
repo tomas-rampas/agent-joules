@@ -1047,6 +1047,7 @@ Acceptance criteria:
 5. For a measured tier the orchestrator opens the GPU port, starts the meter, calls the (no-op in M2) warm-up seam, then measures the idle baseline for `--baseline-seconds`; hosted tiers use `UnmeteredEnergyMeter` and skip these steps.
 6. The console prints one line per finished step: `<task> r<repeat> <agent> <outcome> netJ=<v|N/A> avgW=<v|N/A> in=<v|not-reported> out=<v|not-reported> latency=<ms>`, then the results file path and the totals; a missing value is never printed as 0.
 7. The run ends with `run.status: "completed"` and exit 0; the judge seam is a no-op (M3 fills it); `--task bogus` exits 2.
+8. On host shutdown (`ApplicationStopping`, Ctrl+C, SIGTERM) the orchestrator marks every in-flight step `outcome: "incomplete"`, sets `run.status: "incomplete"`, writes the checkpoint by atomic temp-file move (ADR-17) within the 15 s termination timeout and exits 5 (task AJ-056-T6a; test `Shutdown_marks_in_flight_steps_incomplete`: the file parses, `run.status` is `incomplete`, the in-flight step is `incomplete`, exit code 5). A run that completes normally never carries `incomplete` (test `Completed_run_has_no_incomplete`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S056 @REQ-017 @REQ-013
@@ -1083,6 +1084,17 @@ Feature: AJ-056 Orchestrate a tier run over tasks, repeats and modes
     Given the run command
     When "run --tier nvidia --mode parallel" is executed
     Then the exit code is 2
+  @positive
+  Scenario: AJ-056 Ctrl+C mid-step leaves an incomplete file and exits 5
+    Given a nvidia run whose second step is in flight
+    When the cancellation token is signalled
+    Then the results file has run.status "incomplete" and the in-flight step has outcome "incomplete"
+    And the file was written before the termination timeout and the exit code is 5
+  @negative
+  Scenario: AJ-056 a run that completes normally never carries incomplete
+    Given a nvidia run that finishes without interruption
+    When the results file is read
+    Then run.status is "completed" and no step has outcome "incomplete"
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1090,10 +1102,11 @@ Tasks:
 | AJ-056-T1 | Write the failing BDD feature and unit tests for orchestration | tests/AgentJoules.Specs/Features/Cli/RunOrchestration.feature, tests/AgentJoules.UnitTests/RunOrchestrationTests.cs | 0.5 | AJ-054-T1, AJ-055-T1 |
 | AJ-056-T2 | Implement `RunOrchestrator.RunTierAsync` loops, per-run clients and checkpoints | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 2.0 | AJ-056-T1, AJ-050-T6, AJ-055-T3 |
 | AJ-056-T3 | Add the measured-tier start sequence (GPU port, meter start, warm-up seam, baseline) | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Workflow/Local/ILocalRuntime.cs | 1.0 | AJ-056-T2 |
-| AJ-056-T4 | Fill `environment` and `run` fields available without a local runtime in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.5 | AJ-056-T2, AJ-056-T4a |
 | AJ-056-T4a | Create `RunAssembler` with serialized totals, token and cost-per-currency sums, `wallClockMs`, hosted-tier energy `N/A`, `run.mode` and the `ReportSentences` constants | src/AgentJoules.Workflow/Runs/RunAssembler.cs, src/AgentJoules.Core/Results/ReportSentences.cs | 1.75 | AJ-056-T1, AJ-055-T2 |
+| AJ-056-T4 | Fill `environment` and `run` fields available without a local runtime in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.5 | AJ-056-T2, AJ-056-T4a |
 | AJ-056-T5 | Implement `--tier all` expansion and the all-tier key check | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Workflow/Runs/PreflightService.cs | 0.75 | AJ-056-T2 |
 | AJ-056-T6 | Implement `ConsoleReporter` step lines and the closing summary | src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.75 | AJ-056-T2 |
+| AJ-056-T6a | On `ApplicationStopping` or the CLI cancellation token, mark every in-flight step `outcome: incomplete`, set `run.status` to `incomplete`, write the checkpoint by atomic temp-file move within the 15 s termination timeout, and map the exit code to 5 | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Cli/ExitCodeMapper.cs | 0.75 | AJ-056-T2, AJ-055-T3 |
 | AJ-056-T7 | Wire the `run` action and the `IJudgeService` no-op seam | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Workflow/Judge/IJudgeService.cs | 0.75 | AJ-056-T5, AJ-056-T6 |
 | AJ-056-T8 | Document `--tier all` semantics and the fixed tier order | README.md | 0.25 | AJ-056-T7 |
 Test mapping: class `RunOrchestrationTests` (trait `Spec=REQ-017`) and `ExecutionModeTests` for the mode wiring; feature file `tests/AgentJoules.Specs/Features/Cli/RunOrchestration.feature`.
@@ -1248,6 +1261,6 @@ Demo relevance: no.
 
 Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
 
-Sum of task estimates: 80.75 hours across 19 stories and 111 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 9.25, AJ-057 3.5, AJ-058 3.25).
+Sum of task estimates: 81.5 hours across 19 stories and 112 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 10.0, AJ-057 3.5, AJ-058 3.25).
 
-Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours. REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).
+Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity (81.5 / 18). This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours (81.5 - 9). REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).

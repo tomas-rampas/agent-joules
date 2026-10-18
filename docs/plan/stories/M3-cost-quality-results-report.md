@@ -1440,7 +1440,7 @@ Acceptance criteria:
 3. `--speed 4` divides every delay by 4 (driven by `FakeTimeProvider`); `--speed` of 0 or below exits 2.
 4. A file that does not match the run-file name pattern or fails the schema exits 2 naming the file; when 20 consecutive ports are busy the command exits 5 and prints `no free dashboard port in <start>-<end>`.
 5. A hosted fixture replays power as N/A reason `hosted-tier`; the page shows the banner `power shown as recorded per-step average` and a replay marker.
-6. Without `--exit-after` the server runs until Ctrl+C and exits 0; nothing is written to disk.
+6. Without `--exit-after` the server runs until Ctrl+C; the replay server handles its own cancellation and returns 0 (it is not the shutdown-exit-5 path of a measured run); nothing is written to disk (test `Replay_cancellation_exits_0`: exit code 0 after the token is cancelled, and the output folder is unchanged).
 7. After printing `Dashboard: <uri>` the replay emits no event until the first `/events` connection or until `--start-delay <seconds>` elapses (test `No_event_before_first_client`: the sink holds 0 emitted events before a client connects).
 8. With no client and no start delay the command prints a warning and exits 0 after the shorter of 120 seconds and `--exit-after` (fake-clock test `No_client_times_out_with_warning`: exit code 0 and one warning line).
 9. `--exit-after` counts from the first event (event 0), not from startup, and a client that reconnects is rebuilt from the `snapshot` item (test `Reconnect_rebuilds_from_snapshot`: the snapshot after reconnect equals the snapshot before the drop).
@@ -1501,6 +1501,12 @@ Feature: AJ-092 Replay a committed run file on its recorded timeline
     Given a started replay with no client and --exit-after 60
     When 60 seconds pass on the fake clock
     Then a warning is printed and the exit code is 0
+  @positive
+  Scenario: AJ-092 Ctrl+C during a replay exits 0
+    Given a replay in progress with a connected client
+    When the cancellation token is signalled
+    Then the replay server stops by itself and the exit code is 0
+    And no file was written
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |

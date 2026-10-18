@@ -14,7 +14,7 @@ Exit criteria:
 - [ ] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json`
 - [ ] The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`; the output of `AJ probe` inside WSL2 (or the reason it was not run) is recorded under `## Probe and WSL2 notes`
 - [ ] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1
-- [ ] `dotnet test --filter "Spec=REQ-006"` includes the exit-code value test (ExitCodeTests); the README exit-code table is written once by M6 AJ-131
+- [ ] `dotnet test --filter "Spec=REQ-006"` includes the exit-code value test (ExitCodeTests); the README exit-code table is created by AJ-131-T4 in M6
 - [ ] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered): `AJ-023 REQ-003:`, `AJ-027 REQ-004 EDGE-002:`, `AJ-031 REQ-005:`, `AJ-037 REQ-006:`, `AJ-038 REQ-024:`, `AJ-026 EDGE-003:`, `AJ-030 EDGE-005:`, `AJ-028 EDGE-013:` and `AJ-036 EDGE-001 EDGE-014:` exist (made by the builder, nothing pushed); `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
 
 ## Coverage
@@ -945,7 +945,7 @@ Acceptance criteria:
 6. The host is built with `HostApplicationBuilder` and `DisableDefaults`; configuration sources are exactly: the JSON file (`--config` or `config/appsettings.json`), optional user-secrets, environment variables; options use `BindConfiguration("AgentJoules")` and `ValidateOnStart()`, triggered by `StartAsync`.
 7. With `CliHostOverrides` (`IncludeProcessEnvironment` false, `IncludeUserSecrets` false) neither environment variables nor user-secrets are sources: a test with `NVIDIA_API_KEY` set in the process still sees an empty key through the harness.
 8. Logging goes to stderr at every level (`LogToStandardErrorThreshold = Trace`); stdout carries only command output; `AJ --help` and `AJ probe --help` exit 0.
-9. Host shutdown (Ctrl+C, SIGTERM, SIGHUP) arrives through `IHostApplicationLifetime.ApplicationStopping` and cancels the token handed to the command action; the host registers a no-op `IHostLifetime` (so the console lifetime does not race System.CommandLine) and `InvocationConfiguration.ProcessTerminationTimeout` is 15 s (design 3.6). `ExitCodeMapper` maps an `OperationCanceledException` caused by that shutdown to exit 5 (design 3.4 step 3 and 5.2 EDGE-016: in-flight steps become `incomplete`, `run.status` `incomplete`; the run orchestrator that writes them is built in M2 and M5, M1 delivers and tests the signal path and the mapping with a fake long-running command). An `OperationCanceledException` not caused by shutdown still maps to 1. Proof: `ExitCodeTests` cases `Shutdown_cancels_command_and_exits_5` and `Unrelated_cancellation_exits_1`; a test reads `ProcessTerminationTimeout` and asserts 15 s.
+9. Host shutdown (Ctrl+C, SIGTERM, SIGHUP) arrives through `IHostApplicationLifetime.ApplicationStopping` and cancels the token handed to the command action; the host registers a no-op `IHostLifetime` (so the console lifetime does not race System.CommandLine) and `InvocationConfiguration.ProcessTerminationTimeout` is 15 s (design 3.6). `ExitCodeMapper` maps an `OperationCanceledException` caused by that shutdown to exit 5 (design 3.4 step 3 and 5.2 EDGE-016). AJ-034 delivers the signal path, the no-op lifetime, the 15 s timeout and the exit 5 mapping, tested with a fake long-running command; marking in-flight steps `incomplete`, setting `run.status` `incomplete` and writing the checkpoint within the 15 s timeout is owned by M2 task AJ-056-T6a, not by this story. An `OperationCanceledException` not caused by shutdown still maps to 1. Proof: `ExitCodeTests` cases `Shutdown_cancels_command_and_exits_5` and `Unrelated_cancellation_exits_1`; a test reads `ProcessTerminationTimeout` and asserts 15 s.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S034 @REQ-006
@@ -989,7 +989,7 @@ Feature: Build the CLI foundation with exit codes and redacted output
   Scenario: AJ-034 Host shutdown cancels the running command and exits 5
     Given a fake long-running command that waits on its cancellation token
     When the host raises ApplicationStopping (the Ctrl+C, SIGTERM and SIGHUP path)
-    Then the command sees the cancellation, the exit code is 5 and ProcessTerminationTimeout is 15 s
+    Then the command sees the cancellation, the exit code is 5 and ProcessTerminationTimeout is 15 s (the incomplete run state is written by AJ-056-T6a, not asserted here)
   @negative
   Scenario: AJ-034 A cancellation that is not a shutdown exits 1
     Given a command that throws OperationCanceledException with no shutdown requested
@@ -1006,7 +1006,7 @@ Tasks:
 | AJ-034-T4a | Wire ApplicationStopping to the command token, the no-op IHostLifetime, the 15 s ProcessTerminationTimeout and the exit 5 mapping | src/AgentJoules.Cli/CliApplication.cs, src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 0.75 | AJ-034-T4 |
 | AJ-034-T5 | Replace the placeholder Program.cs and record the Spec filter result | src/AgentJoules.Cli/Program.cs, docs/build-log.md | 0.25 | AJ-034-T4a |
 Test mapping: ExitCodeTests (design 6.1, exit codes 1, 2 and 6 here; 3, 4, 5, 7 follow in M2); RedactionTests for the CLI path; Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-034-cli-foundation.feature.
-Docs impact: docs/build-log.md `## Per-ID filter results`; the README exit-code table is written by M6 AJ-131.
+Docs impact: docs/build-log.md `## Per-ID filter results`; the README exit-code table is created by AJ-131-T4 in M6.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1023,7 +1023,7 @@ Acceptance criteria:
 4. stdout holds only the probe output; log lines and the method disclosure go to stderr; `AJ probe --json > out.json` parses with System.Text.Json in a test.
 5. The method comes from the AJ-027 selector with `Meter:Method`; `sampleRateHz` equals `Meter:SampleRateHz`; with the counter unsupported under `auto`, the text shows `Method: sampling (sampling-fallback)` and stderr shows `Energy method: sampling (counter unsupported)`.
 6. With `Meter:Method=counter` on an unsupported GPU, probe still prints its facts, with `method` null in JSON and `Method: N/A (counter forced but unsupported)` in text, exit 0. The design is silent here: probe is diagnostic, `run` fails with exit 6 later (M2). The default is recorded in docs/build-log.md.
-7. The code-level exit-code mapping is tested: `ExitCodeTests.ExitCode_values_match_the_documented_list` asserts `Success` 0, `Unexpected` 1, `InvalidArguments` 2, `MissingKey` 3, `ModelNotFound` 4, `Unreachable` 5, `PreconditionFailed` 6, `ContentDiffers` 7 (`dotnet test --filter "Spec=REQ-006"` passes). The README exit-code table is not written here: M6 AJ-131 owns it (one table, written once). This story adds only a `### probe` subsection under `## CLI reference` listing `--json`, `--save`, `--suffix` and `--config`; the existing placeholder paragraph is left untouched (`git diff --numstat README.md` shows 0 removed lines).
+7. The code-level exit-code mapping is tested: `ExitCodeTests.ExitCode_values_match_the_documented_list` asserts `Success` 0, `Unexpected` 1, `InvalidArguments` 2, `MissingKey` 3, `ModelNotFound` 4, `Unreachable` 5, `PreconditionFailed` 6, `ContentDiffers` 7 (`dotnet test --filter "Spec=REQ-006"` passes). The README exit-code table does not exist yet: it is created by AJ-131-T4 in M6; AJ-035 adds the probe subsection and the ExitCodeTests. This story adds only a `### probe` subsection under `## CLI reference` listing `--json`, `--save`, `--suffix` and `--config`; the existing placeholder paragraph is left untouched (`git diff --numstat README.md` shows 0 removed lines).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S035 @REQ-006 @EDGE-001
