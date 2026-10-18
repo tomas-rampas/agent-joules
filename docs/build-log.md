@@ -100,6 +100,22 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | format | `dotnet format --verify-no-changes` | 0 | no diff |
 | template leftovers | `find src -name Class1.cs` | 0 | prints nothing; the only .cs file is `src/AgentJoules.Cli/Program.cs` |
 
+### AJ-007 test-project checks (2026-10-18T16:36Z to 16:44Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| six class names listed | `dotnet test --list-tests` then `grep -c <Name>` for MeteredChatClientTests, AttributionBaselineTests, CostModelTests, JudgeParsingTests, ReportRenderingTests, SchemaValidationTests | 0 | 1 each |
+| placeholders skipped, never passed | `dotnet test`; `grep -rn "Assert.True(true)" tests` | 0; 1 | `Failed: 0`; UnitTests `Skipped: 6`, IntegrationTests `Skipped: 1`, Specs `No test is available` (zero tests, exit 0); skip reasons `placeholder: replaced by AJ-040` (MeteredChatClientTests), `AJ-026` (AttributionBaselineTests), `AJ-070` (CostModelTests), `AJ-073` (JudgeParsingTests), `AJ-081` (ReportRenderingTests), `AJ-078` (SchemaValidationTests), `AJ-023` (PlaceholderIntegrationTests); no `Assert.True(true)` |
+| TestSupport is a plain library | `dotnet msbuild tests/AgentJoules.TestSupport -getProperty:IsTestProject`; read its csproj | 0 | `false`; one PackageReference `xunit` (provides FactAttribute), no runner, no Microsoft.NET.Test.Sdk; UnitTests, Specs and IntegrationTests do not redeclare IsTestProject |
+| references per project | `grep -h ProjectReference` and `grep -h PackageReference` per test csproj | 0 | UnitTests and Specs: seven src projects plus TestSupport; IntegrationTests: Core, Nvml, Metering, Workflow, TestSupport; Specs packages Reqnroll.xUnit and Microsoft.Extensions.TimeProvider.Testing; UnitTests packages Microsoft.Extensions.TimeProvider.Testing and OpenTelemetry.Exporter.InMemory; no Version attribute |
+| Reqnroll settings | `grep missingOrPendingStepsOutcome tests/AgentJoules.Specs/reqnroll.json`; `dotnet msbuild tests/AgentJoules.Specs -getProperty:ReqnrollUseIntermediateOutputPathForCodeBehind`; `find tests/AgentJoules.Specs/Features -name .gitkeep` counted | 0; 0; 0 | `"missingOrPendingStepsOutcome": "Error"`; `true`; 7 folders (Metering, Workflow, Cli, Reporting, Configuration, CloudGpu, Dashboard); no .feature file |
+| unbound step fails the run (scenario 6, scratch copy) | copy of the tree in the scratchpad with `Features/Configuration/Unbound.feature` holding one unbound step; `dotnet test tests/AgentJoules.Specs` there | 1 | `Reqnroll.MissingStepDefinitionException`, `Failed: 1`; the code-behind was generated under `obj/`, so the Reqnroll generator works in this project shape; a control run without `reqnroll.json` also failed, so the file pins Reqnroll's default outcome rather than changing it |
+| integration placeholder | read `tests/AgentJoules.IntegrationTests/PlaceholderIntegrationTests.cs` | n/a | one `[Fact(Skip = "placeholder: replaced by AJ-023")]`, no live code |
+| eleven projects | `dotnet sln AgentJoules.slnx list` | 0 | 7 src and 4 tests paths; no Dashboard test class placeholder (owned by M3) |
+| single IntegrationFact | `grep -rn "class IntegrationFactAttribute" tests` | 0 | exactly 1 hit, `tests/AgentJoules.TestSupport/IntegrationFactAttribute.cs`; derives from FactAttribute; sets `Skip = "Set AGENTJOULES_INTEGRATION=1"` unless the variable is exactly `1` |
+| Skip count | `grep -rc "Skip =" tests --include=*.cs` summed; `grep -rc 'Skip = "placeholder' tests --include=*.cs` summed | 0 | 8 and 7: the extra line is the attribute's own assignment in IntegrationFactAttribute.cs, not a placeholder; the skipped-test total is 7 |
+| strict build and format with the test projects | `dotnet build -warnaserror -tl:off --no-incremental`; `dotnet format --verify-no-changes` | 0; 0 | `0 Warning(s)`, `0 Error(s)`; no diff |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -116,7 +132,11 @@ Scan name, exact command (variable names only, never values), exit codes, UTC da
 
 ## Test counts
 
-Passed, failed and skipped counts of `dotnet test` per recorded run (AJ-008 and later).
+Passed, failed and skipped counts of `dotnet test` per recorded run (AJ-007 and later).
+
+| Run | UTC date | Command | Exit code | Passed | Failed | Skipped | Note |
+|---|---|---|---|---|---|---|---|
+| AJ-007 skeleton | 2026-10-18T16:41Z | `dotnet test` | 0 | 0 | 0 | 7 | UnitTests 6, IntegrationTests 1, Specs 0 tests (`No test is available`, exit 0); measured |
 
 ## Per-ID filter results
 
@@ -200,3 +220,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: none from the story.
 - Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (UserSecretsId is a GUID, no secret; Program.cs reads no input and no environment); spec-compliance-reviewer APPROVED (criteria 1 to 8 PASS, Class1.cs check PASS).
 - Velocity: estimate 2.00 h; pooled wall-clock and tokens in the AJ-003 entry.
+
+### AJ-007 Create the test projects and the placeholder test classes (REQ-001)
+
+- Shipped: `tests/AgentJoules.TestSupport` (plain class library, `IsTestProject` false, `IntegrationFactAttribute.cs`), `tests/AgentJoules.UnitTests` with the six REQ-023 placeholder classes, `tests/AgentJoules.Specs` with `reqnroll.json`, the `ReqnrollUseIntermediateOutputPathForCodeBehind` property and the seven empty `Features/<Capability>/` folders, `tests/AgentJoules.IntegrationTests` with `PlaceholderIntegrationTests.cs`; the four projects added to `AgentJoules.slnx` under a `/tests/` folder (11 projects).
+- Decisions: TestSupport references the `xunit` metapackage because `IntegrationFactAttribute` derives from `FactAttribute` and no other pinned package provides it; it carries no runner and no `Microsoft.NET.Test.Sdk`, which is how "no test packages" in criterion 3 is read (adding `xunit.extensibility.core` would be a new pin, forbidden in M0). Every placeholder is `[Fact(Skip = "placeholder: replaced by AJ-0nn")]` with an empty body; the integration placeholder uses `Fact`, and `[IntegrationFact]` is first used by AJ-023 in M1. The Specs project has zero tests in M0 (`No test is available`, exit 0), so no Specs placeholder was added. `reqnroll.json` pins Reqnroll's default outcome for a missing step (a control run without the file also failed), and Reqnroll copies it to the output directory itself.
+- Deviations: `grep -rc "Skip ="` sums to 8 against 7 skipped tests because the attribute's own assignment line counts (recorded in the check rows). The `## Test counts` purpose line now says "AJ-007 and later" because this story records the first counts. `dotnet sln add` wrote CRLF into the slnx, normalised to LF.
+- Gates: code-review-gatekeeper APPROVED (MINOR: the test-count row, written in this commit; a redundant `[AttributeUsage]` line, kept); security-specialist APPROVED (no key, no network, the `$schema` URL in reqnroll.json is editor metadata); spec-compliance-reviewer APPROVED (criteria 1 to 8 PASS; criteria 3 and 8 cannot both hold strictly, the `xunit` reference is the better reading).
+- Velocity: estimate 2.00 h; wall-clock 16:29Z (first csharp-expert call) to 16:47Z (entry written), 18 min, commit follows; sub-agent tokens 403,031 (csharp-expert 81,326 + 93,629; gates 106,191 + 80,300 + 41,585).

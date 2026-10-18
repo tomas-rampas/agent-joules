@@ -8,4 +8,10 @@
     <Project Path="src/AgentJoules.Reporting/AgentJoules.Reporting.csproj" />
     <Project Path="src/AgentJoules.Workflow/AgentJoules.Workflow.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentJoules.IntegrationTests/AgentJoules.IntegrationTests.csproj" />
+    <Project Path="tests/AgentJoules.Specs/AgentJoules.Specs.csproj" />
+    <Project Path="tests/AgentJoules.TestSupport/AgentJoules.TestSupport.csproj" />
+    <Project Path="tests/AgentJoules.UnitTests/AgentJoules.UnitTests.csproj" />
+  </Folder>
 </Solution>

@@ -457,9 +457,10 @@ Tasks:
 Test mapping: placeholders for MeteredChatClientTests (owned by M2), AttributionBaselineTests (M1, AJ-026), CostModelTests, JudgeParsingTests, ReportRenderingTests and SchemaValidationTests (M3); no Specs feature yet.
 Docs impact: docs/build-log.md `## Test counts`.
 Definition of done:
-- [ ] scenarios green, `dotnet test` exit 0, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] if the xUnit1004 "test methods should not be skipped" analyzer surfaces as a warning, it is lowered for tests/ only in .editorconfig with a one-line reason
+- [x] scenarios green, `dotnet test` exit 0, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] if the xUnit1004 "test methods should not be skipped" analyzer surfaces as a warning, it is lowered for tests/ only in .editorconfig with a one-line reason
+- Note (2026-10-18): xUnit1004 did not surface as a warning; .editorconfig was not changed.
 Demo relevance: no
 
 ### AJ-008: Gate the skeleton with build, test and format checks
