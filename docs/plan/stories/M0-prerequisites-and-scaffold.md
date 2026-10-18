@@ -318,9 +318,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. Restore proof of the pins runs in AJ-008.
 Docs impact: docs/build-log.md `## Version deviations and additions`.
 Definition of done:
-- [ ] scenarios green (shell checks), restore proven in AJ-008
-- [ ] docs listed above updated
-- [ ] no package outside design section 2.4 is added in M0
+- [x] scenarios green (shell checks), restore proven in AJ-008
+- [x] docs listed above updated
+- [x] no package outside design section 2.4 is added in M0
 Demo relevance: no
 
 ### AJ-006: Create the solution and the seven source projects

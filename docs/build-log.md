@@ -72,9 +72,26 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | .editorconfig diff | `git diff --numstat .editorconfig`; `grep -c "file_scoped:suggestion" .editorconfig` | 0; prints 0 | `14 1`: one removed line (line 129, suggestion to warning) and 14 added (comment, `[*.cs]`, eight `dotnet_diagnostic` rows, blank line, `[*.{cs,json,md,svg,html}]`, `end_of_line = lf`) |
 | SDK still resolves | `dotnet --version` | 0 | `10.0.401` |
 
+### AJ-005 package-pin checks (2026-10-18T16:28Z to 16:34Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| central management on | `grep -F "<ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>" Directory.Packages.props` | 0 | one line |
+| 22 rows | `grep -cE "<PackageVersion Include=" Directory.Packages.props` | 0 | prints 22; every name and version matches design section 2.4 (checked row by row by the spec reviewer) |
+| forbidden names | `grep -E "AgentHooks|Agents.AI.Mcp|DevUI|Agents.AI.A2A|Tools.Shell|Workflows.Generators" Directory.Packages.props`; `grep -E "OllamaSharp|Moq|NSubstitute" Directory.Packages.props` | 1; 1 | no output |
+| JsonSchema.Net licence | `grep -E "JsonSchema.Net" Directory.Packages.props` | 0 | Version 8.0.5 (MIT; 9.x is OSMF EULA, design C-03) |
+| no project-level version | `grep -rnE --include=*.csproj "<PackageReference[^>]*Version" .` | 1 | no output |
+| restore proof | `dotnet restore` (run by AJ-006 and AJ-007) | 0 | all 22 pins resolve; no NU1901 to NU1904 warning |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
+
+Decision (2026-10-18, AJ-005): stay on the prompt pins. The coordinator versions Microsoft.Extensions.AI 10.11.0, Microsoft.Agents.AI 1.25.0 and OpenTelemetry 1.20.0 are rejected (design C-01, ADR-20 row 1, open point O-01). `dotnet restore` exit 0 on all 22 pins (measured 16:28Z and 16:36Z); no NuGet audit warning; no deviation recorded. M0 adds no package beyond design section 2.4; M1 story AJ-033 adds the Options packages and records them here as additions.
+
+| Package | Pinned version | Used version | Reason |
+|---|---|---|---|
+| none | | | no deviation in M0 |
 
 ## Secret scan
 
@@ -150,3 +167,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: none from the story. Three MINOR code-review notes accepted without change: (1) `$(NoWarn);CS1591` drops the SDK default `1701;1702` (binding-redirect warnings that .NET 10 does not emit; the reviewer's scratch build with the pinned packages gave 0 warnings); (2) `end_of_line = lf` is only safe after AJ-009 adds `* text=auto eol=lf`, so no checkout, stash or restore happens between this commit and AJ-009; (3) NU1901 to NU1904 audit warnings become errors under TreatWarningsAsErrors, accepted on purpose because the AJ-008 rule resolves them by version and never by NoWarn.
 - Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED with the three MINOR notes above; security-specialist APPROVED; spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS; the two test-project checks it deferred are measured in the table above).
 - Velocity: estimate 2.00 h; pooled wall-clock and tokens in the AJ-003 entry.
+
+### AJ-005 Pin the central package versions (REQ-002)
+
+- Shipped: `Directory.Packages.props` with `ManagePackageVersionsCentrally` true and the 22 rows of design section 2.4; the stay-on-prompt-pins decision under `## Version deviations and additions`.
+- Decisions: prompt pins kept (C-01, ADR-20, O-01); JsonSchema.Net 8.0.5 for the MIT licence (C-03); no transitive pinning property added (design does not ask for one).
+- Deviations: none; the restore proof (criterion 6) is the AJ-006 and AJ-007 `dotnet restore` runs, both exit 0.
+- Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (all 22 names and versions checked against design 2.4, no preview or forbidden package); spec-compliance-reviewer APPROVED (criteria 1 to 5 PASS, criterion 6 written in this commit).
+- Velocity: estimate 1.00 h; pooled wall-clock and tokens in the AJ-003 entry.
