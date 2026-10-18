@@ -60,7 +60,7 @@ Filled during the build.
 
 ## Hackathon submission
 
-The Devpost elevator pitch and project story live in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md). The story contains placeholders that are filled from measured results before submission.
+The Devpost elevator pitch and project story live in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md). The story contains placeholders that are filled from measured results before submission. The technical design is [docs/design/technical-design.md](docs/design/technical-design.md); the delivery plan with milestones, stories, BDD scenarios and the traceability matrix is under [docs/plan/](docs/plan/plan.md).
 
 ## License
 

@@ -488,3 +488,8 @@ secrets.json
 .env.*
 appsettings.local.json
 appsettings.*.local.json
+
+# SSH and TLS key material (prompt section 8)
+*.pem
+id_ed25519*
+id_rsa*
