@@ -13,6 +13,8 @@
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
     <IsPackable>false</IsPackable>
     <Deterministic>true</Deterministic>
+    <!-- NU1900 (vulnerability feed unreachable) is an error unless the developer opts in with -p:AgentJoulesOfflineAudit=true; NU1901 to NU1904 (vulnerable packages) are always errors; NU1507 cannot fire with the single mapped source in nuget.config. -->
+    <WarningsNotAsErrors Condition="'$(AgentJoulesOfflineAudit)' == 'true'">$(WarningsNotAsErrors);NU1900</WarningsNotAsErrors>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
