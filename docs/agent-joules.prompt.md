@@ -1,0 +1,475 @@
+# AgentJoules - build prompt
+
+Energy-metered agents: per-step joules, watts, tokens, latency, cost and quality for every agent step of a Microsoft Agent Framework workflow, measured through an NVML-backed `Microsoft.Extensions.AI` middleware in C#/.NET.
+
+## How to use this prompt
+
+- Option A (direct build): open Claude Code with working directory `D:\src\github\NvidiaSDKProjects\hackathon-nebius-nvidia-2026\agent-joules` (the public repository https://github.com/tomas-rampas/agent-joules, created 2026-10-18 by the user with `.gitignore`, `.gitattributes`, `.editorconfig`, `LICENSE`, a placeholder `README.md` and this prompt at `docs/agent-joules.prompt.md`) and paste this whole file. Do not run `git init`, never run `git push`, keep the existing files and extend `README.md` in place; deliver everything in Layer 2 inside this repository.
+- Option B (spec loop): run `/agentic-framework:spec agent-joules` and answer the interview from Layer 2. Shortcut: copy Layer 2 (from the line `# Spec: agent-joules` to the end of its Definition of Done) verbatim to `specs/agent-joules.md`, change `Status: draft` to `Status: approved`, then run `/agentic-framework:build agent-joules`. For option B also copy "Builder standing orders" and Layer 1 sections 6, 8, 9 and 10 verbatim to `specs/agent-joules.context.md`, and add this line as the last line of the "## Objective" section of `specs/agent-joules.md`: "Binding context: specs/agent-joules.context.md (standing orders, honesty rules, secrets, fork samples, time boxes)." Without that file, option B is incomplete. Layer 1 remains binding context in both options.
+
+## Builder standing orders
+
+1. Read the fork samples listed in Layer 1 section 9 before writing any code.
+2. Verify every framework type and method name against `D:\src\github\agent-framework\dotnet\src` (or the NuGet package actually referenced) before using it.
+3. Never invent model IDs, package names, package versions, base URLs or API signatures. Verify, record, then use.
+4. Run the `probe` command before any measurement run and commit its output with the results.
+5. Commit once per completed requirement; the message starts with the REQ or EDGE ID (for example `REQ-007: meter streaming calls`).
+6. When a requirement cannot be met, stop work on it, write the reason into `docs/build-log.md`, and report it. Do not improvise a substitute and do not hide it.
+7. Stretch goals start only after every Definition of Done box is checked.
+
+---
+
+# Layer 1: narrative and constraints
+
+## 1. Mission and audience
+
+AgentJoules makes the energy cost of an agentic workflow visible at the granularity developers reason about: the individual agent step. A metered `IChatClient` decorator records, for every model call an agent makes, the joules the local GPU spent, the power profile, the tokens, the latency, the cost and a quality score. The same workflow runs against a local Nemotron model and two hosted Nemotron endpoints so readers can compare tiers on one workload.
+
+Audiences:
+
+- LinkedIn AI and engineering audience: wants one surprising, defensible number and a repository they can run.
+- Hackathon judges (Nebius x NVIDIA Global AI Hackathon on Devpost): want working use of the sponsor technologies, a demo video of under 3 minutes (budget: at most 170 seconds), and an honest README.
+
+Candidate hooks for the launch post (the builder picks or refines one; no hook may state a number that is not in a committed results file):
+
+- "Tokens are not a cost model. Joules are."
+- "I put a power meter on every agent in my workflow."
+- "Which of my agents burns the most energy? Now I know, per step."
+
+## 2. Decisions (binding, agreed with the user on 2026-10-17; do not re-open)
+
+| Decision | Choice |
+|---|---|
+| Concept | Energy-metered agents: attribute joules, watts, tokens, latency, cost and quality to every agent step of a Microsoft Agent Framework workflow via an NVML-backed Microsoft.Extensions.AI middleware. |
+| Environment | This laptop (RTX 3080 Ti Laptop 16 GB, driver 616.92, WSL2, Docker Desktop 29.6.1, .NET SDK 10.0.401) plus hosted NVIDIA endpoints. User is an NVIDIA Developer Program member (NGC access: NIM containers free for dev/test). |
+| Local runtime | NIM-first, Ollama fallback: time-boxed attempt to run a small NIM container from NGC on the laptop; Ollama carries the local tier if it fails. |
+| Hackathon | Hard requirement: align with the Nebius x NVIDIA Global AI Hackathon (Devpost), deadline 2026-10-30 10:00 PDT. Nebius Token Factory becomes the hosted Nemotron 3 tier; OSS license; public repo; demo video of 3 minutes or less. |
+| Scope | Single Claude Code session produces a working demo plus one launch post; stretch goals listed separately. |
+| Non-code deliverables | README + architecture diagram, LinkedIn post drafts, demo video/GIF script, long-form article, plus the Devpost submission checklist. |
+
+## 3. Hackathon alignment
+
+- Deadline 2026-10-30 10:00 PDT, which is 17:00 UTC (user decision, corroborated 2026-10-17 by two aggregator pages; official Devpost page located (see below) and its search summary confirms the date; the page itself returned HTTP 403 to automated fetching; PDT is UTC-7 until 2026-11-01). The user still has to record the video, push the repository and submit after the build, so the build finishes well before the deadline.
+- Official page: https://nebiusglobalaihackathon.devpost.com/ (found 2026-10-17 via web search; the page, /rules and /resources returned HTTP 403 to automated fetching, so the rules text is verified by a human in a browser or by the builder if its fetch succeeds). At build time the builder reads the official rules page (or asks the user to paste it) and records in `docs/devpost-checklist.md`: URL, verification date, eligibility, required or judged technologies, submission fields, video length limit, license requirement, repository visibility requirement, judging criteria and weights, tracks and the rule for choosing one, Builder Program or credit offers, whether a demo/test URL is required, required NVIDIA model families, required Nebius product, and deadline with time zone. If the page cannot be fetched, the checklist says so and lists the decisions-table values as "user-stated, not verified".
+- Nebius Token Factory is the hosted Nemotron 3 tier and MUST be exercised in the published run (a committed results file with tier `nebius`).
+- Researched 2026-10-17 from aggregator pages (startupgrantsindia.com/nebius-nvidia-global-ai-hackathon, lucaberton.com/blog/aaif-builders-brews-amsterdam-nebius-nvidia-hackathon-2026, internshala.com/competitions/?p=11205; the official page's search summary of 2026-10-17 agrees on the platform rule, the tracks and the deadline): every project must run on Nebius Token Factory or Nebius AI Cloud and use at least one NVIDIA open model such as Nemotron; submissions need a working demo or test build URL, a public repository with an open-source license file, a README with setup instructions, and a public YouTube demo video (official page summary: "3-minute or shorter"; aggregators: "under three minutes"); four equally weighted judging criteria: Technological Implementation, Design, Potential Impact, Quality of the Idea; tracks include "Coding and Agentic Engineering" and "Best Apps and Agents"; entrants may join the Nebius Builder Program for Token Factory credits (user action, relevant to the Nebius onboarding time box); submission window 2026-08-26 to 2026-10-30 10:00 Pacific. The builder re-verifies each item on the official page.
+- Verified 2026-10-18 from the Devpost submission form (user screenshot and pasted field text): tracks "Coding and agentic engineering", "Best apps and agents", "Personal AI", "Physical AI" (recommended: Coding and agentic engineering; the final pick is the user decision); the repository field requires a public GitHub, GitLab or Bitbucket URL with an approved OSI license, a README with setup instructions, and highlights of how NVIDIA Nemotron or other NVIDIA open models were used, where Token Factory accelerated the workflow, and any other Nebius tools or services used; the elevator-pitch field is capped at 200 characters; the Built-with field takes up to 25 tags. The public repository https://github.com/tomas-rampas/agent-joules (MIT) was created 2026-10-18 by the user.
+- If the verified rules contradict this prompt (license, required technology, video length), the verified rules win for that item; the builder records the conflict and resolution in `docs/devpost-checklist.md` and continues.
+- Demo or test build URL (a researched submission field, 2026-10-17): a CLI has no hosted app. Default satisfier, unless the verified rules say otherwise: a static report page docs/report/index.html (REQ-030) served by GitHub Pages from the docs/ folder of the main branch after the user pushes (URL path /report/); second: a public GitHub Release v0.1.0 carrying docs/report/, results/ and a framework-dependent build zip; fallback: the public demo-video URL. docs/devpost-checklist.md MUST contain a line starting "Demo URL:" naming the chosen satisfier and the reason. If the verified rules require a live hosted service, record the item as BLOCKED with the missing decision.
+- Video: the user's decision says "3 minutes or less"; the official page summary says "3-minute or shorter public YouTube video"; aggregators say "under three minutes" (all 2026-10-17). The build budgets at most 170 seconds so every reading is satisfied, and the demo script states that the upload target is a public YouTube video.
+- Pushing the repository and submitting to Devpost are the user's actions. The builder prepares exact commands and text only.
+- Registration, accounts, API keys and credits are user actions described in section 12; the build needs the three keys from section 12 before the hosted tiers can run.
+
+## 4. Hard stack constraints
+
+- C# on .NET 10, target framework `net10.0` only. .NET SDK 10.0.401 is installed (user-reported 2026-10-17; builder runs dotnet --version).
+- `TreatWarningsAsErrors` true and `Nullable` enabled for every project; central package management through `Directory.Packages.props`.
+- Microsoft Agent Framework 1.23.0 GA packages: `Microsoft.Agents.AI`, `Microsoft.Agents.AI.Abstractions`, `Microsoft.Agents.AI.Workflows`, `Microsoft.Agents.AI.OpenAI`. Alpha or preview packages (AgentHooks, Mcp, DevUI, A2A, Tools.Shell) only for stretch goals.
+- `Microsoft.Extensions.AI` 10.10.0, `Microsoft.Extensions.AI.Abstractions` 10.10.1, `Microsoft.Extensions.AI.OpenAI` 10.10.1, `OpenAI` 2.14.0, `OpenTelemetry` 1.18.0 (exporter packages on 1.18.x; exact pins; see the version rule below).
+- Version rule: pin exactly the verified fork versions: Microsoft.Agents.AI* 1.23.0; Microsoft.Extensions.AI 10.10.0; Microsoft.Extensions.AI.Abstractions and .OpenAI 10.10.1; OpenAI 2.14.0; OpenTelemetry 1.18.0 (exporters on 1.18.x). Deviate only if a version is not on NuGet or restore/build fails; then use the highest stable within the same major, re-verify every used API, and record it in `docs/build-log.md`.
+- Tests: xUnit. Unit tests need no GPU, no network and no keys.
+- License: MIT, unless the verified Devpost rules require a different OSI license.
+- Local model access: OllamaSharp (as in the fork's Ollama sample) or Ollama's OpenAI-compatible `/v1` route through the OpenAI SDK. The builder records which and why in `docs/build-log.md`; completeness of usage reporting is a valid reason.
+
+## 5. Model tiers
+
+| Tier | Runtime | Energy |
+|---|---|---|
+| `local` | NIM container on the laptop first; Ollama fallback | Measured through NVML on the laptop GPU |
+| `nvidia` | build.nvidia.com hosted API | `N/A` |
+| `nebius` | Nebius Token Factory hosted API | `N/A` |
+
+Hosted energy is `N/A` by default. An `estimated` hosted energy value is allowed only when computed from a cited, published per-token figure whose URL and date are stored next to it; the default build does not do this.
+
+The local tier runs a Nemotron model. Qwen3 8B, already pulled on the laptop, MAY be run as an additional local configuration and is always labelled `baseline` (non-Nemotron) in results and tables.
+
+## 6. Honesty rules (binding on console, JSON, README, posts, article and video script)
+
+1. Every published number is measured on this laptop (or returned by a hosted API during a run from this laptop) and traceable to a committed file under `results/`.
+2. Every value carries exactly one label from {`measured`, `estimated`, `model-judged`, `N/A`, `not-reported`}.
+3. A value that does not exist is `N/A` or `not-reported` with a null value. It is never written as `0`.
+4. The NIM-local attempt is reported whichever way it ends, in `docs/nim-local-attempt.md` and in the README.
+5. Every published table is accompanied by GPU name, driver version, run date (UTC), local runtime (NIM or Ollama) and model tags or IDs.
+6. Energy is GPU-board energy only; every surface that shows joules says so at least once.
+7. No leaderboard or general "model X is greener than model Y" claims. Statements are scoped to this workload on this machine.
+
+## 7. Environment facts
+
+| Fact | Evidence class | Date |
+|---|---|---|
+| GPU RTX 3080 Ti Laptop 16 GB, driver 616.92 | measured (`nvidia-smi`) | 2026-10-17 |
+| `power.draw` 23.13 W at idle | measured (`nvidia-smi`) | 2026-10-17 |
+| Enforced power limit 94.62 W | measured (`nvidia-smi`) | 2026-10-17 |
+| `C:\Windows\System32\nvml.dll` present | measured | 2026-10-17 |
+| WSL2, Docker Desktop 29.6.1, .NET SDK 10.0.401 installed | user-reported, not probed | 2026-10-17 |
+| `nvmlDeviceGetTotalEnergyConsumption` supported on this GeForce laptop GPU | UNVERIFIED; the startup probe decides | 2026-10-17 |
+| The energy counter returns millijoules since driver load; `nvmlDeviceGetPowerUsage` returns milliwatts | researched; builder verifies signatures against the NVML API reference | 2026-10-17 |
+| Whether `nvmlDeviceGetPowerUsage` is instantaneous or a driver-side moving average on this GPU | unverified; documented as a limitation | 2026-10-17 |
+| Ollama tag `nemotron-3-nano:30b` exists (Q4_K_M, about 16-17 GB; marginal on 16 GB, may partially offload to CPU) | confirmed 2026-10-17 in the user's earlier session, method not recorded; size figure unsourced; builder re-checks with ollama show and the Ollama library page | 2026-10-17 |
+| Smaller Nemotron GGUF tags in the Ollama library | unverified; builder checks | 2026-10-17 |
+| Qwen3 8B pulled locally; exact tag confirmed with `ollama list` | measured (presence); tag unverified | 2026-10-17 |
+| NIM-on-RTX (WSL2 packaging) officially supports only RTX 40/50 series | researched | 2026-10-17 |
+| Generic NIM LLM container, non-optimized vLLM path: any NVIDIA GPU with sufficient memory, compute capability > 7.0 (8.0 for bfloat16), one GPU with 95% free memory | researched | 2026-10-17 |
+| RTX 3080 Ti is SM 8.6, so a 4B-class model whose BF16 weights plus KV cache fit in about 15 GB is the realistic local NIM candidate; Nemotron Nano 2 9B BF16 (about 19 GB) does not fit | researched (SM, sizes); inferred (fit) | 2026-10-17 |
+| A 4B-class Nemotron NIM exists in the NGC catalog | unverified; builder checks | 2026-10-17 |
+| build.nvidia.com: base URL `https://integrate.api.nvidia.com/v1`, OpenAI-compatible, key prefix `nvapi-`, about 40 requests per minute on the free tier | researched; builder verifies | 2026-10-17 |
+| Hosted Nemotron models: `nvidia/nemotron-3-nano-30b-a3b`, Nemotron 3 Super 120B-A12B, Nemotron 3 Ultra 550B-A55B, Nemotron 3 Nano Omni, Nemotron 3.5 Lightning 30B-A3B (released 2026-08-11) | researched; only the first is given as an ID; all IDs verified via `GET /v1/models` before use | 2026-10-17 |
+| Nebius Token Factory serves Nemotron 3 Super via an OpenAI-compatible API | researched | 2026-10-17 |
+| Nemotron 3 Ultra on Nebius; Nebius base URL | unverified; builder verifies | 2026-10-17 |
+| NIM containers free for development and test under the NVIDIA Developer Program | user-reported; builder re-checks the program terms before use | 2026-10-17 |
+
+Prior art for the article (researched 2026-10-17; builder re-checks citations): arXiv 2407.16893 "The Price of Prompting"; TokenPowerBench (AAAI); "Watt Counts" arXiv 2604.09048; the Python `greentoken` CLI. None covers per-agent-step attribution or .NET. A search on 2026-10-17 found no published sample combining Microsoft Agent Framework with NVIDIA NIM or Nemotron in C#.
+
+## 8. Secrets and safety
+
+- Keys: `NVIDIA_API_KEY`, `NEBIUS_API_KEY`, `NGC_API_KEY`, read from environment variables or `dotnet user-secrets` only.
+- Keys are never committed, never written to results, never logged. Error paths that could include headers or configuration dumps redact values (for example `nvapi-****`).
+- Raw request/response logs, if kept, go to `results/*.raw`, which is git-ignored.
+- `docker login nvcr.io` receives `NGC_API_KEY` through `--password-stdin`, never as a command-line argument recorded in docs or shell history.
+- A secret scan is part of the Definition of Done.
+
+## 9. Builder process rules
+
+Read these fork files first (fork at `D:\src\github\agent-framework`, dated 2026-09-30; paths verified by the orchestrator 2026-10-17):
+
+- `dotnet/samples/03-workflows/Concurrent/Concurrent/Program.cs` (fan-out / fan-in)
+- `dotnet/samples/03-workflows/Observability/AspireDashboard/Program.cs`
+- `dotnet/samples/03-workflows/Observability/ApplicationInsights/Program.cs`
+- `dotnet/samples/03-workflows/Observability/WorkflowAsAnAgent/Program.cs`
+- `dotnet/samples/02-agents/AgentOpenTelemetry/Program.cs`
+- `dotnet/samples/04-hosting/af-hosting/local_responses/Client/Program.cs` lines 33-36: `new OpenAIClient(new ApiKeyCredential("..."), new OpenAIClientOptions { Endpoint = new Uri(serverUrl) })` is the verified pattern for pointing the OpenAI SDK at any OpenAI-compatible endpoint (NVIDIA, Nebius, NIM, Ollama `/v1`).
+- `dotnet/samples/02-agents/AgentProviders/ollama/Agent_With_Ollama/Program.cs`: `OllamaSharp.OllamaApiClient(new Uri(endpoint), modelName).AsAIAgent(instructions:, name:)`.
+
+Verified in the fork (2026-10-17):
+
+| Item | Location |
+|---|---|
+| Framework version 1.23.0 (`VersionPrefix`) | `dotnet/nuget/nuget-package.props` |
+| Package status: core, Workflows, OpenAI, Harness GA; AgentHooks, Mcp alpha; Tools.Shell, DevUI, A2A preview | fork packaging |
+| Package IDs: `Microsoft.Agents.AI`, `.Abstractions`, `.Workflows`, `.OpenAI`, `.Hosting`, `.DevUI`, `.AgentHooks`, `.Mcp`, `.A2A` | `dotnet/src` |
+| Pins: `Microsoft.Extensions.AI` 10.10.0, `Microsoft.Extensions.AI.Abstractions` 10.10.1, `Microsoft.Extensions.AI.OpenAI` 10.10.1, `OpenAI` 2.14.0, `OpenTelemetry` 1.18.0, `ModelContextProtocol` 2.2.0 | `dotnet/Directory.Packages.props` |
+| `TreatWarningsAsErrors` true; core TFMs `net10.0;net9.0;net8.0`; samples `net10.0;net472` | `dotnet/Directory.Build.props` |
+| `WorkflowBuilder.AddEdge(ExecutorBinding source, ExecutorBinding target, ...)`, `AddEdge<T>(..., Func<T?, bool>? condition, ...)`, `AddFanOutEdge(ExecutorBinding source, IEnumerable<ExecutorBinding> targets)`, `AddFanInBarrierEdge(IEnumerable<ExecutorBinding> sources, ExecutorBinding target)`, `WithOutputFrom(params ExecutorBinding[] executors)`, `Build()` | `dotnet/src/Microsoft.Agents.AI.Workflows/WorkflowBuilder.cs` |
+| `AgentWorkflowBuilder.BuildSequential(params IEnumerable<AIAgent> agents)`, `BuildConcurrent(...)`, `CreateGroupChatBuilderWith(Func<IReadOnlyList<AIAgent>, GroupChatManager>)` | `AgentWorkflowBuilder.cs` (Workflows) |
+| `Executor<TInput, TOutput>(string id, ExecutorOptions? options = null, ...)` | `Executor.cs` (Workflows) |
+| `InProcessExecution.RunStreamingAsync<TInput>(Workflow workflow, TInput input, string? sessionId = null, ...)` plus an overload taking `CheckpointManager` (`public sealed class`) | `InProcessExecution.cs`, `CheckpointManager.cs` |
+| `RequestPort` exists for human-in-the-loop requests | Workflows package |
+| `AIAgentBuilder.UseOpenTelemetry(...)` | `dotnet/src/Microsoft.Agents.AI/OpenTelemetryAgentBuilderExtensions.cs` |
+| `AsAIAgent(...)` extension on `IChatClient` returning `ChatClientAgent` | `dotnet/src/Microsoft.Agents.AI/ChatClient/ChatClientExtensions.cs` |
+
+Rules:
+
+- The table is a starting point. Verify every API name in the fork or the referenced package before use.
+- Never invent model IDs, package names or signatures.
+- Run `probe` before any measurement run.
+- Commit per completed requirement.
+- Stop and report rather than improvise when a requirement cannot be met.
+- Initialise git inside `agent-joules/` (the parent folder is not a repository). Do not push and do not create a GitHub repository.
+
+## 10. Time boxes
+
+| Activity | Box | On expiry |
+|---|---|---|
+| NIM-local attempt (catalog search, NGC login, pull, run, first successful `/v1/models` call) | 90 minutes, hard stop | Stop and remove the container, record status and errors in `docs/nim-local-attempt.md`, switch the local tier to Ollama |
+| Nebius onboarding and model-ID verification for all hosted tiers | 45 minutes | Record what was verified and what failed in `docs/endpoints.md`. The nebius tier is a hackathon requirement, so the build is reported as blocked on that item and the user is told exactly what is missing (key, URL, model); it is never silently skipped |
+| Whole build | one Claude Code session | Unchecked Definition of Done boxes are listed in the final report with reasons |
+| Stretch goals | only after the Definition of Done | Not started otherwise |
+
+A time box expiring always produces a docs entry and a line in the final report.
+
+## 11. Design constraints fixed by the user
+
+- One metered `IChatClient` instance per named agent. Attribution is by construction: the client is created with its agent name. No `AsyncLocal`, ambient context or log correlation to infer which agent made a call.
+- Serialized step execution is the default for measurement fidelity. A concurrent mode exists and flags readings whose windows overlap as `shared-window`.
+- Idle baseline subtraction: every local reading reports gross joules (as measured) and net joules (gross minus baseline power times duration).
+- Results are JSON with a documented JSON Schema, plus a Markdown summary and an SVG chart generated by project code without a heavy charting dependency (no browser engine, no plotting library; string or XML generation suffices).
+
+## 12. User actions: registration, accounts, keys and credits
+
+These steps are the user's, not the builder's. Steps 1-4 can run in parallel with the build; steps 5-7 must be done before `AJ run --tier nvidia|nebius|all`. Evidence: the official page URL and the facts marked [official summary] come from the web-search summary of https://nebiusglobalaihackathon.devpost.com/ and its /resources page on 2026-10-17 (the pages refused automated fetching with HTTP 403); steps marked [Devpost standard flow, inferred] describe how Devpost hackathons normally work and must be confirmed on the page, where button labels may differ.
+
+1. Devpost account: sign in or create an account at https://devpost.com (email, GitHub or Google sign-in) [Devpost standard flow, inferred].
+2. Join the hackathon: open https://nebiusglobalaihackathon.devpost.com/ and click "Join hackathon"; accept the rules and eligibility statement when prompted. Joining is the registration; there is no separate registration deadline listed, and submissions close 2026-10-30 10:00 PDT [official summary for the deadline; button flow inferred]. Record the join date and your Devpost handle in `docs/devpost-checklist.md` under "Registration".
+3. Read the "Rules" tab in a browser and paste its text to the builder if the builder's fetch fails: eligibility (all countries except standard exceptions [official summary]), team size, one-project-per-person rules, and the exact submission fields [to verify].
+4. Credits: on the "Resources" tab request the USD 25 Nebius Token Factory credits through the form with the activation code, and join the Nebius Builders Program for another USD 25 of credits [official summary]. Do this before the 45-minute Nebius onboarding time box.
+5. Nebius Token Factory key: create the Nebius account the credits attach to, open the Token Factory console, go to "API keys", click "Create API key", name it, and save the displayed key (it cannot be viewed again); store it as `NEBIUS_API_KEY` (environment variable or `dotnet user-secrets`). OpenAI-compatible base URL: https://api.tokenfactory.nebius.com/v1/ (Nebius docs, searched 2026-10-17; the builder confirms it with `GET /v1/models` and records it in `docs/endpoints.md`).
+6. NVIDIA build.nvidia.com key: sign in at https://build.nvidia.com with the NVIDIA developer account, open the API keys page under profile settings, create a key (prefix `nvapi-`; copy it at creation, it is not shown again), store it as `NVIDIA_API_KEY` (NVIDIA docs, searched 2026-10-17).
+7. NGC key (only for the NIM-local attempt): sign in at https://ngc.nvidia.com, generate a personal key with the services "NGC Catalog" and "Public API Endpoints" selected, store it as `NGC_API_KEY`; the builder uses it with `docker login nvcr.io --username '$oauthtoken' --password-stdin`. NVIDIA's docs state this is a different credential from the build.nvidia.com key, so keep both (searched 2026-10-17).
+8. Submission, before 2026-10-30 10:00 PDT: on the hackathon page use "Submit project" (Devpost may label it "Enter a submission" or "Manage your submission") and fill in: project name and tagline, the "About the project" story, built-with tags (C#, .NET, Microsoft Agent Framework, NVIDIA Nemotron, Nebius Token Factory, NVML), "Try it out" links (the demo URL and the public repository), the public YouTube video link, the chosen track, and team members by email if any [Devpost standard flow, inferred]. The builder's `docs/devpost-checklist.md` maps every field to a repository artifact; the user copies from there. Submissions can be edited until the deadline [inferred].
+9. After submission: judging is listed for 2026-12-01 to 2026-12-15 (aggregator pages, 2026-10-17); keep the repository public and unchanged on the submitted commit until results are announced, or tag the submitted commit `v0.1.0`.
+
+Storing keys on this laptop: persist them as user environment variables with `setx NVIDIA_API_KEY "nvapi-..."`, `setx NEBIUS_API_KEY "..."` and `setx NGC_API_KEY "..."` (then open a new terminal), or, once the project exists, `dotnet user-secrets set "NVIDIA_API_KEY" "nvapi-..." --project src/AgentJoules.Cli` and likewise for the other two. Never paste a key into any file inside the repository.
+
+---
+
+# Layer 2: spec-shaped requirements
+
+# Spec: agent-joules
+
+Status: draft
+Date: 2026-10-17
+
+## Objective
+
+Developers building multi-agent workflows on Microsoft Agent Framework see token counts and latency but not the energy each agent step consumes. AgentJoules is a .NET 10 prototype that wraps every agent's chat client in a metering middleware backed by NVIDIA NVML, runs a fixed multi-agent workflow on a local Nemotron model (NIM container first, Ollama fallback) and on two hosted Nemotron endpoints (build.nvidia.com and Nebius Token Factory), and publishes per-step joules, watts, tokens, latency, cost and quality with explicit evidence labels. The audience is the LinkedIn AI/engineering community and the judges of the Nebius x NVIDIA Global AI Hackathon (deadline 2026-10-30 10:00 PDT = 17:00 UTC); the prototype must be honest, reproducible from committed files, and runnable by a stranger on an RTX 3080 Ti Laptop GPU (driver 616.92) or similar.
+
+**Conventions.** Commands run from the repository root `agent-joules/`. `AJ` stands for `dotnet run --project src/AgentJoules.Cli --`; the CLI project path is fixed, library project names are the builder's choice. Run file = `results/<yyyyMMddTHHmmssZ>-<tier>[-baseline].json`, one per tier per `AJ run` invocation, containing every selected task (`run.tasks` array, `step.task`). "Latest results file for tier T" = the newest run file of tier T without the `-baseline` suffix; `probe-*.json`, `calibration-*.json` and baseline runs are never "latest". `AJ validate` and `AJ report --in` only consume run files matching `^\d{8}T\d{6}Z-(local|nvidia|nebius)(-baseline)?\.json$`; README and posts use the latest file per tier. Tiers: `local` (energy measured), `nvidia` and `nebius` (energy `N/A`). Keys: `NVIDIA_API_KEY`, `NEBIUS_API_KEY`, `NGC_API_KEY`.
+
+**Acceptance syntax.** Acceptance commands use bash syntax and run in Git Bash on Windows. Acceptances that need the laptop GPU, the local runtime or API keys say so.
+
+**Configuration.** `config/appsettings.json` (override path with `--config`), root section `AgentJoules`, keys: `Gpu:Index`=0; `Meter:Method`=auto|counter|sampling; `Meter:SampleRateHz`=10; `Meter:AllowBelowMinRate`=false; `Baseline:Seconds`=30; `Baseline:MaxCoefficientOfVariation`=0.10; `Cost:ElectricityPricePerKwh`=0.30; `Cost:Currency`=EUR; `Cost:GCo2ePerKwh`=null; `Local:Runtime`=ollama|nim; `Judge:Tier`=nvidia; `Judge:ModelId`; `Tiers:<local|nvidia|nebius>:{BaseUrl,ModelId,AgentModelIds,ApiKeyVariable}`. Every key is overridable by an environment variable `AGENTJOULES__<Section>__<Key>`. For nim runs `gpuOffloadPercent` is 100 by construction.
+
+**Key matrix.** `local` needs no key (`NGC_API_KEY` only for the NIM attempt); `nvidia` needs `NVIDIA_API_KEY`; `nebius` needs `NEBIUS_API_KEY`; the judge needs the key of its tier (default `NVIDIA_API_KEY`) on every tier. A missing workflow-tier key exits 3 before any call. A missing judge key, or any judge failure including 429 exhaustion, never changes the exit code: warn and apply EDGE-012. `--dry-run` reports every missing key including the judge's in one message and exits 3. Workflow-step failure exits 5.
+
+**Test traits.** Every test named in an Acceptance MUST carry `[Trait("Spec","<ID>")]`. A reviewer confirms with `dotnet test --filter "Spec=<ID>" --logger "console;verbosity=normal"` showing at least one passed and no failed test.
+
+**Label vocabulary.** Every metric value is a label object M (defined below) whose `label` is one of `measured`, `estimated`, `model-judged`, `N/A`, `not-reported`; `value` is null exactly when the label is `N/A` or `not-reported`, and a missing value is never written as `0`. Reading flags: `sampling-fallback`, `low-resolution`, `shared-window`, `baseline-unstable`, `below-baseline`, `throttled`, `partial-offload`.
+
+**Label object.** M = {"value":<number|null>,"label":<vocabulary>,"reason":<string, required when N/A or not-reported>,"unit":<optional>,"currency":<cost only>}. Plain fields (not M): ids, timestamps, strings, flags, outcome, method, retries, waitMs, sampleCount, sampleRateHz. Labels: grossJoules, netJoules, avgW, peakW, latencyMs, ttftMs, tokens = measured (or not-reported/N/A); cost = estimated; quality = model-judged; joulesPerQualityPoint and costPerQualityPoint = model-judged. Results skeleton (normative names):
+
+```
+{"schemaVersion":"1","run":{"id","tier","tasks":[],"mode","repeat","startUtc","toolVersion","gitCommit"},
+ "environment":{"gpuName","driverVersion","os","dotnetVersion","localRuntime","runtimeVersion","gpuOffloadPercent","modelLoadSeconds","powerSource","reasoningMode","temperature","energyScope":"GPU-board only","assumptions":{"electricityPrice":M,"gco2ePerKwh":M},"models":[{"agent","modelId","baseline":false}]},
+ "probe":{REQ-006 keys},"baseline":{"meanW":M,"stdDevW":M,"seconds":30,"flags":[]},
+ "steps":[{"task","repeat","agent","modelId","tier","startUtc","endUtc","outcome","retries","waitMs","latencyMs":M,"ttftMs":M,"inputTokens":M,"outputTokens":M,"grossJoules":M,"netJoules":M,"avgW":M,"peakW":M,"method","sampleCount","sampleRateHz","cost":M,"quality":M,"qualityReason","joulesPerQualityPoint":M,"costPerQualityPoint":M,"flags":[],"outputSha256","outputChars"}],
+ "judge":[same step shape],"totals":{"grossJoules":M,"netJoules":M,"inputTokens":M,"outputTokens":M,"costByCurrency":{"EUR":M},"wallClockMs":M,"judge":{"inputTokens":M,"outputTokens":M,"costByCurrency":{}}}}
+```
+
+**Exit codes** for every CLI command: 0 success; 1 unexpected error; 2 invalid arguments or configuration; 3 missing API key; 4 model ID or local model tag not found; 5 endpoint or local runtime unreachable, or retries exhausted; 6 measurement precondition failed (for example no GPU for a local run); 7 generated content differs from committed content (`report --verify-readme`).
+
+**Commands.** `probe`, `run`, `report`, `validate`, `calibrate`. `AJ validate <path|dir>` validates run files against `docs/results-schema.json`, prints "Validated <n> files" plus one line per failure, exits 0 or 2. `AJ validate --config` checks every model ID in `config/appsettings.json` against lines of the form "- model: <id>" under the headings "## local", "## nvidia", "## nebius" of `docs/endpoints.md` (each section has "Verified: YYYY-MM-DD"), exit 0 or 4. `AJ report` defaults: `--in results/`, `--out docs/report/`. `AJ calibrate [--task <name>] [--seconds <n>]` (default first task, 60) runs the local workload window with both methods and exits 6 without a GPU.
+
+**Requirement map.** REQ-001..002 repository; REQ-003..005 energy meter; REQ-006 probe; REQ-007..008 metered client; REQ-009 cost; REQ-010 quality; REQ-011..012 workflow and tiers; REQ-013 execution modes; REQ-014 telemetry; REQ-015..016 results and report; REQ-017 run; REQ-018 endpoints; REQ-019..020 local runtime; REQ-021..022 calibration and methodology; REQ-023..024 tests and CI; REQ-025..028 documentation and content; REQ-029 secrets; REQ-030 static report page.
+
+## Requirements
+
+### REQ-001: Repository layout and warning-free build
+The repository root MUST be `agent-joules/`, initialised as its own git repository, containing `src/`, `tests/`, `docs/`, `content/`, `results/`, `tasks/`, `config/`, one solution file, and the CLI project at `src/AgentJoules.Cli`. All projects MUST target `net10.0` only, with `TreatWarningsAsErrors` and `Nullable` enabled in a shared `Directory.Build.props`.
+Acceptance: `dotnet build -warnaserror -tl:off` exits 0 and its output contains `0 Warning(s)` and `0 Error(s)`; `Directory.Build.props` contains `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` and `<Nullable>enable</Nullable>`; no `.csproj` contains a `TargetFramework(s)` value other than `net10.0`.
+
+### REQ-002: Hygiene files, licensing and central package management
+The repository MUST contain an MIT `LICENSE` (or the license the verified Devpost rules require), a `.gitignore` ignoring `bin/`, `obj/`, `results/*.raw` and local secret files, an `.editorconfig`, a `Directory.Packages.props` with `ManagePackageVersionsCentrally` true, and a `README.md`. Versions: pin exactly the verified fork versions: Microsoft.Agents.AI* 1.23.0 (the four GA packages `Microsoft.Agents.AI`, `.Abstractions`, `.Workflows`, `.OpenAI`); Microsoft.Extensions.AI 10.10.0; Microsoft.Extensions.AI.Abstractions and .OpenAI 10.10.1; OpenAI 2.14.0; OpenTelemetry 1.18.0 (exporters on 1.18.x). Deviate only if a version is not on NuGet or restore/build fails; then use the highest stable within the same major and re-verify every used API. Alpha or preview Agent Framework packages MUST NOT be referenced. Every deviation from these versions MUST be recorded in `docs/build-log.md` with the reason.
+Acceptance: `LICENSE` first line contains `MIT License` (or the license named in `docs/devpost-checklist.md`); `git check-ignore results/x.raw` prints `results/x.raw`; no `.csproj` contains a `PackageReference` with a `Version` attribute; `Directory.Packages.props` contains exactly these versions or each deviation is recorded in `docs/build-log.md`; `grep -E "AgentHooks|Agents.AI.Mcp|DevUI|Agents.AI.A2A" Directory.Packages.props` returns no hits.
+
+### REQ-003: NVML native binding and lifecycle
+A library MUST bind to NVML through P/Invoke, resolving `nvml.dll` on Windows and `libnvidia-ml.so.1` on Linux through a DllImport resolver. It MUST initialise and shut down NVML, select a device by index (default 0), and read device name, driver version, enforced power limit, and compute capability and VBIOS version where the API is available. Every NVML signature used MUST match the NVML API reference, cited by URL in a code comment.
+Acceptance: an integration test gated by `AGENTJOULES_INTEGRATION=1` passes on the laptop and asserts the device name contains `3080` and the power limit is between 50 and 200 W; a unit test proves a missing native library yields a typed "NVML unavailable" result and no exception escapes the library.
+
+### REQ-004: Energy counter probe and power-sampling fallback
+The meter MUST probe at startup whether the total-energy counter (`nvmlDeviceGetTotalEnergyConsumption`, millijoules) is supported. If supported, the counter is the default method. Otherwise the meter MUST integrate `nvmlDeviceGetPowerUsage` (milliwatts) at a configurable sample rate (default 10 Hz, minimum allowed 10 Hz unless explicitly overridden) using the actual sample timestamps, not the nominal interval. Configuration MUST allow forcing either method.
+Acceptance: unit test with a fake NVML source reporting a constant 50 000 mW with samples at t=0.0,0.1,...,2.0 s (21 samples, edges included) yields 100 J within 1 percent (the integral holds the first and last sample to the window start and stop); unit test with irregular timestamps yields the analytically correct integral within 1 percent; a fallback reading has `method: "sampling"` and flag `sampling-fallback`.
+
+### REQ-005: Energy meter abstraction, baseline and readings
+The library MUST expose an `IEnergyMeter` abstraction (start window, stop window, return reading) with a deterministic fake for tests. It MUST measure idle baseline power over a configurable window (default 30 s) and report mean and standard deviation. Every reading MUST contain gross joules, net joules (gross minus baseline mean power times window duration), average watts, peak watts, duration, method (`counter` or `sampling`), sample count, sample rate and flags. A negative net value MUST be reported as computed and flagged `below-baseline`, never clamped to zero. The meter MUST sample nvmlDeviceGetPowerUsage at the configured rate during every window regardless of method. avg/peak W, sampleCount and sampleRateHz always come from those samples; only grossJoules comes from the counter when method is counter.
+Acceptance: unit tests with the fake meter for a 3 s window at constant 60 W and a 20 W baseline assert gross 180 J, net 120 J, average 60 W, peak 60 W, and sample count equal to the fake's sample count; a window at 15 W against a 20 W baseline yields a negative net value with flag `below-baseline`.
+
+### REQ-006: probe command
+`AJ probe` MUST print GPU name, driver version, compute capability and VBIOS version (or `N/A`), enforced power limit in watts, whether the energy counter is supported, the chosen method and the sample rate. `AJ probe --json` MUST print one JSON object with keys `gpuPresent`, `name`, `driverVersion`, `computeCapability`, `vbiosVersion`, `powerLimitW`, `energyCounterSupported`, `method`, `sampleRateHz`. Without NVML or a device it MUST print `no GPU` (JSON: `gpuPresent: false`, other fields null) and exit 0. Exit codes MUST be documented in the README.
+Acceptance: on the laptop `AJ probe --json` exits 0 with `gpuPresent: true`, `driverVersion` equal to the driver version `nvidia-smi` prints, and a boolean `energyCounterSupported`; that output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json`; the no-GPU path is checked by EDGE-001.
+
+### REQ-007: Metered chat client for buffered and streaming calls
+A `DelegatingChatClient`-style decorator (`MeteredChatClient` or similar) MUST wrap any `IChatClient`, meter both `GetResponseAsync` and `GetStreamingResponseAsync`, and compose through `ChatClientBuilder.Use(...)`. Each instance MUST be constructed with one agent name. For streaming it MUST record time to first content update and total latency; the reading ends when the stream completes, is cancelled or throws, recorded in an `outcome` field (`ok`, `cancelled`, `error`).
+Acceptance: unit tests with a fake `IChatClient` (fixed delays) and the fake meter assert one reading per call for both methods; streaming `ttftMs` within 20 ms of the fake's first-update delay; a cancelled stream yields exactly one reading with `outcome: "cancelled"`; at least one test builds the decorator via `new ChatClientBuilder(inner).Use(...)`.
+
+### REQ-008: Per-call reading content and metrics sink
+Each reading MUST contain: agent name, model ID, tier, start and end UTC timestamps, total latency, time to first token (streaming only, otherwise `N/A`), input and output tokens from `UsageDetails` (or `not-reported`), the energy reading (local tier) or `N/A` (hosted tiers), cost, retry count, wait time and outcome. Readings MUST be published to an `IMetricsSink` abstraction; the run pipeline uses an in-memory sink feeding the results writer.
+Acceptance: unit test: a fake client returning `UsageDetails` with 120 input and 45 output tokens yields `inputTokens {value:120,label:"measured"}` and `outputTokens {value:45,label:"measured"}`; a fake client without usage yields both as `{value:null,label:"not-reported"}`; a reading with tier `nvidia` has energy `label: "N/A"` and null energy values.
+
+### REQ-009: Price table and cost computation
+Cost MUST come from `config/prices.json`: one row per model ID with `inputUsdPer1M`, `outputUsdPer1M`, `sourceUrl` and `retrievedDate`. Hosted cost = tokens times price. Local cost = net joules converted to kWh times a configurable electricity price, default EUR 0.30/kWh, labelled as an assumption in configuration and README. Every cost MUST be labelled `estimated` and carry its currency. A model without a price row, or a call without token counts, yields cost `N/A`. Totals MUST be grouped by currency with no implicit conversion. An optional gCO2e/kWh factor MAY produce an `estimated` emissions value; when unset, emissions are `N/A`. The nvidia free tier has no published per-token price (inferred 2026-10-17): it has no row in `config/prices.json` unless the builder finds a published price (sourceUrl, retrievedDate), and its cost is {value:null,label:"N/A",reason:"free-tier-no-price"}; a price of 0 MUST NOT be written. Nebius prices come from the Nebius Token Factory pricing page (URL and date recorded in the row); if not found, cost is N/A with reason "price-not-found" and a `docs/build-log.md` entry.
+Acceptance: unit tests: 1 000 000 input and 500 000 output tokens at 0.10/0.40 USD per 1M give 0.30 USD; 3 600 000 J net at 0.30 EUR/kWh gives 0.30 EUR; a missing price row gives `{value:null,label:"N/A"}`; a test validates `config/prices.json` against a schema requiring `sourceUrl` and `retrievedDate` on every row.
+
+### REQ-010: Judge scoring and derived metrics
+A judge step MUST score each agent step's output on an integer scale 1-5 against a rubric committed at `config/judge-rubric.md`, using a configurable hosted model (default: a Nemotron model on the `nvidia` tier whose ID is recorded in `docs/endpoints.md`). Judge calls MUST be metered, stored in a separate `judge` array and excluded from workflow totals. Scores are labelled `model-judged`. Joules-per-quality-point and cost-per-quality-point MUST be computed only when both inputs exist; otherwise `N/A`. `totals.judge` reports judge tokens and cost per currency (energy N/A for a hosted judge); the README names the judge model ID, states that judge calls are excluded from workflow totals, and discloses self-judging when the judge model equals the step model.
+Acceptance: unit test with a fake judge returning `4` yields `quality {value:4,label:"model-judged"}` and `joulesPerQualityPoint` equal to net joules divided by 4; a step with energy `N/A` yields `joulesPerQualityPoint` `N/A`; a reply that is not an integer 1-5 yields quality `N/A` and a recorded parse error; workflow totals in a fixture are unchanged when judge readings are added.
+
+### REQ-011: Multi-agent workflow with fan-out and fan-in
+The demo MUST be a Microsoft Agent Framework workflow with at least three distinct named agent steps and one fan-out/fan-in (for example Planner -> [Researcher, Writer] -> Reviewer), built with `WorkflowBuilder` and/or `AgentWorkflowBuilder` and executed with `InProcessExecution.RunStreamingAsync`. Each agent MUST be created from its own metered `IChatClient` (REQ-007) constructed with that agent's name.
+Acceptance: `grep -rnE "AddFanOutEdge|BuildConcurrent" src`, `grep -rnE "AddFanInBarrierEdge|BuildConcurrent" src` and `grep -rn "RunStreamingAsync" src` each return at least one hit; a unit test running the workflow with fake chat clients asserts a reading exists for every agent name and that each reading's agent name matches the agent owning that client.
+
+### REQ-012: Tier configuration and fixed task set
+The same workflow MUST run on `local`, `nvidia` and `nebius` by configuration only: one `config/appsettings.json` section per tier with base URL, model ID (tier default, optional per-agent override) and the API-key variable name. Two or three demo tasks MUST be committed under `tasks/` as JSON with `name`, `prompt` and `maxOutputTokens`; every call MUST use temperature 0 and the task's `maxOutputTokens`. Reasoning/thinking mode MUST be identical on all tiers (default off), set via the mechanism each endpoint documents, which the builder verifies and records in `docs/endpoints.md` (Nemotron 3 models expose a reasoning toggle: inferred 2026-10-17, unverified). `environment.reasoningMode` records "off", "on" or "unsupported" per tier; if a tier cannot disable it, that is stated in the report header and README. A seed is passed when the endpoint supports one. Model selection: first choice on every tier is the same model: nvidia = nvidia/nemotron-3-nano-30b-a3b; nebius = the same model if listed by `GET /v1/models`, otherwise the smallest listed Nemotron 3 model; local = the model from REQ-019/REQ-020. Where models differ across tiers the report header row and README say so explicitly, and no cross-tier efficiency statement is made.
+Acceptance: `tasks/` contains 2 or 3 `.json` files, each parsing and containing the three fields; `grep -rnE "\"https?://" src --include=*.cs | grep -vE "www\.w3\.org/2000/svg|json-schema\.org"` returns no hits (endpoint URLs live in configuration only; URLs in code comments are allowed); `AJ run --tier <t> --dry-run` exits 0 for each of `local`, `nvidia`, `nebius` on the laptop with keys set and the local runtime up; the nebius tier model ID contains "nemotron" (case-insensitive), otherwise the item is reported BLOCKED under standing order 6.
+
+### REQ-013: Serialized and concurrent modes
+`--mode serialized` (default on every tier) MUST execute fan-out branches one after another so no two metered windows overlap. `--mode concurrent` MUST run branches concurrently, flag every reading whose window overlaps another as `shared-window`, and compute run-level energy over the union of windows rather than the sum of step readings. Serialization is enforced by one process-wide gate (SemaphoreSlim(1,1) behind an IMeterGate abstraction) shared by all MeteredChatClient instances: in serialized mode a client acquires it before opening its window and releases it after the window closes; concurrent mode uses a no-op gate. The workflow topology is identical in both modes. Totals: serialized = sum of step readings; concurrent = union-window energy; tokens and cost = sums (cost per currency); wallClockMs = workflow wall time; judge readings never included.
+Acceptance: unit tests with fake clients and the fake meter: serialized mode produces no overlapping windows and no `shared-window` flags; concurrent mode with two 1 s branches starting together yields two readings flagged `shared-window` and a run energy total equal to the union-window energy, not the sum of the two readings.
+
+### REQ-014: OpenTelemetry instrumentation
+Agents MUST be built with `UseOpenTelemetry()`. The project MUST define a `System.Diagnostics.Metrics.Meter` named `AgentJoules` with instruments for joules, watts, tokens, latency and cost, each recorded with attributes for agent name, tier and model ID. The console exporter is on by default (switchable off with `--no-console-telemetry`); an OTLP exporter MUST be enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Acceptance: `grep -rn "UseOpenTelemetry" src` returns at least one hit; a unit test with an in-memory metric exporter runs one metered fake call and asserts all five instruments were recorded with the three attributes; README lists the instrument names and the OTLP variable.
+
+### REQ-015: Results JSON and schema
+Every run MUST write `results/<yyyyMMddTHHmmssZ>-<tier>[-baseline].json` (run-file rule in Conventions) conforming to `docs/results-schema.json` (JSON Schema draft 2020-12). The schema MUST cover at least: run metadata (run ID, tier, tasks, mode, repeat, UTC start, tool version, git commit), environment (GPU name, driver version, local runtime, model IDs or tags, `baseline` marker for non-Nemotron models, GPU offload percentage for local), baseline (mean W, standard deviation W, seconds, flags), the probe output, a `steps` array (REQ-008 fields plus REQ-005 energy fields and quality), a `judge` array, and totals. Every metric uses the label object.
+Acceptance: a unit test validates a generated results file against the schema; a unit test asserts no metric labelled `N/A` or `not-reported` has a numeric value; `AJ validate results/` exits 0 and prints the number of files validated, which equals the number of committed run files.
+
+### REQ-016: report command with Markdown and SVG
+`AJ report [--in <files or dir>] [--out <dir>]` MUST render `summary.md`, a Markdown table per step per tier (gross J, net J, avg W, peak W, input/output tokens, latency, TTFT, cost, quality, labels, flags) headed by GPU name, driver version, run date, local runtime, model IDs and the sentence `Energy is GPU-board energy only.`, and `joules-per-step.svg`, a bar chart of net joules per step per tier. `N/A` MUST be drawn as an explicit text marker `N/A`, never as a zero-height bar. The SVG MUST be produced by project code without a charting library. A tier with no run file renders as the row "<tier> | not run" and an empty SVG slot labelled "not run"; `AJ report` still exits 0.
+Acceptance: `AJ report --in results/ --out docs/report` writes both files; the SVG parses as XML and contains a `<text>` element `N/A` for each hosted-tier step; a unit test renders a fixture with one `N/A` step and asserts no `<rect>` is emitted for it; no `.csproj` references a charting or browser package.
+
+### REQ-017: run command and dry-run
+`AJ run` MUST accept `--tier local|nvidia|nebius|all`, `--task <name>` (default all tasks), `--mode serialized|concurrent`, `--out <dir>` (default `results/`), `--baseline-seconds <n>` (default 30, local only), `--repeat <n>` (default 3, REQ-021) and `--dry-run`. `--tier all` writes one results file per tier. `--dry-run` MUST validate configuration, report all missing keys, call `GET /v1/models` (or the Ollama tag list) on each selected endpoint, confirm every configured model ID is listed, run the probe for `local`, and make no completion calls. Exit codes follow the exit-code list in Objective.
+Acceptance: `AJ run --help` lists all seven options; `AJ run --tier all --dry-run` exits 0 on the laptop with keys set, local runtime up and model pulled and prints, per tier, the endpoint, the matched model IDs and `OK`; `AJ run --tier bogus` exits 2; a unit test with a fake HTTP handler asserts dry-run never calls a chat completions route; a unit test per exit code 1 to 7 asserts the exit-code list.
+
+### REQ-018: Recorded endpoint and model verification
+`docs/endpoints.md` MUST record, per tier: base URL, verification date, the command used, the model IDs returned by `GET /v1/models` (all Nemotron and Qwen entries; others truncated with the total count stated), and the model ID chosen for each agent and for the judge. Every model ID or tag in `config/appsettings.json` MUST appear in that list. The file uses the headings `## local`, `## nvidia` and `## nebius`, each with a line `Verified: YYYY-MM-DD` and model lines of the form `- model: <id>`. Model IDs are never hard-coded from memory.
+Acceptance: `docs/endpoints.md` has the headings `## local`, `## nvidia` and `## nebius`, and each section has a line "Verified: 2026-10-17" or later; `AJ validate --config` exits 0, and a unit test proves it exits 4 when `config/appsettings.json` names an ID absent from `docs/endpoints.md`.
+
+### REQ-019: Time-boxed NIM-local attempt
+The builder MUST attempt, within a 90-minute hard time box, to serve a Nemotron model from a NIM container on the laptop: find in the NGC catalog a 4B-class Nemotron NIM (otherwise the smallest Nemotron NIM whose BF16 weights plus KV cache fit in about 15 GB of the 16 GB GPU), log in to `nvcr.io` with `NGC_API_KEY` via `--password-stdin`, start it with `docker run --gpus all`, and call its `/v1/models`. Note: the WSL2 NIM-on-RTX packaging officially supports RTX 40/50 only; the generic NIM LLM container path requires compute capability above 7.0 (8.0 for bfloat16) and about 95 percent free GPU memory, and the RTX 3080 Ti is SM 8.6 (researched 2026-10-17). The outcome MUST be documented in `docs/nim-local-attempt.md` with start and end times, exact commands (keys redacted), image tag, errors, GPU memory observations and the decision.
+Acceptance: `docs/nim-local-attempt.md` contains headings `Commands`, `Image`, `Outcome` and `Decision`, start and end times no more than 90 minutes apart (or an explicit statement that the box was exceeded and why); `grep -F "$NGC_API_KEY" docs/nim-local-attempt.md` (with the key set) returns no hits.
+
+### REQ-020: Ollama fallback and runtime disclosure
+If the NIM attempt does not yield a working endpoint, the local tier MUST use Ollama with a verified Nemotron tag (`nemotron-3-nano:30b` exists (confirmed 2026-10-17; re-verified per REQ-018); a smaller verified Nemotron tag MAY be used if it does not run fully on the GPU, with the reason recorded). For every local run the tool MUST record the runtime (`nim` or `ollama`), the exact tag, and the GPU offload percentage (Ollama: the processor split from `ollama ps` or the equivalent API); below 100 percent sets flag `partial-offload` on the run. A Qwen3 8B run, if made, is marked `baseline`. The README MUST state which local runtime produced the published numbers.
+Acceptance: the latest local results file has `environment.localRuntime` in {`nim`,`ollama`}, a model tag present in `docs/endpoints.md`, and a numeric `environment.gpuOffloadPercent`; if that value is below 100 the run flags include `partial-offload`; README contains a sentence of the form `Local numbers were produced with <runtime> running <tag>.`
+
+### REQ-021: Baseline and method comparison runs
+Every local measurement run MUST first record an idle baseline of at least 30 s, stored in the results file. `AJ calibrate` MUST, when both the counter and power sampling are available, measure the same workload window with both methods simultaneously and write `results/calibration-<yyyyMMddTHHmmssZ>.json` with both totals and their relative difference; when only one method is available it MUST write the file with the other method `N/A` and the reason. Before the baseline a local run issues one unmetered warm-up call (Ollama keep_alive >= 30 min) and records environment.modelLoadSeconds; the baseline is measured with the model resident. `AJ run` accepts `--repeat <n>` (default 3); every task is executed n times after warm-up, steps carry a repeat index, and report tables show the median and min-max over repeats with n stated. environment.powerSource ("ac"|"battery"|"unknown") is recorded and shown in the report header.
+Acceptance: the latest local results file has `baseline.seconds >= 30`; a committed `results/calibration-*.json` has `counterJoules`, `samplingJoules` and `relativeDifference`, each a labelled metric (numbers, or `N/A` with the `reason` field of the label object M); `docs/methodology.md` quotes the relative difference and names that file; the latest local results file has run.repeat >= 3, environment.modelLoadSeconds numeric and environment.powerSource in {"ac","battery","unknown"}.
+
+### REQ-022: Methodology document
+`docs/methodology.md` MUST explain what NVML measures, both methods and their units, sample rate, where windows start and stop relative to the HTTP call, attribution by construction (one metered client per agent), baseline subtraction (gross and net), concurrent-mode union totals, the label vocabulary, and the limitations: GPU-board scope only (no CPU, DRAM or wall power), GPU shared with the display, laptop power limit 94.62 W (measured 2026-10-17), sampling resolution and possible driver-side averaging, partial CPU offload, and hosted energy `N/A`.
+Acceptance: the file has headings `Measurement`, `Attribution`, `Baseline`, `Labels` and `Limitations`; the `Limitations` section contains each of the strings `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted`.
+
+### REQ-023: Unit and integration test suites
+xUnit unit tests MUST cover the middleware (fake `IChatClient` plus fake meter), attribution and baseline math, cost model, judge parsing, report rendering and schema validation, and MUST run with no GPU, no network and no keys. Integration tests MUST be skipped unless `AGENTJOULES_INTEGRATION=1`.
+Acceptance: with `AGENTJOULES_INTEGRATION`, `NVIDIA_API_KEY` and `NEBIUS_API_KEY` unset, `dotnet test` exits 0 with 0 failed; `dotnet test --list-tests` output contains the class names MeteredChatClientTests, AttributionBaselineTests, CostModelTests, JudgeParsingTests, ReportRenderingTests, SchemaValidationTests; integration tests are reported as skipped; passed, failed and skipped counts of the final run are recorded in `docs/build-log.md`.
+
+### REQ-024: GitHub Actions CI
+`.github/workflows/ci.yml` MUST restore, build with warnings as errors, run unit tests, and run `AJ probe --json` on a matrix of `windows-latest` and `ubuntu-latest` with .NET 10, referencing no secrets. The workflow is prepared and committed but its first run happens after the user pushes; it is not a Definition of Done item.
+Acceptance: the workflow file contains both runner names, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` returns no hits; the same build and test commands exit 0 locally.
+
+### REQ-025: README content and generated results block
+`README.md` MUST contain: one-line pitch; a Mermaid architecture diagram (agents -> metered clients -> providers; NVML meter -> sink -> results, report, OpenTelemetry); quick start (prerequisites, key setup via environment or user-secrets, `probe`, `run --dry-run`, `run`, `report`); methodology summary with caveats linking `docs/methodology.md`; the honesty rules in short form; the results table; the NIM-local outcome linking `docs/nim-local-attempt.md`; CLI reference with exit codes; reproduce steps; prior art; license. The results table MUST sit between `<!-- results:begin -->` and `<!-- results:end -->` and be generated by `AJ report --update-readme` from the latest results files, including GPU, driver, date, local runtime and model IDs. No number in the README results block is typed by hand. The README MUST also contain the three sections the Devpost submission form requires (form text verified 2026-10-18 by the user): "How this project uses NVIDIA Nemotron" (which Nemotron models on which tiers, with model IDs and run files), "Where Nebius Token Factory accelerated the workflow" (what ran there and what it changed, with run files) and "Other Nebius tools or services used" (a list, or the sentence "None besides Token Factory"), plus a "Judges without a GPU" quick-start subsection (unit tests, `validate` on committed results, opening the report) that needs no GPU and no keys.
+Acceptance: README contains a line that is exactly three backticks followed by `mermaid`; `AJ report --verify-readme` exits 0 when the marked block equals what `--update-readme` generates and exits 7 after any manual edit inside the markers (unit test); after committing one `--update-readme` run, a second run leaves `git diff --exit-code README.md` at exit 0. The README contains the three headings named above and the heading "Judges without a GPU" (each grep -c prints 1).
+
+### REQ-026: LinkedIn post drafts
+`content/linkedin-posts.template.md` MUST contain three variants (launch, lesson-learned, hackathon), each at most 1 300 characters after rendering, where every number is a `{{results.<tier>.<dot.path>}}` placeholder, resolved against the latest run file for that tier, with arrays as [index] and label objects addressed as ".value". `AJ report --render-content` MUST write `content/linkedin-posts.md` with placeholders resolved, listing the source results file names at the top. Each variant MUST contain the unresolved placeholder `{{repo.url}}` for the user and one sentence stating that energy is GPU-board energy measured on one laptop.
+Acceptance: `grep -c "{{results\." content/linkedin-posts.md` prints 0; every results file named at the top of the rendered file exists; each variant in the template contains at least one `{{results.` placeholder and the string `GPU`; a unit test fails the render when a placeholder path is missing from the results file; a unit test asserts each rendered variant is at most 1 300 characters.
+
+### REQ-027: Demo script and long-form article
+`content/demo-script.md` MUST describe a video of under 3 minutes (budget: at most 170 seconds; upload target: public YouTube video, stated in the script header) as a shot-list table (shot number, start second, duration in seconds, on-screen content, narration) and list the exact commands shown. `content/article.md` MUST be a long-form draft citing, with links, arXiv 2407.16893 "The Price of Prompting", TokenPowerBench (AAAI), "Watt Counts" arXiv 2604.09048 and the Python `greentoken` CLI; stating what is new (per-agent-step attribution, .NET, Microsoft Agent Framework plus Nemotron); reproducing the limitations; and citing the results file name for every number.
+Acceptance: the duration column of the shot list sums to 170 or less; `AJ <command> --help` exits 0 for every `AJ` command in the script; `content/article.md` contains `2407.16893`, `TokenPowerBench`, `2604.09048`, `greentoken` and a `Limitations` heading.
+
+### REQ-028: Devpost checklist
+`docs/devpost-checklist.md` MUST contain the official page URL https://nebiusglobalaihackathon.devpost.com/ with the date its rules text was verified by a human or fetched by the builder, or an explicit `not verified` statement with the reason; the verified eligibility, required technologies, submission fields, video limit, license and visibility requirements; a checkbox list mapping each submission field and judging requirement to a repository artifact; any conflict between the rules and this spec with its resolution; the deadline `2026-10-30 10:00 PDT (17:00 UTC)`; and the exact `git push` command for the user (the public repository already exists at https://github.com/tomas-rampas/agent-joules; the builder never pushes), marked as the user's action. The file MUST contain a line starting "Demo URL:" per Layer 1 section 3 and the exact user commands to enable GitHub Pages (source: main branch, /docs folder) and to create the v0.1.0 release. The file MUST also contain a "Registration" section with placeholder lines "Devpost handle: <user fills>", "Joined on: <user fills>", "Team: solo unless stated", "Credits requested on: <user fills>" that the user completes, and the sections "Tracks" (candidates "Coding and Agentic Engineering" and "Best Apps and Agents", a recommended pick with one reason; the final pick is the user's), "Judging criteria" (Technological Implementation, Design, Potential Impact, Quality of the Idea, equally weighted, researched 2026-10-17 from aggregator pages, unverified, each mapped to a README section or artifact) and "Credits" (USD 25 Token Factory credits via the Resources-tab form with activation code, plus USD 25 for joining the Nebius Builders Program; official page summary 2026-10-17; user action). The Devpost "About the project" story and tagline are pre-drafted in the repository: `docs/devpost-story.md` (story with `[[FILL: what | source: where]]` placeholders and a closing "Fill-after-build checklist" section) and `docs/devpost-pitch.md` (tagline is candidate A). The builder MUST fill the story in place: replace every placeholder with the measured value or artifact its checklist row names, delete the "Fill-after-build checklist" section, keep every other sentence unchanged unless a measured fact contradicts it (each such change recorded in `docs/build-log.md`), and map the Devpost "About the project" field to `docs/devpost-story.md` and the tagline field to candidate A in the checklist.
+Acceptance: the file contains a verification date, a `devpost.com` URL or the string `not verified`, the strings `2026-10-30` and `17:00 UTC`, and a fenced block containing `git push`; `git remote -v` shows `origin` at github.com/tomas-rampas/agent-joules and `git log origin/main..HEAD --oneline` lists every commit the build session made (nothing pushed by the builder); the file contains a line starting "Demo URL:" and fenced blocks containing "gh release create" and the Pages settings; the file contains the headings "Registration", "Tracks", "Judging criteria" and "Credits", and the string "nebiusglobalaihackathon.devpost.com".; `docs/devpost-story.md` exists, `grep -cF "[[FILL:" docs/devpost-story.md` prints 0, the file contains no heading with "Fill-after-build", and `docs/devpost-checklist.md` names `docs/devpost-story.md` for the "About the project" field.
+
+### REQ-029: Secret handling and scan
+API keys MUST be read only from environment variables or `dotnet user-secrets`; no key material may appear in source, configuration, docs, content or results; logs and error messages MUST redact key values. A secret scan MUST pass: `gitleaks detect --source . --no-banner` if gitleaks is installed, otherwise the grep fallback below. Test fixtures MUST build fake keys at runtime (for example `"nvapi-" + "abcdef1234567890"`) so no tracked line contains a literal matching `nvapi-[A-Za-z0-9_-]{8,}`.
+Acceptance: `gitleaks detect --source . --no-banner` exits 0, or, if gitleaks is unavailable, `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` returns no hits and, with the keys set in the environment, `git grep -nF "$NVIDIA_API_KEY"`, `git grep -nF "$NEBIUS_API_KEY"` and `git grep -nF "$NGC_API_KEY"` each return no hits; a unit test asserts the redaction helper turns a runtime-built `nvapi-` value into a string not containing its suffix; `docs/build-log.md` records which scan ran and its exit code.
+
+### REQ-030: Static report page for the demo URL
+`AJ report` MUST also write `docs/report/index.html`: a static HTML page with no `<script>` element and no external resources except the sibling `joules-per-step.svg`, containing the summary table from `summary.md` rendered as an HTML table, the report header fields (GPU, driver, run date, local runtime, model IDs), the sentence "Energy is GPU-board energy only.", and a link to the repository README. A `docs/.nojekyll` file MUST exist so GitHub Pages serves the folder as-is.
+Acceptance: after `AJ report --in results/ --out docs/report/`, `docs/report/index.html` exists, `grep -c "<script" docs/report/index.html` prints 0, `grep -c "joules-per-step.svg" docs/report/index.html` prints at least 1, `grep -c "GPU-board energy only" docs/report/index.html` prints at least 1, `docs/.nojekyll` exists, and a unit test renders a fixture and asserts the page has one `<table>` row per step.
+
+## Edge cases
+
+### EDGE-001: No GPU or NVML missing
+When NVML cannot be loaded or reports no device, `probe` prints `no GPU` and exits 0; `run --tier local` exits 6 with a message naming the missing library; hosted tiers still run with energy `N/A`.
+Acceptance: `docker run --rm -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; image tag mcr.microsoft.com/dotnet/sdk:10.0 inferred 2026-10-17, builder verifies it exists) exits 0 and prints JSON with `gpuPresent: false`; a unit test with the NVML loader faked as missing asserts `run --tier local` returns 6.
+
+### EDGE-002: Energy counter unsupported
+When the probe reports the counter unsupported, sampling is used and disclosed on the console, in every reading (`method: "sampling"`, flag `sampling-fallback`), in the report header and in the README.
+Acceptance: unit test with a fake NVML returning NOT_SUPPORTED for the counter asserts method `sampling` and the flag; if the committed laptop probe shows `energyCounterSupported: false`, the README results block contains the word `sampling`.
+
+### EDGE-003: Call shorter than two power-sampling intervals
+A reading whose window is shorter than two power-sampling intervals (200 ms at 10 Hz) is kept and flagged `low-resolution`; the report shows the flag next to the value.
+Acceptance: unit test with a 150 ms fake call at 10 Hz asserts flag `low-resolution`; the rendered summary row for that reading contains `low-resolution`.
+
+### EDGE-004: Concurrent steps on one GPU
+In concurrent mode, overlapping readings are flagged `shared-window` and run totals use the union window (REQ-013); the report states that per-step energy does not sum to the total.
+Acceptance: the REQ-013 unit test passes; the rendered summary for a concurrent fixture contains the sentence `Per-step energy overlaps in concurrent mode and does not sum to the run total.`
+
+### EDGE-005: Unstable idle baseline
+If the baseline coefficient of variation exceeds a configurable threshold (default 10 percent), the run records flag `baseline-unstable`, prints a warning, and still reports gross and net values.
+Acceptance: unit test with a fake baseline alternating 20 W and 30 W samples asserts flag `baseline-unstable` on the run and a console line containing `baseline` and `unstable`.
+
+### EDGE-006: HTTP 429 from a hosted endpoint
+On HTTP 429 (build.nvidia.com free tier allows roughly 40 requests per minute, researched 2026-10-17), the client retries with exponential backoff and jitter, honouring `Retry-After` when present, at most 5 attempts in total. The retry count is stored on the reading; waiting time is excluded from latency and stored in `waitMs`. After the final failure the run writes partial results with that step's `outcome: "error"` and exits 5. Retries are implemented in project code as a DelegatingChatClient layered inside MeteredChatClient (one reading spans all attempts). The OpenAI SDK built-in retry MUST be disabled (verify the member in the referenced package, for example ClientPipelineOptions.RetryPolicy = new ClientRetryPolicy(0); inferred 2026-10-17). Backoff: base 1 s, factor 2, full jitter, cap 30 s, Retry-After wins; delays go through an injected TimeProvider so tests do not wait. Only 429 is retried; other 5xx and timeouts yield outcome "error" and exit 5. latencyMs = elapsed minus waitMs.
+Acceptance: unit test with a fake handler returning 429 twice then 200 asserts `retries: 2` and outcome `ok`; with 429 on every call asserts exactly 5 attempts, exit code 5, and a results file whose failed step has `outcome: "error"`.
+
+### EDGE-007: Provider returns no usage
+When a response carries no `UsageDetails`, tokens are `not-reported`, cost is `N/A`, and the report shows `not-reported`, not 0.
+Acceptance: the REQ-008 no-usage test passes; a report fixture asserts the token cells of that row contain `not-reported` and the cost cell contains `N/A`.
+
+### EDGE-008: Configured model ID not found
+When `GET /v1/models` does not list a configured model ID, the command fails before any completion call, prints the missing ID and up to 20 available IDs (Nemotron and Qwen entries first), and exits 4.
+Acceptance: unit test with a fake models response lacking the ID asserts exit 4, output containing the missing ID and at least one listed ID, and zero calls to the completions route.
+
+### EDGE-009: Ollama not running or model not pulled
+If the Ollama endpoint is unreachable, exit 5 with a message naming the endpoint and `ollama serve`; if the configured tag is absent, exit 4 with the exact `ollama pull <tag>` command.
+Acceptance: unit tests with fake handlers (connection refused; tag list without the tag) assert exit 5 with output containing `ollama serve`, and exit 4 with output containing `ollama pull nemotron-3-nano:30b` when that tag is configured.
+
+### EDGE-010: NIM container fails within the time box
+If the NIM container fails to start, runs out of GPU memory, or no image supports this GPU, the failure is documented per REQ-019 and the local tier switches to Ollama; the README states that NIM-local was attempted and why it was not used.
+Acceptance: when the `Decision` section of `docs/nim-local-attempt.md` records a fallback, the README links `docs/nim-local-attempt.md` and the latest local results file has `environment.localRuntime: "ollama"`.
+
+### EDGE-011: Missing API key
+When a required key variable is absent, the command names the variable and the `dotnet user-secrets` alternative, never prints any key value, and exits 3. Dry-run reports all missing keys in one message.
+Acceptance: unit test with an empty environment and `--tier all --dry-run` asserts exit 3 and output containing both `NVIDIA_API_KEY` and `NEBIUS_API_KEY`; a test with a key set to a runtime-built `nvapi-` value and a failing endpoint asserts the output does not contain that value's suffix.
+
+### EDGE-012: Judge unavailable
+If the judge endpoint fails or returns an unparseable score, quality is `N/A` with `qualityReason: "not-scored"`, derived metrics are `N/A`, and the workflow results are still written with exit 0.
+Acceptance: unit test with a failing fake judge asserts `quality.label == "N/A"`, `qualityReason == "not-scored"`, `joulesPerQualityPoint.label == "N/A"` and exit code 0.
+
+### EDGE-013: GPU throttling during a run
+The meter SHOULD read clock throttle (clock event) reasons during local windows and, when power or thermal throttling is observed, set flag `throttled` and record the reasons.
+Acceptance: unit test with a fake NVML reporting a power-cap reason asserts flag `throttled` and the reason string in the reading; if the API is unsupported on the laptop, `docs/methodology.md` says so.
+
+### EDGE-014: Linux or WSL2 execution
+On Linux, including WSL2, the meter SHOULD load `libnvidia-ml.so.1` and behave as on Windows; it MUST NOT crash when the library is absent.
+Acceptance: the docker command from EDGE-001 exits 0 (library absent, no crash); `docs/build-log.md` records the output of `AJ probe` run inside WSL2 on the laptop, or states it was not run and why. The first GitHub Actions run is a user action after the push and is not a Definition of Done item.
+
+## Out of scope
+
+- Training or fine-tuning any model.
+- Multi-GPU measurement or selection beyond a device index.
+- CPU or DRAM energy (RAPL) and wall-socket power.
+- Carbon accounting beyond a single configurable gCO2e/kWh factor labelled `estimated`.
+- A web UI (DevUI is a stretch goal only).
+- Posting to LinkedIn, creating or pushing the GitHub repository, and submitting to Devpost (drafts, commands and checklist only).
+- Publishing NuGet packages.
+- Model families other than the Nemotron set (Nano, Super, Ultra, Nano Omni, 3.5 Lightning, and a 4B-class Nemotron NIM) plus the Qwen3 8B baseline.
+- Semantic Kernel.
+- A Python port.
+- Leaderboard-style or general benchmark claims.
+- Alpha or preview Agent Framework packages.
+
+## Definition of Done
+
+- [ ] Every REQ and EDGE acceptance criterion above is met
+- [ ] Project quality bar passes (build/lint/format/tests clean)
+- [ ] No work outside the Requirements (Out of scope respected)
+- [ ] `dotnet build -warnaserror -tl:off` reports 0 warnings and 0 errors
+- [ ] `dotnet format --verify-no-changes` exits 0
+- [ ] `dotnet test` exits 0; passed, failed and skipped counts recorded in `docs/build-log.md`
+- [ ] `AJ probe` and `AJ run --tier all` executed on the laptop; probe output and one results JSON per tier (`local`, `nvidia`, `nebius`) committed under `results/`
+- [ ] README results block generated from those files; `AJ report --verify-readme` exits 0
+- [ ] `docs/nim-local-attempt.md`, `docs/endpoints.md`, `docs/methodology.md` and `docs/devpost-checklist.md` present, each with a verification date
+- [ ] `content/linkedin-posts.md` holds three variants with every number resolved from named results files
+- [ ] `content/demo-script.md` shot list totals 170 seconds or less
+- [ ] Secret scan clean; scan name and exit code recorded in `docs/build-log.md`
+- [ ] `git log --oneline` shows commits whose messages start with REQ or EDGE IDs
+- [ ] Nothing pushed by the builder: `git log origin/main..HEAD --oneline` lists every build-session commit; the `git push` command for the user is present in `docs/devpost-checklist.md`
+- [ ] Every REQ or EDGE whose Acceptance names a unit test has at least one passing test with `[Trait("Spec","<ID>")]`; the per-ID filter results are recorded in `docs/build-log.md`
+- [ ] `docs/report/index.html` generated by `AJ report`; `grep -c "<script" docs/report/index.html` prints 0; `docs/.nojekyll` exists
+- [ ] docs/devpost-checklist.md has the line "Demo URL:" and the headings "Registration", "Tracks", "Judging criteria", "Credits"
+- [ ] docs/devpost-story.md present, `grep -cF "[[FILL:" docs/devpost-story.md` prints 0, no "Fill-after-build" heading
+- [ ] Run files carry run.repeat >= 3 for every tier
+
+---
+
+# Stretch goals (NOT part of the Definition of Done)
+
+Start only after every Definition of Done box is checked. Each stretch goal gets its own commit prefixed `STRETCH:` and must not break any REQ acceptance check. Alpha and preview packages are allowed here only.
+
+1. Energy-budget guardrail middleware: abort or re-route a workflow (for example from `local` to a hosted tier) when a per-run or per-step joule budget is exceeded. Strongest follow-up post hook: "my agents now have an energy budget".
+2. Aspire dashboard for the OpenTelemetry output (see the fork's AspireDashboard sample).
+3. DevUI (preview package) for inspecting runs.
+4. MCP tool exposing energy statistics (alpha `Microsoft.Agents.AI.Mcp`).
+5. A2A exposure of a metered agent (preview).
+6. A Nemotron 3 Nano Omni multimodal step on a hosted tier.
+7. Quantization comparison: Q4_K_M vs BF16 joules per output token on the local tier, for a model that fits in both forms.
+8. NIM on a Nebius cloud GPU for datacenter-class numbers, reported separately from laptop numbers.
+9. Live carbon-intensity API replacing the fixed gCO2e/kWh factor.

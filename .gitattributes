@@ -1,0 +1,16 @@
+* text=auto
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.cs text
+*.csproj text
+*.props text
+*.sln text
+*.slnx text
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.svg text
+*.png binary
+*.gif binary
+*.mp4 binary
