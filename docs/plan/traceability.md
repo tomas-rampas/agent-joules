@@ -19,11 +19,11 @@ Legend. Scenarios and Tasks in Tables A and B are summed over the covering stori
 | REQ-010 | M3 | AJ-073, AJ-074, AJ-075, AJ-076 | 19 | 19 | MUST |
 | REQ-011 | M2 | AJ-049, AJ-050 | 10 | 12 | MUST |
 | REQ-012 | M2 | AJ-043, AJ-044, AJ-048 | 17 | 19 | MUST |
-| REQ-013 | M2 | AJ-046, AJ-047, AJ-056 | 17 | 19 | MUST* |
+| REQ-013 | M2 | AJ-046, AJ-047, AJ-056 | 19 | 20 | MUST* |
 | REQ-014 | M2 | AJ-051 | 5 | 6 | SHOULD |
 | REQ-015 | M3 | AJ-078, AJ-079, AJ-080 | 21 | 18 | MUST |
 | REQ-016 | M3/M6 | AJ-081, AJ-082, AJ-083, AJ-084, AJ-086, AJ-087, AJ-144 | 44 | 38 | MUST |
-| REQ-017 | M2 | AJ-054, AJ-055, AJ-056, AJ-057, AJ-058 | 28 | 30 | MUST* |
+| REQ-017 | M2 | AJ-054, AJ-055, AJ-056, AJ-057, AJ-058 | 30 | 31 | MUST* |
 | REQ-018 | M4 | AJ-100, AJ-101, AJ-107, AJ-108, AJ-114 | 32 | 35 | MUST |
 | REQ-019 | M4 | AJ-102, AJ-103 | 13 | 12 | MUST* |
 | REQ-020 | M4 | AJ-105, AJ-107, AJ-113, AJ-114, AJ-115 | 33 | 35 | MUST* |
@@ -38,7 +38,7 @@ Legend. Scenarios and Tasks in Tables A and B are summed over the covering stori
 | REQ-029 | M0 | AJ-009, AJ-010, AJ-011, AJ-012 | 26 | 15 | MUST* |
 | REQ-030 | M3 | AJ-085, AJ-086 | 11 | 10 | MUST |
 | REQ-031 | M5 | AJ-120, AJ-121, AJ-125, AJ-126, AJ-127, AJ-128, AJ-129 | 51 | 50 | MUST* |
-| REQ-032 | M3 | AJ-089, AJ-090, AJ-091, AJ-092, AJ-093 | 36 | 37 | MUST* |
+| REQ-032 | M3 | AJ-089, AJ-090, AJ-091, AJ-092, AJ-093 | 37 | 37 | MUST* |
 
 ## Table B: EDGE-001 to EDGE-019
 | EDGE | Milestone | Stories (Covers) | Scenarios | Tasks | Class |
@@ -143,7 +143,7 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 | AJ-053 | M2 | MUST | 3.00 | 5 | 5 | EDGE-008 |
 | AJ-054 | M2 | MUST | 4.00 | 6 | 5 | REQ-017 |
 | AJ-055 | M2 | MUST | 4.75 | 6 | 5 | REQ-017 |
-| AJ-056 | M2 | MUST | 9.25 | 6 | 9 | REQ-013, REQ-017 |
+| AJ-056 | M2 | MUST | 10.00 | 8 | 10 | REQ-013, REQ-017 |
 | AJ-057 | M2 | SHOULD | 3.50 | 5 | 6 | REQ-017, EDGE-006 |
 | AJ-058 | M2 | SHOULD | 3.25 | 5 | 5 | REQ-017 |
 | AJ-070 | M3 | MUST | 3.50 | 5 | 5 | REQ-009 |
@@ -168,7 +168,7 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 | AJ-089 | M3 | MUST | 6.00 | 5 | 7 | REQ-032, EDGE-019 |
 | AJ-090 | M3 | MUST | 7.00 | 8 | 7 | REQ-032 |
 | AJ-091 | M3 | MUST | 10.00 | 8 | 9 | REQ-032, EDGE-018 |
-| AJ-092 | M3 | MUST | 6.50 | 10 | 8 | REQ-032 |
+| AJ-092 | M3 | MUST | 6.50 | 11 | 8 | REQ-032 |
 | AJ-093 | M3 | SHOULD | 4.00 | 5 | 6 | REQ-032, EDGE-019 |
 | AJ-100 | M4 | MUST | 3.75 | 7 | 6 | REQ-018 |
 | AJ-101 | M4 | MUST | 3.30 | 6 | 6 | REQ-018 |
@@ -227,26 +227,26 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 |---|---|---|---|---|---|---|---|---|
 | M0 | 12 | 74 | 34 / 40 | 49 | 16.00 | 15.00 | 1 | 0 |
 | M1 | 19 | 130 | 60 / 70 | 87 | 51.00 | 44.00 | 5 | 0 |
-| M2 | 19 | 106 | 50 / 56 | 111 | 80.75 | 65.75 | 4 | 0 |
-| M3 | 24 | 144 | 65 / 79 | 136 | 101.50 | 94.50 | 9 | 0 |
+| M2 | 19 | 108 | 51 / 57 | 112 | 81.50 | 66.50 | 4 | 0 |
+| M3 | 24 | 145 | 66 / 79 | 136 | 101.50 | 94.50 | 9 | 0 |
 | M4 | 16 | 108 | 44 / 64 | 102 | 55.45 | 48.45 | 1 | 1 |
 | M5 | 10 | 72 | 30 / 42 | 71 | 36.95 | 25.70 | 2 | 1 |
 | M6 | 15 | 135 | 57 / 78 | 86 | 54.75 | 45.50 | 2 | 2 |
 | M7 | 10 | 97 | 41 / 56 | 72 | 38.00 | 26.50 | 1 | 0 |
-| Total | 125 | 866 | 381 / 485 | 714 | 434.40 | 365.40 | 25 | 4 |
+| Total | 125 | 869 | 383 / 486 | 715 | 435.15 | 366.15 | 25 | 4 |
 
-Classes: MUST 104 stories 365.40 h; SHOULD 18 stories 58.50 h; COULD 3 stories 10.50 h. The totals include 2.35 h of USER ACTION tasks (M4 0.75 h, M5 1.60 h); builder-only total 432.05 h (M4 54.70 h, M5 35.35 h without user actions). Conflict lines: 24 sit inside a story, 1 (M7) sits in the milestone preamble; 4 further lines are `Resolved:` lines. Every story carries `@AJ-S<nn>` and `@REQ`/`@EDGE` tags.
+Classes: MUST 104 stories 366.15 h; SHOULD 18 stories 58.50 h; COULD 3 stories 10.50 h. The totals include 2.35 h of USER ACTION tasks (M4 0.75 h, M5 1.60 h); builder-only total 432.80 h (M4 54.70 h, M5 35.35 h without user actions). Conflict lines: 24 sit inside a story, 1 (M7) sits in the milestone preamble; 4 further lines are `Resolved:` lines. Every story carries `@AJ-S<nn>` and `@REQ`/`@EDGE` tags.
 
 Commands (run in `docs/plan/stories`; the result is the number after `->`):
 
 ```
 grep -c '^### AJ-' M*.md                                   # per file 12 19 19 24 16 10 15 10; sum 125
 grep -h '^### AJ-' M*.md | sed 's/:.*//' | sort | uniq -d | wc -l                       # -> 0 duplicate story IDs
-grep -hE '^[[:space:]]*Scenario( Outline)?:' M*.md | wc -l                              # -> 866 scenarios
+grep -hE '^[[:space:]]*Scenario( Outline)?:' M*.md | wc -l                              # -> 869 scenarios
 grep -hE '^[[:space:]]*Scenario( Outline)?:' M*.md | sed -E 's/^[[:space:]]*Scenario( Outline)?:[[:space:]]*//' | sort | uniq -d | wc -l   # -> 0 duplicate names
-grep -h '@positive' M*.md | wc -l ; grep -h '@negative' M*.md | wc -l                  # -> 381 ; 485
-grep -h '^| AJ-[0-9]*-T' M*.md | wc -l                                                   # -> 714 tasks
-grep -h '^| AJ-[0-9]*-T' M*.md | awk -F'|' '{s+=$(NF-2)} END{printf "%.2f\n", s}'      # -> 434.40 h
+grep -h '@positive' M*.md | wc -l ; grep -h '@negative' M*.md | wc -l                  # -> 383 ; 486
+grep -h '^| AJ-[0-9]*-T' M*.md | wc -l                                                   # -> 715 tasks
+grep -h '^| AJ-[0-9]*-T' M*.md | awk -F'|' '{s+=$(NF-2)} END{printf "%.2f\n", s}'      # -> 435.15 h
 grep -h '^| AJ-[0-9]*-T' M*.md | awk -F'|' '$(NF-2)+0>2{n++} END{print n+0}'            # -> 0 tasks above 2 h
 grep -h '^Conflict:' M*.md | wc -l                                                       # -> 25 (and grep -c '^Resolved:' adds 4)
 grep -h '^Covers:' M[0-6]-*.md | grep -oE 'REQ-[0-9]{3}' | sort -u | wc -l              # -> 32
@@ -257,8 +257,8 @@ grep -c '^- \[ \]' ../../agent-joules.prompt.md                                 
 grep -lP '[^\x00-\x7F]' M*.md | wc -l ; grep -lc $'\r' M*.md | wc -l                    # -> 0 ; 0
 ```
 
-Per-milestone coverage was also compared with the milestone table in `docs/plan/plan.md` section 2 by script: 0 missing and 0 extra REQ or EDGE IDs in every milestone. REQ-016 is covered in two milestones: M3 (AJ-081 to AJ-087) and M6 (AJ-144, the `report` flags and the content renderer); no other ID is. Hours per story use the Estimate column of the task rows; the awk command above takes every task row, including ones such as `AJ-006-T3b` and `AJ-056-T4a`.
+Per-milestone coverage was also compared with the milestone table in `docs/plan/plan.md` section 2 by script: 0 missing and 0 extra REQ or EDGE IDs in every milestone. REQ-016 is covered in two milestones: M3 (AJ-081 to AJ-087) and M6 (AJ-144, the `report` flags and the content renderer); no other ID is. Hours per story use the Estimate column of the task rows; the awk command above takes every task row, including ones such as `AJ-006-T3b`, `AJ-056-T4a` and `AJ-056-T6a`.
 
 Check results: duplicate story IDs 0; duplicate scenario names 0; tasks above 2 hours 0; REQ without a story 0 (no GAP row in Table A); EDGE without a story 0 (no GAP row in Table B); DoD boxes without an M7 story and task 0 (Table C, 24 of 24); non-ASCII characters or CR in the story files 0.
 
-Resolved since the first version: GAP-1 (AJ-144), the commit-prefix disagreement P-1 (amended in the prompt, box 13 now follows standing order 5), P-2 (USER ACTION wording), E-01 (AJ-131 now says ten demo steps), X-10 (AJ-056-T4a), X-11 (AJ-100 MUST). Open: none from this traceability pass.
+Resolved since the first version: GAP-1 (AJ-144), P-1 (box 13 follows standing order 5), P-2 (USER ACTION wording), E-01, X-10 (AJ-056-T4a), X-11 (AJ-100 MUST), Y-01 (incomplete marking owned by AJ-056-T6a). Open: none from this traceability pass.
