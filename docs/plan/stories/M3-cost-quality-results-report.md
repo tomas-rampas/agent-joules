@@ -1365,7 +1365,7 @@ Feature: AJ-090 Serialize live events and embed the dashboard page
   Scenario: AJ-090 payload contains no key material
     Given a runtime-built key starting with "nvapi-" present in the configuration
     When every event type is serialized
-    Then no payload contains the key characters after the first six
+    Then no payload contains any character of the key after the nvapi- prefix
   @positive
   Scenario: AJ-090 payload carries cumulative values as label objects
     Given two completed steps of agent "Writer" with net joules 10 and 12 (fixture values)

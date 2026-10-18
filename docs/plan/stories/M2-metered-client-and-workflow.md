@@ -777,7 +777,7 @@ User story: As a user running a hosted tier, I want the command to name every mi
 Acceptance criteria:
 1. With an empty environment, `run --tier all --dry-run` exits 3 and the one message names both `NVIDIA_API_KEY` and `NEBIUS_API_KEY` (test `Missing_keys_listed_in_one_message`).
 2. The message includes the alternative `dotnet user-secrets set "<NAME>" "<value>" --project src/AgentJoules.Cli` with the literal text `<value>` and no real value.
-3. A key set to a runtime-built `nvapi-` value together with a failing endpoint never appears in stdout or stderr beyond the first six characters (test `Key_suffix_is_never_printed`).
+3. A key set to a runtime-built `nvapi-` value together with a failing endpoint never appears in stdout or stderr: no character of the key beyond the public `nvapi-` prefix (test `Key_suffix_is_never_printed`; design 3.2 and design-review N-09, updated 2026-10-18 at the M0 exit).
 4. A missing workflow-tier key exits 3 before any HTTP request (the fake handler records 0 requests).
 5. Outside `--dry-run`, a missing judge key only warns and the command continues; with `--dry-run` the judge key joins the same message.
 6. For `cloudgpu` on the laptop (`CloudGpu:RequireSshVariables` true) a missing `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` exits 3; on the VM (`RequireSshVariables` false) it does not.
@@ -807,7 +807,7 @@ Feature: AJ-052 Exit 3 before any call when an API key is missing
   Scenario: AJ-052 key value is never printed when the endpoint fails
     Given a runtime-built key starting with "nvapi-" and an endpoint that refuses the connection
     When "run --tier nvidia" is executed
-    Then the output does not contain the key characters after the first six
+    Then the output does not contain any character of the key after the nvapi- prefix
   @negative
   Scenario: AJ-052 no request is sent when a key is missing
     Given tier "nebius" selected and NEBIUS_API_KEY absent
@@ -1222,7 +1222,7 @@ Feature: AJ-058 Map every failure to the documented exit code
   Scenario: AJ-058 error line is redacted
     Given a failing endpoint and a runtime-built key starting with "nvapi-"
     When the command fails
-    Then stderr does not contain the key characters after the first six
+    Then stderr does not contain any character of the key after the nvapi- prefix
   @negative
   Scenario: AJ-058 stack trace is hidden at the default log level
     Given an unexpected exception
