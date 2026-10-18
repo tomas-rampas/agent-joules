@@ -21,7 +21,7 @@ Exit criteria:
 
 ## Coverage
 
-REQ-025, REQ-026, REQ-027, REQ-028, and REQ-016 only where its `report` flags and the content renderer live (AJ-144; the rest of REQ-016 is M3).
+REQ-025, REQ-026, REQ-027, REQ-028, REQ-032 (only the dashboard screenshot and its README link, R6 of the requirement; the dashboard itself is M3), and REQ-016 only where its `report` flags and the content renderer live (AJ-144; the rest of REQ-016 is M3).
 
 ## Dependencies and user actions
 
@@ -121,7 +121,7 @@ Definition of done:
 Demo relevance: yes: shot 2 of the video shows this diagram.
 
 ### AJ-131: Write the README quick start, CLI reference and reproduce steps
-Covers: REQ-025
+Covers: REQ-025, REQ-032
 User story: As a developer with an NVIDIA GPU, I want exact quick-start, CLI and reproduce steps, so that I can regenerate every number on my own machine; and as a judge without a GPU I want a path that needs neither a GPU nor a key.
 Acceptance criteria:
 1. The README contains the headings `Quick start`, `Judges without a GPU`, `CLI reference`, `Reproduce` and `Prior art`, each once: `for h in "Quick start" "Judges without a GPU" "CLI reference" "Reproduce" "Prior art"; do grep -c "^#\+ $h$" README.md; done` prints five lines of 1.
@@ -131,10 +131,10 @@ Acceptance criteria:
 5. This story creates the README exit-code table (AJ-131-T4 owns it; AJ-035 and AJ-058 only verify it or add rows): codes 0 to 7 with the meanings of the Objective of the prompt, including for 5 the interrupted run (Ctrl+C, SIGTERM or SIGHUP marks in-flight steps `incomplete`) and the case that no free loopback port is found for `dashboard --replay`. Check: `grep -cE "^\| [0-7] \|" README.md` prints 8, `grep -c "^| 0 |" README.md` prints 1 (the table exists once), and the CLI harness test maps each row to the exit code of `ExitCode.cs`.
 6. `Reproduce` is an ordered list that matches the ten demo steps of AJ-135 command for command.
 7. `Prior art` cites, with links, arXiv 2407.16893, TokenPowerBench (AAAI), "Watt Counts" arXiv 2604.09048 and the Python greentoken CLI, and scopes the claim "none attributes energy to an agent step" to the search of 2026-10-17. The links are re-checked on the day of writing and the date is recorded in `docs/build-log.md` (@integration scenarios).
-8. The README links `docs/report/dashboard.png` (the screenshot of the live dashboard page, taken by the user during the AJ-135 rehearsal) under the dashboard usage text only when the file exists, and contains no link to it otherwise: `test -f docs/report/dashboard.png` and `grep -c "docs/report/dashboard.png" README.md` are both true or both false (a dangling link fails the check).
+8. The README link to `docs/report/dashboard.png` (the screenshot of the live dashboard page, taken by the user during the AJ-135 rehearsal, REQ-032 R6) is not hand-written: it is rendered by the README block generator `ReadmeResultsBlock.Render(latestPerTier, dashboardScreenshotExists)` (AJ-144, design 3.5), which emits the link under the dashboard usage text only when the file exists, and `AJ report --verify-readme` applies the same rule (exit 7 when the link is present without the file or absent with the file). Check: `test -f docs/report/dashboard.png` and `grep -c "docs/report/dashboard.png" README.md` are both true or both false after `AJ report --update-readme`; a dangling link fails the check.
 BDD scenarios:
 ```gherkin
-@unit @AJ-S131 @REQ-025
+@unit @AJ-S131 @REQ-025 @REQ-032
 Feature: AJ-131 README quick start, CLI reference and reproduce steps
   @positive
   Scenario: AJ-131 Judges without a GPU needs no key and no GPU
@@ -184,7 +184,7 @@ Feature: AJ-131 README quick start, CLI reference and reproduce steps
     When the README link check runs
     Then it fails with "dangling link: docs/report/dashboard.png"
 
-@integration @AJ-S131 @REQ-025
+@integration @AJ-S131 @REQ-025 @REQ-032
 Feature: AJ-131 Prior-art citations resolve
   @positive
   Scenario: AJ-131 Each prior-art link answers
@@ -203,7 +203,7 @@ Tasks:
 | AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature | 0.5 | AJ-130-T2 |
 | AJ-131-T2 | Add the option-versus-help check and the exit-code table parser to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-131-T1 |
 | AJ-131-T3 | Write `Quick start` and `Judges without a GPU` | README.md | 0.75 | AJ-131-T2 |
-| AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output, and link `docs/report/dashboard.png` under the dashboard usage text only when the file exists | README.md | 0.75 | AJ-131-T3 |
+| AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output, and leave the screenshot link to the generated block (AJ-144, criterion 8); do not hand-write it | README.md | 0.75 | AJ-131-T3 |
 | AJ-131-T5 | Write `Reproduce` from the ten demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
@@ -288,7 +288,7 @@ Covers: REQ-025, REQ-026, REQ-016
 User story: As the author of the README and the LinkedIn posts, I want `AJ report` to update and verify the README results block and to render the post template from the latest results files, so that no number in either file is typed by hand and a manual edit is detected.
 Acceptance criteria:
 1. `AJ report --help` exits 0 and lists `--in`, `--out`, `--update-readme`, `--verify-readme`, `--render-content` and `--config` (design section 3.6); `AJ report --in results/ --out docs/report/` without the new flags keeps its previous behaviour and exits 0.
-2. `AJ report --update-readme` replaces only the text between `<!-- results:begin -->` and `<!-- results:end -->` with `ReadmeResultsBlock.Render(latestPerTier)` (the render function of AJ-087) and writes LF line endings; a second run leaves `git diff --exit-code README.md` at exit 0 once the first result is committed.
+2. `AJ report --update-readme` replaces only the text between `<!-- results:begin -->` and `<!-- results:end -->` with `ReadmeResultsBlock.Render(latestPerTier, dashboardScreenshotExists)` (the render function of AJ-087) and writes LF line endings; a second run leaves `git diff --exit-code README.md` at exit 0 once the first result is committed. The generated block contains the link to `docs/report/dashboard.png` under the dashboard usage text only when `dashboardScreenshotExists` is true (the file exists at generation time); `--verify-readme` computes the same flag, so a link without the file, or a file without the link, is a difference (exit 7).
 3. `AJ report --verify-readme` exits 0 when the marked block equals the generated block and exits 7 after any manual edit inside the markers; the comparison normalizes CRLF to LF on both sides, so a CRLF checkout of the same block verifies with exit 0 (design review M-02). A missing marker line exits 2 and names the marker.
 4. `AJ report --render-content` reads `content/linkedin-posts.template.md`, resolves every `{{results.<tier>.<dot.path>}}` against the latest completed or partial run file of that tier (arrays as `[index]`, label objects addressed as `.value`, optional `|F0` or `|F1` invariant format) and writes `content/linkedin-posts.md`; `{{repo.url}}` is left unresolved; the first line is `Sources:` followed by the names of the run files used.
 5. A value that is null (label `N/A` or `not-reported`) renders as its label text, never as `0`, `null` or an empty string (REQ-026 as amended 2026-10-18).
@@ -349,13 +349,23 @@ Feature: AJ-144 report flags and the content template renderer
     Given a template variant whose rendered text is 1301 characters
     When "report --render-content" runs
     Then the exit code is 2 and the message names the variant and its length
+  @positive
+  Scenario: AJ-144 The block links the dashboard screenshot when the file exists
+    Given a workspace where docs/report/dashboard.png exists
+    When "report --update-readme" runs
+    Then the results block contains the link to docs/report/dashboard.png and "report --verify-readme" exits 0
+  @negative
+  Scenario: AJ-144 Verify exits 7 when the screenshot link disagrees with the file
+    Given an updated README that links docs/report/dashboard.png and a workspace where the file is then deleted
+    When "report --verify-readme" runs
+    Then the exit code is 7
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature | 0.5 | AJ-130-T2 |
 | AJ-144-T2 | Write the failing unit cases for block update, verify (exit 7), placeholder resolution and variant length | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.75 | AJ-144-T1 |
-| AJ-144-T3 | Add `Update` and `Verify` with LF normalization to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
+| AJ-144-T3 | Add `Update` and `Verify` with LF normalization and the `dashboardScreenshotExists` parameter (conditional screenshot link) to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
 | AJ-144-T4 | Implement `ContentTemplateRenderer` (placeholders, `[index]`, `.value`, formats, null as label text, Sources line, variant split and length check) | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 2.0 | AJ-144-T2 |
 | AJ-144-T5 | Wire `--update-readme`, `--verify-readme` and `--render-content` into the report command with the exit codes 0, 2 and 7 | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-144-T3, AJ-144-T4 |
 | AJ-144-T6 | Create or extend `ExitCodeTests` with the exit-code 7 case and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
@@ -510,7 +520,7 @@ Definition of done:
 Demo relevance: no.
 
 ### AJ-135: Demo program end to end
-Covers: REQ-027, REQ-028
+Covers: REQ-027, REQ-028, REQ-032
 User story: As a hackathon judge, I want one defined demo that runs from probe to a published report, so that I see exactly which commands produce which committed artifacts and what the video shows.
 Acceptance criteria:
 1. The demo is defined in the Demo definition block below this story. `content/demo-script.md` has a section `## Demo program` with a fenced block holding the ten commands of the Demo definition, in that order, each starting with `dotnet run --project src/AgentJoules.Cli --` except step 5, which starts with `./AgentJoules.Cli`.
@@ -523,9 +533,10 @@ Acceptance criteria:
 8. The dashboard shots work: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser; `AJ dashboard --replay results/<ts>-nebius.json --speed 50 --exit-after 5` exits 0 and emits one event per step of that file (replay is the fallback when no GPU or local runtime is available at recording time, and its banner is visible in shot 5). The script and the README state that the published results files were recorded without a browser open and only the demo recording shows the live page (the load of a browser tab on the measured GPU is a stated limitation).
 9. The live run shown in the video writes to `artifacts/demo-run` and `git check-ignore artifacts/demo-run/x.json` prints the path; no file from it is under `results/`.
 10. The rehearsal run with `--dashboard` produces a screenshot of the live dashboard page, taken by the user (USER ACTION, AJ-135-T6) and saved as `docs/report/dashboard.png`: `test -f docs/report/dashboard.png` exits 0 and `file docs/report/dashboard.png` reports a PNG image. Until the user delivers it the item is listed as an open user action, not as a failure, and the README carries no link to it (AJ-131 criterion 8).
+11. The live page has no horizontal scroll at 1280 px and at 1920 px viewport width, checked manually during the rehearsal run and recorded in `docs/build-log.md` as the line `Dashboard width check: 1280 ok, 1920 ok`: `grep -c "Dashboard width check: 1280 ok, 1920 ok" docs/build-log.md` prints 1. A width that shows a horizontal scrollbar is recorded as a finding and reported to the M3 dashboard stories.
 BDD scenarios:
 ```gherkin
-@unit @AJ-S135 @REQ-027 @REQ-028
+@unit @AJ-S135 @REQ-027 @REQ-028 @REQ-032
 Feature: AJ-135 Demo program end to end
   @positive
   Scenario: AJ-135 The demo section lists the ten commands in order
@@ -592,8 +603,18 @@ Feature: AJ-135 Demo program end to end
     Given a workspace where the screenshot is saved as docs/report/dash.png and docs/report/dashboard.png is absent
     When the demo artifact check runs
     Then it reports "open user action: docs/report/dashboard.png" and the README has no dashboard link
+  @positive
+  Scenario: AJ-135 The build log records the width check at both widths
+    Given a build log with the line "Dashboard width check: 1280 ok, 1920 ok"
+    When the demo artifact check runs
+    Then the width check passes
+  @negative
+  Scenario: AJ-135 A width check recorded for one width only is rejected
+    Given a build log with the line "Dashboard width check: 1280 ok"
+    When the demo artifact check runs
+    Then it fails with "width check incomplete: 1920"
 
-@integration @AJ-S135 @REQ-027 @REQ-028
+@integration @AJ-S135 @REQ-027 @REQ-028 @REQ-032
 Feature: AJ-135 Demo rehearsal with the laptop and keys
   @positive
   Scenario: AJ-135 Dry run of all enabled tiers prints OK
@@ -616,6 +637,7 @@ Tasks:
 | AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3, AJ-144-T6, AJ-133-T3 |
 | AJ-135-T5 | Check that every artifact in the table exists or is covered by the fallback and record the result | docs/build-log.md | 0.25 | AJ-135-T4 |
 | AJ-135-T6 | USER ACTION: take a screenshot of the live dashboard page during the rehearsal run with `--dashboard` and save it as `docs/report/dashboard.png` | docs/report/dashboard.png (user) | 0.25 | AJ-135-T4 |
+| AJ-135-T7 | Check the live page at 1280 px and 1920 px width for horizontal scroll and record the `Dashboard width check` line | docs/build-log.md | 0.25 | AJ-135-T6 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature; ReportRenderingTests (not-run row)
 Docs impact: content/demo-script.md; docs/build-log.md; .gitignore
 Definition of done:
@@ -1344,7 +1366,7 @@ Demo relevance: no.
 
 | Risk | Trigger | Mitigation | Owner |
 |---|---|---|---|
-| Estimate exceeds the window: 55.0 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, AJ-144, about 29 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
+| Estimate exceeds the window: 55.25 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, AJ-144, about 29 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
 | Official rules page unreadable (HTTP 403 on 2026-10-17) | fetch returns 403 or a login wall | record `not verified` with the status, mark the 13 rule items `user-stated, not verified`, ask the user to paste the Rules tab text; never write `verified` without a date | builder, user |
 | cloudgpu tier absent or partial | no completed or partial `results/*Z-cloudgpu.json` by 2026-10-28 | fallback paths in AJ-132, AJ-134, AJ-135, AJ-140, AJ-141, AJ-142: `cloudgpu | not run` row, `None besides Token Factory.`, pitch A-local, singular tagline, no cloudgpu sentence anywhere; AJ-143 rule 8 enforces it | builder |
 | A new run file lands after the text was filled | a results file newer than the one a passage cites | rerun `AJ report --update-readme --render-content`, re-extract AJ-140 numbers from the recorded expressions, rerun AJ-143 | builder |
@@ -1366,7 +1388,7 @@ Note (2026-10-18): any deferral or descope candidates named in this section are 
 | AJ-132 README Devpost-form sections | 6 | 3.5 |
 | AJ-133 README results block | 4 | 1.75 |
 | AJ-134 LinkedIn post drafts | 7 | 3.5 |
-| AJ-135 Demo program end to end | 6 | 3.5 |
+| AJ-135 Demo program end to end | 7 | 3.75 |
 | AJ-136 Demo video script | 6 | 3.5 |
 | AJ-137 Long-form article | 7 | 5.25 |
 | AJ-138 Devpost checklist rules and fields | 6 | 4.0 |
@@ -1376,6 +1398,6 @@ Note (2026-10-18): any deferral or descope candidates named in this section are 
 | AJ-142 Feedback fill | 7 | 4.5 |
 | AJ-143 Honesty audit | 4 | 4.0 |
 | AJ-144 report flags and content renderer | 7 | 6.25 |
-| Total | 87 | 55.0 |
+| Total | 88 | 55.25 |
 
 Capacity of the window: about 18 hours (three days at six hours). The gap and its mitigation are the first risk above.

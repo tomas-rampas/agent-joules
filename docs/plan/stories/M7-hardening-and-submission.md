@@ -839,7 +839,7 @@ Acceptance criteria:
 3. A `Never dropped` list names the minimum submission: a `nebius` run file (or cloudgpu if nebius is BLOCKED by the user decision), the `local` run file, schema validation, the build, format and test commands, the secret scan, the README results block, the checklist with the push command, the story, the feedback draft, the demo script, `peer-review-critic` approval, and the user's video and submission.
 4. A `Buffer` table lists the freeze times of AJ-158 `Timeline` and the unallocated hours: the reserve is 3 hours before the 17:00 UTC deadline and 2 hours inside the M7 window (assumed planning values); every trigger time lies before 2026-10-30 17:00 UTC.
 5. The risk register of this milestone (`## Risks` table, ids RK-1 to RK-8) is cross-linked: each drop item names the risk that triggers it.
-6. The M6 and M7 task estimates are compared with the capacity in the same section (M6: 55.0 h versus about 18 h; M7: see `## Estimate`), with the statement that the gap is closed by the drop order, by front-loading M6 work and by the fact that most M7 tasks are commands that run in minutes (the hours are planning figures, not measurements).
+6. The M6 and M7 task estimates are compared with the capacity in the same section (M6: 55.25 h versus about 18 h; M7: see `## Estimate`), with the statement that the gap is closed by the drop order, by front-loading M6 work and by the fact that most M7 tasks are commands that run in minutes (the hours are planning figures, not measurements).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S159 @DoD

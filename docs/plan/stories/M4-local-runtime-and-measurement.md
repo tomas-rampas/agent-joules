@@ -862,7 +862,7 @@ Acceptance criteria:
 4. The Limitations section contains each of the strings `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted`, `cloud`, covering: GPU-board scope, GPU shared with the display, the laptop power limit, sampling resolution and possible driver averaging, partial CPU offload, hosted energy `N/A`, and the cloudgpu tier (dedicated VM GPU with the provider's driver and host power management, cost observed from the billing page, no comparison of laptop and datacenter joules as efficiency claims).
 5. The document names the committed calibration file and quotes its `relativeDifference` exactly as stored; it quotes the power limit from the committed probe and notes that the NVML enforced limit and the `nvidia-smi` limit may differ (conflict C-11); it states whether the clock-throttle reasons API worked on the laptop (EDGE-013).
 6. A contract test fails when a heading or a required string is missing, when the quoted difference differs from the file, or when no calibration file is named; `dotnet test --filter "Spec=REQ-022" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
-7. The two REQ-032 sentences are written in `Limitations` (this story is the MUST path; the dashboard stories that first wrote them are cut candidates): "The dashboard server adds no GPU work." and "A browser tab adds compositing load, so published runs are recorded without one."; `grep -cF "adds no GPU work" docs/methodology.md` and `grep -cF "adds compositing load" docs/methodology.md` each print 1.
+7. The three REQ-032 sentences are written in `Limitations` (this story is the MUST path; the dashboard stories that first wrote them are cut candidates): "The dashboard server adds no GPU work." and "A browser tab adds compositing load, so published runs are recorded without one." and "Estimates shown on the live dashboard never enter results files."; `grep -cF "adds no GPU work" docs/methodology.md` and `grep -cF "adds compositing load" docs/methodology.md` and `grep -cF "never enter results files" docs/methodology.md` each print 1.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S112 @REQ-022
@@ -900,7 +900,7 @@ Feature: Write the methodology document with a contract test
     Then the result is fail and the message says the calibration file must be named
   @negative
   Scenario: AJ-112 a missing dashboard sentence fails
-    Given the Limitations section lacks the sentence "The dashboard server adds no GPU work."
+    Given the Limitations section lacks the sentence "The dashboard server adds no GPU work." or the sentence "Estimates shown on the live dashboard never enter results files."
     When the contract test runs
     Then the result is fail and the message names the sentence
   @negative
