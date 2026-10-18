@@ -649,10 +649,10 @@ Tasks:
 Test mapping: RedactionTests (tests/AgentJoules.UnitTests/RedactionTests.cs, trait Spec=REQ-029); Specs feature tests/AgentJoules.Specs/Features/Configuration/AJ-010-redact-key-values.feature. The short-value rule is an addition: design 3.2 says "first six characters plus ****" and is silent on values of six characters or fewer.
 Docs impact: docs/build-log.md `## Per-ID filter results` (REQ-029 filter row).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the tests fail before SecretRedactor exists (red first), recorded in docs/build-log.md
-- [ ] no test fixture contains a literal matching `nvapi-[A-Za-z0-9_-]{8,}`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the tests fail before SecretRedactor exists (red first), recorded in docs/build-log.md
+- [x] no test fixture contains a literal matching `nvapi-[A-Za-z0-9_-]{8,}`
 Demo relevance: no
 
 ### AJ-011: Run the secret scan and record it

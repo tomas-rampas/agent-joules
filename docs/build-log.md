@@ -146,6 +146,19 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | negative, scratch repository: removed secret pattern | a throwaway repository in the scratchpad with this `.gitignore` minus the `id_rsa*` line; `git check-ignore id_rsa` | 1 | no output, so the deletion is caught |
 | tool state ignored | `git check-ignore .serena/project.yml` | 0 | printed |
 
+### AJ-010 redaction checks (2026-10-18T16:49Z to 16:54Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| red first | `dotnet test --filter "Category=AJ-S010"` and `dotnet test --filter "Spec=REQ-029"` run before SecretRedactor and RedactingTextWriter existed (16:49Z) | 1; 1 | both failed at build with CS0234 (namespaces AgentJoules.Core.Security and AgentJoules.Cli.Output absent) and CS0246 (SecretRedactor, RedactingTextWriter not found); no test ran |
+| green: REQ-029 filter | `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` | 0 | Total tests 19, Passed 19, Failed 0 (12 before the review fix round at 16:54Z, 19 after it at 17:02Z) |
+| green: story scenarios | `dotnet test --filter "Category=AJ-S010"` | 0 | Passed 7, Failed 0, Skipped 0; the Reqnroll tags surface as the `Category` trait |
+| full suite | `dotnet test` | 0 | UnitTests passed 19 skipped 6, Specs passed 7, IntegrationTests skipped 1; failed 0 (17:02Z, after the review fix round) |
+| strict build and format | `dotnet build -warnaserror -tl:off --no-incremental`; `dotnet format --verify-no-changes` | 0; 0 | `0 Warning(s)`, `0 Error(s)`; no diff |
+| no literal key | `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" -- src tests`; `grep -rnE "nvapi-[A-Za-z0-9_-]{8,}" src tests --include=*.cs --include=*.feature` | 1; 1 | no tracked or untracked line holds a literal key; every fake key is built at runtime |
+| encoding of the five new files | `tr -cd '\r'` byte count and `grep -cP '[^\x00-\x7F]'` per file | 0 | 0 CR bytes and 0 non-ASCII characters in SecretRedactor.cs, RedactingTextWriter.cs, RedactionTests.cs, ConfigurationSteps.cs and the feature file |
+| review fix round | regex-first ordering in `Redact`, boundary tests (6 and 7 characters, text after the last newline, `Write(char)`, `WriteLine`), try/finally in `Dispose`, `FormatProvider` and `NewLine` pass-through, trimmed-value registration, deterministic tie-break; then `dotnet build -warnaserror -tl:off --no-incremental`, `dotnet format --verify-no-changes`, `dotnet test` | 0; 0; 0 | `0 Warning(s)`, `0 Error(s)`; no diff; 26 passed, 0 failed, 7 skipped (17:02Z) |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -170,10 +183,15 @@ Passed, failed and skipped counts of `dotnet test` per recorded run (AJ-007 and 
 |---|---|---|---|---|---|---|---|
 | AJ-007 skeleton | 2026-10-18T16:41Z | `dotnet test` | 0 | 0 | 0 | 7 | UnitTests 6, IntegrationTests 1, Specs 0 tests (`No test is available`, exit 0); measured |
 | AJ-008 gate | 2026-10-18T16:43Z | `dotnet test` | 0 | 0 | 0 | 7 | UnitTests 6, IntegrationTests 1, Specs 0 tests; placeholder count by grep 7; measured |
+| AJ-010 redaction | 2026-10-18T17:02Z | `dotnet test` | 0 | 26 | 0 | 7 | UnitTests 19 passed 6 skipped, Specs 7 passed, IntegrationTests 1 skipped; measured after the review fix round |
 
 ## Per-ID filter results
 
 One row per `dotnet test --filter "Spec=<ID>"` run: ID, passed, failed, skipped, UTC date.
+
+| ID | UTC date | Command | Passed | Failed | Skipped | Note |
+|---|---|---|---|---|---|---|
+| REQ-029 | 2026-10-18T17:02Z | `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` | 19 | 0 | 0 | AJ-010 RedactionTests, 17:02Z after the review fix round (12 at 16:54Z); measured |
 
 ## Probe and WSL2 notes
 
@@ -277,3 +295,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: the story's criterion 3 lists `.code-review-graph/` as missing; it was present, a measurement error in the story text. Noted for later, not applied: `*.cmd` and `*.bat` would need `text eol=crlf` lines if such scripts ever appear (code-review MINOR); `results/*.raw` and `results/*.partial` do not cover subfolders of `results/`, accepted because the design writes run files directly under `results/` (security LOW).
 - Gates: code-review-gatekeeper APPROVED (no finding); security-specialist APPROVED (13 secret and tool-state paths ignored, 3 controls not ignored, no `!` rule re-includes a secret file); spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS).
 - Velocity: estimate 1.25 h; wall-clock 16:40Z (executor start) to 16:53Z (entry written), 13 min, commit follows; sub-agent tokens 257,263 (executor 51,589; gates 79,338 + 84,220 + 42,116).
+
+### AJ-010 Redact key values in any text output (REQ-029)
+
+- Shipped: `src/AgentJoules.Core/Security/SecretRedactor.cs` (Register, Redact, the `nvapi-[A-Za-z0-9_-]{4,}` pattern as a generated regex, longest-first registered values, the six-character reveal with the short-value rule), `src/AgentJoules.Cli/Output/RedactingTextWriter.cs` (line-buffered TextWriter that redacts before anything reaches the inner writer; Flush and Dispose write the remainder), `tests/AgentJoules.UnitTests/RedactionTests.cs` (19 facts, trait Spec=REQ-029), `tests/AgentJoules.Specs/Features/Configuration/AJ-010-redact-key-values.feature` (the story's seven scenarios verbatim) and `tests/AgentJoules.Specs/Steps/ConfigurationSteps.cs`. Console wiring is AJ-034 (M1).
+- Decisions: the regex runs before the registered values (a registered value such as `-` would otherwise split the `nvapi-` prefix and leak the suffix; found by the code review, fixed and guarded by a test); registered values are also registered trimmed, so a trailing CR from a CRLF file cannot leak the bare key; the writer owns and disposes its inner writer, passes FormatProvider and NewLine through, and is documented as not thread-safe (AJ-034 wraps it with TextWriter.Synchronized, one instance per stream); the story's rule of six revealed characters is kept (design 3.2 says `****` for non-nvapi secrets and is refined by the story's criterion 3, which is the acceptance contract).
+- Deviations: one step pattern in ConfigurationSteps.cs carries `^...$` anchors because Reqnroll parsed it as a Cucumber expression otherwise; the other bindings are unanchored (known inconsistency). Noted for AJ-034, not applied: a span-merging implementation would also cover a registered value that contains `nvapi-` followed by a character outside the key charset (real NVIDIA keys use only the charset, so it cannot trigger today); a registered value containing `*` breaks idempotence of the mask (output only grows, nothing leaks); the security reviewer's proposal to reveal nothing for values shorter than 16 characters and to lock the writer, both declined for M0 because they change the story's rule or are handled by the M1 wiring.
+- Gates: code-review-gatekeeper round 1 CHANGES_REQUIRED (MAJOR: regex ordering leak; MAJOR: untested boundaries; MINOR: Dispose try/finally, FormatProvider and NewLine, trimmed registration, deterministic tie-break, Register inside the Given step, StartsWith guard), all applied; round 2 APPROVED (both MAJORs verified fixed and tested; MINORs recorded above); security-specialist APPROVED (no partial mask reaches the inner writer, regex linear, secrets held privately, no literal key; three LOW notes recorded above); spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS, criterion 7 DEFERRED to AJ-034 by the story; the feature file equals the story's Gherkin byte for byte).
+- Velocity: estimate 1.75 h; wall-clock 16:48Z (red phase start) to 17:06Z (entry written), 18 min, commit follows; sub-agent tokens 661,237 (csharp-expert 85,506 + 101,002 + 114,973; gates 116,390 + 98,701 + 102,972 + 41,693).
