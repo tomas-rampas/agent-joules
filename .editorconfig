@@ -400,3 +400,10 @@ dotnet_diagnostic.CA1848.severity = warning
 
 [*.{cs,json,md,svg,html}]
 end_of_line = lf
+
+# AgentJoules (AJ-007): the M0 placeholder tests are skipped on purpose until the owning story replaces them; xUnit1004 is silenced for these seven files only
+[tests/AgentJoules.UnitTests/{MeteredChatClientTests,AttributionBaselineTests,CostModelTests,JudgeParsingTests,ReportRenderingTests,SchemaValidationTests}.cs]
+dotnet_diagnostic.xUnit1004.severity = none
+
+[tests/AgentJoules.IntegrationTests/PlaceholderIntegrationTests.cs]
+dotnet_diagnostic.xUnit1004.severity = none

@@ -83,6 +83,7 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test
+- [ ] the file MeteredChatClientTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no (internal contract; every console step line and results row in the demo comes from this record).
 
 ### AJ-041: Meter buffered and streaming calls with exactly one reading per call

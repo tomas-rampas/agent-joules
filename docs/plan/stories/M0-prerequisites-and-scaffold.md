@@ -460,7 +460,7 @@ Definition of done:
 - [x] scenarios green, `dotnet test` exit 0, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
 - [x] if the xUnit1004 "test methods should not be skipped" analyzer surfaces as a warning, it is lowered for tests/ only in .editorconfig with a one-line reason
-- Note (2026-10-18): xUnit1004 did not surface as a warning; .editorconfig was not changed.
+- Note (2026-10-18): xUnit1004 did not surface as a build warning; it surfaced at info severity under `dotnet format --severity info` after the M0 exit and is set to none for the seven placeholder files only (`.editorconfig`, last section, with a one-line reason); the story that replaces each placeholder removes its file from that section.
 Demo relevance: no
 
 ### AJ-008: Gate the skeleton with build, test and format checks
