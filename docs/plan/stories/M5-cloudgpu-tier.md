@@ -42,12 +42,12 @@ Covers: REQ-031
 User story: As the user, I want to create the Nebius AI Cloud account, fund it with the minimum payment and create an SSH key pair outside the repository, so that the builder can start the cloudgpu tier the moment the VM is requested.
 Acceptance criteria:
 1. The user confirms in the chat that the AI Cloud account exists (a separate product and sign-up from Token Factory), that a project exists in region `eu-north1`, that a card is added and that the USD 25 minimum first payment is made; the builder records the confirmation as a dated line without any account detail in `docs/build-log.md`.
-2. The user is told once, in the request, that hackathon and Builders credits do not apply to AI Cloud, that the free trial is suspended, that the total cap is USD 30 and that runs stop when the billing page shows USD 25.
+2. The user is told once, in the request, that hackathon and Builders credits do not apply to AI Cloud, that the free trial is suspended, that the total cap is USD 30 and that runs stop when the billing page shows USD 25; the request text is recorded in `docs/build-log.md` and `grep -c "do not apply to AI Cloud" docs/build-log.md` prints 1 or more.
 3. The key pair is created with `ssh-keygen -t ed25519`; the private key is outside the repository: `git ls-files | grep -E "id_ed25519|id_rsa|\.pem"` prints nothing, and `git check-ignore id_ed25519 id_rsa key.pem` prints all three names.
-4. No VM is created in this story; the builder does not ask for the VM until AJ-121 to AJ-124 are committed.
+4. No VM is created in this story; the builder does not ask for the VM until AJ-121 to AJ-124 are committed; `test ! -e docs/cloudgpu-run.md` exits 0 when this story ends (the document is first written in AJ-125-T4).
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S120 @REQ-031
 Feature: Create the AI Cloud account, card and SSH key pair
   @positive
   Scenario: AJ-120 the user confirms the funded account
@@ -104,7 +104,7 @@ Acceptance criteria:
 5. `dotnet test --filter "Spec=REQ-031" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S121 @REQ-031
 Feature: Gate the cloudgpu tier on SSH variables, MIG and the tier flag
   @positive
   Scenario: AJ-121 both SSH variables set passes the gate
@@ -179,7 +179,7 @@ Acceptance criteria:
 5. `dotnet test --filter "Spec=EDGE-017" --logger "console;verbosity=normal"` shows at least one passed and no failed test; tests use `FakeTimeProvider`, not the wall clock.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S122 @EDGE-017
 Feature: Enforce the 4-hour and USD 25 stop
   @positive
   Scenario: AJ-122 a run under both limits continues
@@ -242,14 +242,14 @@ Demo relevance: no.
 Covers: EDGE-016
 User story: As a reader of the report, I want a run that was cut off by a lost VM or a broken connection to be kept as evidence but never shown as a result, so that no partial energy figure is read as complete.
 Acceptance criteria:
-1. A transport failure during a streaming call (an `IOException`, a `SocketException` or an `HttpRequestException` without a status code) yields a step with `outcome` `incomplete`; the run file gets `run.status` `incomplete`, is kept on disk, the command exits 5 and asks the user to check the VM state in the console.
-2. After the drop the code makes no further call and no retry (the fake counts zero additional attempts even when the time box and the cost cap allow more).
+1. A transport failure during a streaming call (an `IOException`, a `SocketException` or an `HttpRequestException` without a status code) yields a step with `outcome` `incomplete`; host shutdown (Ctrl+C, SIGTERM, SIGHUP) is not re-specified here: AJ-034 (M1) builds the `ApplicationStopping` path that marks in-flight steps `incomplete`, sets `run.status` `incomplete` and exits 5, and this story reuses it; the run file gets `run.status` `incomplete`, is kept on disk, the command exits 5 and asks the user to check the VM state in the console.
+2. After the drop the code makes no further call and no retry (test `NoRetryAfterDrop`: the fake counts zero additional attempts even when the time box and the cost cap allow more).
 3. `RunFileSelector.Latest(dir, cloudgpu)` skips files with status `incomplete`, `running` and `failed`; a report fixture holding such a file renders no row for it and, with no other file, renders `cloudgpu | not run`; the README results block fixture excludes it.
 4. A hard VM loss that never wrote `incomplete` leaves a copied file with `run.status` `running`; it is treated the same way and recorded in `docs/cloudgpu-run.md`.
 5. HTTP 429 exhaustion stays `outcome` `error` (exit 5), not `incomplete`; `dotnet test --filter "Spec=EDGE-016" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S123 @EDGE-016
 Feature: Keep incomplete cloudgpu run files out of reports
   @positive
   Scenario: AJ-123 a mid-stream connection drop yields one incomplete step
@@ -291,7 +291,7 @@ Tasks:
 | AJ-123-T1 | Write the failing feature and unit tests | tests/AgentJoules.Specs/Features/CloudGpu/IncompleteRuns.feature, tests/AgentJoules.UnitTests/IncompleteRunTests.cs | 0.75 | AJ-122-T7 |
 | AJ-123-T2 | Add the mid-stream drop mode to the fake HTTP handler | tests/AgentJoules.TestSupport/FakeHttpMessageHandler.cs | 0.5 | AJ-123-T1 |
 | AJ-123-T3 | Confirm the incomplete classification of transport failures | src/AgentJoules.Metering/OutcomeClassifier.cs | 0.5 | AJ-123-T2 |
-| AJ-123-T4 | Mark in-flight steps and the run incomplete and stop without retry | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 0.75 | AJ-123-T3 |
+| AJ-123-T4 | Stop without retry after a transport drop, reusing the AJ-034 incomplete marking | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 0.75 | AJ-123-T3 |
 | AJ-123-T5 | Skip incomplete, running and failed files in selection and rendering | src/AgentJoules.Reporting/Results/RunFileSelector.cs, src/AgentJoules.Reporting/Render/ReportAggregator.cs | 0.5 | AJ-123-T4 |
 | AJ-123-T6 | Bind the feature steps | tests/AgentJoules.Specs/Steps/CloudGpuSteps.cs | 0.5 | AJ-123-T5 |
 | AJ-123-T7 | Document the incident handling rule | docs/build-log.md | 0.25 | AJ-123-T6 |
@@ -314,7 +314,7 @@ Acceptance criteria:
 5. A forced `Meter:Method=counter` with an unsupported counter exits 6; `dotnet test --filter "Spec=EDGE-015" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S124 @EDGE-015
 Feature: Use power sampling when the energy counter is unsupported on the VM
   @positive
   Scenario: AJ-124 a supported counter keeps the counter method
@@ -390,7 +390,7 @@ Acceptance criteria:
 6. No host, IP or user value appears in the repository: `git grep -nF "$CLOUDGPU_SSH_HOST"` and `git grep -nF "$CLOUDGPU_SSH_USER"` print nothing; commands in documents show the variable names only.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S125 @REQ-031
 Feature: Create the VM when asked, deliver the CLI and probe the GPU over SSH
   @positive
   Scenario: AJ-125 the self-contained publish is ready before the VM exists
@@ -445,7 +445,7 @@ Tasks:
 | AJ-125-T4 | Check GPU class, boot disk, Docker and container toolkit over SSH | docs/cloudgpu-run.md | 0.5 | AJ-125-T3 |
 | AJ-125-T5 | Copy the CLI, config, tasks and endpoints file with scp | docs/cloudgpu-run.md | 0.5 | AJ-125-T4 |
 | AJ-125-T6 | Run the probe on the VM and copy the file back | results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json | 0.5 | AJ-125-T5 |
-| AJ-125-T7 | Commit the probe file with the REQ-031 prefix | results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json | 0.1 | AJ-125-T6 |
+| AJ-125-T7 | Commit the probe file with the `AJ-125 REQ-031:` prefix | results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json | 0.1 | AJ-125-T6 |
 | AJ-125-T8 | Write the Instance and Probe sections of the run document | docs/cloudgpu-run.md | 0.5 | AJ-125-T6 |
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/VmDeliveryAndProbe.feature; SchemaValidationTests (REQ-023 list) and ProbeCommandTests (design 6.1) for the probe file; gated class CloudGpuProbeTests (design 6.3).
 Docs impact: docs/cloudgpu-run.md (`Instance`, `Probe`, delivery choice), .gitignore, results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json.
@@ -459,7 +459,7 @@ Demo relevance: yes: the cloudgpu probe shows the L40S, the MIG state and the co
 Covers: REQ-031
 User story: As a reader of the cloudgpu row, I want the NIM image, its digest and the FP8 profile recorded and verified by a live models call, so that the row names exactly what was served.
 Acceptance criteria:
-1. `docker login nvcr.io --username '$oauthtoken' --password-stdin` receives `NGC_API_KEY` through the SSH session only (delivered by the session environment or its standard input, never a command-line argument, never written to a file by the builder); `docker pull nvcr.io/nim/nvidia/nemotron-3-nano` (a tag recorded, `latest` or a tagged version) succeeds, which confirms the inferred pull string; the digest from `docker image inspect --format '{{index .RepoDigests 0}}'` is recorded as `ContainerDigest`.
+1. `docker login nvcr.io --username '$oauthtoken' --password-stdin` receives `NGC_API_KEY` through the SSH session only (delivered by the session environment or its standard input, never a command-line argument); `DOCKER_CONFIG` points to a memory-backed directory (for example under `/dev/shm`) deleted right after the pull, `docker logout nvcr.io` follows, and the container receives the key by variable name only; `grep -c "docker logout" docs/cloudgpu-run.md` prints 1 or more with the commands shown redacted (prompt section 8 as amended); `docker pull nvcr.io/nim/nvidia/nemotron-3-nano` (a tag recorded, `latest` or a tagged version) succeeds, which confirms the inferred pull string; the digest from `docker image inspect --format '{{index .RepoDigests 0}}'` is recorded as `ContainerDigest`.
 2. When that pull path fails, the fallback image `nvcr.io/nim/nvidia/model-free-nim` is used and the substitution is recorded with the error; the builder reports it in the final report.
 3. The FP8 profile is selected: the NIM profile listing is recorded and `vllm-fp8-tp1-pp1` (the expected generic profile, inferred) or the listed single-GPU FP8 profile is set through `NIM_MODEL_PROFILE`; BF16 is never used on the 48 GB GPU. When no FP8 profile is listed the builder stops and reports.
 4. If the container fails for KV-cache memory, `NIM_MAX_MODEL_LEN` is lowered and the value used is recorded; `GET http://localhost:<port>/v1/models` from the VM returns the model ID, which is recorded in the `## cloudgpu` section of `docs/endpoints.md` with `Verified: <UTC date>`, the command, and the streaming-usage and reasoning-toggle results measured as in AJ-108 (`Reasoning result:` must match the other tiers, or `unsupported` is stated).
@@ -467,7 +467,7 @@ Acceptance criteria:
 6. `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` and `git grep -nF "$NGC_API_KEY"` print nothing; the document shows `$NGC_API_KEY` as a variable name only.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S126 @REQ-031
 Feature: Serve Nemotron 3 Nano in FP8 with NIM on the VM
   @positive
   Scenario: AJ-126 the pull succeeds and the digest is recorded
@@ -525,7 +525,7 @@ Definition of done:
 - [ ] docs listed above updated
 - [ ] the `## cloudgpu` section carries a `Verified:` line, which closes the REQ-018 acceptance left open by AJ-100
 Demo relevance: no.
-Conflict: REQ-031 and prompt section 8 say the NGC key reaches the VM only as an environment variable of the SSH session and is never written to a file, but `docker login` stores its credential in `~/.docker/config.json` by default, and a NIM container started with `-e NGC_API_KEY` holds the key in its environment. Proposed resolution: set `DOCKER_CONFIG` to a memory-backed directory (for example under `/dev/shm`) for the login and the pull, run `docker logout nvcr.io` and delete the directory right after the pull, pass the key to the container by variable name only, and record the commands in `docs/cloudgpu-run.md`; the VM and its disk are deleted at teardown (AJ-128).
+Resolved: prompt section 8 (as amended) fixes the login procedure in criterion 1 (memory-backed `DOCKER_CONFIG`, `docker logout nvcr.io`, key by variable name only); the VM and its disk are deleted at teardown (AJ-128).
 
 ### AJ-127: Run the cloudgpu workload on the VM and copy the results back
 Covers: REQ-031, EDGE-015, EDGE-016, EDGE-017
@@ -533,12 +533,12 @@ User story: As the author, I want the same tasks, warm-up, baseline and repeats 
 Acceptance criteria:
 1. On the VM, inside `tmux`, with the session environment `AGENTJOULES__Tiers__cloudgpu__Enabled=true`, `AGENTJOULES__CloudGpu__RequireSshVariables=false`, `AGENTJOULES__CloudGpu__TierStartUtc`, `...__InstancePreset`, `...__Region`, `...__ContainerImage`, `...__ContainerDigest`, `...__HourlyPriceUsd` and the judge key (`NVIDIA_API_KEY`), `./AgentJoules.Cli run --tier cloudgpu --dry-run` exits 0 and its output is recorded in `docs/cloudgpu-run.md`.
 2. `./AgentJoules.Cli calibrate` runs when the probe shows `energyCounterSupported` true (otherwise the sampling-only file of AJ-124 is written) and writes `results/calibration-<yyyyMMddTHHmmssZ>-cloudgpu.json`; `./AgentJoules.Cli run --tier cloudgpu --repeat 3` writes `results/<yyyyMMddTHHmmssZ>-cloudgpu.json` with `run.tasks` of 3, `run.repeat` 3, 36 steps, `baseline.seconds` of at least 30, `environment.provider` `nebius-ai-cloud`, `environment.precision` `FP8`, a non-empty `instancePreset`, `region` `eu-north1`, `gpuUuid`, `containerImage` and a `containerDigest` starting `sha256:`; temperature 0 and the reasoning mode equal to the other tiers.
-3. The guard of AJ-122 is checked before each invocation with the user-reported `ObservedCostUsd`; at USD 25 or four hours no new invocation starts and the file is `partial` (EDGE-017); a lost VM or broken connection leaves an `incomplete` file that is excluded and not retried (EDGE-016); a dropped SSH session does not stop the run because it lives in `tmux`.
+3. The guard of AJ-122 is checked before each invocation with the user-reported `ObservedCostUsd`; at USD 25 or four hours no new invocation starts and the file is `partial` (EDGE-017); a lost VM or broken connection leaves an `incomplete` file that is excluded and not retried (EDGE-016); a dropped SSH session does not stop the run because it lives in `tmux`; a host shutdown on the VM uses the AJ-034 `ApplicationStopping` path (steps `incomplete`, exit 5) and is not re-specified here.
 4. The results are copied back with `scp` and `AJ validate results/` exits 0 on the laptop, printing `Validated <n> files` with n equal to the number of committed run files; the report keeps the cloudgpu row separate from the laptop rows (no merged or averaged figure).
-5. Keys appear only in the session environment: `git grep -nF "$NVIDIA_API_KEY"` and `git grep -nF "$NGC_API_KEY"` print nothing; no command in the documents carries a key value; the files are committed with a message starting `REQ-031`.
+5. Keys appear only in the session environment: `git grep -nF "$NVIDIA_API_KEY"` and `git grep -nF "$NGC_API_KEY"` print nothing; no command in the documents carries a key value; the files are committed with a message starting `AJ-127 REQ-031:` (story id first; check regex `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:`).
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S127 @REQ-031 @EDGE-015 @EDGE-016 @EDGE-017
 Feature: Run the cloudgpu workload on the VM and copy the results back
   @positive
   Scenario: AJ-127 the dry-run passes on the VM
@@ -590,14 +590,14 @@ Feature: Run the cloudgpu workload on the VM and copy the results back
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-127-T1 | Write the failing feature and the gated cloudgpu run-file checks | tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuRun.feature, tests/AgentJoules.IntegrationTests/CloudGpuRunTests.cs | 0.75 | AJ-126-T9 |
+| AJ-127-T1 | Write the failing feature and the gated cloudgpu run-file checks; create `IncompleteRunTests.cs` and the mid-stream drop mode of the fake handler here when AJ-123 was cut | tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuRun.feature, tests/AgentJoules.IntegrationTests/CloudGpuRunTests.cs, tests/AgentJoules.UnitTests/IncompleteRunTests.cs, tests/AgentJoules.TestSupport/FakeHttpMessageHandler.cs | 0.75 | AJ-126-T9 |
 | AJ-127-T2 | Start `tmux` on the VM and set the session environment | docs/cloudgpu-run.md | 0.25 | AJ-127-T1 |
 | AJ-127-T3 | Run the VM dry-run and the calibration and record the output | docs/cloudgpu-run.md, results/calibration-<yyyyMMddTHHmmssZ>-cloudgpu.json | 0.75 | AJ-127-T2 |
 | AJ-127-T4 | Run `run --tier cloudgpu --repeat 3` inside the box | results/<yyyyMMddTHHmmssZ>-cloudgpu.json | 2.0 | AJ-127-T3 |
 | AJ-127-T5 | USER ACTION: read the billing page and report the observed cost before each invocation and at the end of the run | none (user cloud console) | 0.2 | AJ-127-T3 |
 | AJ-127-T6 | Apply the stop procedure or the incident handling when a limit or a loss occurs (contingency) | docs/cloudgpu-run.md | 0.5 | AJ-127-T4, AJ-127-T5 |
 | AJ-127-T7 | Copy the results back with scp and validate them on the laptop | results/ | 0.5 | AJ-127-T4 |
-| AJ-127-T8 | Run the secret scan and commit the results with the REQ-031 prefix | results/ | 0.25 | AJ-127-T7 |
+| AJ-127-T8 | Run the secret scan and commit the results with the `AJ-127 REQ-031:` prefix | results/ | 0.25 | AJ-127-T7 |
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuRun.feature; SchemaValidationTests and ReportRenderingTests (REQ-023 list) for the file and the row; CloudGpuTests and IncompleteRunTests (design 6.1); gated class CloudGpuRunTests (design 6.3).
 Docs impact: docs/cloudgpu-run.md (`Commands`, `Runs`), results/ (cloudgpu run file, calibration file), docs/build-log.md.
 Definition of done:
@@ -617,7 +617,7 @@ Acceptance criteria:
 5. `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` prints nothing; the contract test rejects any IPv4 literal and any runtime-built fake key; `dotnet test --filter "Spec=REQ-031"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S128 @REQ-031 @EDGE-016 @EDGE-017
 Feature: Document the cloudgpu run, the cost and the user's teardown
   @positive
   Scenario: AJ-128 a complete document passes
@@ -683,7 +683,7 @@ Acceptance criteria:
 5. The facts the README section "Other Nebius tools or services used" must name (preset, region, GPU-hours, observed cost) are listed in `docs/build-log.md` from `docs/cloudgpu-run.md` for the M6 README story; `dotnet test --filter "Spec=EDGE-017"` and `--filter "Spec=REQ-031"` show at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S129 @REQ-031 @EDGE-017
 Feature: Apply the partial-tier consequences to the report, README and Devpost texts
   @positive
   Scenario: AJ-129 a completed cloudgpu file keeps candidate A
@@ -762,7 +762,7 @@ Conflict: REQ-028 switches the tagline to A-local when the cloudgpu tier "produc
 | VM lost or SSH broken | connection drops mid-run | `tmux` keeps the run alive; hard loss gives an excluded `incomplete` file, no retry past the box (AJ-123, AJ-127) | builder, user |
 | Spend passes the cap | billing page shows USD 25 or four hours pass | the guard stops new work, the user deletes the VM at once (AJ-122, AJ-128) | builder, user |
 | VM left running after the runs | the user does not delete it promptly | the builder asks for deletion in the same message that reports the results copied; `Teardown` stays unconfirmed and the Definition of Done box stays open (AJ-128) | user |
-| Key left on the VM | `docker login` writes its credential file | memory-backed `DOCKER_CONFIG`, logout, VM deletion (Conflict under AJ-126) | builder |
+| Key left on the VM | `docker login` writes its credential file | memory-backed `DOCKER_CONFIG`, logout, VM deletion (AJ-126 criterion 1) | builder |
 | Judge rate-limit from the VM | 429 on the judge tier | judge failures never change the exit code; steps keep `quality` N/A with `not-scored` | builder |
 | Estimate exceeds two working days | task sum of 36.95 hours against about 12 hours of capacity | unit stories AJ-121 to AJ-124 and AJ-129 are independent of the VM and can be done in parallel; the VM box is wall-clock; the cloudgpu tier may end as `partial` by design | builder |
 

@@ -50,7 +50,7 @@ Acceptance criteria:
 5. `AJ validate --config <path>` validates the named configuration file instead of `config/appsettings.json`; `dotnet test --filter "Spec=REQ-018" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S100 @REQ-018
 Feature: Validate configured model IDs against docs/endpoints.md
   @positive
   Scenario: AJ-100 every configured ID is recorded
@@ -117,12 +117,12 @@ User story: As a reader of the results, I want the hosted endpoints and model ID
 Acceptance criteria:
 1. The `## nvidia` section of `docs/endpoints.md` holds the base URL from `Tiers:nvidia:BaseUrl`, `Verified: <UTC date>` (2026-10-17 or later), the exact command used with the key shown as `Bearer ****`, every Nemotron and Qwen ID returned by `GET {BaseUrl}/models` as `- model: <id>` lines, a line `Total models returned: <n>` stating the truncation of other entries, and `Chosen:` lines for the Planner, Researcher, Writer and Reviewer agents and for the judge.
 2. The `## nebius` section holds the same fields; the chosen nebius model is the same model as on nvidia when `GET {BaseUrl}/models` lists it, otherwise the smallest listed Nemotron 3 model, and its ID contains `nemotron` (case-insensitive). When no Nemotron model is listed the section says `BLOCKED` with the missing item and the command output reports the build as blocked on this item; the tier is never silently skipped (prompt section 10).
-3. The Nebius onboarding and verification box is 45 minutes; the section records the start and end time, and on expiry records what was verified and what failed.
+3. The Nebius onboarding and verification box is 45 minutes; the section records the start and end time, and on expiry records what was verified and what failed; `grep -E "^Onboarding (started|ended):" docs/endpoints.md` prints both times for the nebius section, and the difference is at most 45 minutes or a `Box exceeded:` line is present.
 4. `config/appsettings.json` names only IDs copied from these lists; `AJ validate --config` exits 0; `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` each exit 0 (keys set), with the Nebius base URL confirmed by the call and noted in `docs/build-log.md`.
 5. No key appears anywhere: `git grep -nF "$NVIDIA_API_KEY"` and `git grep -nF "$NEBIUS_API_KEY"` print nothing, and `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` prints nothing. When the judge model ID equals an agent model ID the section says `Judge: self-judged` (REQ-010 disclosure).
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S101 @REQ-018
 Feature: Record the nvidia and nebius endpoint verification
   @positive
   Scenario: AJ-101 the nvidia listing is recorded with date and redacted command
@@ -188,7 +188,7 @@ Acceptance criteria:
 4. `dotnet test --filter "Spec=REQ-019" --logger "console;verbosity=normal"` shows at least one passed and no failed test; a failure message names the broken rule and the heading or line.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S102 @REQ-019 @EDGE-010
 Feature: Enforce the NIM attempt document contract
   @positive
   Scenario: AJ-102 a complete document passes
@@ -248,13 +248,13 @@ User story: As the author who promises an honest README, I want a hard 90-minute
 Acceptance criteria:
 1. The attempt starts at the first NGC catalog search and ends at the first successful `GET /v1/models` response on the container or at the 90-minute stop, whichever comes first; the document records `Started:` and `Ended:` in UTC.
 2. The `Image` section names the catalog entry found (a 4B-class Nemotron NIM, otherwise the smallest Nemotron NIM whose BF16 weights plus KV cache fit in about 15 GB of the 16 GB GPU), the image path, the tag and the digest, or states that none was found; it records whether a 4B-class Nemotron NIM exists (unverified in the prompt).
-3. The `Commands` section lists the exact commands with keys redacted; the login is `docker login nvcr.io --username '$oauthtoken' --password-stdin` fed from `NGC_API_KEY`; `grep -F "$NGC_API_KEY" docs/nim-local-attempt.md` prints nothing.
+3. The `Commands` section lists the exact commands with keys redacted; the login is `docker login nvcr.io --username '$oauthtoken' --password-stdin` fed from `NGC_API_KEY`; `DOCKER_CONFIG` points to a memory-backed or temporary directory that is deleted right after the pull, `docker logout nvcr.io` follows, and the container receives the key by variable name only; the document shows these steps with the key redacted; `grep -c "docker logout" docs/nim-local-attempt.md` prints 1 or more and `grep -F "$NGC_API_KEY" docs/nim-local-attempt.md` prints nothing.
 4. The `Outcome` section holds the first successful model-list response (model ID) or the verbatim errors, plus `nvidia-smi --query-gpu=memory.used,memory.total --format=csv` readings written as `<measured>` values copied from the run.
 5. At the stop (success or expiry) the container is stopped and removed when it is not the chosen runtime: `docker ps -a --filter name=<container-name> --format "{{.Names}}"` prints nothing after a failed or expired attempt.
 6. The `Decision` section ends with `Local runtime: nim` or `Local runtime: ollama`; `Local:Runtime` in `config/appsettings.json` equals it; on a fallback, `README.md` links `docs/nim-local-attempt.md` and says that NIM-local was attempted and why it was not used (EDGE-010); the AJ-102 contract test passes on the committed file.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S103 @REQ-019 @EDGE-010
 Feature: Run the NIM-local attempt within 90 minutes
   @positive
   Scenario: AJ-103 the attempt succeeds and nim becomes the local runtime
@@ -295,7 +295,7 @@ Feature: Run the NIM-local attempt within 90 minutes
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-103-T1 | Write the failing feature and the gated NIM endpoint test | tests/AgentJoules.Specs/Features/Configuration/NimLocalAttempt.feature, tests/AgentJoules.IntegrationTests/NimLocalEndpointTests.cs | 0.5 | AJ-102-T5 |
+| AJ-103-T1 | Write the failing feature and the gated NIM endpoint test; create `NimAttemptDocumentTests.cs` and the parser of AJ-102 here when AJ-102 was cut | tests/AgentJoules.Specs/Features/Configuration/NimLocalAttempt.feature, tests/AgentJoules.IntegrationTests/NimLocalEndpointTests.cs, tests/AgentJoules.UnitTests/NimAttemptDocumentTests.cs | 0.5 | AJ-102-T5 |
 | AJ-103-T2 | USER ACTION: store NGC_API_KEY and confirm Docker Desktop runs with GPU support in WSL2 (section 12 step 7) | none (user environment) | 0.25 | - |
 | AJ-103-T3 | Run the 90-minute attempt (catalog search, login, pull, run, models call) | docs/nim-local-attempt.md | 1.5 | AJ-103-T1, AJ-103-T2 |
 | AJ-103-T4 | Stop and remove the container if not chosen and write the four sections | docs/nim-local-attempt.md | 0.5 | AJ-103-T3 |
@@ -320,7 +320,7 @@ Acceptance criteria:
 4. `dotnet test --filter "Spec=EDGE-009" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S104 @EDGE-009
 Feature: Report Ollama failures with the exact fix command
   @positive
   Scenario: AJ-104 Ollama is up and the tag is present
@@ -379,14 +379,14 @@ Demo relevance: no.
 Covers: REQ-020
 User story: As a reader of the local numbers, I want each local run file to name the runtime, the exact tag, the GPU offload percentage and the precision, so that a partly CPU-bound run is never presented as a full-GPU run.
 Acceptance criteria:
-1. A local run file has `environment.localRuntime` in {`nim`, `ollama`}, `environment.runtimeVersion`, `models[].modelId` equal to the exact tag, and a numeric `environment.gpuOffloadPercent`.
+1. A local run file without `non-publishable` in `run.flags` has `environment.localRuntime` in {`nim`, `ollama`}, `environment.runtimeVersion`, `models[].modelId` equal to the exact tag, and a numeric `environment.gpuOffloadPercent`.
 2. For Ollama, `gpuOffloadPercent` = `size_vram / size x 100` of the configured tag from `GET /api/ps` after warm-up; for NIM it is 100 by construction.
 3. A value below 100 adds `partial-offload` to `run.flags` and the report header shows it; `environment.precision` comes from the quantization level of `POST /api/show` (Ollama) or `Tiers:local:Precision` (NIM).
 4. When the model is not listed by `/api/ps` after warm-up, or `size` is 0, the run stops with exit 6 and a message naming the cause; no value is guessed.
 5. `dotnet test --filter "Spec=REQ-020" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S105 @REQ-020
 Feature: Disclose the local runtime, tag, offload and precision
   @positive
   Scenario: AJ-105 full offload on Ollama
@@ -428,12 +428,12 @@ Feature: Disclose the local runtime, tag, offload and precision
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-105-T1 | Write the failing feature and unit tests | tests/AgentJoules.Specs/Features/Workflow/LocalRuntimeDisclosure.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.5 | AJ-104-T5 |
-| AJ-105-T2 | Implement the Ollama description (version, offload from /api/ps, quantization from /api/show) | src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.75 | AJ-105-T1 |
+| AJ-105-T1 | Create or extend the failing feature and unit tests (`LocalRuntimeTests.cs` is created here when AJ-104 was cut) | tests/AgentJoules.Specs/Features/Workflow/LocalRuntimeDisclosure.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.5 | AJ-104-T5 |
+| AJ-105-T2 | Create or extend the Ollama description (version, offload from /api/ps, quantization from /api/show; `ILocalRuntime.cs` and `OllamaRuntime.cs` are created here when AJ-104 was cut) | src/AgentJoules.Workflow/Local/ILocalRuntime.cs, src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.75 | AJ-105-T1 |
 | AJ-105-T3 | Implement the NIM description (offload 100, precision from configuration) | src/AgentJoules.Workflow/Local/NimRuntime.cs | 0.5 | AJ-105-T1 |
 | AJ-105-T4 | Fill the environment fields and the partial-offload run flag in the assembler | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 0.75 | AJ-105-T2, AJ-105-T3 |
 | AJ-105-T5 | Show the flag in the report header | src/AgentJoules.Reporting/Render/SummaryMarkdownRenderer.cs | 0.5 | AJ-105-T4 |
-| AJ-105-T6 | Bind the feature steps | tests/AgentJoules.Specs/Steps/WorkflowSteps.cs | 0.5 | AJ-105-T5 |
+| AJ-105-T6 | Create or extend the feature step bindings (`WorkflowSteps.cs`) | tests/AgentJoules.Specs/Steps/WorkflowSteps.cs | 0.5 | AJ-105-T5 |
 | AJ-105-T7 | Record the verified Ollama endpoints and fields | docs/build-log.md | 0.25 | AJ-105-T6 |
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/LocalRuntimeDisclosure.feature; unit class LocalRuntimeTests with `[Trait("Spec","REQ-020")]`.
 Docs impact: docs/build-log.md (Ollama `/api/ps`, `/api/show` fields as verified); README sentence about the local runtime is written in AJ-115.
@@ -448,13 +448,13 @@ Covers: REQ-021
 User story: As a reader of the local numbers, I want every local run to warm the model up, measure the idle baseline with the model resident and repeat each task, so that load time is excluded and run-to-run spread is visible.
 Acceptance criteria:
 1. In a local run the recorded call order is: probe, meter start, one unmetered warm-up call (Ollama `POST /api/generate` with `keep_alive` of `30m`, NIM one short chat completion), baseline window, then task calls; the warm-up produces no step reading and no judge reading.
-2. `environment.modelLoadSeconds` is numeric and equals the warm-up wall time; `baseline.seconds` equals `--baseline-seconds` (default 30); `environment.powerSource` is `ac`, `battery` or `unknown`.
+2. `environment.modelLoadSeconds` is numeric and equals the warm-up wall time; `baseline.seconds` equals `--baseline-seconds` (default 30); `environment.powerSource` is `ac`, `battery` or `unknown`, read from `IPowerSourceDetector` (Windows `GetSystemPowerStatus`, Linux `/sys/class/power_supply`; no supply files gives `unknown`).
 3. `--repeat <n>` (default 3) executes every selected task n times after warm-up; every step carries `repeat` 1 to n and `run.repeat` equals n; `--repeat 0` exits 2.
-4. A `--baseline-seconds` value below 30 prints `Warning: baseline shorter than 30 s is not publishable` and still runs (see the Conflict line).
+4. A `--baseline-seconds` value below 30 prints `Warning: baseline shorter than 30 s is not publishable`, still runs, and adds `non-publishable` to `run.flags` (the schema lists it among the run flags); `RunFileSelector.Latest` never returns such a file (resolved, see the note under the story).
 5. Hosted tiers perform no warm-up and no baseline window and ignore `--baseline-seconds`; a failing warm-up (Ollama refusing) exits 5 before the baseline window opens.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S106 @REQ-021
 Feature: Order warm-up, idle baseline and repeats in local runs
   @positive
   Scenario: AJ-106 the call order is warm-up, baseline, tasks
@@ -487,6 +487,16 @@ Feature: Order warm-up, idle baseline and repeats in local runs
     When I run "run --tier local --task incident-brief --repeat 1 --baseline-seconds 10"
     Then the output contains "baseline shorter than 30 s is not publishable"
     And baseline.seconds is 10
+    And run.flags contains "non-publishable"
+  @positive
+  Scenario: AJ-106 a 30 s baseline run carries no non-publishable flag
+    When I run "run --tier local --task incident-brief --repeat 1 --baseline-seconds 30"
+    Then run.flags does not contain "non-publishable"
+  @negative
+  Scenario: AJ-106 a short-baseline file is not selected as the latest local file
+    Given a valid local run file and a newer local run file whose run.flags contain "non-publishable"
+    When the latest file for tier "local" is selected
+    Then the valid local run file is returned
   @negative
   Scenario: AJ-106 a failing warm-up stops before the baseline
     Given the fake Ollama endpoint refuses the warm-up request
@@ -501,11 +511,12 @@ Feature: Order warm-up, idle baseline and repeats in local runs
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-106-T1 | Write the failing feature and unit tests | tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.75 | AJ-105-T7 |
-| AJ-106-T2 | Implement the Ollama warm-up with keep-alive and load-time capture | src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.5 | AJ-106-T1 |
+| AJ-106-T1 | Create or extend the failing feature and unit tests | tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.75 | AJ-105-T7 |
+| AJ-106-T2a | Implement `PowerSourceDetector` behind `IPowerSourceDetector` (Windows `GetSystemPowerStatus` through `LibraryImport("kernel32.dll")`, ACLineStatus 1 = ac, 0 = battery; Linux `/sys/class/power_supply/*/type` = Mains and `online`; no supply files = unknown) with a unit test through a fake | src/AgentJoules.Nvml/Platform/PowerSourceDetector.cs, tests/AgentJoules.UnitTests/PowerSourceDetectorTests.cs | 1.0 | AJ-106-T1 |
+| AJ-106-T2 | Create or extend the Ollama warm-up with keep-alive and load-time capture | src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.5 | AJ-106-T1 |
 | AJ-106-T3 | Implement the NIM warm-up through an unmetered client | src/AgentJoules.Workflow/Local/NimRuntime.cs | 0.5 | AJ-106-T1 |
-| AJ-106-T4 | Order warm-up, baseline and repeats in the orchestrator | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-106-T2, AJ-106-T3 |
-| AJ-106-T5 | Add the short-baseline warning and the repeat validation | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.5 | AJ-106-T4 |
+| AJ-106-T4 | Order warm-up, baseline and repeats in the orchestrator | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-106-T2, AJ-106-T2a, AJ-106-T3 |
+| AJ-106-T5 | Add the short-baseline warning, the `non-publishable` run flag and the repeat validation | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.5 | AJ-106-T4 |
 | AJ-106-T6 | Bind the feature steps and the operation recorder | tests/AgentJoules.Specs/Steps/WorkflowSteps.cs, tests/AgentJoules.TestSupport/OperationRecorder.cs | 0.5 | AJ-106-T5 |
 | AJ-106-T7 | Note the keep-alive setting for users | docs/build-log.md | 0.25 | AJ-106-T6 |
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature; unit classes LocalRuntimeTests and AttributionBaselineTests (REQ-023 list) with `[Trait("Spec","REQ-021")]`.
@@ -515,7 +526,7 @@ Definition of done:
 - [ ] docs listed above updated
 - [ ] warm-up traffic is absent from `steps`, `judge` and `totals` in a fixture run file
 Demo relevance: no.
-Conflict: REQ-021 requires a baseline of at least 30 s for every local measurement run, while REQ-017 makes `--baseline-seconds` a free option (default 30). Proposed resolution: the CLI keeps the option free for tests and prints the warning in criterion 4; publishability is enforced where evidence is committed, by AJ-114 (`baseline.seconds >= 30` checked with jq) and AJ-115 (`CommittedEvidenceTests`).
+Resolved: the prompt defines the run flag `non-publishable` for a baseline below 30 s; the option stays free for tests, the warning and the flag come from criterion 4, the run file is never "latest", and publishability is double-checked where evidence is committed, by AJ-114 (`baseline.seconds >= 30` checked with jq) and AJ-115 (`CommittedEvidenceTests`).
 
 ### AJ-107: Select and record the local model in docs/endpoints.md
 Covers: REQ-018, REQ-020, EDGE-009
@@ -528,7 +539,7 @@ Acceptance criteria:
 5. `AJ validate --config` exits 0 and `AJ run --tier local --dry-run` exits 0 with Ollama running.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S107 @REQ-018 @REQ-020 @EDGE-009
 Feature: Select and record the local model
   @positive
   Scenario: AJ-107 the Nemotron tag is verified and recorded
@@ -592,7 +603,7 @@ Acceptance criteria:
 5. One metered call per tier through the real stack, written to a scratch folder with `--out`, shows tokens labelled `measured` where usage is reported and `not-reported` where it is not; `AJ run --tier all --dry-run` exits 0.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S108 @REQ-018
 Feature: Verify streaming usage and the reasoning toggle per tier
   @positive
   Scenario: AJ-108 the nvidia tier reports streaming usage and honours the toggle
@@ -658,7 +669,7 @@ Acceptance criteria:
 5. The file validates against `$defs/calibration` of `docs/results-schema.json`; `dotnet test --filter "Spec=REQ-021" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S109 @REQ-021
 Feature: Compute the counter versus sampling calibration
   @positive
   Scenario: AJ-109 both methods are written with the relative difference
@@ -730,7 +741,7 @@ Acceptance criteria:
 5. When `energyCounterSupported` is false the campaign still proceeds with sampling (EDGE-002 disclosure), and `docs/build-log.md` states that the README results block must contain the word `sampling`.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S110 @REQ-021
 Feature: Run the preflight for the laptop measurement campaign
   @positive
   Scenario: AJ-110 the probe is saved and matches nvidia-smi
@@ -776,7 +787,7 @@ Tasks:
 | AJ-110-T3 | Run the probe and save the file | results/probe-<yyyyMMddTHHmmssZ>.json | 0.25 | AJ-110-T1, AJ-110-T2 |
 | AJ-110-T4 | Run the all-tier dry-run and record the exit code | docs/build-log.md | 0.25 | AJ-110-T3 |
 | AJ-110-T5 | Record the machine conditions and compute-app listing | docs/build-log.md | 0.25 | AJ-110-T3 |
-| AJ-110-T6 | Commit the probe file with the REQ-021 message prefix | results/probe-<yyyyMMddTHHmmssZ>.json | 0.1 | AJ-110-T4, AJ-110-T5 |
+| AJ-110-T6 | Commit the probe file with the `AJ-110 REQ-021:` message prefix | results/probe-<yyyyMMddTHHmmssZ>.json | 0.1 | AJ-110-T4, AJ-110-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CampaignPreflight.feature; ProbeCommandTests (design 6.1) for the file shape; gated class LaptopProbeTests (design 6.3).
 Docs impact: docs/build-log.md (preflight conditions), results/probe-<yyyyMMddTHHmmssZ>.json.
 Definition of done:
@@ -792,10 +803,10 @@ Acceptance criteria:
 1. After AJ-110, `AJ calibrate --seconds 60` exits 0 on the laptop with the local runtime up and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
 2. `jq '[.counterJoules, .samplingJoules, .relativeDifference]'` on the file prints three label objects: numbers labelled `measured`, or `null` with label `N/A` and a non-empty `reason` when the probe shows the counter unsupported.
 3. The `relativeDifference` value recomputed from the two joule values with `jq` equals the stored value within 1e-9.
-4. The file is committed with a message starting `REQ-021`; whatever value results is published, and a large difference is explained in the methodology and never hidden (risk R-02).
+4. The file is committed with a message starting `AJ-111 REQ-021:` (story id first, then the ids delivered; check regex `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:`); whatever value results is published, and a large difference is explained in the methodology and never hidden (risk R-02).
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S111 @REQ-021
 Feature: Run the calibration on the laptop
   @positive
   Scenario: AJ-111 the calibration file is written with three label objects
@@ -831,7 +842,7 @@ Tasks:
 | AJ-111-T1 | Write the failing feature and the gated calibration check | tests/AgentJoules.Specs/Features/Cli/CalibrationLive.feature, tests/AgentJoules.IntegrationTests/CalibrationLiveTests.cs | 0.5 | AJ-110-T6 |
 | AJ-111-T2 | Run the calibration on the laptop | results/calibration-<yyyyMMddTHHmmssZ>.json | 0.5 | AJ-111-T1 |
 | AJ-111-T3 | Validate the file against the schema and recompute the difference | docs/build-log.md | 0.25 | AJ-111-T2 |
-| AJ-111-T4 | Commit the calibration file with the REQ-021 prefix | results/calibration-<yyyyMMddTHHmmssZ>.json | 0.1 | AJ-111-T3 |
+| AJ-111-T4 | Commit the calibration file with the `AJ-111 REQ-021:` prefix | results/calibration-<yyyyMMddTHHmmssZ>.json | 0.1 | AJ-111-T3 |
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CalibrationLive.feature; SchemaValidationTests (REQ-023 list) for the file shape; gated class CalibrationLiveTests (design 6.3).
 Docs impact: docs/build-log.md (command, exit code, file name); the methodology quote is written in AJ-112.
 Definition of done:
@@ -846,13 +857,14 @@ User story: As a skeptical reader, I want a methodology document that states wha
 Acceptance criteria:
 1. Merge rule: M3 stories may already have written sentences into `docs/methodology.md`; this story creates the headings by merging, keeps every existing sentence verbatim (placed under the heading it belongs to, or under `Limitations` when none fits), and never overwrites the file; the contract test compares the pre-existing sentences with the result.
 2. `docs/methodology.md` has the headings `Measurement`, `Attribution`, `Baseline`, `Labels` and `Limitations` (`grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5) and a line `Verified: <UTC date>`.
-3. Measurement explains what NVML measures, both methods and their units (millijoules and milliwatts), the sample rate, and where windows start and stop relative to the HTTP call; Attribution explains one metered client per agent and why no ambient context is used; Baseline explains gross and net energy and the concurrent-mode union totals; Labels lists the five labels and the flags.
+3. Measurement explains what NVML measures, both methods and their units (millijoules and milliwatts), the sample rate, and where windows start and stop relative to the HTTP call (`grep -ciE "millijoule|milliwatt|sample rate|HTTP call" docs/methodology.md` prints 4 or more); Attribution explains one metered client per agent and why no ambient context is used; Baseline explains gross and net energy and the concurrent-mode union totals; Labels lists the five labels and the flags.
 4. The Limitations section contains each of the strings `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted`, `cloud`, covering: GPU-board scope, GPU shared with the display, the laptop power limit, sampling resolution and possible driver averaging, partial CPU offload, hosted energy `N/A`, and the cloudgpu tier (dedicated VM GPU with the provider's driver and host power management, cost observed from the billing page, no comparison of laptop and datacenter joules as efficiency claims).
 5. The document names the committed calibration file and quotes its `relativeDifference` exactly as stored; it quotes the power limit from the committed probe and notes that the NVML enforced limit and the `nvidia-smi` limit may differ (conflict C-11); it states whether the clock-throttle reasons API worked on the laptop (EDGE-013).
 6. A contract test fails when a heading or a required string is missing, when the quoted difference differs from the file, or when no calibration file is named; `dotnet test --filter "Spec=REQ-022" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
+7. The two REQ-032 sentences are written in `Limitations` (this story is the MUST path; the dashboard stories that first wrote them are cut candidates): "The dashboard server adds no GPU work." and "A browser tab adds compositing load, so published runs are recorded without one."; `grep -cF "adds no GPU work" docs/methodology.md` and `grep -cF "adds compositing load" docs/methodology.md` each print 1.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S112 @REQ-022
 Feature: Write the methodology document with a contract test
   @positive
   Scenario: AJ-112 a complete document passes
@@ -886,6 +898,11 @@ Feature: Write the methodology document with a contract test
     When the contract test runs
     Then the result is fail and the message says the calibration file must be named
   @negative
+  Scenario: AJ-112 a missing dashboard sentence fails
+    Given the Limitations section lacks the sentence "The dashboard server adds no GPU work."
+    When the contract test runs
+    Then the result is fail and the message names the sentence
+  @negative
   Scenario: AJ-112 an existing sentence from an earlier milestone survives the merge
     Given docs/methodology.md already holds a sentence written by an M3 story under no required heading
     When the headings are created by merging into the existing document
@@ -898,7 +915,7 @@ Tasks:
 | AJ-112-T2 | Implement the methodology parser and rules | tests/AgentJoules.TestSupport/Docs/MethodologyDocumentParser.cs | 0.75 | AJ-112-T1 |
 | AJ-112-T3 | Bind the feature steps | tests/AgentJoules.Specs/Steps/ReportingSteps.cs | 0.25 | AJ-112-T2 |
 | AJ-112-T4 | Create the five headings and write the Measurement, Attribution, Baseline and Labels sections, merging into any existing text (never overwrite) | docs/methodology.md | 1.5 | AJ-112-T3 |
-| AJ-112-T5 | Write the Limitations section and the calibration and probe quotes | docs/methodology.md | 1.0 | AJ-112-T4 |
+| AJ-112-T5 | Write the Limitations section, the two dashboard sentences and the calibration and probe quotes | docs/methodology.md | 1.0 | AJ-112-T4 |
 | AJ-112-T6 | Run the contract test on the committed document and record the result | docs/build-log.md | 0.25 | AJ-112-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/MethodologyContract.feature; unit class MethodologyDocumentTests with `[Trait("Spec","REQ-022")]`.
 Docs impact: docs/methodology.md (new), docs/build-log.md.
@@ -918,7 +935,7 @@ Acceptance criteria:
 4. `dotnet test --filter "Spec=REQ-020" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S113 @REQ-020 @REQ-021
 Feature: Mark non-Nemotron local runs as baseline
   @positive
   Scenario: AJ-113 a Qwen run gets the baseline suffix
@@ -978,11 +995,11 @@ Acceptance criteria:
 3. The run in (c) writes `results/<yyyyMMddTHHmmssZ>-local.json`, `-nvidia.json` and `-nebius.json` with `run.status` `completed`, exactly 3 tasks, `run.repeat` equal to 3, 36 steps per file (3 tasks x 3 repeats x 4 agents), a non-empty `judge` array, and `outcome` `ok` on every step.
 4. The local file has `baseline.seconds` of at least 30, a numeric `environment.modelLoadSeconds`, `environment.powerSource` in {ac, battery, unknown}, a numeric `environment.gpuOffloadPercent` and `environment.localRuntime` per AJ-103; every hosted-tier step has `grossJoules` and `netJoules` as `{value:null,label:"N/A"}` with a reason.
 5. `AJ validate results/` exits 0 and prints `Validated <n> files` where n equals `ls results/ | grep -cE '^[0-9]{8}T[0-9]{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$'`.
-6. A failed tier file (status `failed`) is not committed: the failing tier is re-run alone (`AJ run --tier <tier> --repeat 3`) after the cause is fixed, and the incident (file name, status, reason) is logged in `docs/build-log.md`; `git grep` for keys prints nothing; the files are committed with a message starting `REQ-021`.
+6. A failed tier file (status `failed`) is not committed: the failing tier is re-run alone (`AJ run --tier <tier> --repeat 3`) after the cause is fixed, and the incident (file name, status, reason) is logged in `docs/build-log.md`; `git grep` for keys prints nothing; the files are committed with a message starting `AJ-114 REQ-021:` (story id first; check regex `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:`).
 7. If time remains, one optional Qwen3 8B run (`AGENTJOULES__Tiers__local__AgentModelIds` overrides, one task, `--repeat 1`) produces a `-local-baseline.json` file; it is not an exit criterion.
 BDD scenarios:
 ```gherkin
-@integration
+@integration @AJ-S114 @REQ-018 @REQ-020 @REQ-021
 Feature: Run the laptop measurement campaign
   @positive
   Scenario: AJ-114 the full campaign writes three completed run files
@@ -1037,7 +1054,7 @@ Tasks:
 | AJ-114-T5 | Check exit marker, status and step counts of the three files with jq | docs/build-log.md | 0.5 | AJ-114-T4 |
 | AJ-114-T6 | Re-run a failed tier alone and log the incident (contingency) | docs/build-log.md | 1.0 | AJ-114-T5 |
 | AJ-114-T7 | Run `validate results/` and compare n with the file count | docs/build-log.md | 0.25 | AJ-114-T5 |
-| AJ-114-T8 | Run the secret scan and commit the results with the REQ-021 prefix | results/ | 0.25 | AJ-114-T7 |
+| AJ-114-T8 | Run the secret scan and commit the results with the `AJ-114 REQ-021:` prefix | results/ | 0.25 | AJ-114-T7 |
 | AJ-114-T9 | Run the optional Qwen3 8B baseline run | results/<yyyyMMddTHHmmssZ>-local-baseline.json | 0.75 | AJ-114-T8 |
 Test mapping: tests/AgentJoules.Specs/Features/Cli/LaptopCampaign.feature; SchemaValidationTests (REQ-023 list) for the file shapes; gated class LaptopCampaignTests (design 6.3).
 Docs impact: docs/build-log.md (commands, exit codes, `Validated <n> files`, incidents), results/ (three run files and the probe).
@@ -1058,7 +1075,7 @@ Acceptance criteria:
 5. `dotnet test --filter "Spec=REQ-020"`, `--filter "Spec=REQ-021"` and `--filter "Spec=EDGE-010"` each show at least one passed and no failed test; the per-ID results are recorded in `docs/build-log.md`.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S115 @REQ-020 @REQ-021 @EDGE-010
 Feature: Gate the committed local evidence and the README runtime statements
   @positive
   Scenario: AJ-115 consistent evidence passes
@@ -1130,12 +1147,12 @@ Demo relevance: no.
 | 429 on build.nvidia.com with 36 judge calls | retries exhausted (R-04) | retry client; judge failures never change the exit code; re-run the failed tier alone (AJ-114) | builder |
 | Counter and sampling disagree | large `relativeDifference` (R-02) | publish the value with the explanation in the methodology | builder |
 | Nebius lists no Nemotron model or the 45-minute box expires | AJ-101 scenarios | report the build as blocked on that item with the exact missing key, URL or model; never skip silently | builder, user |
-| Estimate exceeds the window capacity | task sum of 54.45 hours against about 18 hours of capacity | user-action tasks run in parallel; wall-clock tasks overlap other work; AJ-113 and the optional Qwen run (AJ-114-T9) can move to M7 without affecting any exit criterion | builder |
+| Estimate exceeds the window capacity | task sum of 55.45 hours against about 18 hours of capacity | user-action tasks run in parallel; wall-clock tasks overlap other work; AJ-113 and the optional Qwen run (AJ-114-T9) can move to M7 without affecting any exit criterion | builder |
 | Laptop state drifts during the run | battery power, background GPU load | preflight (AJ-110) and `environment.powerSource` recorded; battery runs are not committed | user |
 
 ## Estimate
 
-Sum of task estimates, computed from the task tables: 54.45 h including the four USER ACTION tasks (53.70 h builder-only; user actions total 0.75 h).
+Sum of task estimates, computed from the task tables: 55.45 h including the four USER ACTION tasks (54.70 h builder-only; user actions total 0.75 h).
 
 | Story | Tasks | Hours |
 |---|---|---|
@@ -1145,7 +1162,7 @@ Sum of task estimates, computed from the task tables: 54.45 h including the four
 | AJ-103 | 7 | 3.75 |
 | AJ-104 | 5 | 2.50 |
 | AJ-105 | 7 | 3.75 |
-| AJ-106 | 7 | 4.00 |
+| AJ-106 | 8 | 5.00 |
 | AJ-107 | 7 | 4.00 |
 | AJ-108 | 7 | 4.50 |
 | AJ-109 | 7 | 4.25 |
@@ -1155,6 +1172,6 @@ Sum of task estimates, computed from the task tables: 54.45 h including the four
 | AJ-113 | 6 | 2.25 |
 | AJ-114 | 9 | 6.10 |
 | AJ-115 | 6 | 3.00 |
-| Total | 101 | 54.45 |
+| Total | 102 | 55.45 |
 
-Capacity check: three days at about six hours is 18 hours, so the plan exceeds the window by roughly 36 hours of task effort. Part of the sum is wall-clock rather than hands-on work (AJ-103-T3 box 1.5 h, AJ-107-T2 model download 1.0 h, AJ-114-T4 detached campaign run 2.0 h) and the unit-test stories are small, but the gap is real and is carried as a risk. If M4 runs late, the deferral order is: AJ-114-T9 (optional Qwen run), AJ-113, then the local-tier extras of AJ-108; no exit criterion depends on the first two.
+Capacity check: three days at about six hours is 18 hours, so the plan exceeds the window by roughly 37 hours of task effort. Part of the sum is wall-clock rather than hands-on work (AJ-103-T3 box 1.5 h, AJ-107-T2 model download 1.0 h, AJ-114-T4 detached campaign run 2.0 h) and the unit-test stories are small, but the gap is real and is carried as a risk. If M4 runs late, the deferral order is: AJ-114-T9 (optional Qwen run), AJ-113, then the local-tier extras of AJ-108; no exit criterion depends on the first two.

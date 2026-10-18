@@ -15,7 +15,7 @@ Exit criteria:
 - [ ] `dotnet run --project src/AgentJoules.Cli -- report --in tests/AgentJoules.TestSupport/Fixtures/results --out "$TMPDIR/report"` exits 0 and writes `summary.md`, `joules-per-step.svg` and `index.html`; `grep -c "<script" "$TMPDIR/report/index.html"` prints 0; `grep -c "joules-per-step.svg" "$TMPDIR/report/index.html"` prints at least 1; `grep -c "GPU-board energy only" "$TMPDIR/report/index.html"` prints at least 1; `docs/.nojekyll` exists.
 - [ ] `grep -c "<text[^>]*>N/A</text>" "$TMPDIR/report/joules-per-step.svg"` prints at least 1 for the hosted-tier fixture, and `git grep -nEi "oxyplot|scottplot|livecharts|plotly|playwright|puppeteer|selenium" -- "*.csproj" "Directory.Packages.props"` returns no hit.
 - [ ] `config/prices.json` validates against `config/prices.schema.json` and `config/judge-rubric.md` holds the five levels.
-- [ ] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5; echo $?` prints 0; `AJ run --tier local --dashboard --dry-run` (fake GPU in the harness) prints a line starting `Dashboard:` with `http://127.0.0.1:` and exits 0; `AJ run --help` lists nine options.
+- [ ] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5 --start-delay 0; echo $?` prints 0; `AJ run --tier local --dashboard --dry-run` (fake GPU in the harness) prints a line starting `Dashboard:` with `http://127.0.0.1:` and exits 0; `AJ run --help` lists nine options.
 - [ ] Carried forward, not blocking: `AJ validate results/` printing a count equal to the number of committed run files, and `AJ report --in results/ --out docs/report/` on real runs, happen after the real runs exist (M4 and M6).
 
 ## Coverage
@@ -26,7 +26,7 @@ EDGE: EDGE-012, EDGE-018, EDGE-019.
 ## Dependencies and user actions
 
 Needs from M0: solution, central package pins including `JsonSchema.Net` 8.0.5, test projects, `AgentJoules.TestSupport`, `.gitignore` entries.
-Needs from M1: `Metric` label object, `ReadingCalculator`, `DeterministicEnergyMeter`, `ScriptedNvmlApi`, `ProbeResult` and the `probe` command.
+Needs from M1: `IntegrationGate` and `[IntegrationFact]` in `AgentJoules.TestSupport` (AJ-007-T4a (M0, creates the single IntegrationFactAttribute) and AJ-023-T2 (M1, points it at IntegrationGate)), `Metric` label object, `ReadingCalculator`, `DeterministicEnergyMeter`, `ScriptedNvmlApi`, `ProbeResult` and the `probe` command.
 Needs from M2 (all assumed delivered): `StepReading`, `IMetricsSink`, `ICostCalculator` with `NotConfiguredCostCalculator`, `IJudgeService` no-op seam, `RunAssembler`, `RunOrchestrator`, `RunDocument` records with the minimal `AgentJoulesJsonContext`, `ResultsFileWriter`, `RunFileName`, `ReportSentences`, `ExitCode` and `ExitCodeMapper`, `CliHarness`, `FakeChatClient`, `FakeHttpMessageHandler`.
 Needs from M2 also: `MeteredChatClient` step-started hook point and `RunOrchestrator` run, baseline and progress emit points for the live events.
 Hands over: the committed schema, `AJ validate`, the renderers and `ReadmeResultsBlock` that M6 wires to `--update-readme` and `--verify-readme`; the judge service that M4 exercises live.
@@ -46,7 +46,7 @@ Acceptance criteria:
 5. The `nvidia` tier has no row unless the builder finds a published price (then `sourceUrl` and `retrievedDate` are recorded); the `nebius` row comes from the Nebius Token Factory pricing page with its URL and retrieval date; if the page cannot be read there is no row and `docs/build-log.md` has a `price-not-found` entry. No price is ever invented and 0 is never written.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S070 @REQ-009
 Feature: AJ-070 Load a price table that cannot represent a zero price
   @positive
   Scenario: AJ-070 valid row loads and is found by tier and model
@@ -103,7 +103,7 @@ Acceptance criteria:
 5. `CostCalculator` replaces `NotConfiguredCostCalculator` in the service collection; every cost carries its currency and the label `estimated` or `N/A`, never `measured`.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S071 @REQ-009
 Feature: AJ-071 Compute hosted token cost in USD or label it N/A
   @positive
   Scenario: AJ-071 one million input and half a million output tokens cost 0.30 USD
@@ -159,7 +159,7 @@ Acceptance criteria:
 6. `environment.assumptions.electricityPrice` is labelled `estimated` and `assumptions.gco2ePerKwh` is `estimated` or N/A `not-configured`; the README labels the electricity price as an assumption.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S072 @REQ-009
 Feature: AJ-072 Compute local electricity cost in EUR and cloudgpu rental cost in USD
   @positive
   Scenario: AJ-072 3.6 million joules net at 0.30 EUR per kWh cost 0.30 EUR
@@ -224,10 +224,10 @@ Acceptance criteria:
 1. `JudgeScoreParser.Parse("4")` gives quality `{value:4,label:"model-judged"}`; surrounding whitespace and newlines are ignored (test `Plain_integer_parses`).
 2. Any `<think>...</think>` block is stripped before parsing (test `Think_block_is_stripped`).
 3. Replies `4/5`, `6`, `0`, `3.5`, empty, `four` and `4 because it is good` give `ParseFailure` carrying the first 60 characters of the reply; the quality is `{value:null,label:"N/A"}` with reason `parse-error: <excerpt>` (test `Non_integer_reply_is_NA`).
-4. The score value is the integer, never a string and never clamped.
+4. The score value is the integer, never a string and never clamped (test `Score_is_integer_not_clamped`: the value is an integer and an input of 6 is not clamped to 5).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S073 @REQ-010
 Feature: AJ-073 Parse judge replies into an integer score from 1 to 5
   @positive
   Scenario: AJ-073 plain integer reply parses
@@ -286,7 +286,7 @@ Acceptance criteria:
 5. Derived values are never labelled `measured`, and no derived value is computed across tiers.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S074 @REQ-010
 Feature: AJ-074 Derive joules and cost per quality point only when both inputs exist
   @positive
   Scenario: AJ-074 joules per quality point equals net joules divided by the score
@@ -335,11 +335,11 @@ User story: As a reviewer of the quality scores, I want the judging rubric commi
 Acceptance criteria:
 1. `config/judge-rubric.md` defines the levels 1 to 5 against the role of the judged step: 1 off-task or wrong, 2 major gaps, 3 usable with gaps, 4 correct and complete, 5 correct, complete and concise.
 2. `RubricLoader.Load` returns the text verbatim; a missing file exits 2 naming `Paths:Rubric`; a rubric missing any level line `1` to `5` exits 2 naming the missing level.
-3. The judge prompt contains the rubric text unchanged (asserted in AJ-076).
-4. The rubric contains no key, no personal data and no number presented as a result.
+3. The judge prompt contains the rubric text unchanged (asserted in AJ-076 by test `Prompt_contains_rubric_text`).
+4. The rubric contains no key, no personal data and no number presented as a result (check: `grep -nE "nvapi-|[A-Za-z0-9]{32,}" config/judge-rubric.md` returns no hit).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S075 @REQ-010
 Feature: AJ-075 Commit the judge rubric and load it
   @positive
   Scenario: AJ-075 committed rubric has all five levels
@@ -390,9 +390,10 @@ Acceptance criteria:
 5. `totals.judge` reports judge input and output tokens and `costByCurrency`, with energy N/A reason `hosted-tier` for a hosted judge.
 6. `run.selfJudged` is true when the judge model ID equals any step model ID.
 7. `JudgeService` replaces the no-op `IJudgeService` seam of M2 in the orchestrator.
+8. A step whose output is empty (`outputChars` equal to 0) is not sent to the judge: its quality is N/A with reason `empty-output` and `qualityReason` is `not-scored` (test `Empty_output_not_judged`: the fake judge received 0 calls for that step).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S076 @REQ-010
 Feature: AJ-076 Score each ok step with a metered hosted judge
   @positive
   Scenario: AJ-076 judge reply 4 becomes quality 4 and a derived ratio
@@ -422,13 +423,19 @@ Feature: AJ-076 Score each ok step with a metered hosted judge
     Given a judged run
     When the workflow sink snapshot is read
     Then it contains no reading for agent "Judge"
+  @negative
+  Scenario: AJ-076 an empty step output is not judged
+    Given a step with outcome "ok" and outputChars 0
+    When the run is judged
+    Then the fake judge received no call for that step
+    And the step quality has label "N/A" and reason "empty-output"
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-076-T1 | Write the failing BDD feature and unit tests for judging | tests/AgentJoules.Specs/Features/Workflow/JudgeScoring.feature, tests/AgentJoules.UnitTests/JudgeParsingTests.cs | 0.5 | AJ-074-T1, AJ-075-T1 |
 | AJ-076-T2 | Implement the judge prompt builder | src/AgentJoules.Workflow/Judge/JudgePromptBuilder.cs | 0.75 | AJ-076-T1, AJ-075-T3 |
-| AJ-076-T3 | Implement `JudgeService.ScoreAsync` over metered buffered judge clients and the judge sink | src/AgentJoules.Workflow/Judge/JudgeService.cs | 1.5 | AJ-076-T2, AJ-073-T3 |
+| AJ-076-T3 | Implement `JudgeService.ScoreAsync` over metered buffered judge clients and the judge sink, skipping empty outputs | src/AgentJoules.Workflow/Judge/JudgeService.cs | 1.75 | AJ-076-T2, AJ-073-T3 |
 | AJ-076-T4 | Fill the `judge` array and `totals.judge` in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.0 | AJ-076-T3 |
 | AJ-076-T5 | Set `run.selfJudged` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 0.25 | AJ-076-T4 |
 | AJ-076-T6 | Replace the no-op `IJudgeService` in the orchestrator | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Workflow/ServiceCollectionExtensions.cs | 0.5 | AJ-076-T3 |
@@ -449,11 +456,11 @@ Acceptance criteria:
 2. A judge that answers 429 on every call (5 attempts) behaves the same; an unparseable reply records `parse-error: <excerpt>` and the same labels.
 3. A missing judge key outside `--dry-run` produces one warning, every quality N/A, and exit 0; with `--dry-run` it is reported by AJ-052 and exits 3.
 4. The workflow steps, their totals and `run.status: "completed"` are identical to a run whose judge succeeded, except for quality and derived metrics.
-5. One warning line per run names the judge failure (not one per step); no key value appears in it.
-6. When some judge calls succeed and some fail, the successful steps keep their scores.
+5. One warning line per run names the judge failure (not one per step); no key value appears in it (test `One_judge_warning_no_key`: exactly 1 warning line and it does not contain the runtime-built key).
+6. When some judge calls succeed and some fail, the successful steps keep their scores (test `Partial_judge_failure_keeps_scores`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S077 @EDGE-012
 Feature: AJ-077 Never let a judge failure change the exit code
   @positive
   Scenario: AJ-077 partial judge failure keeps the scores that succeeded
@@ -510,15 +517,16 @@ Demo relevance: no.
 Covers: REQ-015
 User story: As a consumer of results files, I want one complete, strictly typed results model with the exact label strings, so that every file carries the documented fields and no missing value can hide as a zero.
 Acceptance criteria:
-1. The records of M2 are completed to the full prompt skeleton: `schemaVersion` "1"; `run` (`id`, `tier`, `tasks`, `mode`, `repeat`, `startUtc`, `toolVersion`, `gitCommit`, plus `status`, `flags`, `stopReason`, `selfJudged`); `environment` (including `energyScope` constant "GPU-board only", `assumptions`, `models[]` with `baseline`); `probe`; `baseline` (`meanW`, `stdDevW`, `seconds`, `flags`); `steps[]`; `judge[]`; `totals` (including `costByCurrency`, `gco2e`, `judge`).
+1. The records of M2 are completed to the full prompt skeleton: `schemaVersion` "1"; `run` (`id`, `tier`, `tasks`, `mode`, `repeat`, `startUtc`, `toolVersion`, `gitCommit`, plus `status`, `flags` (values `partial-offload` and `non-publishable`), `stopReason`, `selfJudged`); `environment` (including `energyScope` constant "GPU-board only", `assumptions`, `models[]` with `baseline`); `probe`; `baseline` (`meanW`, `stdDevW`, `seconds`, `flags`); `steps[]`; `judge[]`; `totals` (including `costByCurrency`, `gco2e`, `judge`).
 2. Labels serialise exactly as `measured`, `estimated`, `model-judged`, `N/A`, `not-reported`; `value` is always written, null included.
 3. Model types reject unknown properties on read (`JsonUnmappedMemberHandling.Disallow`), and numbers use strict handling (a string where a number is expected fails).
 4. A unit test builds a document containing every label kind and asserts that no metric labelled `N/A` or `not-reported` has a numeric value (test `No_NA_metric_has_a_number`).
 5. `StepReading.OutputText` is never persisted; only `outputSha256` (lowercase hex) and `outputChars` are.
-6. A document round-trips through serialisation without change.
+6. A document round-trips through serialisation without change (test `Document_round_trips`: the read-back document equals the original).
+7. `run.toolVersion` and `run.gitCommit` are read from `AssemblyInformationalVersionAttribute` (the text before and after `+`) and `gitCommit` is `unknown` when there is no `+` suffix (test `Version_and_commit_from_informational_version`); `environment.cloudCostObservedUtc` exists and is null outside the cloudgpu tier (test `Cloud_cost_observed_utc_is_nullable`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S078 @REQ-015
 Feature: AJ-078 Complete the results model and its serialisation
   @positive
   Scenario: AJ-078 document with every label kind round-trips unchanged
@@ -545,12 +553,32 @@ Feature: AJ-078 Complete the results model and its serialisation
     Given a step reading whose in-memory output text is "secret text"
     When the document is serialised
     Then the text "secret text" does not appear and outputSha256 and outputChars are present
+  @positive
+  Scenario: AJ-078 the non-publishable run flag round-trips
+    Given a fixture document whose run.flags is ["non-publishable"]
+    When it is serialised and read back
+    Then the read-back run.flags equals ["non-publishable"]
+  @positive
+  Scenario: AJ-078 tool version and commit come from the informational version
+    Given an informational version "0.1.0+abc1234"
+    When the run info is created
+    Then run.toolVersion is "0.1.0" and run.gitCommit is "abc1234"
+  @negative
+  Scenario: AJ-078 an unlisted run flag is rejected on read
+    Given a results text whose run.flags contains "made-up"
+    When it is read
+    Then reading fails and names the flag
+  @negative
+  Scenario: AJ-078 a version without a commit suffix gives unknown
+    Given an informational version "0.1.0"
+    When the run info is created
+    Then run.gitCommit is "unknown"
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-078-T1 | Write the failing BDD feature and unit tests for the model | tests/AgentJoules.Specs/Features/Reporting/ResultsModel.feature, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-055-T2 |
-| AJ-078-T2 | Complete the run, environment, baseline and totals records | src/AgentJoules.Core/Results/RunInfo.cs, src/AgentJoules.Core/Results/EnvironmentInfo.cs, src/AgentJoules.Core/Results/Totals.cs | 1.5 | AJ-078-T1 |
+| AJ-078-T2 | Complete the run, environment, baseline and totals records, with the run flag list and the informational-version split | src/AgentJoules.Core/Results/RunInfo.cs, src/AgentJoules.Core/Results/EnvironmentInfo.cs, src/AgentJoules.Core/Results/Totals.cs | 1.75 | AJ-078-T1 |
 | AJ-078-T3 | Complete the step and judge records and the persisted-field rules | src/AgentJoules.Core/Results/StepReading.cs, src/AgentJoules.Core/Results/JudgeReading.cs | 1.0 | AJ-078-T2 |
 | AJ-078-T4 | Set label enum member names and strict context options | src/AgentJoules.Core/Labels/MetricLabel.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs | 1.0 | AJ-078-T3 |
 | AJ-078-T5 | Create `RunDocumentFixtures` with builders for every label kind | tests/AgentJoules.TestSupport/RunDocumentFixtures.cs | 1.0 | AJ-078-T3 |
@@ -573,9 +601,10 @@ Acceptance criteria:
 4. A generated results file validates against the schema (test `Generated_document_validates`).
 5. A mutated fixture is invalid: N/A with a number, a `measured` label on a quality metric, an N/A metric without `reason`, an extra property.
 6. The schema is an embedded resource of `AgentJoules.Reporting`, so validation works without the `docs/` folder; the validator is `JsonSchema.Net` 8.0.5 (MIT; the 9.x line is not OSI licensed).
+7. `run.flags` items are restricted by the schema to the enumeration `partial-offload` and `non-publishable` (test `Run_flags_enum_in_schema`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S079 @REQ-015
 Feature: AJ-079 Generate the JSON Schema and guard it against drift
   @positive
   Scenario: AJ-079 generated document validates against the schema
@@ -602,6 +631,16 @@ Feature: AJ-079 Generate the JSON Schema and guard it against drift
     Given a committed schema that lacks a field the model now has
     When the drift test runs
     Then the test fails and names the update variable
+  @positive
+  Scenario: AJ-079 a run flagged non-publishable validates
+    Given a generated fixture whose run.flags is ["non-publishable"]
+    When it is validated against the schema
+    Then the result is valid
+  @negative
+  Scenario: AJ-079 an unknown run flag is invalid
+    Given a generated fixture whose run.flags is ["made-up"]
+    When it is validated against the schema
+    Then the result is invalid at the run flags location
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -634,7 +673,7 @@ Acceptance criteria:
 7. Carried forward: on the real committed results, `AJ validate results/` prints a number equal to the number of committed run files.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S080 @REQ-015
 Feature: AJ-080 Validate run files with AJ validate
   @positive
   Scenario: AJ-080 three valid files are counted
@@ -685,14 +724,14 @@ Conflict: C-05 (design 9.2) - `--config` has two meanings; resolution: on `valid
 Covers: REQ-016
 User story: As a reader of the report, I want only completed run files of the right shape considered, with the newest per tier chosen, so that failed, partial-write or probe files never produce numbers.
 Acceptance criteria:
-1. `RunFileSelector.Latest(dir, tier)` returns the newest file by name among files matching the run-file regex without the `-baseline` suffix whose `run.status` is `completed` or `partial`.
+1. `RunFileSelector.Latest(dir, tier)` returns the newest file by name among files matching the run-file regex without the `-baseline` suffix whose `run.status` is `completed` or `partial` and whose `run.flags` does not contain `non-publishable` (the flag of a run made with a baseline shorter than 30 s).
 2. Files with status `running`, `failed` or `incomplete`, `probe-*.json`, `calibration-*.json` and names not matching the regex are never selected.
 3. `LatestBaseline(dir, tier)` returns the newest `-baseline` file of a tier; the report shows it as extra rows labelled `baseline`.
 4. `--in` accepts files, directories, or both; a tier with no selectable file is reported as `not run`.
-5. Selection reads only the run header, not the whole document.
+5. Selection reads only the run header, not the whole document (test `Selector_reads_header_only`: a file whose body after the header is invalid JSON is still selected).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S081 @REQ-016
 Feature: AJ-081 Select the run files a report may use
   @positive
   Scenario: AJ-081 newest completed file wins
@@ -714,12 +753,22 @@ Feature: AJ-081 Select the run files a report may use
     Given a folder holding only a probe file and a calibration file
     When the latest local file is selected
     Then no file is returned and the tier is reported as not run
+  @negative
+  Scenario: AJ-081 a 10 s baseline run is skipped by Latest
+    Given the newest local file carries run flag "non-publishable" and an older local file has no flags
+    When the latest local file is selected
+    Then the older file is returned
+  @positive
+  Scenario: AJ-081 a run with an empty flag list is selected
+    Given the newest local file is completed and has an empty run.flags
+    When the latest local file is selected
+    Then the newest file is returned
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-081-T1 | Write the failing BDD feature and unit tests for file selection | tests/AgentJoules.Specs/Features/Reporting/RunFileSelection.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-080-T1 |
-| AJ-081-T2 | Implement the run header reader | src/AgentJoules.Reporting/Results/RunHeaderReader.cs | 0.75 | AJ-081-T1 |
+| AJ-081-T2 | Implement the run header reader (status and flags) | src/AgentJoules.Reporting/Results/RunHeaderReader.cs | 0.75 | AJ-081-T1 |
 | AJ-081-T3 | Implement `RunFileSelector.Latest` and `LatestBaseline` | src/AgentJoules.Reporting/Results/RunFileSelector.cs | 1.0 | AJ-081-T2 |
 | AJ-081-T4 | Record the selection rules in the build log | docs/build-log.md | 0.25 | AJ-081-T3 |
 Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/RunFileSelection.feature`.
@@ -736,13 +785,13 @@ User story: As a reader of the report, I want one row per tier, task and agent s
 Acceptance criteria:
 1. A report row is `(tier, task, agent)`; each value cell holds the median with `[min-max]` and `n` over the repeats (test `Median_min_max_n`; fixture repeats 10, 12, 14 give median 12 and range 10-14, n 3).
 2. Rows of different tiers are never merged or averaged, including `local` and `cloudgpu` with equal model IDs; nothing is ranked and no ratio between tiers is computed.
-3. A cell whose repeats are all N/A or not-reported keeps that label with a null value; N/A is never averaged as zero.
+3. A cell whose repeats are all N/A or not-reported keeps that label with a null value; N/A is never averaged as zero (test `All_NA_cell_stays_NA`).
 4. Assumption to confirm: when some repeats lack a value, the median is taken over the repeats that have one and `n` counts only those.
 5. A label other than `measured` and every flag found on any repeat is carried to the aggregate cell (for example `low-resolution`).
 6. Cost cells keep their currency code; quality cells keep the `model-judged` label.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S082 @REQ-016
 Feature: AJ-082 Aggregate repeats into report rows without merging tiers
   @positive
   Scenario: AJ-082 three repeats give median, range and n
@@ -800,7 +849,7 @@ Acceptance criteria:
 7. The output is deterministic: no generation timestamp, LF newlines.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S083 @REQ-016
 Feature: AJ-083 Render the Markdown summary with honest labels
   @positive
   Scenario: AJ-083 header carries the context and the GPU-board sentence
@@ -870,7 +919,7 @@ Acceptance criteria:
 6. `git grep -nEi "oxyplot|scottplot|livecharts|plotly|playwright|puppeteer|selenium" -- "*.csproj" "Directory.Packages.props"` returns no hit.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S084 @REQ-016
 Feature: AJ-084 Draw the SVG chart with N/A as a text marker
   @positive
   Scenario: AJ-084 measured value is drawn as a bar with a label
@@ -934,7 +983,7 @@ Acceptance criteria:
 6. A tier without a run file appears as a `not run` row.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S085 @REQ-030
 Feature: AJ-085 Generate the static HTML report page for the demo URL
   @positive
   Scenario: AJ-085 page has the table, the chart reference and the sentence
@@ -995,11 +1044,11 @@ Acceptance criteria:
 4. A missing `--in` path exits 2; a run file that fails the schema exits 2 naming the file.
 5. Output is deterministic: two runs over the same input produce files with identical SHA-256 sums.
 6. The SVG written by the command contains `<text>N/A</text>` for each hosted-tier step of the fixture.
-7. The README and content flags of the command are not registered in this milestone (M6).
+7. The README and content flags of the command are not registered in this milestone (M6) (check: `AJ report --help` lists `--in`, `--out` and `--config` only and exits 0).
 8. Three small fixture run files (local, nvidia, nebius) are committed under `tests/AgentJoules.TestSupport/Fixtures/results/`; they are marked as fixtures through `run.id` and `run.gitCommit` and never feed any published number.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S086 @REQ-016 @REQ-030
 Feature: AJ-086 Wire the report command
   @positive
   Scenario: AJ-086 report writes the three files from fixtures
@@ -1055,11 +1104,11 @@ Acceptance criteria:
 3. The words `partial` and `sampling` appear where the run status or method says so; baseline runs are labelled `baseline`.
 4. The block names the judge model, states that judge calls are excluded from workflow totals, and discloses self-judging when `run.selfJudged` is true.
 5. Hosted energy cells read `N/A`; cost keeps its currency; tiers are never merged.
-6. Output is deterministic: two renders are byte-identical; no generation timestamp; LF newlines.
-7. This story delivers the pure function; M6 wires the update and verify flags and the README markers.
+6. Output is deterministic: two renders are byte-identical; no generation timestamp; LF newlines (test `Two_renders_identical`: the two strings are equal and contain no CR).
+7. This story delivers the pure function; M6 wires the update and verify flags and the README markers (check: `grep -rn "results:begin" src` returns no hit in this milestone).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S087 @REQ-016
 Feature: AJ-087 Render the README results block as a deterministic function
   @positive
   Scenario: AJ-087 block has one row per tier and a not-run cloudgpu row
@@ -1110,13 +1159,13 @@ User story: As a reviewer, I want proof that the six required unit test classes 
 Acceptance criteria:
 1. `dotnet test --list-tests` output contains `MeteredChatClientTests`, `AttributionBaselineTests`, `CostModelTests`, `JudgeParsingTests`, `ReportRenderingTests` and `SchemaValidationTests` (checked by `dotnet test --list-tests | grep -c "<name>"` printing at least 1 for each, and by the unit test `Required_classes_exist`).
 2. With `AGENTJOULES_INTEGRATION`, `NVIDIA_API_KEY` and `NEBIUS_API_KEY` unset, `dotnet test` exits 0 with 0 failed and the integration tests are reported as skipped.
-3. `[IntegrationFact]` sets `Skip = "Set AGENTJOULES_INTEGRATION=1"` when the variable is not `1`; with the variable set but a required key absent, the key-bound tests are skipped with a reason naming the missing variable, not failed.
+3. `IntegrationGate` and `[IntegrationFact]` live in `tests/AgentJoules.TestSupport` and are defined once by an earlier story (AJ-007-T4a (M0, creates the single IntegrationFactAttribute) and AJ-023-T2 (M1, points it at IntegrationGate)); this story only adds tests that use them: with the variable not `1` they are skipped with `Set AGENTJOULES_INTEGRATION=1`; with the variable set but a required key absent, the key-bound tests are skipped with a reason naming the missing variable, not failed (test `Key_bound_test_skips_naming_variable`).
 4. `grep -rn "new HttpClient(" tests/AgentJoules.UnitTests` returns no hit, and setting `NVIDIA_API_KEY` to a runtime-built value does not change the unit suite result.
 5. The passed, failed and skipped counts of the run are recorded in `docs/build-log.md` (the final counts are re-recorded in M7).
 6. `AgentJoules.IntegrationTests` holds a gated live-model-list test per tier that has a key (it never runs in CI).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S088 @REQ-023
 Feature: AJ-088 Prove the required test classes and gate the integration suite
   @positive
   Scenario: AJ-088 the six required classes are present
@@ -1149,10 +1198,9 @@ Tasks:
 |---|---|---|---|---|
 | AJ-088-T1 | Write the failing BDD feature and the required-class check test | tests/AgentJoules.Specs/Features/Cli/TestSuites.feature, tests/AgentJoules.UnitTests/RequiredClassesTests.cs | 0.5 | AJ-087-T1 |
 | AJ-088-T2 | Implement `RequiredClasses.Missing` over a type list | tests/AgentJoules.TestSupport/RequiredClasses.cs | 0.5 | AJ-088-T1 |
-| AJ-088-T3 | Implement `IntegrationFactAttribute` with the gate and key checks | tests/AgentJoules.TestSupport/IntegrationFactAttribute.cs | 0.75 | AJ-088-T1 |
-| AJ-088-T4 | Add the gated live model-list tests per tier | tests/AgentJoules.IntegrationTests/LiveModelsIntegrationTests.cs | 1.0 | AJ-088-T3 |
-| AJ-088-T5 | Run the suite with the gate and keys unset and record the counts | docs/build-log.md | 0.5 | AJ-088-T4, AJ-088-T2 |
-| AJ-088-T6 | Document how to run unit and integration tests | README.md | 0.5 | AJ-088-T5 |
+| AJ-088-T3 | Add the gated live model-list tests per tier using the existing `[IntegrationFact]` | tests/AgentJoules.IntegrationTests/LiveModelsIntegrationTests.cs | 1.0 | AJ-088-T1 |
+| AJ-088-T4 | Run the suite with the gate and keys unset and record the counts | docs/build-log.md | 0.5 | AJ-088-T3, AJ-088-T2 |
+| AJ-088-T5 | Document how to run unit and integration tests | README.md | 0.5 | AJ-088-T4 |
 Test mapping: `RequiredClassesTests` (spec trait `Spec=REQ-023`) over the six required classes; feature file `tests/AgentJoules.Specs/Features/Cli/TestSuites.feature`.
 Docs impact: README section "Testing" (`dotnet test`, `AGENTJOULES_INTEGRATION=1`); `docs/build-log.md` (counts).
 Definition of done:
@@ -1173,7 +1221,7 @@ Acceptance criteria:
 6. `src/AgentJoules.Dashboard` references Core and Metering only; `grep -rn "Microsoft.AspNetCore" src --include=*.csproj` hits only the Dashboard project file.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S089 @REQ-032 @EDGE-019
 Feature: AJ-089 Fan readings out to a dashboard sink that can never block the run
   @positive
   Scenario: AJ-089 a reading reaches both the in-memory sink and the dashboard sink
@@ -1232,12 +1280,13 @@ Acceptance criteria:
 2. A hosted step serializes `netJoules` as `{"value":null,"label":"N/A","reason":"hosted-tier"}` and unreported tokens as `not-reported`; no payload writes a missing value as 0.
 3. Flags such as `shared-window` are present in the payload; the event type names are `run-started`, `baseline`, `progress`, `step-started`, `step-completed`, `power`, `run-completed` and `snapshot`.
 4. The embedded page `wwwroot/index.html` contains no `<script src`, no `<link href`, and no `http://` or `https://` URL other than the repository README link after placeholder replacement (test `Page_has_no_external_resource`).
-5. The page contains `EventSource("/events")`, a formatter that prints the label text when `value` is null, the footer `Energy is GPU-board energy only.`, per-agent cards, a header with tier, models, mode, progress and flags, and one inline SVG power chart with a dashed idle-baseline line.
+5. The page contains `EventSource("/events")`, a formatter that prints the label text when `value` is null, the footer `Energy is GPU-board energy only.`, per-agent cards, a header with tier, models, mode, progress and flags, and one canvas power chart drawn with the 2D API with a dashed idle-baseline line; the page contains no `createElementNS`, no SVG namespace string and no `innerHTML`, and sets server-provided strings with `textContent` only (test `Page_has_no_innerHTML_or_createElementNS`, which asserts both).
 6. A Specs scenario asserts that a power metric without a value is delivered as `N/A` and that the served page contains the formatter that renders it.
 7. The page is served only by the CLI and never written to `docs/report/`; `docs/report/index.html` still has no `<script`.
+8. `step-completed` and `power` payloads carry server-side cumulative values per agent (`cumulativeNetJoules`, `cumulativeInputTokens`, `cumulativeOutputTokens`) as label objects, so the page never sums events itself; a test drops the earlier events and the cumulative stays correct (test `Cumulative_survives_dropped_events` in `DashboardEventSerializationTests`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S090 @REQ-032
 Feature: AJ-090 Serialize live events and embed the dashboard page
   @positive
   Scenario: AJ-090 step payload carries the agent name and the labelled net joules
@@ -1265,15 +1314,30 @@ Feature: AJ-090 Serialize live events and embed the dashboard page
     Given a runtime-built key starting with "nvapi-" present in the configuration
     When every event type is serialized
     Then no payload contains the key characters after the first six
+  @positive
+  Scenario: AJ-090 payload carries cumulative values as label objects
+    Given two completed steps of agent "Writer" with net joules 10 and 12 (fixture values)
+    When the second step event is serialized
+    Then cumulativeNetJoules is 22 with label "measured"
+  @negative
+  Scenario: AJ-090 cumulative stays correct after earlier events are dropped
+    Given 1500 events emitted with no reader so the earliest are dropped
+    When the last step event is serialized
+    Then its cumulative values equal the sum over all emitted steps
+  @negative
+  Scenario: AJ-090 page builds no markup from event strings
+    Given the embedded dashboard page
+    When the page text is scanned
+    Then it contains no innerHTML and no createElementNS
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-090-T1 | Write the failing BDD feature and unit tests for serialization and the page | tests/AgentJoules.Specs/Features/Dashboard/LivePage.feature, tests/AgentJoules.UnitTests/DashboardEventSerializationTests.cs, tests/AgentJoules.UnitTests/DashboardPageTests.cs | 0.75 | AJ-089-T3 |
 | AJ-090-T2 | Create the source-generated `DashboardJsonContext` with the results naming and enum options | src/AgentJoules.Dashboard/DashboardJsonContext.cs | 0.75 | AJ-090-T1 |
-| AJ-090-T3 | Implement `DashboardEventSerializer` for the eight event types | src/AgentJoules.Dashboard/DashboardEventSerializer.cs | 1.0 | AJ-090-T2 |
+| AJ-090-T3 | Implement `DashboardEventSerializer` for the eight event types with per-agent cumulative label objects | src/AgentJoules.Dashboard/DashboardEventSerializer.cs | 1.5 | AJ-090-T2 |
 | AJ-090-T4 | Write the page header, agent cards, formatter and `EventSource` client | src/AgentJoules.Dashboard/wwwroot/index.html | 1.75 | AJ-090-T3 |
-| AJ-090-T5 | Add the inline SVG power chart with the baseline line and shared-window shading | src/AgentJoules.Dashboard/wwwroot/index.html | 1.5 | AJ-090-T4 |
+| AJ-090-T5 | Add the canvas 2D power chart with the baseline line and shared-window shading | src/AgentJoules.Dashboard/wwwroot/index.html | 1.5 | AJ-090-T4 |
 | AJ-090-T6 | Implement `DashboardPage` with the embedded resource and encoded repository placeholder | src/AgentJoules.Dashboard/DashboardPage.cs | 0.5 | AJ-090-T4 |
 | AJ-090-T7 | Record the page rules and the separation from the report page in the build log | docs/build-log.md | 0.25 | AJ-090-T6 |
 Test mapping: `DashboardEventSerializationTests` and `DashboardPageTests` (design classes, trait `Spec=REQ-032`); feature file `tests/AgentJoules.Specs/Features/Dashboard/LivePage.feature`.
@@ -1296,9 +1360,10 @@ Acceptance criteria:
 5. The dashboard is off by default: without `--dashboard` no listener is opened and no `Dashboard:` line is printed.
 6. Startup is bounded by 5 seconds and happens before warm-up and baseline; the server stays up for 2 seconds after `RunCompletedEvent` so the browser renders the final state.
 7. The printed URI is built with `UriBuilder`, so the URL-literal grep over `src` stays clean.
+8. Every response carries `Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:` and `X-Content-Type-Options: nosniff`; a request with a `Host` header other than `127.0.0.1:<port>` or `localhost:<port>` gets status 421 (tests `Security_headers_present` and `Foreign_host_gets_421`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S091 @REQ-032 @EDGE-018
 Feature: AJ-091 Serve the dashboard on loopback with SSE and a port fallback
   @positive
   Scenario: AJ-091 dry-run prints the dashboard URL and exits 0
@@ -1333,6 +1398,16 @@ Feature: AJ-091 Serve the dashboard on loopback with SSE and a port fallback
     Given the run command
     When "run --tier nvidia --dashboard --dashboard-port 70000 --dry-run" is executed
     Then the exit code is 2
+  @positive
+  Scenario: AJ-091 every response carries the CSP and nosniff headers
+    Given a started dashboard server
+    When a client requests "/" and "/events"
+    Then both responses carry the Content-Security-Policy and X-Content-Type-Options "nosniff" headers
+  @negative
+  Scenario: AJ-091 a foreign Host header gets 421
+    Given a started dashboard server
+    When a client sends a request with Host "evil.example"
+    Then the status is 421 and no event data is returned
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1341,6 +1416,7 @@ Tasks:
 | AJ-091-T2 | Implement `DashboardServer.TryStartAsync` on a loopback Kestrel endpoint with `GET /` | src/AgentJoules.Dashboard/DashboardServer.cs | 1.5 | AJ-091-T1, AJ-090-T6 |
 | AJ-091-T3 | Implement the `/events` endpoint with the snapshot item and per-connection channels | src/AgentJoules.Dashboard/DashboardServer.cs | 1.5 | AJ-091-T2, AJ-089-T6 |
 | AJ-091-T4 | Implement the 20-port fallback, the 5 second start bound and the printed `Dashboard:` URI | src/AgentJoules.Dashboard/DashboardServer.cs | 1.0 | AJ-091-T3 |
+| AJ-091-T4a | Add the Host check (421) and the security headers middleware | src/AgentJoules.Dashboard/DashboardServer.cs | 0.75 | AJ-091-T4 |
 | AJ-091-T5 | Add `--dashboard` and `--dashboard-port` to `run` and wire `FanOutMetricsSink` and the live sink | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.5 | AJ-091-T4, AJ-056-T7 |
 | AJ-091-T6 | Emit run-started, baseline, progress and step-started events from their producers | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Metering/MeteredChatClient.cs | 1.5 | AJ-091-T5 |
 | AJ-091-T7 | Emit the power event from an existing sample at most every 500 ms | src/AgentJoules.Core/Energy/SampledEnergyMeter.cs | 1.0 | AJ-091-T6 |
@@ -1362,12 +1438,16 @@ Acceptance criteria:
 1. `AJ dashboard --replay <fixture run file> --speed 50 --exit-after 5` exits 0 and a test asserts one `step-completed` SSE event per step of the fixture (test `Replay_emits_one_event_per_step`).
 2. `ReplayTimeline.Build` creates events at the recorded offsets from `run.startUtc`: run started at 0, progress at the first step of each (task, repeat), step started at `step.startUtc`, step completed at `step.endUtc`, power as one event per step start and end carrying the step's recorded `avgW`, run completed at the last `endUtc` with the file's totals and flags; every event has `replay: true`.
 3. `--speed 4` divides every delay by 4 (driven by `FakeTimeProvider`); `--speed` of 0 or below exits 2.
-4. A file that does not match the run-file name pattern or fails the schema exits 2 naming the file; when 20 consecutive ports are busy the command exits 6.
+4. A file that does not match the run-file name pattern or fails the schema exits 2 naming the file; when 20 consecutive ports are busy the command exits 5 and prints `no free dashboard port in <start>-<end>`.
 5. A hosted fixture replays power as N/A reason `hosted-tier`; the page shows the banner `power shown as recorded per-step average` and a replay marker.
 6. Without `--exit-after` the server runs until Ctrl+C and exits 0; nothing is written to disk.
+7. After printing `Dashboard: <uri>` the replay emits no event until the first `/events` connection or until `--start-delay <seconds>` elapses (test `No_event_before_first_client`: the sink holds 0 emitted events before a client connects).
+8. With no client and no start delay the command prints a warning and exits 0 after the shorter of 120 seconds and `--exit-after` (fake-clock test `No_client_times_out_with_warning`: exit code 0 and one warning line).
+9. `--exit-after` counts from the first event (event 0), not from startup, and a client that reconnects is rebuilt from the `snapshot` item (test `Reconnect_rebuilds_from_snapshot`: the snapshot after reconnect equals the snapshot before the drop).
+10. `AJ dashboard --help` lists `--replay`, `--speed`, `--exit-after`, `--start-delay` and `--dashboard-port` (checked by the help test).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S092 @REQ-032
 Feature: AJ-092 Replay a committed run file on its recorded timeline
   @positive
   Scenario: AJ-092 replay emits one step-completed event per step
@@ -1401,10 +1481,26 @@ Feature: AJ-092 Replay a committed run file on its recorded timeline
     When the timeline is built
     Then every power event has label "N/A" and a null value
   @negative
-  Scenario: AJ-092 no free port exits 6
+  Scenario: AJ-092 no free port exits 5
     Given listeners hold 20 consecutive ports starting at the preferred port
     When "dashboard --replay <fixture> --exit-after 1" is executed
-    Then the exit code is 6
+    Then the exit code is 5
+  @positive
+  Scenario: AJ-092 replay waits for the first client
+    Given a started replay of a fixture run file and no connected client
+    When the clock advances 30 seconds
+    Then no event was emitted
+    And after a client connects the first event is emitted
+  @positive
+  Scenario: AJ-092 a reconnecting client is rebuilt from the snapshot
+    Given a replay in progress after 6 of 12 steps
+    When the client disconnects and reconnects
+    Then its first item is a snapshot holding the state after 6 steps
+  @negative
+  Scenario: AJ-092 no client within the timeout exits 0 with a warning
+    Given a started replay with no client and --exit-after 60
+    When 60 seconds pass on the fake clock
+    Then a warning is printed and the exit code is 0
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1412,7 +1508,9 @@ Tasks:
 | AJ-092-T1 | Write the failing BDD feature and unit tests for replay | tests/AgentJoules.Specs/Features/Dashboard/Replay.feature, tests/AgentJoules.UnitTests/ReplayTimelineTests.cs | 0.75 | AJ-091-T1 |
 | AJ-092-T2 | Implement `ReplayTimeline.Build` from a `RunDocument` | src/AgentJoules.Dashboard/ReplayTimeline.cs | 1.5 | AJ-092-T1, AJ-078-T3 |
 | AJ-092-T3 | Implement `ReplayService.RunAsync` with validation, delays on `TimeProvider` and `--exit-after` | src/AgentJoules.Dashboard/ReplayService.cs | 1.5 | AJ-092-T2, AJ-091-T4, AJ-079-T4 |
+| AJ-092-T3a | Add `DashboardSink.FirstClientConnected` and make the replay wait for the first `/events` connection | src/AgentJoules.Dashboard/DashboardSink.cs, src/AgentJoules.Dashboard/ReplayService.cs | 0.5 | AJ-092-T3 |
 | AJ-092-T4 | Add the `dashboard` command with `--replay`, `--speed`, `--exit-after`, `--dashboard-port` | src/AgentJoules.Cli/Commands/DashboardCommand.cs | 1.0 | AJ-092-T3 |
+| AJ-092-T4a | Add the `--start-delay` option, the 120 s no-client timeout and the `--exit-after` clock from event 0 | src/AgentJoules.Cli/Commands/DashboardCommand.cs, src/AgentJoules.Dashboard/ReplayService.cs | 0.5 | AJ-092-T4, AJ-092-T3a |
 | AJ-092-T5 | Show the replay banner and marker in the page | src/AgentJoules.Dashboard/wwwroot/index.html | 0.5 | AJ-092-T2, AJ-090-T4 |
 | AJ-092-T6 | Write the README replay usage for judges without a GPU | README.md | 0.25 | AJ-092-T4 |
 Test mapping: `ReplayTimelineTests` (design class, trait `Spec=REQ-032`); feature file `tests/AgentJoules.Specs/Features/Dashboard/Replay.feature`.
@@ -1420,7 +1518,7 @@ Docs impact: README section "Live dashboard" (replay command and the per-step av
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5; echo $?` prints 0
+- [ ] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5 --start-delay 0; echo $?` prints 0
 Demo relevance: yes: the fallback for the video when the local tier is unavailable at recording time, and the way judges without a GPU see the live view.
 
 ### AJ-093: Leave the run and its results unchanged when the dashboard fails
@@ -1428,14 +1526,14 @@ Covers: REQ-032, EDGE-019
 User story: As a user, I want any dashboard failure logged and ignored by the run, so that the live view can never alter a measurement, an exit code or a results file.
 Acceptance criteria:
 1. A test that makes the dashboard pump throw and the server unable to bind any port finishes the run with exit 0, and the results file equals the file of a run without `--dashboard` in step count, outcomes and status (test `Run_result_unchanged_when_dashboard_fails`).
-2. The server exception is logged at Warning and never reaches the orchestrator.
-3. With no browser connected the run completes normally and publishing never blocks.
-4. The dashboard adds no NVML call and never takes the meter gate: the scripted NVML API call count of a run with the dashboard equals the count without it.
+2. The server exception is logged at Warning and never reaches the orchestrator (test `Server_fault_is_logged_not_thrown`: the logger sink holds exactly one Warning entry and the run exit code is 0).
+3. With no browser connected the run completes normally and publishing never blocks (test `Run_completes_without_client`: exit code 0 and 10 000 `Emit` calls finish within the test timeout).
+4. The dashboard adds no NVML call and never takes the meter gate (test `No_extra_nvml_calls`: the scripted NVML API call count of a run with the dashboard equals the count without it, and the gate acquire count equals the number of metered calls).
 5. `docs/methodology.md` states the sentence "The live dashboard displays readings and power samples the meter already takes; it does not change what is measured." and that published results files are recorded without a browser open.
-6. The dashboard server is disposed after the run-completed event plus the 2 second grace, with no listener left behind.
+6. The dashboard server is disposed after the run-completed event plus the 2 second grace, with no listener left behind (test `Server_disposed_after_grace`: after 2 seconds on the fake clock a connection attempt to the reported port is refused).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S093 @REQ-032 @EDGE-019
 Feature: AJ-093 Leave the run and its results unchanged when the dashboard fails
   @positive
   Scenario: AJ-093 a run with an idle dashboard equals a run without one
@@ -1496,4 +1594,6 @@ Demo relevance: no (the property it protects makes the live view safe to show).
 
 ## Estimate
 
-Sum of task estimates: 99.5 hours across 24 stories and 134 tasks (per story: AJ-070 3.5, AJ-071 2.75, AJ-072 3.5, AJ-073 2.0, AJ-074 2.0, AJ-075 2.5, AJ-076 4.75, AJ-077 3.0, AJ-078 5.25, AJ-079 5.75, AJ-080 2.75, AJ-081 2.5, AJ-082 3.75, AJ-083 5.25, AJ-084 4.5, AJ-085 3.5, AJ-086 3.75, AJ-087 3.5, AJ-088 3.75, AJ-089 6.0, AJ-090 6.5, AJ-091 9.25, AJ-092 5.5, AJ-093 4.0). The dashboard stories AJ-089 to AJ-093 account for 31.25 hours; the rest is 68.25 hours. The design's own dashboard estimate is 6 to 8 hours (R-11, inferred); this plan's task-level sum is about four times that because it includes red-first tests, Specs features and documentation for each story, so the figure should be re-checked with the architect.\n\nNominal capacity: 3 working days x 6 hours = 18 hours (2026-10-23 to 2026-10-25), shared with the last day of M2. The sum is about 5.5 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M3 cannot close it. Deferral candidates in order: AJ-089 to AJ-093 dashboard (31.25 h, REQ-032 is a user-added scope item; replay AJ-092 is the part the video and judges need), AJ-087 README block function (3.5 h, only needed once M6 wires it), AJ-081 baseline-row handling. REQ-009, REQ-010, REQ-015, REQ-016, REQ-023, REQ-030 and EDGE-012 must still be met before the Definition of Done.
+Sum of task estimates: 101.5 hours across 24 stories and 136 tasks (per story: AJ-070 3.5, AJ-071 2.75, AJ-072 3.5, AJ-073 2.0, AJ-074 2.0, AJ-075 2.5, AJ-076 5.0, AJ-077 3.0, AJ-078 5.5, AJ-079 5.75, AJ-080 2.75, AJ-081 2.5, AJ-082 3.75, AJ-083 5.25, AJ-084 4.5, AJ-085 3.5, AJ-086 3.75, AJ-087 3.5, AJ-088 3.0, AJ-089 6.0, AJ-090 7.0, AJ-091 10.0, AJ-092 6.5, AJ-093 4.0). The dashboard stories AJ-089 to AJ-093 account for 33.5 hours; the rest is 68.0 hours. The design's own dashboard estimate is 6 to 8 hours (R-11, inferred); this plan's task-level sum is about four times that because it includes red-first tests, Specs features and documentation for each story, so the figure should be re-checked with the architect.
+
+Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-23 to 2026-10-25), shared with the last day of M2. The sum is about 5.6 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M3 cannot close it. Deferral candidates in order: AJ-089 to AJ-093 dashboard (33.5 h, REQ-032 is a user-added scope item; replay AJ-092 is the part the video and judges need), AJ-087 README block function (3.5 h, only needed once M6 wires it), AJ-081 baseline-row handling. REQ-009, REQ-010, REQ-015, REQ-016, REQ-023, REQ-030 and EDGE-012 must still be met before the Definition of Done.

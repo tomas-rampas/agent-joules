@@ -27,6 +27,8 @@ Needs from earlier milestones (assumed delivered; a story that finds one missing
 - M0: solution, `Directory.Build.props`, `Directory.Packages.props` pins, test projects, `AgentJoules.TestSupport`, secret redaction (`SecretRedactor`).
 - M1: `Metric` label object, `IEnergyMeter`, `DeterministicEnergyMeter`, `ReadingCalculator`, `IGpuTelemetrySourceFactory`, `ScriptedNvmlApi`, `CliApplication` with `probe`.
 
+Cut-order note: AJ-047 (concurrent half of the metering modes) depends on AJ-056-T4a, which creates `RunAssembler`; no other story depends on AJ-047.
+
 Hands over to later milestones: `ICostCalculator` seam with a placeholder implementation (M3 replaces it), an `IJudgeService` seam with a no-op implementation (M3 fills it), `ILocalRuntime` warm-up seam with a no-op implementation (M4 fills it), the minimal `RunDocument` records and writer (M3 hardens them and adds the schema).
 
 User actions from prompt section 12: steps 5 (`NEBIUS_API_KEY`) and 6 (`NVIDIA_API_KEY`) are needed only for the live dry-run criterion above. Step 4 (credits) should be done before step 5. Step 7 (`NGC_API_KEY`) is not needed in this milestone. No test in this milestone needs a key; tests build fake keys at run time.
@@ -44,7 +46,7 @@ Acceptance criteria:
 5. A metric labelled `N/A` or `not-reported` cannot carry a numeric value, so a missing value can never be written as 0 (test `Missing_value_is_never_zero`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S040 @REQ-008
 Feature: AJ-040 Define the per-call reading and publish it to a metrics sink
   @positive
   Scenario: AJ-040 sink returns readings in publish order
@@ -95,7 +97,7 @@ Acceptance criteria:
 6. A second call started while one is in flight on the same instance throws `InvalidOperationException`.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S041 @REQ-007
 Feature: AJ-041 Meter buffered and streaming calls with exactly one reading per call
   @positive
   Scenario: AJ-041 buffered call yields one reading with ttft N/A
@@ -158,9 +160,10 @@ Acceptance criteria:
 3. When tokens are not reported the reading's `cost` has label `N/A` and a null value (never 0).
 4. A provider-reported 0 tokens is kept as `measured` 0 (the label, not the number, decides).
 5. `ICostCalculator` is the only way the decorator obtains cost; M2 ships `NotConfiguredCostCalculator` (always `N/A`, reason `cost-not-configured`), which M3 replaces.
+6. A step whose `outputTokens` exceeds the task's `maxOutputTokens` carries the flag `max-tokens-exceeded` (test `Max_tokens_exceeded_flag`); when output tokens are not reported the flag is absent.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S042 @REQ-008 @EDGE-007
 Feature: AJ-042 Report absent usage as not-reported, never 0
   @positive
   Scenario: AJ-042 usage with 120 input and 45 output tokens is measured
@@ -184,12 +187,22 @@ Feature: AJ-042 Report absent usage as not-reported, never 0
     Given a fake stream whose updates carry no usage content
     When the stream is consumed
     Then inputTokens and outputTokens have label "not-reported" and a null value
+  @positive
+  Scenario: AJ-042 output above the task limit gets the max-tokens-exceeded flag
+    Given a task with maxOutputTokens 512 and a response reporting 600 output tokens
+    When a buffered call is metered
+    Then the reading has flag "max-tokens-exceeded"
+  @negative
+  Scenario: AJ-042 unreported output tokens carry no max-tokens flag
+    Given a task with maxOutputTokens 512 and a response without usage
+    When a buffered call is metered
+    Then the reading has no flag "max-tokens-exceeded"
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-042-T1 | Write the failing BDD feature and unit tests for usage mapping | tests/AgentJoules.Specs/Features/Metering/UsageReporting.feature, tests/AgentJoules.UnitTests/MeteredChatClientTests.cs | 0.5 | AJ-041-T2 |
-| AJ-042-T2 | Map `UsageDetails` to measured or not-reported token metrics on the buffered path | src/AgentJoules.Metering/MeteredChatClient.cs, src/AgentJoules.Core/Cost/TokenCounts.cs | 0.75 | AJ-042-T1, AJ-041-T3 |
+| AJ-042-T2 | Map `UsageDetails` to measured or not-reported token metrics on the buffered path and set `max-tokens-exceeded` | src/AgentJoules.Metering/MeteredChatClient.cs, src/AgentJoules.Core/Cost/TokenCounts.cs | 1.0 | AJ-042-T1, AJ-041-T3 |
 | AJ-042-T3 | Collect `UsageContent` from streaming updates | src/AgentJoules.Metering/MeteredChatClient.cs | 0.75 | AJ-042-T2, AJ-041-T4 |
 | AJ-042-T4 | Create `ICostCalculator` and `NotConfiguredCostCalculator` and call them from the decorator | src/AgentJoules.Core/Cost/ICostCalculator.cs, src/AgentJoules.Core/Cost/NotConfiguredCostCalculator.cs | 0.5 | AJ-042-T2 |
 | AJ-042-T5 | Record the `Spec=REQ-008` and `Spec=EDGE-007` results and the open include_usage check in the build log | docs/build-log.md | 0.25 | AJ-042-T3, AJ-042-T4 |
@@ -213,7 +226,7 @@ Acceptance criteria:
 5. The committed configuration holds only variable names (for example `NVIDIA_API_KEY`), never a key value.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S043 @REQ-012
 Feature: AJ-043 Bind and validate tier configuration
   @positive
   Scenario: AJ-043 four tier sections bind from the committed file
@@ -249,7 +262,7 @@ Tasks:
 |---|---|---|---|---|
 | AJ-043-T1 | Write the failing BDD feature and unit tests for tier binding and validation | tests/AgentJoules.Specs/Features/Configuration/TierConfiguration.feature, tests/AgentJoules.UnitTests/TierConfigurationTests.cs | 0.5 | - |
 | AJ-043-T2 | Create the `TierOptions`, `JudgeOptions` and `WorkflowOptions` records and extend `AgentJoulesOptions` | src/AgentJoules.Core/Configuration/TierOptions.cs, src/AgentJoules.Core/Configuration/AgentJoulesOptions.cs | 1.0 | AJ-043-T1 |
-| AJ-043-T3 | Create the tier validators and the cross-field rules | src/AgentJoules.Core/Configuration/AgentJoulesOptionsValidator.cs, src/AgentJoules.Core/Configuration/CrossFieldValidator.cs | 1.0 | AJ-043-T2 |
+| AJ-043-T3 | Create `FlatSectionsValidator : IValidateOptions<AgentJoulesOptions>` and the cross-field rules | src/AgentJoules.Core/Configuration/FlatSectionsValidator.cs, src/AgentJoules.Core/Configuration/CrossFieldValidator.cs | 1.0 | AJ-043-T2 |
 | AJ-043-T4 | Write the tier sections of the committed configuration (nebius base URL from prompt section 12 step 5; other values from the builder lookup, recorded as unverified in the build log until M4 verifies them) | config/appsettings.json | 0.75 | AJ-043-T2 |
 | AJ-043-T5 | Map `OptionsValidationException` to exit 2 in the host start path | src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 0.5 | AJ-043-T3 |
 | AJ-043-T6 | Document the configuration keys and the override rule | docs/build-log.md | 0.25 | AJ-043-T4 |
@@ -273,9 +286,11 @@ Acceptance criteria:
 5. `Tiers:<t>:ExtraBodyJson` is deep-merged into the body of `POST .../chat/completions` only; `GET .../models` is unchanged; unparseable JSON exits 2 at start.
 6. A per-agent model ID in `AgentModelIds` overrides the tier `ModelId`; an agent without an entry uses `ModelId`.
 7. `environment.reasoningMode` is taken from `Tiers:<t>:ReasoningMode` (`off`, `on` or `unsupported`).
+8. The token-limit JSON property name comes from `Tiers:<t>:MaxTokensField` (`max_completion_tokens` or `max_tokens`); the test asserts the configured name appears in the recorded request body, and the name each endpoint honours is verified and recorded per tier in `docs/endpoints.md` in M4.
+9. The named HTTP client has `Timeout` equal to `Timeout.InfiniteTimeSpan` while the SDK `NetworkTimeout` equals `Tiers:<t>:TimeoutSeconds` (test `Http_timeout_infinite_network_timeout_set`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S044 @REQ-012
 Feature: AJ-044 Create provider chat clients per tier from configuration only
   @positive
   Scenario: AJ-044 request carries temperature 0 and the task token limit
@@ -308,6 +323,11 @@ Feature: AJ-044 Create provider chat clients per tier from configuration only
     Given tier "nvidia" with ExtraBodyJson "{not json"
     When any command starts
     Then the exit code is 2
+  @positive
+  Scenario: AJ-044 configured max tokens field name is used in the body
+    Given tier "nebius" with MaxTokensField "max_completion_tokens" and task maxOutputTokens 384
+    When the chat client sends one request
+    Then the recorded body has the property "max_completion_tokens" with value 384
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -316,7 +336,7 @@ Tasks:
 | AJ-044-T2 | Create `FakeHttpMessageHandler` (routes, status codes, request recording) and `SseBuilder` | tests/AgentJoules.TestSupport/FakeHttpMessageHandler.cs, tests/AgentJoules.TestSupport/SseBuilder.cs | 1.5 | AJ-044-T1 |
 | AJ-044-T3 | Implement `ProviderClientFactory` with endpoint, bearer key, `ClientRetryPolicy(0)` and timeout | src/AgentJoules.Workflow/Providers/ProviderClientFactory.cs | 1.0 | AJ-044-T2 |
 | AJ-044-T4 | Implement `RequestBodyPatchHandler` for `ExtraBodyJson` | src/AgentJoules.Workflow/Providers/RequestBodyPatchHandler.cs | 1.0 | AJ-044-T3 |
-| AJ-044-T5 | Add per-agent model resolution and chat options (temperature 0, max tokens, optional seed) | src/AgentJoules.Core/Configuration/TierOptions.cs, src/AgentJoules.Workflow/Agents/ChatOptionsFactory.cs | 0.75 | AJ-044-T3 |
+| AJ-044-T5 | Add per-agent model resolution and chat options (temperature 0, max tokens field name, optional seed) and the infinite `HttpClient` timeout | src/AgentJoules.Core/Configuration/TierOptions.cs, src/AgentJoules.Workflow/Agents/ChatOptionsFactory.cs | 1.0 | AJ-044-T3 |
 | AJ-044-T6 | Register the named HTTP clients and the factory in the service collection | src/AgentJoules.Workflow/ServiceCollectionExtensions.cs | 0.5 | AJ-044-T4 |
 | AJ-044-T7 | Record the verified request-body property names in the build log | docs/build-log.md | 0.25 | AJ-044-T5 |
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Workflow/ProviderClients.feature`; class `ProviderClientTests` (trait `Spec=REQ-012`).
@@ -336,11 +356,11 @@ Acceptance criteria:
 3. A `Retry-After` header (seconds or HTTP date) overrides the computed backoff; the computed backoff is base 1 s, factor 2, full jitter, cap 30 s.
 4. A handler answering 429 on every call records exactly 5 HTTP requests (SDK retry disabled in AJ-044), the reading has `outcome: "error"` and `retries: 4`, and `RetriesExhaustedException` is thrown (test `Always_429_exhausts_after_5_attempts`).
 5. Only 429 is retried: a 500, a timeout or a connection error is attempted once and ends with `outcome: "error"`.
-6. One reading spans all attempts (sink count is 1). For streaming, a 429 raised before the first update is retried; a failure after an update was yielded is not retried.
+6. One reading spans all attempts (sink count is 1). For streaming, a 429 raised before the first update is retried; a failure after an update was yielded is not retried (tests `One_reading_spans_attempts` and `Stream_429_before_first_update_retried`: sink count 1; recorded request counts 2 and 1).
 7. The exit-5 and partial-file consequence of exhaustion is delivered in AJ-057.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S045 @EDGE-006
 Feature: AJ-045 Retry HTTP 429 with backoff and keep the wait out of latency
   @positive
   Scenario: AJ-045 two 429 responses then success are retried
@@ -408,7 +428,7 @@ Acceptance criteria:
 5. `--mode concurrent` registers the no-op gate; the workflow topology is identical in both modes.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S046 @REQ-013
 Feature: AJ-046 Serialize metered windows with the process-wide meter gate
   @positive
   Scenario: AJ-046 two parallel branches run one after the other in serialized mode
@@ -459,13 +479,13 @@ User story: As a reader of concurrent-mode results, I want overlapping readings 
 Acceptance criteria:
 1. In concurrent mode two branches of 1 s that start together produce two readings flagged `shared-window`, and the run `totals.grossJoules` equals the union-window energy, not the sum of the two readings (test `Concurrent_total_is_union_not_sum`, fixture values from `DeterministicEnergyMeter`, not measurements).
 2. In serialized mode the run total is the sum of the step readings and no reading has `shared-window`.
-3. Windows that only touch at a boundary (end equals next start) are not overlapping and are not flagged.
-4. Tokens and cost are summed (cost per currency, no conversion); `wallClockMs` is the workflow wall time; judge readings are never included.
+3. Windows that only touch at a boundary (end equals next start) are not overlapping and are not flagged (test `Touching_windows_not_shared`: neither reading has flag `shared-window`).
+4. Tokens and cost are summed (cost per currency, no conversion); `wallClockMs` is the workflow wall time; judge readings are never included. These sums, the serialized totals and the hosted-tier N/A rule are created in AJ-056-T4a (needed by every run file); this story asserts them again for concurrent mode (test `Concurrent_sums_and_judge_exclusion`).
 5. In a hosted-tier concurrent run, energy totals are `N/A` with reason `hosted-tier`, never 0.
-6. The fixed sentence `Per-step energy overlaps in concurrent mode and does not sum to the run total.` is defined once in `ReportSentences` and the run records `run.mode: "concurrent"`; the rendered-summary assertion for the sentence is part of the Markdown story in M3.
+6. The fixed sentence `Per-step energy overlaps in concurrent mode and does not sum to the run total.` is defined once in `ReportSentences` (created in AJ-056-T4a) and the run records `run.mode: "concurrent"` (test `Concurrent_run_records_mode`); the rendered-summary assertion for the sentence is part of the Markdown story in M3.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S047 @REQ-013 @EDGE-004
 Feature: AJ-047 Flag shared windows and total concurrent runs over the union window
   @positive
   Scenario: AJ-047 overlapping branches are flagged and totalled over the union
@@ -505,10 +525,9 @@ Tasks:
 |---|---|---|---|---|
 | AJ-047-T1 | Write the failing BDD feature and unit tests for overlap and union totals | tests/AgentJoules.Specs/Features/Metering/ConcurrentUnion.feature, tests/AgentJoules.UnitTests/ExecutionModeTests.cs | 0.5 | AJ-046-T1 |
 | AJ-047-T2 | Implement `UnionWindowCalculator` (merge overlapping spans, sum counter deltas or integrate samples) and wire `ComputeUnion` into both meters | src/AgentJoules.Core/Energy/UnionWindowCalculator.cs, src/AgentJoules.Core/Energy/DeterministicEnergyMeter.cs | 1.5 | AJ-047-T1 |
-| AJ-047-T3 | Implement overlap detection and the `shared-window` flag in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.0 | AJ-047-T2 |
-| AJ-047-T4 | Implement totals: sum (serialized), union (concurrent), tokens, cost per currency, wall clock, hosted N/A | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.5 | AJ-047-T3 |
-| AJ-047-T5 | Create the `ReportSentences` constants and record `run.mode` | src/AgentJoules.Core/Results/ReportSentences.cs | 0.25 | AJ-047-T4 |
-| AJ-047-T6 | Record the `Spec=REQ-013` and `Spec=EDGE-004` results in the build log | docs/build-log.md | 0.25 | AJ-047-T5 |
+| AJ-047-T3 | Add overlap detection and the `shared-window` flag to `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.0 | AJ-047-T2, AJ-056-T4a |
+| AJ-047-T4 | Add the union-window totals branch for concurrent mode to `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 0.75 | AJ-047-T3 |
+| AJ-047-T5 | Record the `Spec=REQ-013` and `Spec=EDGE-004` results in the build log | docs/build-log.md | 0.25 | AJ-047-T4 |
 Test mapping: `ExecutionModeTests` (design class); feature file `tests/AgentJoules.Specs/Features/Metering/ConcurrentUnion.feature`.
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the union-window rule (written in M4).
 Definition of done:
@@ -528,7 +547,7 @@ Acceptance criteria:
 5. Each prompt is self-contained (no placeholder tokens such as `{{`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S048 @REQ-012
 Feature: AJ-048 Load the fixed task set from tasks/
   @positive
   Scenario: AJ-048 committed tasks load in file-name order
@@ -586,7 +605,7 @@ Acceptance criteria:
 5. A different `(tier, task, repeat)` gets new client instances (no shared retry ledger).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S049 @REQ-011
 Feature: AJ-049 Create one metered agent per name from a tier and model
   @positive
   Scenario: AJ-049 four agents have four distinct metered clients
@@ -636,13 +655,13 @@ User story: As a workflow developer, I want the four agents wired as a Microsoft
 Acceptance criteria:
 1. `grep -rnE "AddFanOutEdge|BuildConcurrent" src`, `grep -rnE "AddFanInBarrierEdge|BuildConcurrent" src` and `grep -rn "RunStreamingAsync" src` each return at least one hit.
 2. A unit test runs the workflow with fake chat clients and asserts a reading exists for each of Planner, Researcher, Writer and Reviewer, each with the matching agent name (test `Workflow_has_one_reading_per_agent`).
-3. The Reviewer starts only after both branches finish: the Reviewer window start is not before the later of the Researcher and Writer window ends.
+3. The Reviewer starts only after both branches finish: the Reviewer window start is not before the later of the Researcher and Writer window ends (test `Reviewer_starts_after_both_branches`, asserted on fake-clock window timestamps).
 4. All four executors stream (`agent.RunStreamingAsync`), so every reading has a measured `ttftMs` with the streaming fake.
 5. When one agent fails (fake endpoint answers 500), the Reviewer is not called, the failed agent has an `error` reading and the workflow raises `StepFailedException` (exit 5 mapping is AJ-057).
 6. Executors declare their message types (`SendsMessage`, `YieldsOutput`); an undeclared type would fail at run time, so a test runs the full graph once.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S050 @REQ-011
 Feature: AJ-050 Run Planner, fan-out Researcher and Writer, fan-in Reviewer as a workflow
   @positive
   Scenario: AJ-050 workflow produces one reading per named agent
@@ -698,13 +717,13 @@ User story: As an observability user, I want the agents built with `UseOpenTelem
 Acceptance criteria:
 1. `grep -rn "UseOpenTelemetry" src` returns at least one hit (in `AgentFactory`).
 2. A unit test with an in-memory metric exporter runs one metered fake local call and asserts that the five instruments `agentjoules.step.energy`, `agentjoules.step.power`, `agentjoules.step.tokens`, `agentjoules.step.latency` and `agentjoules.step.cost` each recorded a measurement carrying the attributes `gen_ai.agent.name`, `aj.tier` and `gen_ai.request.model` (test `Five_instruments_with_three_attributes`).
-3. A metric whose value is null (hosted-tier energy, not-reported tokens, N/A cost) is not recorded, so no zero measurement appears.
+3. A metric whose value is null (hosted-tier energy, not-reported tokens, N/A cost) is not recorded, so no zero measurement appears (test `Null_metrics_not_recorded`: the in-memory exporter holds no measurement for them).
 4. The console metrics exporter is on by default for `run` and `calibrate` and absent with `--no-console-telemetry`; the OTLP exporter is added only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 5. Traces use sources `AgentJoules` and `Microsoft.Agents.AI.Workflows*`, go to OTLP only, and `EnableSensitiveData` stays off (no prompt text in spans).
-6. The README telemetry section lists the instrument names and the OTLP variable.
+6. The README telemetry section lists the instrument names and the OTLP variable (check: `grep -c "agentjoules.step.energy" README.md` and `grep -c "OTEL_EXPORTER_OTLP_ENDPOINT" README.md` each print at least 1).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S051 @REQ-014
 Feature: AJ-051 Record OpenTelemetry instruments and the activity source
   @positive
   Scenario: AJ-051 one local call records all five instruments with three attributes
@@ -761,9 +780,10 @@ Acceptance criteria:
 4. A missing workflow-tier key exits 3 before any HTTP request (the fake handler records 0 requests).
 5. Outside `--dry-run`, a missing judge key only warns and the command continues; with `--dry-run` the judge key joins the same message.
 6. For `cloudgpu` on the laptop (`CloudGpu:RequireSshVariables` true) a missing `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` exits 3; on the VM (`RequireSshVariables` false) it does not.
+7. The harness is deny-by-default: when `CliHostOverrides` is non-null the GPU factory is `UnavailableGpuTelemetrySourceFactory`, every primary HTTP handler is a `DenyAllHttpMessageHandler` that throws naming the URL, `IPowerSourceDetector` returns `unknown`, and the OTLP endpoint is read only from the isolated `IConfiguration`; a harness run with no override performs 0 real requests (test `Harness_makes_no_real_requests`).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S052 @EDGE-011
 Feature: AJ-052 Exit 3 before any call when an API key is missing
   @positive
   Scenario: AJ-052 all required keys present passes the key check
@@ -799,12 +819,22 @@ Feature: AJ-052 Exit 3 before any call when an API key is missing
     When "run --tier cloudgpu --dry-run" is executed
     Then the exit code is 3
     And the message names "CLOUDGPU_SSH_HOST"
+  @positive
+  Scenario: AJ-052 harness run with only fakes performs no real request
+    Given a harness run with fake keys and a fake models handler
+    When "run --tier nvidia --dry-run" is executed
+    Then the deny-all handler recorded 0 real requests
+  @negative
+  Scenario: AJ-052 unconfigured URL is denied naming the URL
+    Given a harness run where a tier base URL has no fake route
+    When a request to that URL is attempted
+    Then the deny-all handler throws and the message names the URL
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-052-T1 | Write the failing BDD feature and unit tests for missing keys | tests/AgentJoules.Specs/Features/Cli/MissingKeys.feature, tests/AgentJoules.UnitTests/DryRunTests.cs | 0.5 | AJ-044-T2 |
-| AJ-052-T2 | Create `CliHarness` with `CliHostOverrides` (isolated environment and user-secrets) or extend the M1 one | tests/AgentJoules.TestSupport/CliHarness.cs, src/AgentJoules.Cli/CliApplication.cs | 1.5 | AJ-052-T1 |
+| AJ-052-T2 | Create `CliHarness` with `CliHostOverrides` (isolated environment and user-secrets, unavailable GPU factory, `DenyAllHttpMessageHandler`, power source `unknown`) or extend the M1 one | tests/AgentJoules.TestSupport/CliHarness.cs, tests/AgentJoules.TestSupport/DenyAllHttpMessageHandler.cs, src/AgentJoules.Cli/CliApplication.cs | 2.0 | AJ-052-T1 |
 | AJ-052-T3 | Implement the key check in `PreflightService` for workflow tiers, judge key and SSH variables | src/AgentJoules.Workflow/Runs/PreflightService.cs | 1.0 | AJ-052-T2, AJ-043-T3 |
 | AJ-052-T4 | Create `MissingKeyException` with the single-message formatter and the user-secrets text | src/AgentJoules.Core/Cli/AgentJoulesException.cs, src/AgentJoules.Workflow/Runs/MissingKeyMessage.cs | 0.5 | AJ-052-T3 |
 | AJ-052-T5 | Verify redaction of the output writers with the runtime-built key | src/AgentJoules.Cli/Output/RedactingTextWriter.cs, tests/AgentJoules.UnitTests/RedactionTests.cs | 0.5 | AJ-052-T2 |
@@ -823,13 +853,13 @@ Covers: EDGE-008
 User story: As a user, I want the command to fail with the missing model ID and a short list of available IDs before any completion call, so that a typo or a retired model costs no quota and no time.
 Acceptance criteria:
 1. When the fake `GET /v1/models` response lacks a configured model ID, the command exits 4, the output contains the missing ID and at least one listed ID, and the fake handler recorded 0 requests to the completions route (test `Missing_model_exits_4`).
-2. At most 20 available IDs are printed, Nemotron and Qwen entries first.
+2. At most 20 available IDs are printed, Nemotron and Qwen entries first (test `Model_ids_capped_at_20_nemotron_first`: the output has 20 ID lines and the first lines contain `nemotron` or `qwen`).
 3. Every configured ID of a selected tier is checked, including each `AgentModelIds` value, and `Judge:ModelId` is checked against the judge tier.
 4. A models endpoint that refuses the connection exits 5; an empty model list exits 4 with the line `no models listed`.
 5. The local runtime tag-missing hint text (`ollama pull <tag>`) belongs to M4; here the generic ID list applies to every tier.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S053 @EDGE-008
 Feature: AJ-053 Exit 4 before any completion call when a model ID is not listed
   @positive
   Scenario: AJ-053 all configured IDs listed passes
@@ -890,7 +920,7 @@ Acceptance criteria:
 6. Live check on the laptop (keys required): `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` exit 0; the `local` dry-run is completed in M4.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S054 @REQ-017
 Feature: AJ-054 Add run --dry-run that validates everything and makes no completion call
   @positive
   Scenario: AJ-054 dry-run prints endpoint, matched IDs and OK per tier
@@ -949,12 +979,13 @@ Acceptance criteria:
 1. The run file name is `results/<yyyyMMddTHHmmssZ>-<tier>[-baseline].json`, matching `^\d{8}T\d{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$`; the `-baseline` suffix is used when any agent model ID does not contain `nemotron` (case-insensitive) (test `Run_file_name_rules`).
 2. `ResultsFileWriter` writes `<name>.json.partial` and moves it onto `<name>.json`; a simulated failure during the write leaves the previous complete `<name>.json` intact (test `Failed_write_keeps_previous_file`).
 3. `run.status` takes `running`, `completed`, `failed`, `partial` or `incomplete`; the first write has `running`.
-4. Files are UTF-8 without BOM with LF newlines and invariant number formatting.
+4. Files are UTF-8 without BOM with LF newlines and invariant number formatting (test `File_is_utf8_no_bom_lf`: the first bytes are not EF BB BF and the file contains no CR).
 5. The records `RunDocument`, `RunInfo`, `EnvironmentInfo`, `StepReading` and `Totals` exist in `AgentJoules.Core` with the camelCase names of the prompt skeleton, and `AgentJoulesJsonContext` registers `RunDocument`; M3 hardens these records and generates the schema.
 6. A document with an `N/A` metric serialises `"value": null` (never 0).
+7. An output directory that is not writable exits 1 with a one-line error before any call (test `Unwritable_out_dir_exits_1_before_calls`: exit code 1 and 0 recorded requests).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S055 @REQ-017
 Feature: AJ-055 Write run files atomically after every task and repeat
   @positive
   Scenario: AJ-055 run file name follows the committed pattern
@@ -982,13 +1013,19 @@ Feature: AJ-055 Write run files atomically after every task and repeat
     When the document is serialised
     Then the cost value is null and the label is "N/A"
     And the text "0" does not appear as the cost value
+  @negative
+  Scenario: AJ-055 unwritable output directory exits 1 before any call
+    Given an output directory that cannot be written
+    When "run --tier nvidia --out <dir> --repeat 1" is executed
+    Then the exit code is 1
+    And the fake handler recorded 0 requests
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-055-T1 | Write the failing BDD feature and unit tests for the writer and file names | tests/AgentJoules.Specs/Features/Reporting/RunCheckpoint.feature, tests/AgentJoules.UnitTests/RunCheckpointTests.cs | 0.5 | AJ-040-T2 |
 | AJ-055-T2 | Create the `RunDocument` record tree per the prompt skeleton | src/AgentJoules.Core/Results/RunDocument.cs, src/AgentJoules.Core/Results/RunInfo.cs, src/AgentJoules.Core/Results/EnvironmentInfo.cs, src/AgentJoules.Core/Results/Totals.cs | 1.5 | AJ-055-T1 |
-| AJ-055-T3 | Create `IRunCheckpointWriter`, `ResultsFileWriter` and the minimal `AgentJoulesJsonContext` | src/AgentJoules.Core/Runs/IRunCheckpointWriter.cs, src/AgentJoules.Reporting/Results/ResultsFileWriter.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs | 1.5 | AJ-055-T2 |
+| AJ-055-T3 | Create `IRunCheckpointWriter`, `ResultsFileWriter` (with the writable-directory probe) and the minimal `AgentJoulesJsonContext` | src/AgentJoules.Core/Runs/IRunCheckpointWriter.cs, src/AgentJoules.Reporting/Results/ResultsFileWriter.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs | 1.75 | AJ-055-T2 |
 | AJ-055-T4 | Create `RunFileName` with the regex and the baseline suffix rule | src/AgentJoules.Reporting/Results/RunFileName.cs | 0.75 | AJ-055-T1 |
 | AJ-055-T5 | Add the `.partial` ignore entry and note the file rules | .gitignore, docs/build-log.md | 0.25 | AJ-055-T3 |
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Reporting/RunCheckpoint.feature`; class `RunCheckpointTests` (trait `Spec=REQ-017`); `SchemaValidationTests` consumes the same records in M3.
@@ -1004,15 +1041,15 @@ Covers: REQ-017, REQ-013
 User story: As a user, I want `AJ run --tier <t>` to run every selected task for the requested number of repeats in the requested mode and write one results file per tier, so that one command produces the evidence behind the report.
 Acceptance criteria:
 1. `AJ run` accepts `--tier`, `--task` (default all), `--mode serialized|concurrent` (default serialized), `--out` (default `results/`), `--baseline-seconds` (default 30, local only) and `--repeat` (default 3); a fake run with 3 tasks, `--repeat 2` and 4 agents yields 24 step readings (test `Run_produces_tasks_x_repeats_x_agents`).
-2. Fresh clients and a fresh workflow are built for each (task, repeat); one checkpoint is written after each.
+2. Fresh clients and a fresh workflow are built for each (task, repeat); one checkpoint is written after each (test `Fresh_clients_per_task_repeat`: the count of created client sets equals tasks x repeats and the writer received that many checkpoints).
 3. `--tier all` expands to the tiers with `Tiers:<t>:Enabled` true in the fixed order local, cloudgpu, nvidia, nebius and writes one file per tier; with the committed configuration (cloudgpu disabled) three files are written (test `All_writes_one_file_per_enabled_tier`).
-4. Keys of all selected tiers are checked before the first call.
+4. Keys of all selected tiers are checked before the first call (test `All_tier_keys_checked_first`: exit code 3 and 0 recorded requests).
 5. For a measured tier the orchestrator opens the GPU port, starts the meter, calls the (no-op in M2) warm-up seam, then measures the idle baseline for `--baseline-seconds`; hosted tiers use `UnmeteredEnergyMeter` and skip these steps.
 6. The console prints one line per finished step: `<task> r<repeat> <agent> <outcome> netJ=<v|N/A> avgW=<v|N/A> in=<v|not-reported> out=<v|not-reported> latency=<ms>`, then the results file path and the totals; a missing value is never printed as 0.
 7. The run ends with `run.status: "completed"` and exit 0; the judge seam is a no-op (M3 fills it); `--task bogus` exits 2.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S056 @REQ-017 @REQ-013
 Feature: AJ-056 Orchestrate a tier run over tasks, repeats and modes
   @positive
   Scenario: AJ-056 run produces tasks x repeats x agents readings
@@ -1053,7 +1090,8 @@ Tasks:
 | AJ-056-T1 | Write the failing BDD feature and unit tests for orchestration | tests/AgentJoules.Specs/Features/Cli/RunOrchestration.feature, tests/AgentJoules.UnitTests/RunOrchestrationTests.cs | 0.5 | AJ-054-T1, AJ-055-T1 |
 | AJ-056-T2 | Implement `RunOrchestrator.RunTierAsync` loops, per-run clients and checkpoints | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 2.0 | AJ-056-T1, AJ-050-T6, AJ-055-T3 |
 | AJ-056-T3 | Add the measured-tier start sequence (GPU port, meter start, warm-up seam, baseline) | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Workflow/Local/ILocalRuntime.cs | 1.0 | AJ-056-T2 |
-| AJ-056-T4 | Fill `environment` and `run` fields available without a local runtime in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.5 | AJ-056-T2, AJ-047-T4 |
+| AJ-056-T4 | Fill `environment` and `run` fields available without a local runtime in `RunAssembler` | src/AgentJoules.Workflow/Runs/RunAssembler.cs | 1.5 | AJ-056-T2, AJ-056-T4a |
+| AJ-056-T4a | Create `RunAssembler` with serialized totals, token and cost-per-currency sums, `wallClockMs`, hosted-tier energy `N/A`, `run.mode` and the `ReportSentences` constants | src/AgentJoules.Workflow/Runs/RunAssembler.cs, src/AgentJoules.Core/Results/ReportSentences.cs | 1.75 | AJ-056-T1, AJ-055-T2 |
 | AJ-056-T5 | Implement `--tier all` expansion and the all-tier key check | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Workflow/Runs/PreflightService.cs | 0.75 | AJ-056-T2 |
 | AJ-056-T6 | Implement `ConsoleReporter` step lines and the closing summary | src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.75 | AJ-056-T2 |
 | AJ-056-T7 | Wire the `run` action and the `IJudgeService` no-op seam | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Workflow/Judge/IJudgeService.cs | 0.75 | AJ-056-T5, AJ-056-T6 |
@@ -1078,7 +1116,7 @@ Acceptance criteria:
 5. The final console line names the partial file path and the failing agent.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S057 @REQ-017 @EDGE-006
 Feature: AJ-057 Stop on a failed step, keep partial results and exit 5
   @positive
   Scenario: AJ-057 steps finished before a failure stay in the partial file
@@ -1138,7 +1176,7 @@ Acceptance criteria:
 5. Code 7 is proven here by the mapper and the override; the real `report --verify-readme` path is added when that flag is built in M6.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S058 @REQ-017
 Feature: AJ-058 Map every failure to the documented exit code
   @positive
   Scenario: AJ-058 exception classes carry their documented code
@@ -1184,9 +1222,9 @@ Tasks:
 | AJ-058-T2 | Create the `ExitCode` enum and the exception hierarchy | src/AgentJoules.Core/Cli/ExitCode.cs, src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.75 | AJ-058-T1 |
 | AJ-058-T3 | Implement `ExitCodeMapper` and the one-line error output | src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.75 | AJ-058-T2 |
 | AJ-058-T4 | Wire the mapper into `CliApplication` and add the `Log.cs` partial methods | src/AgentJoules.Cli/CliApplication.cs, src/AgentJoules.Cli/Log.cs | 0.75 | AJ-058-T3 |
-| AJ-058-T5 | Document the exit-code table | README.md | 0.25 | AJ-058-T4 |
+| AJ-058-T5 | Update the exit-code table written by AJ-035 in place (the table exists exactly once) | README.md | 0.25 | AJ-058-T4 |
 Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
-Docs impact: README section "Exit codes" (the eight codes).
+Docs impact: README section "Exit codes" (the table written by AJ-035 is updated in place and exists exactly once; `grep -cE "^\| [0-7] \|" README.md` prints 8).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1208,6 +1246,6 @@ Demo relevance: no.
 
 ## Estimate
 
-Sum of task estimates: 78.75 hours across 19 stories and 111 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 2.75, AJ-043 4.0, AJ-044 5.5, AJ-045 5.0, AJ-046 2.75, AJ-047 5.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 4.5, AJ-053 3.0, AJ-054 4.0, AJ-055 4.5, AJ-056 7.5, AJ-057 3.5, AJ-058 3.25).
+Sum of task estimates: 80.75 hours across 19 stories and 111 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 9.25, AJ-057 3.5, AJ-058 3.25).
 
-Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.4 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (5.0 h, the demo runs serialized) and merging AJ-052 with AJ-053 (about 1 h saved); together about 10 hours, which leaves about 69 hours. REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).
+Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours. REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).

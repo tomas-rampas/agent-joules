@@ -18,7 +18,7 @@ Exit criteria:
 - [ ] `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` shows at least 1 passed and 0 failed
 - [ ] The secret scan name and exit code are recorded under `## Secret scan` in docs/build-log.md
 - [ ] `## User actions` in docs/build-log.md lists prompt section 12 steps 1 to 13 with owner, status and the milestone each one gates
-- [ ] Commits exist with messages starting `REQ-001:`, `REQ-002:` and `REQ-029:` (made by the builder, one per completed requirement, nothing pushed)
+- [ ] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, standing order 5): `AJ-008 REQ-001:`, `AJ-009 REQ-002:` and `AJ-012 REQ-029:` exist (made by the builder, one per completed requirement, nothing pushed); check `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
 
 ## Coverage
 
@@ -40,7 +40,7 @@ User actions from prompt section 12 (status is recorded by AJ-012; the builder n
 Covers: REQ-002
 User story: As the build session, I want one docs/build-log.md with fixed section headings, so that every version deviation, scan result, test count and blocked requirement that the requirements demand has a known home.
 Acceptance criteria:
-1. `test -f docs/build-log.md` exits 0 and the file contains each of these exact heading lines, once each: `## Toolchain check`, `## Version deviations and additions`, `## Secret scan`, `## Test counts`, `## Per-ID filter results`, `## Probe and WSL2 notes`, `## User actions`, `## Requirements that cannot be met` (checked with `grep -cxF "<heading>" docs/build-log.md` printing 1 for each).
+1. `test -f docs/build-log.md` exits 0 and the file contains each of these exact heading lines, once each: `## Toolchain check`, `## Version deviations and additions`, `## Secret scan`, `## Test counts`, `## Per-ID filter results`, `## Probe and WSL2 notes`, `## User actions`, `## Requirements that cannot be met`, `## Base commits` (checked with `grep -cxF "<heading>" docs/build-log.md` printing 1 for each).
 2. `grep -nP "[^\x00-\x7F]" docs/build-log.md` exits 1 (ASCII only) and `grep -c $'\r' docs/build-log.md` prints 0 (LF only).
 3. `grep -nE "nvapi-[A-Za-z0-9_-]{8,}" docs/build-log.md` exits 1 (no key material).
 BDD scenarios:
@@ -48,7 +48,7 @@ BDD scenarios:
 @unit @AJ-S001 @REQ-002
 Feature: Create the build log with fixed sections
   @positive
-  Scenario: AJ-001 All eight headings exist exactly once
+  Scenario: AJ-001 All nine headings exist exactly once
     Given docs/build-log.md was created from the heading list
     When each heading is counted with grep -cxF
     Then every count is 1 and the exit code of the check is 0
@@ -71,7 +71,7 @@ Feature: Create the build log with fixed sections
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-001-T1 | Create the build log with the eight headings and a one-line purpose under each | docs/build-log.md | 0.25 | - |
+| AJ-001-T1 | Create the build log with the nine headings and a one-line purpose under each | docs/build-log.md | 0.25 | - |
 | AJ-001-T2 | Run the heading, ASCII, LF and key-pattern checks and note the commands under `## Toolchain check` | docs/build-log.md | 0.25 | AJ-001-T1 |
 Test mapping: no xUnit class (no behaviour); shell checks listed in the criteria, results logged in docs/build-log.md.
 Docs impact: docs/build-log.md (created here); later stories append rows.
@@ -92,6 +92,7 @@ Acceptance criteria:
 5. `nvidia-smi --query-gpu=name,driver_version,power.limit --format=csv,noheader` exits 0, the name contains `3080`, and the driver version is recorded as measured with the UTC date. The prompt value 616.92 is compared and a difference is recorded, never silently corrected. `test -f /c/Windows/System32/nvml.dll` exits 0.
 6. `git --version` exits 0 and `git rev-parse --is-inside-work-tree` prints `true`. No `git init` is run (design C-10: the repository already exists).
 7. Every result is appended under `## Toolchain check` as: command, exit code, UTC date, label (measured or user-reported).
+8. The build-start commits are recorded under `## Base commits`: `git rev-parse origin/main` and `git rev-parse HEAD` with their UTC date (measured); `git rev-parse origin/main` printing a 40-character hash is the check, and a failure (no remote ref) is recorded as `no origin/main ref`. Later stories and the M7 commit-message check use the HEAD hash as `<build-start>` because planning commits made before the build are not build commits.
 BDD scenarios:
 ```gherkin
 @integration @AJ-S002 @REQ-001
@@ -134,6 +135,7 @@ Tasks:
 | AJ-002-T2 | Run the Docker, WSL2 and Ollama checks and capture their output | docs/build-log.md | 0.25 | AJ-002-T1 |
 | AJ-002-T3 | Run the nvidia-smi and nvml.dll checks and compare with the prompt values | docs/build-log.md | 0.25 | AJ-002-T1 |
 | AJ-002-T4 | Write the result table with command, exit code, UTC date and label | docs/build-log.md | 0.25 | AJ-002-T2, AJ-002-T3 |
+| AJ-002-T5 | Record the origin/main and HEAD hashes at build start under Base commits | docs/build-log.md | 0.25 | AJ-002-T1 |
 Test mapping: no xUnit class; shell checks in the criteria, results logged under `## Toolchain check`.
 Docs impact: docs/build-log.md `## Toolchain check`.
 Definition of done:
@@ -194,7 +196,8 @@ User story: As a developer, I want global.json, a shared Directory.Build.props, 
 Acceptance criteria:
 1. `global.json` equals the design 2.3 content: `{ "sdk": { "version": "10.0.401", "rollForward": "latestPatch", "allowPrerelease": false } }`, and `grep -c '"test"' global.json` prints 0 (no Microsoft.Testing.Platform runner, ADR-03).
 2. `grep -F "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>" Directory.Build.props` and `grep -F "<Nullable>enable</Nullable>" Directory.Build.props` each print one line (REQ-001 literal strings).
-3. Directory.Build.props sets, each found by grep: `TargetFramework` net10.0, `ImplicitUsings` enable, `LangVersion` latest, `AnalysisLevel` 10.0-recommended, `EnforceCodeStyleInBuild` true, `GenerateDocumentationFile` true, `NoWarn` `$(NoWarn);CS1591`, `InvariantGlobalization` true, `EnableConfigurationBindingGenerator` true, `IsPackable` false, `Deterministic` true, and `ContinuousIntegrationBuild` true only under the condition `'$(GITHUB_ACTIONS)' == 'true'`.
+3. Directory.Build.props sets, each found by grep: `TargetFramework` net10.0, `ImplicitUsings` enable, `LangVersion` latest, `AnalysisLevel` 10.0-recommended, `EnforceCodeStyleInBuild` true, `GenerateDocumentationFile` true, `NoWarn` `$(NoWarn);CS1591`, `EnableConfigurationBindingGenerator` true, `IsPackable` false, `Deterministic` true, and `ContinuousIntegrationBuild` true only under the condition `'$(GITHUB_ACTIONS)' == 'true'`.
+3a. `InvariantGlobalization` is set only for `src/**`: `src/Directory.Build.props` imports the root file (`<Import Project="$([MSBuild]::GetPathOfFileAbove(Directory.Build.props, $(MSBuildThisFileDirectory)../))" />`) and then sets `InvariantGlobalization` true (design 2.3). Proof: `dotnet msbuild src/AgentJoules.Core -getProperty:InvariantGlobalization` prints `true`; `dotnet msbuild tests/AgentJoules.Specs -getProperty:InvariantGlobalization` does not print `true` (Reqnroll throws CultureNotFoundException under invariant mode, design-review B-02); `grep -c InvariantGlobalization Directory.Build.props` prints 0 and `grep -c InvariantGlobalization tests/Directory.Build.props` prints 0.
 4. tests/Directory.Build.props imports the root file (via `GetPathOfFileAbove`), sets `IsTestProject` true, `NoWarn` `CA1707;CA2007;CA1515`, and lists the shared test PackageReference items (xunit, xunit.runner.visualstudio, Microsoft.NET.Test.Sdk) without a Version attribute.
 5. `.editorconfig` keeps all 389 original lines except one in-place change: `csharp_style_namespace_declarations = file_scoped:suggestion` (line 129, measured 2026-10-18) becomes `file_scoped:warning`. Added lines: `dotnet_diagnostic.IDE0005.severity = warning`, `dotnet_diagnostic.IDE0161.severity = warning`, `dotnet_diagnostic.CA1305.severity = warning`, the same for CA1304, CA1307, CA1309 and CA1310, `dotnet_diagnostic.CA1848.severity = warning`, and a section `[*.{cs,json,md,svg,html}]` with `end_of_line = lf`. Proof: `git diff --numstat .editorconfig` shows exactly 1 removed line, and `grep -c "file_scoped:suggestion" .editorconfig` prints 0.
 6. `dotnet --version` run in the repository root still prints 10.0.401 or a higher 10.0.4xx patch (global.json resolves).
@@ -227,6 +230,16 @@ Feature: Pin the SDK and share the build properties
     Given the diff of .editorconfig removes more than the one namespace severity line
     When "git diff --numstat .editorconfig" is evaluated
     Then the removed-line count is not 1 and the story fails
+  @positive
+  Scenario: AJ-004 Source projects run with invariant globalization
+    Given src/Directory.Build.props imports the root file and sets InvariantGlobalization
+    When I run "dotnet msbuild src/AgentJoules.Core -getProperty:InvariantGlobalization"
+    Then it prints "true"
+  @negative
+  Scenario: AJ-004 Test projects do not inherit invariant globalization
+    Given InvariantGlobalization is set only in src/Directory.Build.props
+    When I run "dotnet msbuild tests/AgentJoules.Specs -getProperty:InvariantGlobalization"
+    Then it does not print "true"
   @negative
   Scenario: AJ-004 An SDK pin above the installed SDK fails loudly
     Given global.json pins a version higher than any installed SDK
@@ -240,7 +253,8 @@ Tasks:
 | AJ-004-T2 | Write the root build properties | Directory.Build.props | 0.5 | AJ-004-T1 |
 | AJ-004-T3 | Write the test-only build properties | tests/Directory.Build.props | 0.25 | AJ-004-T2 |
 | AJ-004-T4 | Extend the analyzer rules and the LF section | .editorconfig | 0.5 | AJ-004-T2 |
-| AJ-004-T5 | Run the grep and numstat checks and log them | docs/build-log.md | 0.25 | AJ-004-T3, AJ-004-T4 |
+| AJ-004-T4a | Create the src-only build properties that import the root file and set InvariantGlobalization | src/Directory.Build.props | 0.25 | AJ-004-T2 |
+| AJ-004-T5 | Run the grep, numstat and msbuild -getProperty checks and log them | docs/build-log.md | 0.25 | AJ-004-T3, AJ-004-T4, AJ-004-T4a |
 Test mapping: no xUnit class; shell checks in the criteria. The mutation checks that prove the rules fire (unused using, nullable violation) run in AJ-008.
 Docs impact: docs/build-log.md `## Toolchain check` (check results).
 Definition of done:
@@ -318,7 +332,7 @@ Acceptance criteria:
 3a. ASP.NET Core is confined to Dashboard (design 3.10, ADR-21): `grep -l "FrameworkReference" --include=*.csproj -r src` prints only src/AgentJoules.Dashboard/AgentJoules.Dashboard.csproj, which contains `<FrameworkReference Include="Microsoft.AspNetCore.App" />`; Core, Metering, Workflow and Reporting csproj files contain no FrameworkReference and no `Microsoft.AspNetCore` text. No new PackageVersion row is added (Directory.Packages.props stays at 22 rows).
 4. `grep -rn --include=*.csproj "TargetFramework" .` exits 1 (the value comes only from Directory.Build.props), and `dotnet msbuild src/AgentJoules.Core -getProperty:TargetFramework` prints `net10.0`.
 5. `AllowUnsafeBlocks` true appears only in src/AgentJoules.Nvml (`grep -rl AllowUnsafeBlocks --include=*.csproj .` prints one path); the Cli csproj has `OutputType` Exe and a `UserSecretsId`.
-6. PackageReference items carry no Version and follow the "Referenced by" column of design 2.4: Workflow takes the four Microsoft.Agents.AI packages, Microsoft.Extensions.AI, Microsoft.Extensions.AI.OpenAI, OpenAI and Microsoft.Extensions.Http; Metering takes Microsoft.Extensions.AI and Microsoft.Extensions.AI.Abstractions; Cli takes the four OpenTelemetry packages, Microsoft.Extensions.Hosting and System.CommandLine; Reporting takes JsonSchema.Net.
+6. PackageReference items carry no Version and follow the "Referenced by" column of design 2.4: Workflow takes the four Microsoft.Agents.AI packages, Microsoft.Extensions.AI, Microsoft.Extensions.AI.OpenAI, OpenAI and Microsoft.Extensions.Http; Metering takes Microsoft.Extensions.AI and Microsoft.Extensions.AI.Abstractions; Cli takes the four OpenTelemetry packages, Microsoft.Extensions.Hosting and System.CommandLine; Reporting takes JsonSchema.Net. Proof: `grep -h PackageReference <csproj>` per project lists exactly those names and `dotnet restore` exits 0.
 7. `src/AgentJoules.Cli/Program.cs` is a placeholder that writes "AgentJoules: no commands implemented yet" to stderr and returns 1; `dotnet run --project src/AgentJoules.Cli` exits 1. AJ-034 replaces it with the one-line CliApplication call.
 8. `dotnet build -warnaserror -tl:off` exits 0 for the solution.
 BDD scenarios:
@@ -394,6 +408,7 @@ Acceptance criteria:
 5. tests/AgentJoules.Specs/reqnroll.json contains `"missingOrPendingStepsOutcome": "Error"` and its csproj sets `ReqnrollUseIntermediateOutputPathForCodeBehind` to true; the folders Features/Metering, Features/Workflow, Features/Cli, Features/Reporting, Features/Configuration, Features/CloudGpu and Features/Dashboard hold a .gitkeep each; no feature file exists yet.
 6. IntegrationTests holds one skipped placeholder (reason `placeholder: replaced by AJ-023`) and runs no live code.
 7. `dotnet sln AgentJoules.slnx list` shows 11 projects (7 src, 4 tests). The four Dashboard test classes (DashboardEventSerializationTests, ReplayTimelineTests, DashboardPageTests, DashboardSinkTests) are owned by M3 and get no placeholder in M0.
+8. `tests/AgentJoules.TestSupport/IntegrationFactAttribute.cs` is the single definition of `[IntegrationFact]` (deriving from `FactAttribute`, setting `Skip = "Set AGENTJOULES_INTEGRATION=1"` unless the variable is exactly `1`); `grep -rn "class IntegrationFactAttribute" tests` prints exactly 1 hit, and IntegrationTests references it through TestSupport. Later stories (M1 AJ-023, M3) only add tests; none defines a second attribute.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S007 @REQ-001
@@ -436,7 +451,8 @@ Tasks:
 | AJ-007-T2 | Write the UnitTests project file and the six skipped placeholder classes | tests/AgentJoules.UnitTests/AgentJoules.UnitTests.csproj, tests/AgentJoules.UnitTests/MeteredChatClientTests.cs, tests/AgentJoules.UnitTests/AttributionBaselineTests.cs, tests/AgentJoules.UnitTests/CostModelTests.cs, tests/AgentJoules.UnitTests/JudgeParsingTests.cs, tests/AgentJoules.UnitTests/ReportRenderingTests.cs, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-007-T1 |
 | AJ-007-T3 | Write the Specs project file, reqnroll.json and the seven capability folders | tests/AgentJoules.Specs/AgentJoules.Specs.csproj, tests/AgentJoules.Specs/reqnroll.json, tests/AgentJoules.Specs/Features/Metering/.gitkeep (and the six sibling folders) | 0.5 | AJ-007-T1 |
 | AJ-007-T4 | Write the IntegrationTests project file and its skipped placeholder | tests/AgentJoules.IntegrationTests/AgentJoules.IntegrationTests.csproj, tests/AgentJoules.IntegrationTests/PlaceholderIntegrationTests.cs | 0.25 | AJ-007-T1 |
-| AJ-007-T5 | Add the projects to the solution, run list-tests and test, and log the counts | AgentJoules.slnx, docs/build-log.md | 0.25 | AJ-007-T2, AJ-007-T3, AJ-007-T4 |
+| AJ-007-T4a | Create the single IntegrationFactAttribute in TestSupport and check the grep count | tests/AgentJoules.TestSupport/IntegrationFactAttribute.cs | 0.25 | AJ-007-T1 |
+| AJ-007-T5 | Add the projects to the solution, run list-tests and test, and log the counts | AgentJoules.slnx, docs/build-log.md | 0.25 | AJ-007-T2, AJ-007-T3, AJ-007-T4, AJ-007-T4a |
 Test mapping: placeholders for MeteredChatClientTests (owned by M2), AttributionBaselineTests (M1, AJ-026), CostModelTests, JudgeParsingTests, ReportRenderingTests and SchemaValidationTests (M3); no Specs feature yet.
 Docs impact: docs/build-log.md `## Test counts`.
 Definition of done:
@@ -502,7 +518,7 @@ Docs impact: docs/build-log.md `## Test counts` and `## Version deviations and a
 Definition of done:
 - [ ] scenarios green, unit tests green (skipped placeholders only), `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] REQ-001 commit made by the builder with a message starting `REQ-001:` (nothing pushed)
+- [ ] REQ-001 commit made by the builder with a message starting `AJ-008 REQ-001:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-009: Verify licence and README, extend the ignore and attribute files
@@ -513,8 +529,8 @@ Acceptance criteria:
 2. `README.md` exists and is extended in place, never replaced: `git diff --numstat README.md` shows 0 removed lines for any M0 change (M0 does not edit it).
 3. Measured on 2026-10-18 by reading .gitignore: `[Bb]in/`, `[Oo]bj/`, `artifacts/`, `results/*.raw`, `*.pem`, `id_ed25519*`, `id_rsa*`, `.env`, `.env.*`, `*.secrets.json`, `secrets.json` and `appsettings.local.json` are already present (design conflict C-09 predates them). Missing and added here: `results/*.partial` and `.code-review-graph/` (tool state; a one-line comment gives the reason). `git check-ignore results/x.raw results/x.partial src/AgentJoules.Core/bin/x src/AgentJoules.Core/obj/x a.pem id_ed25519 id_ed25519.pub id_rsa id_rsa.pub artifacts/linux-x64/x .code-review-graph/graph.db` prints all eleven paths.
 4. Controls are not ignored: `git check-ignore results/20261018T120000Z-local.json results/probe-20261018T120000Z.json docs/report/index.html` exits 1 with no output.
-5. `.gitattributes` keeps every original line except four edited in place: `*.cs`, `*.md`, `*.json` and `*.svg` change from `text` to `text eol=lf`, and `*.html text eol=lf` and `*.feature text eol=lf` are added. Proof: `git check-attr eol -- README.md results/x.json src/a.cs docs/report/index.html` prints `eol: lf` for each, and `* text=auto` is still the first line. Reason (inferred, the builder confirms): `.editorconfig` demands `end_of_line = lf` for these globs, and a CRLF working tree under `core.autocrlf` would fail `dotnet format --verify-no-changes` and the README idempotence check of REQ-025.
-6. `git diff --numstat .gitignore .gitattributes` shows 0 removed lines for `.gitignore` and exactly 4 removed lines for `.gitattributes`.
+5. `.gitattributes` gets `* text=auto eol=lf` as its new first line (design 2.3) and every other original line is kept, so `*.csproj`, `*.props`, `*.slnx`, `*.yml`, `*.yaml`, `*.cs`, `*.md`, `*.json` and `*.svg` check out with LF under `core.autocrlf=true` (measured on this laptop). Proof: `git diff --numstat .gitattributes` shows 1 added and 0 removed lines; `git check-attr eol -- global.json src/a.csproj .github/workflows/ci.yml README.md results/x.json docs/report/index.html` prints `eol: lf` for each. `*.ps1 text eol=crlf` and `*.sh text eol=lf` stay as they are. Reason: `.editorconfig` demands `end_of_line = lf`, and a CRLF working tree would fail `dotnet format --verify-no-changes` and the README idempotence check of REQ-025.
+6. `git diff --numstat .gitignore .gitattributes` shows 0 removed lines for `.gitignore` and 0 removed lines for `.gitattributes`.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S009 @REQ-002 @REQ-029
@@ -531,9 +547,9 @@ Feature: Verify licence and README, extend the ignore and attribute files
     Then each path is printed and the exit code is 0
   @positive
   Scenario: AJ-009 Generated text files check out with LF
-    Given the .gitattributes additions are in place
-    When I run git check-attr eol on README.md and results/x.json
-    Then both report "eol: lf"
+    Given the .gitattributes first line is "* text=auto eol=lf"
+    When I run git check-attr eol on README.md, global.json and src/a.csproj
+    Then all three report "eol: lf"
   @negative
   Scenario: AJ-009 Committed results are not ignored
     Given results/20261018T120000Z-local.json is a legitimate run file name
@@ -560,14 +576,14 @@ Tasks:
 |---|---|---|---|---|
 | AJ-009-T1 | Check the licence first line and the README diff | docs/build-log.md | 0.25 | AJ-001-T2 |
 | AJ-009-T2 | Append the two missing ignore patterns with comments | .gitignore | 0.25 | AJ-009-T1 |
-| AJ-009-T3 | Edit the four attribute lines in place and add the html and feature lines | .gitattributes | 0.25 | AJ-009-T1 |
+| AJ-009-T3 | Prepend the global eol=lf attribute line, keeping every other line | .gitattributes | 0.25 | AJ-009-T1 |
 | AJ-009-T4 | Run the check-ignore, check-attr and numstat matrix and log it | docs/build-log.md | 0.5 | AJ-009-T2, AJ-009-T3 |
 Test mapping: no xUnit class; shell checks in the criteria (they are the REQ-002 acceptance commands).
 Docs impact: docs/build-log.md; README.md is not edited in M0.
 Definition of done:
 - [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] REQ-002 commit made by the builder with a message starting `REQ-002:` (nothing pushed)
+- [ ] REQ-002 commit made by the builder with a message starting `AJ-009 REQ-002:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-010: Redact key values in any text output
@@ -706,7 +722,7 @@ Acceptance criteria:
 3. The table states: steps 5 and 6 gate M2 (`AJ run --tier nvidia|nebius|all`, the judge, the `validate --config` verification calls); step 4 comes before the 45-minute Nebius onboarding time box in M2; step 7 gates the M4 NIM attempt; steps 10 and 11 gate M5.
 4. `git ls-files | grep -E "id_(rsa|ed25519)|\.pem$"` exits 1 and `find . -name "id_ed25519*" -not -path "./.git/*"` prints nothing (step 11: the private key lives outside the repository).
 5. `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" -- docs/build-log.md` exits 1 after the table is written.
-6. A missing or empty variable is reported by name only; the builder never asks the user to paste a key into the session.
+6. A missing or empty variable is reported by name only: the log line is exactly `missing: <NAME>` (check: `grep -nE "^missing: [A-Z_]+$" docs/build-log.md` matches and `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" -- docs/build-log.md` exits 1); the builder never asks the user to paste a key into the session.
 BDD scenarios:
 ```gherkin
 @integration @AJ-S012 @REQ-029
@@ -753,7 +769,7 @@ Docs impact: docs/build-log.md `## User actions`.
 Definition of done:
 - [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] REQ-029 commit made by the builder with a message starting `REQ-029:` (nothing pushed)
+- [ ] REQ-029 commit made by the builder with a message starting `AJ-012 REQ-029:` (nothing pushed)
 Demo relevance: no
 
 ## Risks
@@ -774,17 +790,17 @@ Sum of task estimates in hours:
 | Story | Hours |
 |---|---|
 | AJ-001 | 0.50 |
-| AJ-002 | 1.00 |
+| AJ-002 | 1.25 |
 | AJ-003 | 0.50 |
-| AJ-004 | 1.75 |
+| AJ-004 | 2.00 |
 | AJ-005 | 1.00 |
 | AJ-006 | 2.00 |
-| AJ-007 | 1.75 |
+| AJ-007 | 2.00 |
 | AJ-008 | 1.50 |
 | AJ-009 | 1.25 |
 | AJ-010 | 1.75 |
 | AJ-011 | 1.25 |
 | AJ-012 | 1.00 |
-| Total | 15.25 |
+| Total | 16.00 |
 
-Capacity for 2026-10-18 and 2026-10-19 at about six working hours per day is 12 hours, so M0 is 3.25 hours over. The overrun is flagged as a schedule risk, not hidden: it either pushes the M1 start by half a day or is recovered by moving AJ-011 and AJ-012 into the first M1 day.
+Capacity for 2026-10-18 and 2026-10-19 at about six working hours per day is 12 hours, so M0 is 4.00 hours over. The overrun is flagged as a schedule risk, not hidden: it either pushes the M1 start by half a day or is recovered by moving AJ-011 and AJ-012 into the first M1 day.

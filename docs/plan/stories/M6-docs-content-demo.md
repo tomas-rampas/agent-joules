@@ -63,7 +63,7 @@ Acceptance criteria:
 6. The file is ASCII only with LF endings: `grep -cP "[^\x00-\x7F]" README.md` prints 0 and `grep -c $'\r' README.md` prints 0.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S130 @REQ-025
 Feature: AJ-130 README pitch and architecture diagram
   @positive
   Scenario: AJ-130 README carries a valid Mermaid architecture block
@@ -128,12 +128,12 @@ Acceptance criteria:
 2. `Judges without a GPU` lists exactly four actions, none needing a key or a GPU: `dotnet test`, `AJ validate results/` (prints `Validated <n> files`), opening `docs/report/index.html`, and `AJ dashboard --replay results/<committed hosted run file> --speed 4 --exit-after 60` (the live view without a GPU). The extracted section contains no `_API_KEY`: the `awk` extraction piped to `grep -c "_API_KEY"` prints 0.
 3. The quick start names the three key variables and both storage routes (`setx` and `dotnet user-secrets set ... --project src/AgentJoules.Cli`) and shows no key value: `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" README.md` returns no hits.
 4. The CLI reference lists the six commands (`probe`, `run`, `report`, `validate`, `calibrate`, `dashboard`) and every option of the design table (section 3.6), including `run --dashboard [--dashboard-port <n>]` and `dashboard --replay <run file> [--speed <factor>] [--exit-after <seconds>]`. A short note states: the dashboard is off by default, stores nothing, and a browser on the measured GPU adds compositing load, so the published results files were recorded without a browser open and only the demo recording shows the live page. For each command, every long option named in the README appears in the output of `AJ <command> --help` (exit 0), checked by `CliHarness`.
-5. The exit-code table lists codes 0 to 7 with the meanings of the Objective of the prompt: `grep -cE "^\| [0-7] \|" README.md` prints 8.
-6. `Reproduce` is an ordered list that matches the eight demo steps of AJ-135 command for command.
+5. The exit-code table lists codes 0 to 7 with the meanings of the Objective of the prompt: `grep -cE "^\| [0-7] \|" README.md` prints 8. The table is written by AJ-035 (M1); this story only checks it and updates it in place, and it exists exactly once (`grep -c "^| 0 |" README.md` prints 1); the M1 and M2 stories do not write a second copy.
+6. `Reproduce` is an ordered list that matches the ten demo steps of AJ-135 command for command.
 7. `Prior art` cites, with links, arXiv 2407.16893, TokenPowerBench (AAAI), "Watt Counts" arXiv 2604.09048 and the Python greentoken CLI, and scopes the claim "none attributes energy to an agent step" to the search of 2026-10-17. The links are re-checked on the day of writing and the date is recorded in `docs/build-log.md` (@integration scenarios).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S131 @REQ-025
 Feature: AJ-131 README quick start, CLI reference and reproduce steps
   @positive
   Scenario: AJ-131 Judges without a GPU needs no key and no GPU
@@ -173,7 +173,7 @@ Feature: AJ-131 README quick start, CLI reference and reproduce steps
     When the README structure check runs
     Then it fails with "judges section needs a key"
 
-@integration
+@integration @AJ-S131 @REQ-025
 Feature: AJ-131 Prior-art citations resolve
   @positive
   Scenario: AJ-131 Each prior-art link answers
@@ -192,8 +192,8 @@ Tasks:
 | AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature | 0.5 | AJ-130-T2 |
 | AJ-131-T2 | Add the option-versus-help check and the exit-code table parser to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-131-T1 |
 | AJ-131-T3 | Write `Quick start` and `Judges without a GPU` | README.md | 0.75 | AJ-131-T2 |
-| AJ-131-T4 | Write `CLI reference` with the exit-code table, the dashboard options and the browser-load note, copying option names from the help output | README.md | 0.75 | AJ-131-T3 |
-| AJ-131-T5 | Write `Reproduce` from the eight demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
+| AJ-131-T4 | Update the exit-code table written by AJ-035 in place (it exists exactly once) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output | README.md | 0.75 | AJ-131-T3 |
+| AJ-131-T5 | Write `Reproduce` from the ten demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
 Docs impact: README.md sections Quick start, Judges without a GPU, CLI reference, Reproduce, Prior art; docs/build-log.md
@@ -216,7 +216,7 @@ Acceptance criteria:
 7. `grep -c "Filled during the build" README.md` prints 0 after this story.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S132 @REQ-025
 Feature: AJ-132 README sections required by the Devpost form
   @positive
   Scenario: AJ-132 Required headings and sentences are present
@@ -285,7 +285,7 @@ Acceptance criteria:
 7. The three flags are implemented in `src/AgentJoules.Cli/Commands/ReportCommand.cs` and the renderer in `src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs`; the unit tests run in `ReadmeBlockTests` and `ContentRenderingTests` with no GPU, no network and no key.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S144 @REQ-025 @REQ-026 @REQ-016
 Feature: AJ-144 report flags and the content template renderer
   @positive
   Scenario: AJ-144 Update then verify exits 0 and a second update changes nothing
@@ -347,7 +347,7 @@ Tasks:
 | AJ-144-T3 | Add `Update` and `Verify` with LF normalization to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
 | AJ-144-T4 | Implement `ContentTemplateRenderer` (placeholders, `[index]`, `.value`, formats, null as label text, Sources line, variant split and length check) | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 2.0 | AJ-144-T2 |
 | AJ-144-T5 | Wire `--update-readme`, `--verify-readme` and `--render-content` into the report command with the exit codes 0, 2 and 7 | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-144-T3, AJ-144-T4 |
-| AJ-144-T6 | Add the exit-code 7 case to the CLI harness tests and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
+| AJ-144-T6 | Create or extend `ExitCodeTests` with the exit-code 7 case and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
 | AJ-144-T7 | Record the flags and their exit codes in the build log | docs/build-log.md | 0.25 | AJ-144-T6 |
 Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature
 Docs impact: docs/build-log.md; README.md CLI reference (option names, written in AJ-131)
@@ -369,7 +369,7 @@ Acceptance criteria:
 6. `AJ report --in results/ --out docs/report/` leaves `docs/report/index.html` with `grep -c "<script" docs/report/index.html` printing 0 and `docs/.nojekyll` present.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S133 @REQ-025
 Feature: AJ-133 README results block
   @positive
   Scenario: AJ-133 Update then verify succeeds and is idempotent
@@ -423,16 +423,16 @@ Covers: REQ-026
 User story: As the author posting to LinkedIn, I want three post variants whose numbers are placeholders resolved from the latest results files, so that every number I post traces to a committed file and no variant exceeds the length limit.
 Acceptance criteria:
 1. `content/linkedin-posts.template.md` has exactly three headings `## Variant: launch`, `## Variant: lesson-learned` and `## Variant: hackathon`: `grep -c "^## Variant: " content/linkedin-posts.template.md` prints 3.
-2. Each variant contains at least one `{{results.` placeholder, the string `GPU`, the unresolved placeholder `{{repo.url}}` exactly once, and one sentence stating that energy is GPU-board energy measured on one laptop (see the Conflict line for variants that cite the cloudgpu tier).
+2. Each variant contains at least one `{{results.` placeholder, the string `GPU`, the unresolved placeholder `{{repo.url}}` exactly once, and the scope sentence of the prompt (REQ-026): a variant that cites only laptop numbers contains `GPU-board energy measured on one laptop`; a variant that contains a `{{results.cloudgpu.` placeholder contains `GPU-board energy measured on one laptop and on one Nebius AI Cloud GPU, reported separately`. The template test accepts exactly these two sentences and fails any variant that carries a cloudgpu placeholder with the first one only.
 3. No quantity is typed by hand: after removing every `{{...}}` token, no text matching `[0-9]+(\.[0-9]+)? ?(J|W|ms|tokens|%|EUR|USD)` remains in the template.
 4. Every placeholder that resolves to a metric value is followed within 40 characters by its label word (`measured`, `estimated` or `model-judged`) and a unit; a value that resolves to null renders as the label text `N/A` or `not-reported`, never `0`, `null` or an empty string.
 5. `AJ report --render-content` exits 0 and writes `content/linkedin-posts.md` whose first line starts `Sources:` and lists run files that exist: `grep -c "{{results\." content/linkedin-posts.md` prints 0 and `grep -c "{{repo.url}}" content/linkedin-posts.md` prints 3.
 6. Each rendered variant is at most 1 300 characters: the `awk` split on `## Variant:` piped to `wc -m` prints three values of 1300 or less (`ContentRenderingTests`).
 7. A placeholder path missing from the results file makes `AJ report --render-content` exit 2 naming the placeholder. A variant that cites a cloudgpu placeholder while no completed or partial cloudgpu file exists fails the same way, and the cut-off plan of M7 removes those placeholders.
-8. The opening hook of each variant is one of the three candidate hooks of prompt section 1 or a refinement of one, and contains no number.
+8. The opening hook of each variant is one of the three candidate hooks of prompt section 1 or a refinement of one, and contains no number. Check: the template test matches the first sentence of each variant against the three hooks of prompt section 1 or a refinement recorded in `docs/build-log.md`, and `grep -c "[0-9]"` on the three hook lines prints 0.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S134 @REQ-026
 Feature: AJ-134 LinkedIn post drafts
   @positive
   Scenario: AJ-134 Three variants render within the length limit
@@ -478,7 +478,7 @@ Feature: AJ-134 LinkedIn post drafts
     When the template check runs
     Then it fails with "missing {{repo.url}} in variant: launch"
 ```
-Conflict: REQ-026 requires one sentence stating that energy is GPU-board energy measured on one laptop, but the hackathon variant may cite the cloudgpu tier, whose energy was measured on a Nebius AI Cloud VM (prompt honesty rule 1 and REQ-031). Proposed resolution: variants that cite only laptop numbers carry the sentence `Energy is GPU-board energy measured on one laptop.` verbatim; a variant that contains a `{{results.cloudgpu.` placeholder carries `Energy is GPU-board energy only, measured on one laptop GPU and, in its own row, on one Nebius AI Cloud GPU.` instead; the check in the template test accepts exactly these two sentences.
+Resolved: prompt REQ-026 (as amended) defines both scope sentences (`GPU-board energy measured on one laptop`, and with cloudgpu `GPU-board energy measured on one laptop and on one Nebius AI Cloud GPU, reported separately`); the template test accepts exactly these two, no proposed wording of this plan is used.
 Resolved: the rendering of a null metric value (label `N/A` or `not-reported`, addressed as `.value`) is defined by REQ-026 as amended on 2026-10-18 (the label text, never 0) and is implemented and tested in AJ-144; this story only adds template-level cases.
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -505,15 +505,15 @@ Acceptance criteria (the demo is defined in the Demo definition block below this
 1. `content/demo-script.md` has a section `## Demo program` with a fenced block holding the ten commands of the Demo definition, in that order, each starting with `dotnet run --project src/AgentJoules.Cli --` except step 5, which starts with `./AgentJoules.Cli`.
 2. `AJ <command> --help` exits 0 for each of `probe`, `run`, `report`, `validate`, `calibrate`, `dashboard` (in-process through `CliHarness`; also by hand: six exit codes recorded in `docs/build-log.md`).
 3. The task set is the three files `tasks/01-incident-brief.json`, `tasks/02-api-migration.json`, `tasks/03-energy-explainer.json`: `ls tasks/*.json | wc -l` prints 3. The tiers of step 3 are `local`, `nvidia` and `nebius`; each of those three run files has `run.repeat` 3 and 36 steps (3 tasks x 3 repeats x 4 agents), checked by parsing the committed files.
-4. `AJ validate results/` exits 0 and prints `Validated <n> files` where `<n>` equals the number of committed run, probe and calibration files matching the validate pattern.
+4. `AJ validate results/` exits 0 and prints `Validated <n> files` where `<n>` equals the number of committed run files matching `^[0-9]{8}T[0-9]{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$` (probe-* and calibration-* files are not counted, AJ-080 criterion 3).
 5. Every artifact in the artifact table of the Demo definition exists (`test -f` loop exits 0) or, for the three cloudgpu artifacts, the section `If the cloudgpu tier is absent` exists in the script and `AJ report --in results/ --out docs/report/` exits 0 with a `cloudgpu | not run` row.
 6. The Try it out URL is the report page: the script and `docs/devpost-checklist.md` (AJ-138) name `https://tomas-rampas.github.io/agent-joules/report/` (inferred from the standard GitHub Pages project URL, confirmed by the user after Pages is enabled), and `docs/report/index.html` exists with `grep -c "<script" docs/report/index.html` printing 0.
-7. The shot table of the Demo definition appears in the script with the same order and seconds; AJ-136 owns its wording.
+7. The shot table of the Demo definition appears in the script with the same order and seconds; AJ-136 owns its wording. Check: the `DemoDefinition` parser compares shot number, start and duration of both tables and exits 0 only when all nine rows are equal.
 8. The dashboard shots work: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser; `AJ dashboard --replay results/<ts>-nebius.json --speed 50 --exit-after 5` exits 0 and emits one event per step of that file (replay is the fallback when no GPU or local runtime is available at recording time, and its banner is visible in shot 5). The script and the README state that the published results files were recorded without a browser open and only the demo recording shows the live page (the load of a browser tab on the measured GPU is a stated limitation).
-9. The live run shown in the video writes to `artifacts/video-run` and `git check-ignore artifacts/video-run/x.json` prints the path; no file from it is under `results/`.
+9. The live run shown in the video writes to `artifacts/demo-run` and `git check-ignore artifacts/demo-run/x.json` prints the path; no file from it is under `results/`.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S135 @REQ-027 @REQ-028
 Feature: AJ-135 Demo program end to end
   @positive
   Scenario: AJ-135 The demo section lists the ten commands in order
@@ -571,7 +571,7 @@ Feature: AJ-135 Demo program end to end
     When the demo check runs
     Then it fails with "missing heading: If the cloudgpu tier is absent"
 
-@integration
+@integration @AJ-S135 @REQ-027 @REQ-028
 Feature: AJ-135 Demo rehearsal with the laptop and keys
   @positive
   Scenario: AJ-135 Dry run of all enabled tiers prints OK
@@ -584,14 +584,14 @@ Feature: AJ-135 Demo rehearsal with the laptop and keys
     When "run --tier all --dry-run" runs
     Then the exit code is 3 and the output names NEBIUS_API_KEY and prints no key value
 ```
-Conflict: REQ-027 and design section 10 show `AJ run --tier local --task energy-explainer --repeat 1 --dashboard` in the video. With the default `--out results/` that command writes a repeat-1 run file that, being the newest, becomes the "latest results file for tier local" used by README, posts and the story, and it breaks the Definition of Done box "Run files carry run.repeat >= 3 for every tier". Proposed resolution: the command shown in the video and listed in the script adds `--out artifacts/video-run` (keeping `--dashboard`); `artifacts/` is git-ignored (AJ-135-T2 checks `.gitignore`); the Demo definition lists it as an illustrative run that is the source of no published figure.
+Conflict: REQ-027 and design section 10 show `AJ run --tier local --task energy-explainer --repeat 1 --dashboard` in the video. With the default `--out results/` that command writes a repeat-1 run file that, being the newest, becomes the "latest results file for tier local" used by README, posts and the story, and it breaks the Definition of Done box "Run files carry run.repeat >= 3 for every tier". Proposed resolution: the command shown in the video and listed in the script adds `--out artifacts/demo-run` (keeping `--dashboard`); `artifacts/` is git-ignored (AJ-135-T2 checks `.gitignore`); the Demo definition lists it as an illustrative run that is the source of no published figure.
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-135-T1 | Write the failing demo feature (order, help, shape, fallback, missing artifact) | tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature | 0.5 | AJ-130-T2 |
 | AJ-135-T2 | Add `DemoDefinition` parsing and the artifact and run-shape checks to DocumentChecks; ensure `artifacts/` is in `.gitignore` | tests/AgentJoules.Specs/Support/DocumentChecks.cs, .gitignore | 0.75 | AJ-135-T1 |
 | AJ-135-T3 | Write the `## Demo program` section: ten commands, task set, tiers, artifact table, order of the video, fallback section | content/demo-script.md | 1.0 | AJ-135-T2 |
-| AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3 |
+| AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3, AJ-144-T6, AJ-133-T3 |
 | AJ-135-T5 | Check that every artifact in the table exists or is covered by the fallback and record the result | docs/build-log.md | 0.25 | AJ-135-T4 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature; ReportRenderingTests (not-run row)
 Docs impact: content/demo-script.md; docs/build-log.md; .gitignore
@@ -613,7 +613,7 @@ Demo definition (binding for AJ-135, AJ-136, AJ-138 and AJ-141):
 | 6 | `AJ validate results/` | `Validated <n> files`, exit 0 | measured (console) |
 | 7 | `AJ report --update-readme --render-content` | `docs/report/summary.md`, `docs/report/joules-per-step.svg`, `docs/report/index.html`, `docs/.nojekyll`, README results block, `content/linkedin-posts.md` | derived from files |
 | 8 | `AJ report --verify-readme` | exit 0 | measured (console) |
-| 9 (video) | `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/video-run --dashboard` | live page at the printed `Dashboard:` URL; the run file lands in the git-ignored `artifacts/video-run` and is not a published result | illustrative |
+| 9 (video) | `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard` | live page at the printed `Dashboard:` URL; the run file lands in the git-ignored `artifacts/demo-run` and is not a published result | illustrative |
 | 10 (fallback) | `AJ dashboard --replay results/<ts>-nebius.json --speed 4 --exit-after 60` | the same page replaying a committed hosted run, replay banner visible; nothing written | derived from a committed file |
 
 Task set and tiers used. Tasks: the three files in `tasks/` (names read from their `name` field; expected `incident-brief`, `api-migration`, `energy-explainer`, assumed from the file names until the builder reads them). Tiers: `local` (runtime per the NIM decision, Ollama expected), `nvidia`, `nebius` from the laptop in step 3; `cloudgpu` on the VM in step 5 only when M5 produced a run file. Defaults: `--repeat 3`, `--mode serialized`, baseline 30 s, four agents (Planner, Researcher, Writer, Reviewer), so 36 workflow steps and 36 judge entries per tier. A Qwen3 8B baseline run (`-baseline` file) is optional and is not shown in the video.
@@ -627,14 +627,14 @@ What the video shows, in order (165 s planned; the limit of the prompt is 170 s;
 | 1 | 0 | 12 | title card with the tagline and the repository URL |
 | 2 | 12 | 15 | README Mermaid architecture diagram |
 | 3 | 27 | 13 | terminal: `AJ probe` on the laptop GPU |
-| 4 | 40 | 20 | terminal: `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/video-run --dashboard`, per-step lines and the printed `Dashboard:` URL (recorded, then cut to fit; illustrative) |
+| 4 | 40 | 20 | terminal: `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard`, per-step lines and the printed `Dashboard:` URL (recorded, then cut to fit; illustrative) |
 | 5 | 60 | 30 | browser on a second screen: the live dashboard (power line against the dashed idle baseline, agent cards filling with net joules, tokens, latency); fallback when no GPU or local runtime is available at recording time: `AJ dashboard --replay results/<ts>-nebius.json --speed 4 --exit-after 60` with the replay banner visible |
 | 6 | 90 | 30 | browser: the report page, bar chart, tier rows, `N/A` markers on hosted tiers |
 | 7 | 120 | 17 | cloudgpu row in the report and README `Other Nebius tools or services used` (fallback: row `cloudgpu | not run`) |
 | 8 | 137 | 18 | README results block header, the sentence `Energy is GPU-board energy only.`, the five labels, the note that the published results were recorded without a browser open |
 | 9 | 155 | 10 | repository URL, MIT license, Try it out URL |
 
-Artifacts the demo produces (all committed unless marked): the files of the table above plus `docs/report/` and `content/linkedin-posts.md`; `artifacts/video-run/*.json` is git-ignored.
+Artifacts the demo produces (all committed unless marked): the files of the table above plus `docs/report/` and `content/linkedin-posts.md`; `artifacts/demo-run/*.json` is git-ignored.
 
 If the cloudgpu tier is absent. Step 5 is skipped and no cloudgpu file exists; step 3 still runs three tiers; `AJ report` exits 0 and renders `cloudgpu | not run` in the table and the chart; shot 7 shows that row for 10 s and the README `Other Nebius tools or services used` sentence `None besides Token Factory.` for 5 s (shot total 15 s, the rest of the budget is unused); the Devpost pitch is candidate A-local (AJ-141); the story, README and posts drop every cloudgpu claim (AJ-140, AJ-132, AJ-134).
 
@@ -646,15 +646,15 @@ User story: As the person recording the video, I want a shot list with start sec
 Acceptance criteria:
 1. The header of `content/demo-script.md` contains the lines `Upload target: public YouTube video`, `Budget: at most 170 seconds` and `Planned total: 165 seconds`.
 2. The `## Shot list` table has the columns `Shot`, `Start (s)`, `Duration (s)`, `On-screen content`, `Narration`. The durations sum to 170 or less: `awk -F'|' '/^\| [0-9]/{s+=$4} END{print s}' content/demo-script.md` prints 165 (the same awk sum prints a value of 170 or less for the fallback variant).
-3. Each start second equals the previous start plus the previous duration, and the last start plus duration equals the planned total.
-4. Narration has at most 2.5 words per second of its shot (shot 1: 30 words or fewer).
+3. Each start second equals the previous start plus the previous duration, and the last start plus duration equals the planned total. Check: an awk pass over the table asserts start[n] = start[n-1] + duration[n-1] for every row, prints `contiguous` and exits 0.
+4. Narration has at most 2.5 words per second of its shot (shot 1: 30 words or fewer). Check: the parser (`awk` over the shot table) divides the word count of each narration cell by its duration, prints the highest ratio and exits 0 only when it is 2.5 or less.
 5. The `## Commands shown` fenced block lists the exact commands shown (shots 3, 4 and 5: probe, `run ... --dashboard`, `dashboard --replay`): `AJ <command> --help` exits 0 for each command named there, and the script mentions `--dashboard` and `dashboard --replay`.
 6. Every number in the on-screen or narration cells is followed by `(results/<file>)` naming an existing committed file; shot 4 and shot 5 narration contain the words `illustrative` and `not the source of any published figure`, and shot 5 or shot 8 states that the published results were recorded without a browser open.
 7. Shot 8 contains the sentence `Energy is GPU-board energy only.` and names the five labels measured, estimated, model-judged, N/A, not-reported.
 8. The script gives the fallback text for shot 7 when the cloudgpu tier is absent and the replay fallback text for shot 5; narration mentions Nebius AI Cloud only in the variant where the cloudgpu file exists; narration of shots 1 to 9 makes no ranking claim (`greener`, `more efficient than`, `beats`, `outperforms` absent).
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S136 @REQ-027
 Feature: AJ-136 Demo video script
   @positive
   Scenario: AJ-136 Shot durations fit the budget and are contiguous
@@ -738,13 +738,13 @@ Acceptance criteria:
 2. A heading `Limitations` exists once; its section contains `GPU-only`, `display`, `power limit`, `sampling`, `offload`, `hosted` and `cloud`, and the sentence `Energy is GPU-board energy only.`
 3. A section `What is new` names per-agent-step attribution, .NET, and Microsoft Agent Framework plus Nemotron, and scopes "none of the prior art does this" to the search of 2026-10-17.
 4. Every line with a measured quantity (`[0-9]+(\.[0-9]+)? ?(J|W|ms|tokens|%|EUR|USD)`) contains a `results/` file name that exists, or `docs/cloudgpu-run.md`, and a label word (`measured`, `estimated`, `model-judged`, `N/A`, `not-reported`).
-5. GPU name, driver version, run date (UTC), local runtime and model tags with precision appear next to every results table in the article, copied from the run file named.
+5. GPU name, driver version, run date (UTC), local runtime and model tags with precision appear next to every results table in the article, copied from the run file named. Check: `ArticleChecks` compares each table header with the strings read from the named run file and exits 0 only when all equal.
 6. No ranking claim: `grep -ciE "greener|more efficient than|leaderboard|outperforms|beats" content/article.md` prints 0; cloudgpu and laptop numbers are in separate rows and never averaged.
-7. When no cloudgpu run file exists, the article contains no cloudgpu result and one sentence stating that the cloudgpu tier did not run.
+7. When no cloudgpu run file exists, the article contains no cloudgpu result and one sentence stating that the cloudgpu tier did not run. Check: `grep -i cloudgpu content/article.md` prints only lines containing `did not run` or `not run` in that case.
 8. Length is between 800 and 2 500 words (`wc -w`), ASCII only, LF endings.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S137 @REQ-027
 Feature: AJ-137 Long-form article
   @positive
   Scenario: AJ-137 The article cites the required prior art and has a Limitations section
@@ -783,7 +783,7 @@ Feature: AJ-137 Long-form article
     When the article check runs
     Then it fails with "missing citation: greentoken"
 
-@integration
+@integration @AJ-S137 @REQ-027
 Feature: AJ-137 Article citations resolve
   @positive
   Scenario: AJ-137 Each cited link answers
@@ -828,7 +828,7 @@ Acceptance criteria:
 8. If a tier or field cannot be verified, the line says `not verified` and never `verified`.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S138 @REQ-028
 Feature: AJ-138 Devpost checklist rules and fields
   @positive
   Scenario: AJ-138 The checklist records the 13 rule items with an evidence class
@@ -877,7 +877,7 @@ Feature: AJ-138 Devpost checklist rules and fields
     When the checklist check runs
     Then it fails with "tag without evidence: Nebius AI Cloud"
 
-@integration
+@integration @AJ-S138 @REQ-028
 Feature: AJ-138 Official rules page fetch
   @positive
   Scenario: AJ-138 The rules page answers or the checklist says not verified
@@ -921,7 +921,7 @@ Acceptance criteria:
 8. A `Before you push` list holds three checks with their commands: `AJ report --verify-readme` exits 0; `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` returns nothing; `git status --short` is empty.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S139 @REQ-028
 Feature: AJ-139 Devpost checklist user actions
   @positive
   Scenario: AJ-139 Registration lines are present and left for the user
@@ -994,7 +994,7 @@ Acceptance criteria:
 7. `docs/devpost-checklist.md` names `docs/devpost-story.md` for the About the project field.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S140 @REQ-028
 Feature: AJ-140 Devpost story fill
   @positive
   Scenario: AJ-140 All nine placeholders are replaced and the checklist is gone
@@ -1088,7 +1088,7 @@ Acceptance criteria:
 6. `wc -m` of the checklist's pitch block is 200 or less in every case, and the block equals the chosen candidate in `docs/devpost-pitch.md` byte for byte.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S141 @REQ-028
 Feature: AJ-141 Devpost pitch rule
   @positive
   Scenario: AJ-141 A cloudgpu file naming an L40S keeps candidate A
@@ -1155,10 +1155,10 @@ Acceptance criteria:
 5. Each filled passage names its source file and labels: Q2 judge scores `model-judged` with outcome and retry counts per tier; Q4 baseline comparison or the sentence `No Qwen3 8B baseline run was made.`; Q4 cross-tier cost (per currency) and latency with the model named on each tier; Q5 verified Nebius model IDs, base URL and verification date from `docs/endpoints.md`; Q5 AI Cloud instance from `docs/cloudgpu-run.md` or `The Nebius AI Cloud VM was not used in this submission` plus reason; Q5 credits; Q7 latency, TTFT, outcome, retries and wait time; Q7 NIM attempt.
 6. The Q5 credits passage uses only what the user reported in `docs/build-log.md`; if the user reported nothing it reads `Not reported: the builder cannot see the Nebius billing page.` (never an invented answer).
 7. The design statements of Q1, Q3 and Q5 are checked against `docs/endpoints.md` and the results files (model on Token Factory, local tag, reasoning mode, base URL, preset); each change is logged as `Feedback change:` in `docs/build-log.md`.
-8. No cross-tier efficiency or ranking claim appears; every comparison names model and tier and is scoped to this workload.
+8. No cross-tier efficiency or ranking claim appears; every comparison names model and tier and is scoped to this workload. Check: `grep -niE "greener|more efficient than|outperforms|beats " docs/devpost-feedback.md` prints nothing and the feedback check requires a model ID and a tier name in every comparison sentence.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S142 @REQ-028
 Feature: AJ-142 Devpost feedback answers
   @positive
   Scenario: AJ-142 Builder placeholders are gone and user placeholders are untouched
@@ -1231,7 +1231,7 @@ User story: As a reader of any public Agent Joules text, I want every number tra
 Acceptance criteria:
 1. The audit covers `README.md` (outside the generated results block), `content/linkedin-posts.md`, `content/demo-script.md`, `content/article.md`, `docs/devpost-story.md`, `docs/devpost-feedback.md`, `docs/devpost-checklist.md` and `docs/devpost-pitch.md`, and exits 0 through `dotnet test` over the `ContentHonesty` feature.
 2. Rule 1 (source): every quantity matching `[0-9]+(\.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` names an existing `results/` file or `docs/cloudgpu-run.md` in the same sentence or table row.
-3. Rule 2 (label): that sentence or row also holds one label word from the vocabulary.
+3. Rule 2 (label): that sentence or row also holds one label word from the vocabulary. Check: the audit prints `finding: no label` for each quantity without a label word and exits 0 when it prints none.
 4. Rule 3 (no hidden zero): no hosted-tier energy is written as `0`; `N/A` or `not-reported` is written instead; `grep -nE "(energy|joules).{0,20}[^0-9.]0 ?(J|joules)" <files>` prints nothing.
 5. Rule 4 (scope sentence): README, the article, the demo script, every post variant and the story each contain `GPU-board energy`.
 6. Rule 5 (no ranking): `grep -niE "greener|more efficient than|leaderboard|outperforms|beats |model [A-Za-z0-9-]+ is greener" <files>` prints nothing.
@@ -1241,7 +1241,7 @@ Acceptance criteria:
 10. Rule 9 (browser note): README, `content/demo-script.md` and `docs/methodology.md` each contain the statement that the published results were recorded without a browser open.
 BDD scenarios:
 ```gherkin
-@unit
+@unit @AJ-S143 @REQ-025 @REQ-026 @REQ-027 @REQ-028
 Feature: AJ-143 Content honesty audit
   @positive
   Scenario: AJ-143 The committed content set passes every rule
@@ -1289,7 +1289,7 @@ Feature: AJ-143 Content honesty audit
     When the honesty audit runs
     Then a finding reads "scope sentence missing: hackathon"
 
-@integration
+@integration @AJ-S143 @REQ-025 @REQ-026 @REQ-027 @REQ-028
 Feature: AJ-143 Key scan with the real keys
   @positive
   Scenario: AJ-143 No tracked line contains a key value
@@ -1325,7 +1325,7 @@ Demo relevance: no.
 | Official rules page unreadable (HTTP 403 on 2026-10-17) | fetch returns 403 or a login wall | record `not verified` with the status, mark the 13 rule items `user-stated, not verified`, ask the user to paste the Rules tab text; never write `verified` without a date | builder, user |
 | cloudgpu tier absent or partial | no completed or partial `results/*Z-cloudgpu.json` by 2026-10-28 | fallback paths in AJ-132, AJ-134, AJ-135, AJ-140, AJ-141, AJ-142: `cloudgpu | not run` row, `None besides Token Factory.`, pitch A-local, singular tagline, no cloudgpu sentence anywhere; AJ-143 rule 8 enforces it | builder |
 | A new run file lands after the text was filled | a results file newer than the one a passage cites | rerun `AJ report --update-readme --render-content`, re-extract AJ-140 numbers from the recorded expressions, rerun AJ-143 | builder |
-| Video live run overwrites the latest local file | `AJ run` without `--out artifacts/video-run` | Conflict line of AJ-135; `artifacts/` git-ignored; AJ-150 re-checks `run.repeat` of the latest files | builder |
+| Video live run overwrites the latest local file | `AJ run` without `--out artifacts/demo-run` | Conflict line of AJ-135; `artifacts/` git-ignored; AJ-150 re-checks `run.repeat` of the latest files | builder |
 | Per-run median is not in any committed artifact | AJ-140 placeholders 5 and 6 | Conflict line of AJ-140: recorded `jq` expression, `n` stated, label `measured` (sum of measured values) | builder |
 | Prior-art link dead or paywalled | HTTP 404 or 403 on a citation | keep the arXiv id and title, drop the link, say so in `docs/build-log.md`; never type a URL from memory | builder |
 | Video longer than 170 s | recorded take above the shot list | the user cuts shot 5 first (30 s, illustrative), then shot 2; the script totals 165 s | user |
