@@ -259,9 +259,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. The mutation checks that prove the rules fire (unused using, nullable violation) run in AJ-008.
 Docs impact: docs/build-log.md `## Toolchain check` (check results).
 Definition of done:
-- [ ] scenarios green (shell checks), build checked in AJ-008
-- [ ] docs listed above updated
-- [ ] every rule that later proves a false positive is suppressed in .editorconfig with a one-line reason, never with an unexplained pragma (design 2.3)
+- [x] scenarios green (shell checks), build checked in AJ-008
+- [x] docs listed above updated
+- [x] every rule that later proves a false positive is suppressed in .editorconfig with a one-line reason, never with an unexplained pragma (design 2.3)
 Demo relevance: no
 
 ### AJ-005: Pin the central package versions

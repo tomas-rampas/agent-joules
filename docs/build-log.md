@@ -57,6 +57,21 @@ Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-s
 | root allow-list | `ls -d */` | 0 | config, content, docs, results, src, tasks, tests; hidden `.git`, `.code-review-graph` and `.serena` also exist, the last two are git-ignored tool state (accepted; `.serena` is not in the story's list) |
 | no literal drive folder | `ls -A` filtered for `^[CD]:` | 1 | none |
 
+### AJ-004 build-property checks (2026-10-18T16:28Z to 16:36Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| global.json content | `cat global.json`; `grep -c '"test"' global.json` | 0; prints 0 | equals design 2.3; no `test` section (ADR-03) |
+| REQ-001 literal strings | `grep -F "<TreatWarningsAsErrors>true</TreatWarningsAsErrors>" Directory.Build.props`; `grep -F "<Nullable>enable</Nullable>" Directory.Build.props` | 0; 0 | one line each |
+| eleven properties | one grep per property name in Directory.Build.props | 0 | TargetFramework net10.0, ImplicitUsings enable, LangVersion latest, AnalysisLevel 10.0-recommended, EnforceCodeStyleInBuild true, GenerateDocumentationFile true, NoWarn `$(NoWarn);CS1591`, EnableConfigurationBindingGenerator true, IsPackable false, Deterministic true, ContinuousIntegrationBuild true only under `'$(GITHUB_ACTIONS)' == 'true'`; each found once |
+| InvariantGlobalization in src only | `dotnet msbuild src/AgentJoules.Core -getProperty:InvariantGlobalization`; `grep -c InvariantGlobalization Directory.Build.props`; the same grep on tests/Directory.Build.props | 0; prints 0; prints 0 | `true`; the property appears only in src/Directory.Build.props |
+| test projects not invariant | `dotnet msbuild tests/AgentJoules.Specs -getProperty:InvariantGlobalization` | 0 | empty value, not `true` (AJ-007 project, 16:36Z) |
+| root properties reach src | `dotnet msbuild src/AgentJoules.Core -getProperty:TreatWarningsAsErrors` | 0 | `true` |
+| root properties reach tests | `dotnet msbuild tests/AgentJoules.UnitTests -getProperty:TreatWarningsAsErrors` | 0 | `true` (AJ-007 project, 16:36Z) |
+| tests props content | read tests/Directory.Build.props | n/a | import via GetPathOfFileAbove, IsTestProject true, NoWarn `$(NoWarn);CA1707;CA2007;CA1515`, xunit, xunit.runner.visualstudio and Microsoft.NET.Test.Sdk without Version; the ItemGroup is conditioned on `'$(MSBuildProjectName)' != 'AgentJoules.TestSupport'` |
+| .editorconfig diff | `git diff --numstat .editorconfig`; `grep -c "file_scoped:suggestion" .editorconfig` | 0; prints 0 | `14 1`: one removed line (line 129, suggestion to warning) and 14 added (comment, `[*.cs]`, eight `dotnet_diagnostic` rows, blank line, `[*.{cs,json,md,svg,html}]`, `end_of_line = lf`) |
+| SDK still resolves | `dotnet --version` | 0 | `10.0.401` |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -127,3 +142,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: none.
 - Gates (pooled over AJ-003 to AJ-006, one review call per gate): code-review-gatekeeper APPROVED (no finding for AJ-003); security-specialist APPROVED; spec-compliance-reviewer APPROVED (criteria 1 to 3 PASS).
 - Velocity: estimate 0.50 h; AJ-003 to AJ-006 were implemented in one csharp-expert call from 16:25Z to 16:28Z and gated together from 16:29Z to 16:34Z; pooled wall-clock for the four stories 16:25Z to 16:40Z (about 15 min plus the four entry commits); pooled sub-agent tokens 377,849 (implementation 100,084; gates 123,465 + 84,892 + 69,408), recorded once here and referenced by the AJ-004 to AJ-006 entries.
+
+### AJ-004 Pin the SDK and share the build properties (REQ-001)
+
+- Shipped: `global.json`, `Directory.Build.props`, `src/Directory.Build.props` (GetPathOfFileAbove import, InvariantGlobalization), `tests/Directory.Build.props` (import, IsTestProject, NoWarn, shared test packages), `.editorconfig` with the one in-place change and the appended analyzer and LF sections.
+- Decisions: the shared test PackageReference ItemGroup is conditioned on `'$(MSBuildProjectName)' != 'AgentJoules.TestSupport'` so the design's "except TestSupport" holds for packages as well as for IsTestProject; the appended `.editorconfig` block starts with a comment and an explicit `[*.cs]` header so the diagnostics are not scoped by the file's last section; `.editorconfig` keeps its CRLF working-tree endings (git normalises on commit) and keeps `insert_final_newline = false` for `[*.cs]`, so `dotnet format` strips the trailing newline of every .cs file.
+- Deviations: none from the story. Three MINOR code-review notes accepted without change: (1) `$(NoWarn);CS1591` drops the SDK default `1701;1702` (binding-redirect warnings that .NET 10 does not emit; the reviewer's scratch build with the pinned packages gave 0 warnings); (2) `end_of_line = lf` is only safe after AJ-009 adds `* text=auto eol=lf`, so no checkout, stash or restore happens between this commit and AJ-009; (3) NU1901 to NU1904 audit warnings become errors under TreatWarningsAsErrors, accepted on purpose because the AJ-008 rule resolves them by version and never by NoWarn.
+- Gates: pooled with AJ-003 (see that entry); code-review-gatekeeper APPROVED with the three MINOR notes above; security-specialist APPROVED; spec-compliance-reviewer APPROVED (criteria 1 to 6 PASS; the two test-project checks it deferred are measured in the table above).
+- Velocity: estimate 2.00 h; pooled wall-clock and tokens in the AJ-003 entry.
