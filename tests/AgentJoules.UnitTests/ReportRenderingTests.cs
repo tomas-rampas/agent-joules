@@ -1,10 +1,10 @@
-using Xunit;
+using AgentJoules.TestSupport;
 
 namespace AgentJoules.UnitTests;
 
 public sealed class ReportRenderingTests
 {
-    [Fact(Skip = "placeholder: replaced by AJ-081")]
+    [PlaceholderFact("AJ-081")]
     public void Placeholder()
     {
     }

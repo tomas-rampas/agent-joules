@@ -1,10 +1,10 @@
-using Xunit;
+using AgentJoules.TestSupport;
 
 namespace AgentJoules.UnitTests;
 
 public sealed class AttributionBaselineTests
 {
-    [Fact(Skip = "placeholder: replaced by AJ-026")]
+    [PlaceholderFact("AJ-026")]
     public void Placeholder()
     {
     }

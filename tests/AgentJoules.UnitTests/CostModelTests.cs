@@ -1,10 +1,10 @@
-using Xunit;
+using AgentJoules.TestSupport;
 
 namespace AgentJoules.UnitTests;
 
 public sealed class CostModelTests
 {
-    [Fact(Skip = "placeholder: replaced by AJ-070")]
+    [PlaceholderFact("AJ-070")]
     public void Placeholder()
     {
     }

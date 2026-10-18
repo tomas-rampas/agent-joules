@@ -1,10 +1,10 @@
-using Xunit;
+using AgentJoules.TestSupport;
 
 namespace AgentJoules.UnitTests;
 
 public sealed class MeteredChatClientTests
 {
-    [Fact(Skip = "placeholder: replaced by AJ-040")]
+    [PlaceholderFact("AJ-040")]
     public void Placeholder()
     {
     }
