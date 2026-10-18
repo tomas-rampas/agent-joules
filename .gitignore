@@ -493,3 +493,7 @@ appsettings.*.local.json
 *.pem
 id_ed25519*
 id_rsa*
+
+# Local tool state (Serena, Code Review Graph)
+.serena/
+.code-review-graph/
