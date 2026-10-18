@@ -48,6 +48,15 @@ Blocked items, each naming the milestone it blocks:
 
 Negative scenarios of AJ-002 (older SDK, stopped Docker daemon, missing nvidia-smi): none triggered, so no item goes under `## Requirements that cannot be met` and global.json is created by AJ-004 with 10.0.401 and is not lowered; the missing-tool rule was exercised by the Ollama row above (reason by name, milestone named, nothing invented).
 
+### AJ-003 folder checks (2026-10-18T16:28Z, measured)
+
+| Check | Command | Exit code | Result |
+|---|---|---|---|
+| seven folders exist | `for d in src tests docs content results tasks config; do test -d "$d" || echo "missing $d"; done` | 0 | printed nothing |
+| empty folders trackable | `find content results tasks config -maxdepth 1 -name .gitkeep` piped to `wc -l` | 0 | 4 |
+| root allow-list | `ls -d */` | 0 | config, content, docs, results, src, tasks, tests; hidden `.git`, `.code-review-graph` and `.serena` also exist, the last two are git-ignored tool state (accepted; `.serena` is not in the story's list) |
+| no literal drive folder | `ls -A` filtered for `^[CD]:` | 1 | none |
+
 ## Version deviations and additions
 
 Every package whose used version differs from the pins of design section 2.4 (package, pinned version, used version, reason) and every package added beyond the design list (REQ-002).
@@ -110,3 +119,11 @@ One entry per story commit: what shipped, decisions, deviations from design or s
 - Deviations: acceptance criterion 4 is unmet (Ollama absent, user action, see `## Requirements that cannot be met`); the prompt section 7 facts about Qwen3 8B and the Nemotron Ollama tag (2026-10-17) are superseded by today's measurement; the UTC date is given once per table heading rather than per row.
 - Gates: code-review-gatekeeper round 1 CHANGES_REQUIRED (MAJOR: Ollama unblock condition and story list, AJ-012 does not own the Ollama row; MINOR: superseded prompt fact, global.json wording, process-scope command, full format version), all applied before this commit; security-specialist APPROVED (INFO on the process-scope command, applied); spec-compliance-reviewer CHANGES_REQUIRED on criterion 4 only (criteria 1 to 3 and 5 to 8 PASS), resolved by recording criterion 4 as a user action under standing order 6 because the builder cannot install Ollama.
 - Velocity: estimate 1.25 h; wall-clock 16:14Z (first check) to 16:32Z (entry written), 18 min, commit follows; sub-agent tokens 282,036 (docs writer 77,028; gates 95,259 + 77,260 + 32,489).
+
+### AJ-003 Create the repository folders (REQ-001)
+
+- Shipped: `content/.gitkeep`, `results/.gitkeep`, `tasks/.gitkeep`, `config/.gitkeep`; `src/` and `tests/` are created by the files of AJ-004 to AJ-007.
+- Decisions: `tasks/.gitkeep` resolves the REQ-001 versus design 3.4 conflict as the story proposes; the M2 story that adds the three task files (AJ-048, plan seam 1) deletes it in the same commit. The git-ignored `.serena/` folder at the root is tool state like `.code-review-graph/` and is accepted outside the story's allow-list.
+- Deviations: none.
+- Gates (pooled over AJ-003 to AJ-006, one review call per gate): code-review-gatekeeper APPROVED (no finding for AJ-003); security-specialist APPROVED; spec-compliance-reviewer APPROVED (criteria 1 to 3 PASS).
+- Velocity: estimate 0.50 h; AJ-003 to AJ-006 were implemented in one csharp-expert call from 16:25Z to 16:28Z and gated together from 16:29Z to 16:34Z; pooled wall-clock for the four stories 16:25Z to 16:40Z (about 15 min plus the four entry commits); pooled sub-agent tokens 377,849 (implementation 100,084; gates 123,465 + 84,892 + 69,408), recorded once here and referenced by the AJ-004 to AJ-006 entries.

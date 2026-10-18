@@ -185,9 +185,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria.
 Docs impact: none (layout is defined by the design; results are logged in docs/build-log.md).
 Definition of done:
-- [ ] scenarios green (shell checks)
-- [ ] docs listed above updated
-- [ ] the four .gitkeep files are the only files added by this story
+- [x] scenarios green (shell checks)
+- [x] docs listed above updated
+- [x] the four .gitkeep files are the only files added by this story
 Demo relevance: no
 Conflict: REQ-001 requires `tasks/` to exist and git cannot track an empty folder, but design section 3.4 says `tasks/` holds exactly three JSON files and nothing else. Proposed resolution: M0 adds `tasks/.gitkeep`; the M2 story that adds the three task files (REQ-012) deletes `tasks/.gitkeep` in the same commit, so the loader and the REQ-012 acceptance ("2 or 3 .json files") see only task files.
 
