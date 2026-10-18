@@ -16,28 +16,28 @@ Rules the build session follows (prompt standing orders, restated because the ga
 
 ## 2. Milestones
 
-Hours are the sum of task estimates in the story files (measured by `awk` over the task tables, see traceability.md "Counts"). MUST hours use the classification of section 3.2. Totals include 2.35 h of USER ACTION tasks (M4 0.75 h, M5 1.60 h); builder-only total 433.05 h. This table is also the assignment of REQ and EDGE IDs to milestones that the coverage checks use.
+Hours are the sum of task estimates in the story files (measured by `awk` over the task tables, see traceability.md "Counts"). MUST hours use the classification of section 3.2. Totals include 2.60 h of USER ACTION tasks (M4 0.75 h, M5 1.60 h, M6 0.25 h); builder-only total 436.55 h. This table is also the assignment of REQ and EDGE IDs to milestones that the coverage checks use.
 
 | Milestone | Dates (2026) | Goal | Exit criteria (one line) | REQ / EDGE | Stories | Hours | MUST h |
 |---|---|---|---|---|---|---|---|
 | M0 Prerequisites and scaffold | Oct 18-19 | Empty, warning-free .NET 10 solution, build log, secret baseline | `dotnet build -warnaserror -tl:off` 0 warnings; 22 pins; `Spec=REQ-029` green; REQ-001/002/029 commits | REQ-001, 002, 029 | AJ-001..012 (range 001..019) | 16.00 | 15.00 |
 | M1 Energy meter core | Oct 19-21 | NVML binding, meter math, probe, no-GPU path, CI file | `results/probe-<ts>.json` committed; Spec filters for REQ-003..006, 024 and EDGE-001/002/003/005/013/014 green; container probe prints `gpuPresent: false` | REQ-003, 004, 005, 006, 024; EDGE-001, 002, 003, 005, 013, 014 | AJ-020..038 (020..039) | 51.00 | 44.25 |
 | M2 Metered client and workflow | Oct 21-23 | Metered client, 4-agent workflow, tier config, `run` with dry-run | 12 Spec filters green; fan-out greps hit; `run --tier bogus` exits 2; live nvidia/nebius dry-run (or BLOCKED, carried) | REQ-007, 008, 011, 012, 013, 014, 017; EDGE-004, 006, 007, 008, 011 | AJ-040..058 (040..069) | 81.75 | 66.75 |
-| M3 Cost, quality, results, report, live dashboard | Oct 23-25 | Cost, judge, schema, validate, report, static page, README block function, dashboard and replay | 9 Spec filters green; fixture `validate` prints `Validated 3 files`; fixture report greps pass; `dashboard --replay` exits 0 | REQ-009, 010, 015, 016, 023, 030, 032; EDGE-012, 018, 019 | AJ-070..093 (070..099) | 101.50 | 94.50 |
+| M3 Cost, quality, results, report, live dashboard | Oct 23-25 | Cost, judge, schema, validate, report, static page, README block function, dashboard and replay | 9 Spec filters green; fixture `validate` prints `Validated 3 files`; fixture report greps pass; `dashboard --replay` exits 0 | REQ-009, 010, 015, 016, 023, 030, 032; EDGE-012, 018, 019 | AJ-070..093 (070..099) | 105.00 | 98.00 |
 | M4 Local runtime and measurement | Oct 24-26 | Runtime decision (NIM 90 min box, Ollama), endpoints, calibration, methodology, laptop campaign | probe + local/nvidia/nebius run files + calibration committed; `validate results/` exits 0; nim/endpoints/methodology docs dated | REQ-018, 019, 020, 021, 022; EDGE-009, 010 | AJ-100..115 (100..119) | 55.45 | 48.45 |
 | M5 cloudgpu tier | Oct 26-27 | L40S NIM run on a Nebius VM over SSH | cloudgpu run + probe schema-valid; `docs/cloudgpu-run.md` Cost <= USD 30 and Teardown `deleted` | REQ-031; EDGE-015, 016, 017 | AJ-120..129 (120..129) | 36.95 | 25.70 |
-| M6 Docs, content, demo | Oct 27-29 | README, posts, demo script, article, Devpost files, `report` flags | `report --verify-readme` exits 0 and `report --help` lists the three new flags; posts resolved; shot list <= 170 s; zero `[[FILL:`; zero `owner: builder` | REQ-025, 026, 027, 028; REQ-016 (report flags, AJ-144) | AJ-130..144 (130..149) | 54.75 | 45.50 |
+| M6 Docs, content, demo | Oct 27-29 | README, posts, demo script, article, Devpost files, `report` flags | `report --verify-readme` exits 0 and `report --help` lists the three new flags; posts resolved; shot list <= 170 s; zero `[[FILL:`; zero `owner: builder` | REQ-025, 026, 027, 028; REQ-016 (report flags, AJ-144) | AJ-130..144 (130..149) | 55.00 | 45.75 |
 | M7 Hardening and submission | Oct 29-30 | Prove the 24 boxes, final reviews, release prep, submission plan | 24 boxes ticked or listed with reasons; `peer-review-critic` `VERDICT: APPROVED`; user: Pages 200, release, Devpost before 17:00 UTC | none (24 DoD boxes) | AJ-150..159 (150..159) | 38.00 | 26.50 |
-| Total | | | | 32 REQ, 19 EDGE | 125 | 435.40 | 366.65 |
+| Total | | | | 32 REQ, 19 EDGE | 125 | 439.15 | 370.40 |
 
-Measured totals: 125 stories, 869 scenarios (383 positive, 486 negative), 715 tasks, 435.40 h, 25 `Conflict:` lines (several others became `Resolved:` lines), 0 duplicate story IDs, 0 duplicate scenario names, 0 tasks above 2 h, every story carries `@AJ-S<nn>` and `@REQ`/`@EDGE` tags. Every REQ and EDGE appears in the milestone this table assigns (checked by script, no gap); the one addition is REQ-016, which AJ-144 (M6) also lists because the `report` flags and the content renderer live there.
+Measured totals: 125 stories, 895 scenarios (394 positive, 501 negative), 722 tasks, 439.15 h, 25 `Conflict:` lines (several others became `Resolved:` lines), 0 duplicate story IDs, 0 duplicate scenario names, 0 tasks above 2 h, every story carries `@AJ-S<nn>` and `@REQ`/`@EDGE` tags. Every REQ and EDGE appears in the milestone this table assigns (checked by script, no gap); the one addition is REQ-016, which AJ-144 (M6) also lists because the `report` flags and the content renderer live there.
 
 ## 3. Capacity and schedule
 
 ### 3.1 The problem in numbers
 
 - Window: 2026-10-18 to 2026-10-29 18:00 CET (17:00 UTC, the content freeze of AJ-158) = 12 calendar days; at about 6 h per day of user time that is 72 h (assumed, from the user). The M7 gate (final reviews) then runs until the push at 20:00 UTC.
-- Effort: 435.40 h of story estimates for all stories, 366.65 h for MUST only. Derived requirement, not a forecast: 36.3 story-hours per calendar day (6.0 per user hour) for everything, 30.6 per calendar day (5.1 per user hour) for MUST only.
+- Effort: 439.15 h of story estimates for all stories, 370.40 h for MUST only. Derived requirement, not a forecast: 36.6 story-hours per calendar day (6.1 per user hour) for everything, 30.9 per calendar day (5.1 per user hour) for MUST only.
 - Story hours are effort estimates for a human developer. The build session's real velocity is unknown until M0 and M1 are done. No speed-up factor is assumed anywhere in this plan; section 3.5 measures it at each gate and decides from the measurement.
 - Review gates (section 4) are not inside the story hours; they are paid in calendar time and therefore appear in the measured velocity automatically.
 - Resolved gaps: the `report` flags and `ContentTemplateRenderer` (GAP-1) are built by AJ-144 (M6, MUST, 6.25 h); `RunAssembler`, the serialized totals and `ReportSentences` are created by AJ-056-T4a (M2, MUST, 1.75 h) so that AJ-047 can be cut; the marking of in-flight steps as `incomplete` on shutdown (exit 5, `run.status` `incomplete`) is owned by AJ-056-T6a (M2, MUST, 0.75 h), which AJ-034, AJ-123 and AJ-127 point at (audit Y-01). Both are inside every figure below.
@@ -55,12 +55,12 @@ Measured totals: 125 stories, 869 scenarios (383 positive, 486 negative), 715 ta
 | M0 | 11, 15.00 | AJ-012 (1.00) | none |
 | M1 | 16, 44.25 | AJ-023, 028, 036 (6.75) | none |
 | M2 | 15, 66.75 | AJ-047, 051, 057, 058 (15.00) | none |
-| M3 | 22, 94.50 | AJ-088, 093 (7.00) | none |
+| M3 | 22, 98.00 | AJ-088, 093 (7.00) | none |
 | M4 | 13, 48.45 | AJ-102, 104 (4.75) | AJ-113 (2.25) |
 | M5 | 7, 25.70 | AJ-123, 124, 129 (11.25) | none |
-| M6 | 13, 45.50 | AJ-143 (4.00) | AJ-137 (5.25) |
+| M6 | 13, 45.75 | AJ-143 (4.00) | AJ-137 (5.25) |
 | M7 | 7, 26.50 | AJ-157, 158 (8.50) | AJ-159 (3.00) |
-| Total | 104, 366.65 (84.2 %) | 18, 58.25 (13.4 %) | 3, 10.50 (2.4 %) |
+| Total | 104, 370.40 (84.3 %) | 18, 58.25 (13.3 %) | 3, 10.50 (2.4 %) |
 
 All stories not named are MUST; traceability.md Table D carries the class of every story. Decisions encoded: AJ-100 is MUST (it alone builds `AJ validate --config`, which AJ-101, 107, 115, 126 and 132 run); AJ-038 is MUST (AJ-155 asserts `.github/workflows/ci.yml`); AJ-047 stays SHOULD and is cut-safe because AJ-056-T4a (MUST) creates `RunAssembler` and `ReportSentences` and AJ-047 depends on it. Promotions: AJ-124 becomes MUST if the VM probe shows `energyCounterSupported: false`; AJ-123 if a run is lost; AJ-129 as soon as the cloudgpu tier is partial or absent. AJ-045 (429 retry) and AJ-077 (judge never fails the run) are MUST because the hosted run files of box 7 cannot be produced reliably without them; AJ-052/053 are MUST because `--dry-run` runs them.
 
@@ -74,13 +74,13 @@ Single session, so the path equals the MUST total unless branches overlap (paral
 | S2 Meter, probe, CI file | AJ-020..022, 024..027, 029..035, 037, 038 | 44.25 | committed laptop probe | none |
 | S3 Client, config, workflow, run | AJ-040..046, 048..050, 052..056 | 66.75 | fake-driven `run`, dry-run | none |
 | S4a Results chain | AJ-070..087 | 65.00 | fixture report, README block function | none |
-| S4b Dashboard | AJ-089..092 | 29.50 (replay minimum 26.25) | replay, `--dashboard --dry-run` | none; parallel to S4a after AJ-056 |
+| S4b Dashboard | AJ-089..092 | 33.00 (replay minimum 29.75) | replay, `--dashboard --dry-run` | none; parallel to S4a after AJ-056 |
 | S5 Local runtime, campaign | AJ-100, 101, 103, 105..112, 114, 115 | 48.45 | local, nvidia, nebius, calibration files | NIM 1.5 h, download 1.0 h, campaign 2.0 h |
 | S6 cloudgpu | AJ-120..122, 125..128 | 25.70 | cloudgpu files | VM box <= 4 h; user tasks 1.6 h |
-| S7 Content | AJ-130..136, 138..142, 144 | 45.50 | README block, posts, story, script | none; about 29 h front-loadable into S5/S6 waits (M6 Risks row 1) |
+| S7 Content | AJ-130..136, 138..142, 144 | 45.75 | README block, posts, story, script | none; about 29 h front-loadable into S5/S6 waits (M6 Risks row 1) |
 | S8 Verification | AJ-150..156 | 26.50 | 24 boxes, `VERDICT: APPROVED` | none |
 
-Sum 366.65 h. If S4b and the front-loadable part of S7 overlap other work, the path shortens by at most about 29.5 + 29 = 58.5 h to about 308 h (assumed, needs parallel execution). AJ-133 and AJ-134 wait for AJ-144-T4..T6. The campaign (S5) needs S3 and S4a complete, because the run file needs judge, cost and schema; the cloudgpu runs need the whole local DoD committed (AJ-115, prompt section 2).
+Sum 370.40 h. If S4b and the front-loadable part of S7 overlap other work, the path shortens by at most about 33.0 + 29 = 62 h to about 308 h (assumed, needs parallel execution). AJ-133 and AJ-134 wait for AJ-144-T4..T6. The campaign (S5) needs S3 and S4a complete, because the run file needs judge, cost and schema; the cloudgpu runs need the whole local DoD committed (AJ-115, prompt section 2).
 
 ### 3.4 Cut order (single source of the drop order; AJ-159 copies it verbatim)
 
@@ -110,7 +110,7 @@ Level 2: tasks inside MUST stories (cumulative hours restart; trigger counts on 
 | D2 | AJ-091-T6..T8 | 3.00 | 3.75 | S > 69.50 h | REQ-032 live events: the live page shows no power or progress during a run; the video uses `dashboard --replay` | none | none |
 | D3 | AJ-090-T5 | 1.50 | 5.25 | S > 72.50 h | power chart: cards and tables only | none | none |
 
-Dashboard order inside M3: AJ-089 (T1..T6), AJ-090, AJ-091 (T1..T5 including T4a), AJ-092 first = 26.25 h, which is everything box 24 and the replay need; then AJ-091-T6..T8 (D2), then AJ-093 (C7). If only one view can be built, it is replay (AJ-092 and its technical prerequisites).
+Dashboard order inside M3: AJ-089 (T1..T6b), AJ-090 (including the R1 to R6 tasks T3a, T4a, T4b), AJ-091 (T1..T5 including T4a and T4b), AJ-092 first = 29.75 h, which is everything box 24 and the replay need; then AJ-091-T6..T8 (D2), then AJ-093 (C7). If only one view can be built, it is replay (AJ-092 and its technical prerequisites).
 
 Level 3: the cloudgpu tier. Needs the user's explicit approval (prompt section 10); decided at the M4 gate, before the VM time box starts.
 
@@ -118,7 +118,7 @@ Level 3: the cloudgpu tier. Needs the user's explicit approval (prompt section 1
 |---|---|---|---|---|---|---|---|
 | L3 | AJ-120..122, AJ-125..128 and AJ-151 not built; AJ-129 kept | 24.95 net (25.70 + 3.25 - 4.00) | 24.95 | S > 74.00 h at the M4 gate 2026-10-26 17:00 UTC and the user approves | cloudgpu absent: README row reads "cloudgpu: not run", candidate A-local, no cloudgpu sentence anywhere; platform rule met through the `nebius` run file; a second cloudgpu repeat set is never a drop step (box 20) | 21, 22, 23 (substance) | REGEN |
 
-Floor after all levels: 366.65 - 5.25 - 24.95 = 336.45 h (28.0 per calendar day), still a high bar; the cuts cannot close the gap alone, velocity decides. Level 1 saves 68.75 h, Level 2 5.25 h, Level 3 24.95 h net; together 98.95 h.
+Floor after all levels: 370.40 - 5.25 - 24.95 = 340.20 h (28.4 per calendar day), still a high bar; the cuts cannot close the gap alone, velocity decides. Level 1 saves 68.75 h, Level 2 5.25 h, Level 3 24.95 h net; together 98.95 h.
 
 Submission shapes (REQ-028; AJ-129, AJ-141, AJ-158):
 - cloudgpu complete: pitch candidate A, README row `cloudgpu` with the VM preset, region, GPU-hours and observed cost, boxes 21 to 23 checked.
@@ -131,15 +131,15 @@ Gate times are 18:00 local on the date shown (CEST until Oct 24, CET from Oct 25
 
 | Gate | Date | Days elapsed | Cum MUST h | Cum all h | Remaining MUST h | Days left | Required on remaining, MUST / all (h per day) |
 |---|---|---|---|---|---|---|---|
-| M0 exit | Oct 19 | 2 | 15.00 | 16.00 | 351.65 | 10 | 35.2 / 41.9 |
-| M1 exit (first decision) | Oct 21 | 4 | 59.25 | 67.00 | 307.40 | 8 | 38.4 / 46.0 |
-| M2 exit | Oct 23 | 6 | 126.00 | 148.75 | 240.65 | 6 | 40.1 / 47.8 |
-| M3 exit | Oct 25 | 8 | 220.50 | 250.25 | 146.15 | 4 | 36.5 / 46.3 |
-| M4 exit | Oct 26 | 9 | 268.95 | 305.70 | 97.70 | 3 | 32.6 / 43.2 |
-| M5 exit | Oct 27 | 10 | 294.65 | 342.65 | 72.00 | 2 | 36.0 / 46.4 |
-| M6 and M7 exit (freeze) | Oct 29 | 12 | 366.65 | 435.40 | 0 | 0 | M6 and M7 together hold 72.00 MUST h for the last 2 days |
+| M0 exit | Oct 19 | 2 | 15.00 | 16.00 | 355.40 | 10 | 35.5 / 42.3 |
+| M1 exit (first decision) | Oct 21 | 4 | 59.25 | 67.00 | 311.15 | 8 | 38.9 / 46.5 |
+| M2 exit | Oct 23 | 6 | 126.00 | 148.75 | 244.40 | 6 | 40.7 / 48.4 |
+| M3 exit | Oct 25 | 8 | 224.00 | 253.75 | 146.40 | 4 | 36.6 / 46.3 |
+| M4 exit | Oct 26 | 9 | 272.45 | 309.20 | 97.95 | 3 | 32.6 / 43.3 |
+| M5 exit | Oct 27 | 10 | 298.15 | 346.15 | 72.25 | 2 | 36.1 / 46.5 |
+| M6 and M7 exit (freeze) | Oct 29 | 12 | 370.40 | 439.15 | 0 | 0 | M6 and M7 together hold 72.25 MUST h for the last 2 days |
 
-Reading: the dates demand 33 to 40 MUST hours per remaining day at every gate, while the first gates look cheap (7.5 and 14.8 per elapsed day). Use the right-hand column, not the cumulative average, to decide.
+Reading: the dates demand 33 to 41 MUST hours per remaining day at every gate, while the first gates look cheap (7.5 and 14.8 per elapsed day). Use the right-hand column, not the cumulative average, to decide.
 
 Re-planning rule, applied at every milestone exit (and written to `docs/build-log.md` under `## Gate <Mk>`):
 1. Record delivered hours (sum of estimates of stories whose DoD boxes are ticked and committed), split MUST and other; d = calendar days since 2026-10-18; v = delivered MUST hours per day; v_w = the same over the last milestone window. Use v* = min(v, v_w).
@@ -165,6 +165,7 @@ Keys (steps 5, 6, 7) are already set on the laptop (user-reported 2026-10-18). O
 | Oct 27, when the builder asks | Step 12: create the VM (platform `gpu-l40s-a`, preset `1gpu-16vcpu-64gb`, fallbacks as in the prompt, `eu-north1`, image `ubuntu24.04-cuda12`, disk >= 150 GB, public IP, preemptible off), read the hourly price, set `CLOUDGPU_SSH_HOST` and `CLOUDGPU_SSH_USER` | AJ-125; starts the 4 h / USD 30 box | box shortened |
 | Oct 27, during runs | Report the billing-page cost before each invocation (AJ-127-T5) | stop at USD 25 | guard stops on the 4 h mark only |
 | Oct 27, after "results copied" | Step 13: delete the VM and boot disk, give deletion time and final cost | AJ-128 | `Teardown` unconfirmed, box 22 open, money keeps running |
+| Oct 27-28 | Take the screenshot of the live dashboard during the AJ-135 rehearsal and save it as `docs/report/dashboard.png` (AJ-135-T6, 0.25 h; the README links it only if the file exists) | AJ-131, AJ-135 | no link, no screenshot; nothing else changes |
 | Oct 28 | Fill Registration placeholders (handle, join date, credits date) | AJ-139 | placeholders stay, listed in the final report |
 | Oct 29 before 17:00 UTC | Confirm the drop order (this plan, 3.4); fill the 7 `owner: user` feedback placeholders; fill `{{repo.url}}` in posts | AJ-158 | listed in the final report |
 | Oct 29, 20:00 UTC after the M7 gate | `git push -u origin main` (D-6) | AJ-156 | latest Oct 30 07:00 UTC |
@@ -275,6 +276,7 @@ The seven prompt amendments (all applied by the coordinator on 2026-10-18; no ap
 | Exit code 5 (design 3.6 and the prompt exit-code list aligned 2026-10-18; AJ-034, AJ-123, AJ-127) | exit codes | code 5 now also covers "a run interrupted before completion by host shutdown or a lost connection (`run.status` `incomplete`, EDGE-016)" and "no free loopback port within 20 attempts for `dashboard --replay`" | applied; AJ-034 builds the `ApplicationStopping` path, AJ-123 and AJ-127 produce and test the `incomplete` file |
 | P-2 | M4, M5 Estimate text | "builder hours exclude USER ACTION tasks" while the sums included them | resolved in the story files: totals include user actions, builder-only figures in parentheses (M4 54.70 h, M5 35.35 h) |
 | Y-01 (re-audit) | AJ-034, AJ-123, AJ-127, AJ-056 | exit code 5 for a run interrupted before completion: who marks the in-flight steps `incomplete` | owned by AJ-056-T6a (0.75 h, MUST): marks in-flight steps `incomplete`, sets `run.status` `incomplete`, checkpoints on shutdown, exits 5; the other stories point at it | resolved in the story files |
+| REQ-032 R1 to R6 (user decision 2026-10-18) | design 3.10; AJ-089 (+0.75 h), AJ-090 (+2.25 h), AJ-091 (+0.50 h), AJ-135 (+0.25 h user action), AJ-131 | REQ-032 R1 to R6 added 2026-10-18 (real-time bound, power interval, running estimates, in-place rendering, estimates never in results, visual design) | design 3.10 and stories updated; prompt REQ-032 and its Acceptance line carry the rules; +3.50 h MUST in M3 and +0.25 h in M6; no cut step changes (D2 = AJ-091-T6..T8 3.00 h, D3 = AJ-090-T5 1.50 h, C7 = AJ-093 4.00 h) | applied |
 | Y-06 to Y-09 (closing pass) | AJ-021, AJ-036, AJ-050, AJ-058, AJ-107, AJ-151 | MUST stories depended on files or tasks owned by cut candidates | resolved in the story files: Linux NVML candidates moved into AJ-021-T3 (AJ-021 4.50 h, AJ-036-T2 deleted, AJ-036 2.00 h), AJ-050-T5a creates `StepFailedException` (AJ-050 no longer depends on AJ-057), AJ-107 creates the AJ-104 probe artifacts if AJ-104 is cut, AJ-151 criterion 7 writes the cloudgpu-absent record itself, AJ-058 extends `ExitCode` and leaves the README table to AJ-131 | resolved |
 
 ## 7. Risk register
@@ -283,7 +285,7 @@ Design R-01..R-13 first, then story-level risks, deduplicated. Owners: B builder
 
 | ID | Risk | Trigger | Mitigation | Owner |
 |---|---|---|---|---|
-| K-01 | Capacity gap: 366.65 MUST h in 12 days | gate table in 3.5 | cut order 3.4, re-planning rule 3.5 | C, U |
+| K-01 | Capacity gap: 370.40 MUST h in 12 days | gate table in 3.5 | cut order 3.4, re-planning rule 3.5 | C, U |
 | R-01 | Energy counter unsupported on the laptop GPU | AJ-037 probe `energyCounterSupported: false` | sampling with `sampling-fallback`, disclosed everywhere (AJ-027); stack facts measured a working counter | B |
 | R-02 | `nvmlDeviceGetPowerUsage` is a 1 s average; counter and sampling disagree | large `relativeDifference` in AJ-111 | publish with explanation in methodology (AJ-112) | B |
 | R-03 | Endpoints ignore `include_usage` | tokens read `not-reported` | label stays, recorded per tier in `docs/endpoints.md` (AJ-108) | B |
@@ -294,7 +296,7 @@ Design R-01..R-13 first, then story-level risks, deduplicated. Owners: B builder
 | R-08 | NVML export names differ | `EntryPointNotFoundException` | deprecated throttle export as fallback, log it | B |
 | R-09 | Timing-based tests flaky | overlap assertions fail intermittently | `FakeTimeProvider`, 1 s branches, overlap-only asserts | B |
 | R-10 | Container check rewrites `obj/`, Git Bash mangles the mount path | AJ-036 build fails afterwards | `MSYS_NO_PATHCONV=1`, `dotnet restore` on host | B |
-| R-11 | REQ-032 costs more than the design estimate (design 6 to 8 h, plan 29.50 h) | M3 gate misses | replay first, Level 2 steps D2, D3, Level 1 step C7 | C |
+| R-11 | REQ-032 costs more than the design estimate (design 6 to 8 h, plan 37.00 h for AJ-089 to AJ-093 after the R1 to R6 additions) | M3 gate misses | replay first, Level 2 steps D2, D3, Level 1 step C7 | C |
 | R-12 | `TypedResults.ServerSentEvents` quotes string data | AJ-091 wire scenario fails | hand-written `text/event-stream` writer (ADR-22) | B |
 | R-13 | A browser tab adds GPU load during measurement | published run recorded with a browser open | published runs without a browser, recorded in the build log; video run is illustrative (RK-8) | B, U |
 | K-02 | Agent Framework workflow API differs from notes | AJ-050-T5/T6 do not compile against 1.23.0 | cap discovery at 1 h, read the fork source, never upgrade | B |
@@ -317,7 +319,7 @@ Design R-01..R-13 first, then story-level risks, deduplicated. Owners: B builder
 
 ## 8. The demo program
 
-The demo is the CLI itself on the three committed tasks, from the repository root: `AJ probe --json --save`, `AJ run --tier all --dry-run`, `AJ run --tier all` (local, nvidia, nebius; 3 tasks x 3 repeats x 4 agents), `AJ calibrate`, on the VM the cloudgpu probe, run and calibrate, `AJ validate results/`, `AJ report --update-readme --render-content`, `AJ report --verify-readme`, then the illustrative live run `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard` with `AJ dashboard --replay` on a committed file as the fallback. Every number shown comes from a committed results file; the live run is illustrative. The video is at most 170 s (planned 165 s), uploaded as a public YouTube video; the demo URL is the GitHub Pages path `/report/`. Defined end to end by AJ-135 (steps and acceptance), AJ-136 (script) and design section 10.
+The demo is the CLI itself on the three committed tasks, from the repository root: `AJ probe --json --save`, `AJ run --tier all --dry-run`, `AJ run --tier all` (local, nvidia, nebius; 3 tasks x 3 repeats x 4 agents), `AJ calibrate`, on the VM the cloudgpu probe, run and calibrate, `AJ validate results/`, `AJ report --update-readme --render-content`, `AJ report --verify-readme`, then the illustrative live run `AJ run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard` with `AJ dashboard --replay` on a committed file as the fallback. The dashboard shot has a deliberate visual design (REQ-032 R6: design tokens, light and dark themes, fixed header, agents, chart and footer regions, in-place push-driven rendering with running estimates labelled `estimated`), and a rehearsal screenshot `docs/report/dashboard.png` taken by the user is linked from the README when it exists. Every number shown comes from a committed results file; the live run is illustrative. The video is at most 170 s (planned 165 s), uploaded as a public YouTube video; the demo URL is the GitHub Pages path `/report/`. Defined end to end by AJ-135 (steps and acceptance), AJ-136 (script) and design section 10.
 
 ## 9. Open decisions for the user
 
