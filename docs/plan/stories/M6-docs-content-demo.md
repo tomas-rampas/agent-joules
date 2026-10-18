@@ -131,6 +131,7 @@ Acceptance criteria:
 5. This story creates the README exit-code table (AJ-131-T4 owns it; AJ-035 and AJ-058 only verify it or add rows): codes 0 to 7 with the meanings of the Objective of the prompt, including for 5 the interrupted run (Ctrl+C, SIGTERM or SIGHUP marks in-flight steps `incomplete`) and the case that no free loopback port is found for `dashboard --replay`. Check: `grep -cE "^\| [0-7] \|" README.md` prints 8, `grep -c "^| 0 |" README.md` prints 1 (the table exists once), and the CLI harness test maps each row to the exit code of `ExitCode.cs`.
 6. `Reproduce` is an ordered list that matches the ten demo steps of AJ-135 command for command.
 7. `Prior art` cites, with links, arXiv 2407.16893, TokenPowerBench (AAAI), "Watt Counts" arXiv 2604.09048 and the Python greentoken CLI, and scopes the claim "none attributes energy to an agent step" to the search of 2026-10-17. The links are re-checked on the day of writing and the date is recorded in `docs/build-log.md` (@integration scenarios).
+8. The README links `docs/report/dashboard.png` (the screenshot of the live dashboard page, taken by the user during the AJ-135 rehearsal) under the dashboard usage text only when the file exists, and contains no link to it otherwise: `test -f docs/report/dashboard.png` and `grep -c "docs/report/dashboard.png" README.md` are both true or both false (a dangling link fails the check).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S131 @REQ-025
@@ -172,6 +173,16 @@ Feature: AJ-131 README quick start, CLI reference and reproduce steps
     Given a copy of the README whose Judges without a GPU section mentions NVIDIA_API_KEY
     When the README structure check runs
     Then it fails with "judges section needs a key"
+  @positive
+  Scenario: AJ-131 The dashboard screenshot is linked when the file exists
+    Given a workspace where docs/report/dashboard.png exists
+    When the README link check runs
+    Then the README links docs/report/dashboard.png under the dashboard usage text
+  @negative
+  Scenario: AJ-131 A link to a missing dashboard screenshot is rejected
+    Given a README that links docs/report/dashboard.png and a workspace where the file is absent
+    When the README link check runs
+    Then it fails with "dangling link: docs/report/dashboard.png"
 
 @integration @AJ-S131 @REQ-025
 Feature: AJ-131 Prior-art citations resolve
@@ -192,7 +203,7 @@ Tasks:
 | AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature | 0.5 | AJ-130-T2 |
 | AJ-131-T2 | Add the option-versus-help check and the exit-code table parser to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-131-T1 |
 | AJ-131-T3 | Write `Quick start` and `Judges without a GPU` | README.md | 0.75 | AJ-131-T2 |
-| AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output | README.md | 0.75 | AJ-131-T3 |
+| AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output, and link `docs/report/dashboard.png` under the dashboard usage text only when the file exists | README.md | 0.75 | AJ-131-T3 |
 | AJ-131-T5 | Write `Reproduce` from the ten demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
@@ -511,6 +522,7 @@ Acceptance criteria:
 7. The shot table of the Demo definition appears in the script with the same order and seconds; AJ-136 owns its wording. Check: the `DemoDefinition` parser compares shot number, start and duration of both tables and exits 0 only when all nine rows are equal.
 8. The dashboard shots work: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser; `AJ dashboard --replay results/<ts>-nebius.json --speed 50 --exit-after 5` exits 0 and emits one event per step of that file (replay is the fallback when no GPU or local runtime is available at recording time, and its banner is visible in shot 5). The script and the README state that the published results files were recorded without a browser open and only the demo recording shows the live page (the load of a browser tab on the measured GPU is a stated limitation).
 9. The live run shown in the video writes to `artifacts/demo-run` and `git check-ignore artifacts/demo-run/x.json` prints the path; no file from it is under `results/`.
+10. The rehearsal run with `--dashboard` produces a screenshot of the live dashboard page, taken by the user (USER ACTION, AJ-135-T6) and saved as `docs/report/dashboard.png`: `test -f docs/report/dashboard.png` exits 0 and `file docs/report/dashboard.png` reports a PNG image. Until the user delivers it the item is listed as an open user action, not as a failure, and the README carries no link to it (AJ-131 criterion 8).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S135 @REQ-027 @REQ-028
@@ -570,6 +582,16 @@ Feature: AJ-135 Demo program end to end
     Given a copy of the script without the heading "If the cloudgpu tier is absent"
     When the demo check runs
     Then it fails with "missing heading: If the cloudgpu tier is absent"
+  @positive
+  Scenario: AJ-135 The rehearsal screenshot is a PNG at the fixed path
+    Given a workspace where docs/report/dashboard.png exists and starts with the PNG signature
+    When the demo artifact check runs
+    Then it passes for the screenshot
+  @negative
+  Scenario: AJ-135 A screenshot saved under another name is rejected
+    Given a workspace where the screenshot is saved as docs/report/dash.png and docs/report/dashboard.png is absent
+    When the demo artifact check runs
+    Then it reports "open user action: docs/report/dashboard.png" and the README has no dashboard link
 
 @integration @AJ-S135 @REQ-027 @REQ-028
 Feature: AJ-135 Demo rehearsal with the laptop and keys
@@ -593,6 +615,7 @@ Tasks:
 | AJ-135-T3 | Write the `## Demo program` section: ten commands, task set, tiers, artifact table, order of the video, fallback section | content/demo-script.md | 1.0 | AJ-135-T2 |
 | AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3, AJ-144-T6, AJ-133-T3 |
 | AJ-135-T5 | Check that every artifact in the table exists or is covered by the fallback and record the result | docs/build-log.md | 0.25 | AJ-135-T4 |
+| AJ-135-T6 | USER ACTION: take a screenshot of the live dashboard page during the rehearsal run with `--dashboard` and save it as `docs/report/dashboard.png` | docs/report/dashboard.png (user) | 0.25 | AJ-135-T4 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature; ReportRenderingTests (not-run row)
 Docs impact: content/demo-script.md; docs/build-log.md; .gitignore
 Definition of done:
@@ -1321,7 +1344,7 @@ Demo relevance: no.
 
 | Risk | Trigger | Mitigation | Owner |
 |---|---|---|---|
-| Estimate exceeds the window: 54.75 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, AJ-144, about 29 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
+| Estimate exceeds the window: 55.0 task hours against about 18 working hours (2026-10-27 to 2026-10-29) | the sum in `## Estimate` is above 18 | front-load the stories that need no final results (AJ-130, AJ-131, AJ-135 T1 to T3, AJ-136 T1 to T3, AJ-137 T1 to T4, AJ-138, AJ-139, AJ-134 T1 to T5, AJ-144, about 29 hours) into the waiting time of M4 and M5; run result-dependent stories (AJ-133, AJ-134-T6, AJ-136-T4, AJ-137-T5, AJ-140, AJ-141, AJ-142, AJ-143) as soon as the last run file lands; apply the drop order of M7 AJ-159 if still late | builder |
 | Official rules page unreadable (HTTP 403 on 2026-10-17) | fetch returns 403 or a login wall | record `not verified` with the status, mark the 13 rule items `user-stated, not verified`, ask the user to paste the Rules tab text; never write `verified` without a date | builder, user |
 | cloudgpu tier absent or partial | no completed or partial `results/*Z-cloudgpu.json` by 2026-10-28 | fallback paths in AJ-132, AJ-134, AJ-135, AJ-140, AJ-141, AJ-142: `cloudgpu | not run` row, `None besides Token Factory.`, pitch A-local, singular tagline, no cloudgpu sentence anywhere; AJ-143 rule 8 enforces it | builder |
 | A new run file lands after the text was filled | a results file newer than the one a passage cites | rerun `AJ report --update-readme --render-content`, re-extract AJ-140 numbers from the recorded expressions, rerun AJ-143 | builder |
@@ -1343,7 +1366,7 @@ Note (2026-10-18): any deferral or descope candidates named in this section are 
 | AJ-132 README Devpost-form sections | 6 | 3.5 |
 | AJ-133 README results block | 4 | 1.75 |
 | AJ-134 LinkedIn post drafts | 7 | 3.5 |
-| AJ-135 Demo program end to end | 5 | 3.25 |
+| AJ-135 Demo program end to end | 6 | 3.5 |
 | AJ-136 Demo video script | 6 | 3.5 |
 | AJ-137 Long-form article | 7 | 5.25 |
 | AJ-138 Devpost checklist rules and fields | 6 | 4.0 |
@@ -1353,6 +1376,6 @@ Note (2026-10-18): any deferral or descope candidates named in this section are 
 | AJ-142 Feedback fill | 7 | 4.5 |
 | AJ-143 Honesty audit | 4 | 4.0 |
 | AJ-144 report flags and content renderer | 7 | 6.25 |
-| Total | 86 | 54.75 |
+| Total | 87 | 55.0 |
 
 Capacity of the window: about 18 hours (three days at six hours). The gap and its mitigation are the first risk above.

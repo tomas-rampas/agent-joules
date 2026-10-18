@@ -28,6 +28,7 @@ EDGE: EDGE-012, EDGE-018, EDGE-019.
 Needs from M0: solution, central package pins including `JsonSchema.Net` 8.0.5, test projects, `AgentJoules.TestSupport`, `.gitignore` entries.
 Needs from M1: `IntegrationGate` and `[IntegrationFact]` in `AgentJoules.TestSupport` (AJ-007-T4a (M0, creates the single IntegrationFactAttribute) and AJ-023-T2 (M1, points it at IntegrationGate)), `Metric` label object, `ReadingCalculator`, `DeterministicEnergyMeter`, `ScriptedNvmlApi`, `ProbeResult` and the `probe` command.
 Needs from M2 (all assumed delivered): `StepReading`, `IMetricsSink`, `ICostCalculator` with `NotConfiguredCostCalculator`, `IJudgeService` no-op seam, `RunAssembler`, `RunOrchestrator`, `RunDocument` records with the minimal `AgentJoulesJsonContext`, `ResultsFileWriter`, `RunFileName`, `ReportSentences`, `ExitCode` and `ExitCodeMapper`, `CliHarness`, `FakeChatClient`, `FakeHttpMessageHandler`.
+Needs from M1 also: `SampledEnergyMeter` samples that the dashboard forwards without an extra NVML call.
 Needs from M2 also: `MeteredChatClient` step-started hook point and `RunOrchestrator` run, baseline and progress emit points for the live events.
 Hands over: the committed schema, `AJ validate`, the renderers and `ReadmeResultsBlock` that M6 wires to `--update-readme` and `--verify-readme`; the judge service that M4 exercises live.
 
@@ -1219,6 +1220,9 @@ Acceptance criteria:
 4. A fake slow client that never reads does not stop publishing: 10 000 `Emit` calls complete within the test timeout and the per-connection buffer never exceeds 1 000 entries.
 5. `LiveEvent` records (`RunStartedEvent`, `BaselineEvent`, `ProgressEvent`, `StepStartedEvent`, `StepCompletedEvent`, `PowerEvent`, `RunCompletedEvent`) and `ILiveEventSink` with `NullLiveEventSink` live in `AgentJoules.Core`; with no `--dashboard` the null sink is used.
 6. `src/AgentJoules.Dashboard` references Core and Metering only; `grep -rn "Microsoft.AspNetCore" src --include=*.csproj` hits only the Dashboard project file.
+7. `Dashboard:PowerIntervalMs` (default 100, allowed 50 to 1000) is bound and validated: a value of 25 or 1001 exits 2 naming the key (test `Power_interval_out_of_range_exits_2`); a value of 50, 100 or 1000 passes.
+8. The meter forwards the power samples it already took to `ILiveEventSink` at most once per `Dashboard:PowerIntervalMs` and makes no extra NVML call (test `Power_forwarding_follows_interval_without_extra_nvml_calls`: with a 100 ms interval on a fake clock a 1 s window emits at most 10 `PowerEvent`s, and the `ScriptedNvmlApi` call count equals the count of a run without the dashboard).
+9. `StepProgressEvent` carries the count of output chunks received so far for the active step, is emitted from the streaming path of `MeteredChatClient` and is throttled to at most 10 events per second (test `Step_progress_throttled_to_10_per_second`: 100 chunks within 1 s on a fake clock give at most 10 events and the last count is monotonic); a buffered call emits none.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S089 @REQ-032 @EDGE-019
@@ -1251,6 +1255,38 @@ Feature: AJ-089 Fan readings out to a dashboard sink that can never block the ru
     When 10 events are emitted
     Then every emit call returned normally
     And the pump error was logged once
+  @positive
+  Scenario: AJ-089 power interval within range is accepted
+    Given Dashboard:PowerIntervalMs is set to 100
+    When any command starts
+    Then configuration validation passes
+  @positive
+  Scenario: AJ-089 power samples are forwarded at the configured interval without extra NVML calls
+    Given a scripted NVML API and Dashboard:PowerIntervalMs 100 on a fake clock
+    When a 1 second window is metered
+    Then at most 10 power events were emitted
+    And the NVML call count equals the count of a run without the dashboard
+  @positive
+  Scenario: AJ-089 streaming progress is throttled to ten events per second
+    Given a streaming step that delivers 100 output chunks within 1 second on a fake clock
+    When the step is metered
+    Then at most 10 step-progress events were emitted and the last chunk count is monotonic
+  @negative
+  Scenario: AJ-089 power interval below 50 exits 2
+    Given Dashboard:PowerIntervalMs is set to 25
+    When any command starts
+    Then the exit code is 2
+    And the output names "Dashboard:PowerIntervalMs"
+  @negative
+  Scenario: AJ-089 power interval above 1000 exits 2
+    Given Dashboard:PowerIntervalMs is set to 1001
+    When any command starts
+    Then the exit code is 2
+  @negative
+  Scenario: AJ-089 a buffered call emits no step-progress event
+    Given a buffered step
+    When the step is metered
+    Then no step-progress event was emitted
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1261,9 +1297,11 @@ Tasks:
 | AJ-089-T4 | Implement `FanOutMetricsSink` with per-target isolation | src/AgentJoules.Metering/FanOutMetricsSink.cs | 0.75 | AJ-089-T1, AJ-040-T3 |
 | AJ-089-T5 | Implement `DashboardSink` ingress channel, pump and per-connection channels | src/AgentJoules.Dashboard/DashboardSink.cs | 1.75 | AJ-089-T3, AJ-089-T2 |
 | AJ-089-T6 | Implement `DashboardSnapshot` (latest run, baseline, per-agent state, in memory only) | src/AgentJoules.Dashboard/DashboardSnapshot.cs | 1.0 | AJ-089-T5 |
+| AJ-089-T6a | Add `DashboardOptions.PowerIntervalMs` (default 100, range 50 to 1000) to the options and the validator | src/AgentJoules.Core/Configuration/DashboardOptions.cs, src/AgentJoules.Core/Configuration/FlatSectionsValidator.cs, config/appsettings.json | 0.25 | AJ-089-T1 |
+| AJ-089-T6b | Create `StepProgressEvent` and emit it, throttled to 10 per second, from the streaming path | src/AgentJoules.Core/Live/LiveEvent.cs, src/AgentJoules.Metering/MeteredChatClient.cs | 0.5 | AJ-089-T3, AJ-089-T6a |
 | AJ-089-T7 | Record the `Spec=EDGE-019` buffer results in the build log | docs/build-log.md | 0.25 | AJ-089-T6 |
-Test mapping: `DashboardSinkTests` (design class, traits `Spec=EDGE-019` and `Spec=REQ-032`); feature file `tests/AgentJoules.Specs/Features/Dashboard/SinkFanOut.feature`.
-Docs impact: `docs/build-log.md`; the dashboard section of the README is written in AJ-091 and AJ-092.
+Test mapping: `DashboardSinkTests` (design class, traits `Spec=EDGE-019` and `Spec=REQ-032`, including the power-interval validation and progress throttling tests); feature file `tests/AgentJoules.Specs/Features/Dashboard/SinkFanOut.feature`.
+Docs impact: `docs/build-log.md`; `config/appsettings.json` and the README configuration table gain `Dashboard:PowerIntervalMs`; the dashboard section of the README is written in AJ-091 and AJ-092.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1284,6 +1322,13 @@ Acceptance criteria:
 6. A Specs scenario asserts that a power metric without a value is delivered as `N/A` and that the served page contains the formatter that renders it.
 7. The page is served only by the CLI and never written to `docs/report/`; `docs/report/index.html` still has no `<script`.
 8. `step-completed` and `power` payloads carry server-side cumulative values per agent (`cumulativeNetJoules`, `cumulativeInputTokens`, `cumulativeOutputTokens`) as label objects, so the page never sums events itself; a test drops the earlier events and the cumulative stays correct (test `Cumulative_survives_dropped_events` in `DashboardEventSerializationTests`).
+9. The embedded page source obeys the render model (test `Page_source_obeys_render_rules` in `DashboardPageTests`): exactly one `EventSource`, exactly one `requestAnimationFrame` loop, no `innerHTML`, no `setInterval`, no `fetch(`, `createElement` only inside the function that builds the agent cards, no CSS `transition` on layout properties, value cells styled with `font-variant-numeric: tabular-nums` and a fixed width, and event handlers that only mutate state and set a dirty flag.
+10. The repaint loop returns without painting while `document.hidden` is true, and a reconnecting page keeps its last state until the `snapshot` item arrives (tests `Hidden_tab_stops_repainting` and `Reconnect_keeps_state_until_snapshot`, both source-level assertions: the loop starts with a `document.hidden` check; the error handler contains no state reset and the reset function is called only from the snapshot handler).
+11. During a step the running energy estimate is integrated server-side in `DashboardSnapshot` from the `PowerEvent`s of the active step (trapezoid over the sample timestamps) and carried as a label object with label `estimated`, together with the running output-chunk count also labelled `estimated`; both are replaced by the measured `StepReading` values on `step-completed` (tests `Running_energy_is_trapezoid_estimate` and `Estimated_replaced_by_measured_on_step_completed`; fixture: 60 W at 0, 1 and 2 s gives 120 J estimated).
+12. Estimates never enter results files: a run with the dashboard enabled writes a results file with no running-estimate field and no `estimated` label on any energy metric (test `Estimates_never_enter_results_file`), and the page states that NVML power on the laptop GPU is a one-second driver average (test `Page_states_one_second_average`: the page text contains "one-second driver average").
+13. The page has a deliberate design (test `Page_defines_design_tokens_and_regions` in `DashboardPageTests`): exactly one `<style>` block defining at least six CSS custom properties including `--bg`, `--panel`, `--fg`, `--muted`, `--accent`, `--measured`, `--estimated`, `--na`, `--grid`, `--space-1` to `--space-3` and `--font-size-base`; a dark default theme and a light theme through a `prefers-color-scheme: light` media query; a system font stack with `font-variant-numeric: tabular-nums`; the region ids `header`, `agents`, `chart` and `footer`; and no `<link`, no `@import` and no `url(http`.
+14. The regions have the specified content: the header shows title, tier, model IDs with precision, mode and task and repeat progress; `agents` is a CSS grid of per-agent cards with watts, cumulative net joules, tokens, latency, status and label badges coloured by label (`--measured`, `--estimated`, `--na`), each card using the same agent colour as its chart line; `chart` has axis labels and a legend that includes the baseline; `footer` has `Energy is GPU-board energy only.` and the repository link (test `Regions_have_required_content`, a page-source assertion for each element name).
+15. Text contrast meets WCAG AA and the layout fits 1280 px and 1920 px windows without horizontal scrolling: test `Palette_meets_wcag_aa` computes the contrast ratio of `--fg` on `--bg`, `--fg` on `--panel` and `--muted` on `--panel` in both themes and asserts each is at least 4.5; test `Layout_has_no_fixed_wide_width` asserts the stylesheet has no fixed pixel width above 1200 and no `overflow-x: scroll`, and that the grid uses `minmax`. The visual check at 1280 and 1920 px belongs to the demo rehearsal, and the screenshot `docs/report/dashboard.png` is a user action in M6, not part of this story.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S090 @REQ-032
@@ -1329,6 +1374,78 @@ Feature: AJ-090 Serialize live events and embed the dashboard page
     Given the embedded dashboard page
     When the page text is scanned
     Then it contains no innerHTML and no createElementNS
+  @positive
+  Scenario: AJ-090 page source obeys the render model
+    Given the embedded dashboard page source
+    When the render rules are checked
+    Then there is exactly one EventSource and one requestAnimationFrame loop
+    And createElement appears only inside the agent card builder
+  @positive
+  Scenario: AJ-090 running energy is a trapezoid estimate labelled estimated
+    Given power events of 60 W at 0 s, 1 s and 2 s for the active step
+    When the snapshot is serialized
+    Then the running energy is 120 with label "estimated"
+  @positive
+  Scenario: AJ-090 page states the one-second driver average
+    Given the embedded dashboard page
+    When the page text is scanned
+    Then it contains "one-second driver average"
+  @negative
+  Scenario: AJ-090 a page source with innerHTML fails the render rules
+    Given a page source that assigns innerHTML
+    When the render rules are checked
+    Then the check fails and names innerHTML
+  @negative
+  Scenario: AJ-090 a page source with a timer or fetch fails the render rules
+    Given a page source that calls setInterval and fetch
+    When the render rules are checked
+    Then the check fails and names setInterval and fetch
+  @negative
+  Scenario: AJ-090 a hidden tab stops repainting
+    Given the repaint loop of the embedded page
+    When the document is hidden
+    Then the loop returns without painting
+  @negative
+  Scenario: AJ-090 estimate is replaced by the measured value on step completion
+    Given a running step with an estimated energy of 118 and an estimated chunk count
+    When the step-completed event with measured net joules arrives
+    Then the displayed value carries label "measured" and no estimated value remains for that step
+  @negative
+  Scenario: AJ-090 estimates are absent from the results file
+    Given a run executed with the dashboard enabled
+    When the results file is read
+    Then it contains no running-estimate field and no estimated energy label
+  @negative
+  Scenario: AJ-090 reconnect keeps the last state until the snapshot
+    Given the page source error handler
+    When the stream reconnects
+    Then no state is cleared before the snapshot item arrives
+  @positive
+  Scenario: AJ-090 page defines design tokens, regions and the light theme
+    Given the embedded dashboard page source
+    When the design rules are checked
+    Then it has at least 6 custom properties, a prefers-color-scheme media query and the regions header, agents, chart and footer
+    And it has no link element, no import and no external url
+  @positive
+  Scenario: AJ-090 palette meets the WCAG AA contrast ratio in both themes
+    Given the palette values of the dark and the light theme
+    When the contrast ratios of foreground on background and panel are computed
+    Then every ratio is at least 4.5
+  @negative
+  Scenario: AJ-090 a page without the light theme media query fails the design check
+    Given a page source without a prefers-color-scheme media query
+    When the design rules are checked
+    Then the check fails and names the media query
+  @negative
+  Scenario: AJ-090 a page with an import fails the design check
+    Given a page source that contains an @import rule
+    When the design rules are checked
+    Then the check fails and names the import
+  @negative
+  Scenario: AJ-090 a low-contrast palette fails the contrast check
+    Given a palette whose muted text on the panel has a ratio of 3.0
+    When the contrast ratios are computed
+    Then the check fails and names the muted-on-panel pair
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1336,12 +1453,15 @@ Tasks:
 | AJ-090-T1 | Write the failing BDD feature and unit tests for serialization and the page | tests/AgentJoules.Specs/Features/Dashboard/LivePage.feature, tests/AgentJoules.UnitTests/DashboardEventSerializationTests.cs, tests/AgentJoules.UnitTests/DashboardPageTests.cs | 0.75 | AJ-089-T3 |
 | AJ-090-T2 | Create the source-generated `DashboardJsonContext` with the results naming and enum options | src/AgentJoules.Dashboard/DashboardJsonContext.cs | 0.75 | AJ-090-T1 |
 | AJ-090-T3 | Implement `DashboardEventSerializer` for the eight event types with per-agent cumulative label objects | src/AgentJoules.Dashboard/DashboardEventSerializer.cs | 1.5 | AJ-090-T2 |
+| AJ-090-T3a | Compute the trapezoid running energy and chunk count in `DashboardSnapshot` and serialize them as `estimated` labels | src/AgentJoules.Dashboard/DashboardSnapshot.cs, src/AgentJoules.Dashboard/DashboardEventSerializer.cs | 0.5 | AJ-090-T3, AJ-089-T6b |
 | AJ-090-T4 | Write the page header, agent cards, formatter and `EventSource` client | src/AgentJoules.Dashboard/wwwroot/index.html | 1.75 | AJ-090-T3 |
+| AJ-090-T4a | Apply the render model: dirty flag, single `requestAnimationFrame` loop, `document.hidden` pause, tabular fixed-width cells, cards created once, reconnect keeps state | src/AgentJoules.Dashboard/wwwroot/index.html | 0.75 | AJ-090-T4, AJ-090-T3a |
+| AJ-090-T4b | Write the stylesheet (custom properties, dark and light themes, type scale, grid) and the region markup with badges, legend and footer | src/AgentJoules.Dashboard/wwwroot/index.html | 1.0 | AJ-090-T4a |
 | AJ-090-T5 | Add the canvas 2D power chart with the baseline line and shared-window shading | src/AgentJoules.Dashboard/wwwroot/index.html | 1.5 | AJ-090-T4 |
 | AJ-090-T6 | Implement `DashboardPage` with the embedded resource and encoded repository placeholder | src/AgentJoules.Dashboard/DashboardPage.cs | 0.5 | AJ-090-T4 |
 | AJ-090-T7 | Record the page rules and the separation from the report page in the build log | docs/build-log.md | 0.25 | AJ-090-T6 |
-Test mapping: `DashboardEventSerializationTests` and `DashboardPageTests` (design classes, trait `Spec=REQ-032`); feature file `tests/AgentJoules.Specs/Features/Dashboard/LivePage.feature`.
-Docs impact: `docs/build-log.md`; the README usage is written in AJ-091.
+Test mapping: `DashboardEventSerializationTests` and `DashboardPageTests` (design classes, trait `Spec=REQ-032`, including the render-rule, design-token, contrast, estimate and one-second-average tests); feature file `tests/AgentJoules.Specs/Features/Dashboard/LivePage.feature`.
+Docs impact: `docs/build-log.md`; the README usage is written in AJ-091; `docs/methodology.md` gains the sentence "Estimates shown on the live page never enter results files; only the measured step values are recorded." (handed over to AJ-112 in M4, which writes the methodology).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1361,6 +1481,7 @@ Acceptance criteria:
 6. Startup is bounded by 5 seconds and happens before warm-up and baseline; the server stays up for 2 seconds after `RunCompletedEvent` so the browser renders the final state.
 7. The printed URI is built with `UriBuilder`, so the URL-literal grep over `src` stays clean.
 8. Every response carries `Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:` and `X-Content-Type-Options: nosniff`; a request with a `Host` header other than `127.0.0.1:<port>` or `localhost:<port>` gets status 421 (tests `Security_headers_present` and `Foreign_host_gets_421`).
+9. Every live event reaches a connected page within 250 ms of its emit on loopback: a Specs scenario with a headless SSE client compares each event's `atUtc` with its receipt time and asserts a maximum of 250 ms over a fixture run (test `Events_arrive_within_250ms`; the headless client lives in `tests/AgentJoules.TestSupport/HeadlessSseClient.cs`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S091 @REQ-032 @EDGE-018
@@ -1408,6 +1529,16 @@ Feature: AJ-091 Serve the dashboard on loopback with SSE and a port fallback
     Given a started dashboard server
     When a client sends a request with Host "evil.example"
     Then the status is 421 and no event data is returned
+  @positive
+  Scenario: AJ-091 every live event arrives within 250 ms on loopback
+    Given a started dashboard server and a headless SSE client
+    When a fixture run emits its events
+    Then each event was received within 250 ms of its atUtc
+  @negative
+  Scenario: AJ-091 the latency check detects a delayed delivery
+    Given a dashboard server variant that delays delivery by 400 ms
+    When a fixture run emits its events
+    Then the latency check fails and reports a maximum above 250 ms
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
@@ -1417,11 +1548,12 @@ Tasks:
 | AJ-091-T3 | Implement the `/events` endpoint with the snapshot item and per-connection channels | src/AgentJoules.Dashboard/DashboardServer.cs | 1.5 | AJ-091-T2, AJ-089-T6 |
 | AJ-091-T4 | Implement the 20-port fallback, the 5 second start bound and the printed `Dashboard:` URI | src/AgentJoules.Dashboard/DashboardServer.cs | 1.0 | AJ-091-T3 |
 | AJ-091-T4a | Add the Host check (421) and the security headers middleware | src/AgentJoules.Dashboard/DashboardServer.cs | 0.75 | AJ-091-T4 |
+| AJ-091-T4b | Add the headless SSE client and the 250 ms latency assertion | tests/AgentJoules.TestSupport/HeadlessSseClient.cs, tests/AgentJoules.Specs/Features/Dashboard/DashboardLatency.feature | 0.5 | AJ-091-T4a |
 | AJ-091-T5 | Add `--dashboard` and `--dashboard-port` to `run` and wire `FanOutMetricsSink` and the live sink | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.5 | AJ-091-T4, AJ-056-T7 |
 | AJ-091-T6 | Emit run-started, baseline, progress and step-started events from their producers | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs, src/AgentJoules.Metering/MeteredChatClient.cs | 1.5 | AJ-091-T5 |
-| AJ-091-T7 | Emit the power event from an existing sample at most every 500 ms | src/AgentJoules.Core/Energy/SampledEnergyMeter.cs | 1.0 | AJ-091-T6 |
+| AJ-091-T7 | Emit the power event from an existing sample at the `Dashboard:PowerIntervalMs` interval | src/AgentJoules.Core/Energy/SampledEnergyMeter.cs | 1.0 | AJ-091-T6 |
 | AJ-091-T8 | Write the README dashboard usage and the methodology sentence | README.md, docs/methodology.md | 0.5 | AJ-091-T7 |
-Test mapping: Specs feature `tests/AgentJoules.Specs/Features/Dashboard/DashboardServer.feature` (traits `@REQ-032`, `@EDGE-018`); class `DashboardSinkTests` for the port test (trait `Spec=EDGE-018`).
+Test mapping: Specs features `tests/AgentJoules.Specs/Features/Dashboard/DashboardServer.feature` and `DashboardLatency.feature` (traits `@REQ-032`, `@EDGE-018`); class `DashboardSinkTests` for the port test (trait `Spec=EDGE-018`).
 Docs impact: README section "Live dashboard" (`--dashboard`, `--dashboard-port`, loopback only, the `Dashboard:` line); `docs/methodology.md` (the dashboard displays what the meter already samples; a browser adds compositing load to the measured GPU, so published results files are recorded without a browser open and only the demo recording shows the live page).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
@@ -1602,6 +1734,6 @@ Demo relevance: no (the property it protects makes the live view safe to show).
 
 Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
 
-Sum of task estimates: 101.5 hours across 24 stories and 136 tasks (per story: AJ-070 3.5, AJ-071 2.75, AJ-072 3.5, AJ-073 2.0, AJ-074 2.0, AJ-075 2.5, AJ-076 5.0, AJ-077 3.0, AJ-078 5.5, AJ-079 5.75, AJ-080 2.75, AJ-081 2.5, AJ-082 3.75, AJ-083 5.25, AJ-084 4.5, AJ-085 3.5, AJ-086 3.75, AJ-087 3.5, AJ-088 3.0, AJ-089 6.0, AJ-090 7.0, AJ-091 10.0, AJ-092 6.5, AJ-093 4.0). The dashboard stories AJ-089 to AJ-093 account for 33.5 hours; the rest is 68.0 hours. The design's own dashboard estimate is 6 to 8 hours (R-11, inferred); this plan's task-level sum is about four times that because it includes red-first tests, Specs features and documentation for each story, so the figure should be re-checked with the architect.
+Sum of task estimates: 105.0 hours across 24 stories and 142 tasks (per story: AJ-070 3.5, AJ-071 2.75, AJ-072 3.5, AJ-073 2.0, AJ-074 2.0, AJ-075 2.5, AJ-076 5.0, AJ-077 3.0, AJ-078 5.5, AJ-079 5.75, AJ-080 2.75, AJ-081 2.5, AJ-082 3.75, AJ-083 5.25, AJ-084 4.5, AJ-085 3.5, AJ-086 3.75, AJ-087 3.5, AJ-088 3.0, AJ-089 6.75, AJ-090 9.25, AJ-091 10.5, AJ-092 6.5, AJ-093 4.0). The dashboard stories AJ-089 to AJ-093 account for 37.0 hours; the rest is 68.0 hours. The design's own dashboard estimate is 6 to 8 hours (R-11, inferred); this plan's task-level sum is about four times that because it includes red-first tests, Specs features and documentation for each story, so the figure should be re-checked with the architect.
 
-Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-23 to 2026-10-25), shared with the last day of M2. The sum is about 5.6 times that capacity. This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M3 cannot close it. Deferral candidates in order: AJ-089 to AJ-093 dashboard (33.5 h, REQ-032 is a user-added scope item; replay AJ-092 is the part the video and judges need), AJ-087 README block function (3.5 h, only needed once M6 wires it), AJ-081 baseline-row handling. REQ-009, REQ-010, REQ-015, REQ-016, REQ-023, REQ-030 and EDGE-012 must still be met before the Definition of Done.
+Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-23 to 2026-10-25), shared with the last day of M2. The sum is about 5.8 times that capacity (105.0 / 18). This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M3 cannot close it. Deferral candidates in order: AJ-089 to AJ-093 dashboard (37.0 h, REQ-032 is a user-added scope item; replay AJ-092 is the part the video and judges need), AJ-087 README block function (3.5 h, only needed once M6 wires it), AJ-081 baseline-row handling. REQ-009, REQ-010, REQ-015, REQ-016, REQ-023, REQ-030 and EDGE-012 must still be met before the Definition of Done.
