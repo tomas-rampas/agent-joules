@@ -700,7 +700,8 @@ Tasks:
 | AJ-050-T3 | Implement `PlannerExecutor` | src/AgentJoules.Workflow/Graph/PlannerExecutor.cs | 0.75 | AJ-050-T2, AJ-049-T3 |
 | AJ-050-T4 | Implement `ResearcherExecutor` and `WriterExecutor` | src/AgentJoules.Workflow/Graph/ResearcherExecutor.cs, src/AgentJoules.Workflow/Graph/WriterExecutor.cs | 1.0 | AJ-050-T3 |
 | AJ-050-T5 | Implement `ReviewerExecutor` collecting both branches and yielding the final output | src/AgentJoules.Workflow/Graph/ReviewerExecutor.cs | 1.0 | AJ-050-T4 |
-| AJ-050-T6 | Implement `AgentJoulesWorkflowFactory` and the `RunStreamingAsync` event loop | src/AgentJoules.Workflow/Graph/AgentJoulesWorkflowFactory.cs | 1.5 | AJ-050-T5 |
+| AJ-050-T5a | Create or extend `StepFailedException` (exit 5) in the exception hierarchy | src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.25 | AJ-050-T1 |
+| AJ-050-T6 | Implement `AgentJoulesWorkflowFactory` and the `RunStreamingAsync` event loop | src/AgentJoules.Workflow/Graph/AgentJoulesWorkflowFactory.cs | 1.5 | AJ-050-T5, AJ-050-T5a |
 | AJ-050-T7 | Run the three REQ-011 greps and record the hits in the build log | docs/build-log.md | 0.25 | AJ-050-T6 |
 Test mapping: `AttributionBaselineTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Workflow/FanOutFanIn.feature`.
 Docs impact: `docs/build-log.md`; the workflow diagram for the README is produced in M6.
@@ -1166,7 +1167,7 @@ Tasks:
 |---|---|---|---|---|
 | AJ-057-T1 | Write the failing BDD feature and unit tests for step failure and partial files | tests/AgentJoules.Specs/Features/Cli/StepFailure.feature, tests/AgentJoules.UnitTests/RetryPolicyTests.cs | 0.5 | AJ-056-T1, AJ-045-T1 |
 | AJ-057-T2 | Stop the tier on an `error` outcome, set status `failed` and checkpoint | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-057-T1, AJ-056-T2 |
-| AJ-057-T3 | Create `StepFailedException` and `EndpointUnreachableException` with exit 5 | src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.5 | AJ-057-T2 |
+| AJ-057-T3 | Extend `StepFailedException` (created in AJ-050-T5a) and create `EndpointUnreachableException` with exit 5 | src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.5 | AJ-057-T2 |
 | AJ-057-T4 | Stop `--tier all` at the first failing tier and keep earlier files | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 0.75 | AJ-057-T2 |
 | AJ-057-T5 | Print the partial file path and the failing agent | src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.5 | AJ-057-T3 |
 | AJ-057-T6 | Record the `Spec=EDGE-006` end-to-end result in the build log | docs/build-log.md | 0.25 | AJ-057-T4 |
@@ -1232,12 +1233,12 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-058-T1 | Write the failing BDD feature and the seven-code unit test class | tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature, tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.75 | AJ-054-T1 |
-| AJ-058-T2 | Create the `ExitCode` enum and the exception hierarchy | src/AgentJoules.Core/Cli/ExitCode.cs, src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.75 | AJ-058-T1 |
+| AJ-058-T2 | Extend the `ExitCode` enum (created in AJ-027-T2) and the exception hierarchy | src/AgentJoules.Core/Cli/ExitCode.cs, src/AgentJoules.Core/Cli/AgentJoulesException.cs | 0.75 | AJ-058-T1 |
 | AJ-058-T3 | Implement `ExitCodeMapper` and the one-line error output | src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.75 | AJ-058-T2 |
 | AJ-058-T4 | Wire the mapper into `CliApplication` and add the `Log.cs` partial methods | src/AgentJoules.Cli/CliApplication.cs, src/AgentJoules.Cli/Log.cs | 0.75 | AJ-058-T3 |
-| AJ-058-T5 | Update the exit-code table written by AJ-035 in place (the table exists exactly once) | README.md | 0.25 | AJ-058-T4 |
+| AJ-058-T5 | Verify the code-to-meaning mapping in code (`ExitCodeTests` asserts the meaning text per code) and add rows to the README exit-code table only if AJ-131-T4 has already created it | src/AgentJoules.Cli/ExitCodeMapper.cs, README.md | 0.25 | AJ-058-T4 |
 Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
-Docs impact: README section "Exit codes" (the table written by AJ-035 is updated in place and exists exactly once; `grep -cE "^\| [0-7] \|" README.md` prints 8).
+Docs impact: README section "Exit codes" is created by AJ-131-T4 in M6; this story only verifies the code-to-meaning mapping in code and adds rows if the table already exists (then the table exists exactly once).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1261,6 +1262,6 @@ Demo relevance: no.
 
 Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
 
-Sum of task estimates: 81.5 hours across 19 stories and 112 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.5, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 10.0, AJ-057 3.5, AJ-058 3.25).
+Sum of task estimates: 81.75 hours across 19 stories and 113 tasks (per story: AJ-040 2.75, AJ-041 4.75, AJ-042 3.0, AJ-043 4.0, AJ-044 5.75, AJ-045 5.0, AJ-046 2.75, AJ-047 4.0, AJ-048 3.25, AJ-049 3.0, AJ-050 5.75, AJ-051 4.25, AJ-052 5.0, AJ-053 3.0, AJ-054 4.0, AJ-055 4.75, AJ-056 10.0, AJ-057 3.5, AJ-058 3.25).
 
-Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity (81.5 / 18). This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours (81.5 - 9). REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).
+Nominal capacity: 3 working days x 6 hours = 18 hours (2026-10-21 to 2026-10-23). The sum is about 4.5 times that capacity (81.75 / 18). This is an unresolved planning gap that needs a decision by the coordinator or the user; cutting inside M2 cannot close it. The cut candidates are AJ-051 telemetry (4.25 h, keep only the `UseOpenTelemetry` grep), AJ-047 concurrent union totals (4.0 h, the demo runs serialized; the serialized totals, token and cost sums and `ReportSentences` now live in AJ-056-T4a, so no other story depends on AJ-047) and merging AJ-052 with AJ-053 (about 1 h saved); together about 9 hours, which leaves about 72 hours (81.75 - 9). REQ-014 and EDGE-004 must still be met before the Definition of Done, so a cut is a deferral to M4, not a removal. Other levers: extend the M2 calendar, or run independent stories in parallel sub-agents (assumption, throughput not measured).

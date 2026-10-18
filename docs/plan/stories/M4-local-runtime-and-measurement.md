@@ -537,6 +537,7 @@ Acceptance criteria:
 3. The `## local` section also holds the Qwen3 8B tag exactly as `ollama list` prints it, marked `baseline (non-Nemotron)`, with `Verified: <UTC date>`, the command used and the list returned by `GET {BaseUrl}/models` (Nemotron and Qwen entries, total count). When the decision is `nim`, the section holds the NIM `/v1/models` result of AJ-103 instead.
 4. Live EDGE-009 checks: with Ollama stopped, `AJ run --tier local --dry-run` exits 5 and prints `ollama serve`; with the tag overridden through `AGENTJOULES__Tiers__local__ModelId` to a tag that is not pulled, it exits 4 and prints the matching `ollama pull` command.
 5. `AJ validate --config` exits 0 and `AJ run --tier local --dry-run` exits 0 with Ollama running.
+6. The live EDGE-009 checks need these AJ-104 artifacts: the Ollama availability probe (`GET /api/version`, connection failure mapped to exit 5 with `ollama serve`), the missing-tag mapping (exit 4 with `ollama pull <tag>`), and the warm-up keep-alive and `/api/ps` reading that AJ-105 and AJ-106 extend. If AJ-104 was cut, AJ-107-T1 creates them in `OllamaRuntime.cs`, `ILocalRuntime.cs` and `PreflightService.cs`; the hours of AJ-104-T2 and AJ-104-T3 (1.25 h) move into AJ-107-T1 in the plan with no change to the milestone total; `AJ run --tier local --dry-run` with Ollama stopped prints `ollama serve` and exits 5.
 BDD scenarios:
 ```gherkin
 @integration @AJ-S107 @REQ-018 @REQ-020 @EDGE-009
@@ -577,14 +578,14 @@ Feature: Select and record the local model
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-107-T1 | Write the failing feature and the gated local listing test | tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature, tests/AgentJoules.IntegrationTests/LocalModelListingTests.cs | 0.5 | AJ-106-T7 |
+| AJ-107-T1 | Write the failing feature and the gated local listing test; create the AJ-104 Ollama probe and missing-tag mapping here when AJ-104 was cut (criterion 6) | tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature, tests/AgentJoules.IntegrationTests/LocalModelListingTests.cs, src/AgentJoules.Workflow/Local/ILocalRuntime.cs, src/AgentJoules.Workflow/Local/OllamaRuntime.cs, src/AgentJoules.Workflow/Runs/PreflightService.cs | 0.5 | AJ-106-T7 |
 | AJ-107-T2 | Pull the Nemotron tag and record show and list output | docs/endpoints.md | 1.0 | AJ-107-T1 |
 | AJ-107-T3 | Check the Ollama library page for smaller Nemotron tags | docs/endpoints.md | 0.5 | AJ-107-T1 |
 | AJ-107-T4 | Measure the processor split after warm-up and record the model choice | docs/endpoints.md, docs/build-log.md | 0.5 | AJ-107-T2 |
 | AJ-107-T5 | Write the local section with the Qwen baseline entry and the models list | docs/endpoints.md | 0.5 | AJ-107-T4 |
 | AJ-107-T6 | Set the local tier model and agent IDs and run the validation | config/appsettings.json | 0.5 | AJ-107-T5 |
 | AJ-107-T7 | Run the two live failure checks and record the output | docs/build-log.md | 0.5 | AJ-107-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature; AJ-104 LocalRuntimeTests for the messages; gated class LocalModelListingTests (design 6.3).
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature; AJ-104 LocalRuntimeTests for the messages (created in AJ-107-T1 when AJ-104 was cut); gated class LocalModelListingTests (design 6.3).
 Docs impact: docs/endpoints.md (`## local`), docs/build-log.md (model choice and reason, live EDGE-009 output), config/appsettings.json.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings

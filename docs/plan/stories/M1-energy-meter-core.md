@@ -93,6 +93,7 @@ Acceptance criteria:
 2. `NvmlNative.cs` declares one `[LibraryImport("nvml", EntryPoint = "...")]` per function of the design 3.1 table (nvmlInit_v2, nvmlShutdown, nvmlSystemGetDriverVersion, nvmlDeviceGetCount_v2, nvmlDeviceGetHandleByIndex_v2, nvmlDeviceGetName, nvmlDeviceGetUUID, nvmlDeviceGetVbiosVersion, nvmlDeviceGetCudaComputeCapability, nvmlDeviceGetEnforcedPowerLimit, nvmlDeviceGetPowerUsage, nvmlDeviceGetTotalEnergyConsumption, nvmlDeviceGetMigMode, nvmlDeviceGetCurrentClocksEventReasons), `int` return, `nint` device handle, `Span<byte>` buffers decoded as UTF-8 up to the first NUL, no `StringMarshalling` (no SYSLIB1051). `grep -c "docs.nvidia.com/deploy/nvml-api" src/AgentJoules.Nvml/Interop/NvmlNative.cs` equals `grep -c "LibraryImport" src/AgentJoules.Nvml/Interop/NvmlNative.cs` (each declaration cites the NVML API reference).
 3. The builder re-checks each signature and unit (milliwatts, millijoules) against the NVML API reference and records the check in docs/build-log.md; a mismatch is fixed in code, not in the test.
 4. `NvmlLibraryCandidates.For(OSPlatform.Windows, programW6432)` returns `nvml.dll` then `<programW6432>\NVIDIA Corporation\NVSMI\nvml.dll`; the second entry is omitted when `programW6432` is null or empty.
+4a. `NvmlLibraryCandidates.For(OSPlatform.Linux, ...)` returns `libnvidia-ml.so.1` then `libnvidia-ml.so`, in that order (test `Linux_candidates_are_ordered` in NvmlBindingTests); this serves REQ-003 on the Linux cloudgpu VM and EDGE-014.
 5. `NvmlLibraryResolver` registers once through a static `Lazy<bool>` and `NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, ...)` for the logical name `nvml`; the first candidate is tried with `NativeLibrary.TryLoad(name, assembly, DllImportSearchPath.System32, out h)`, the absolute path with `TryLoad(path, out h)`.
 6. An injected-loader overload `TryLoadFirst(candidates, loader, out handle)` returns the first successful handle, returns false when every candidate fails, and never throws for a missing file.
 7. `NvmlApi` (the real `INvmlApi`) maps native return codes to `NvmlReturn`; a missing driver makes the first native call throw `DllNotFoundException` (caught by the factory in AJ-022), nothing else.
@@ -120,6 +121,11 @@ Feature: Bind NVML through LibraryImport with a DllImport resolver
     Given ProgramW6432 is empty
     When the Windows candidate list is built
     Then it contains only "nvml.dll"
+  @positive
+  Scenario: AJ-021 Linux candidates are ordered soname first
+    Given the platform is Linux
+    When the candidate list is built
+    Then it is "libnvidia-ml.so.1" followed by "libnvidia-ml.so"
   @negative
   Scenario: AJ-021 An unknown platform has no candidates
     Given the platform is neither Windows nor Linux
@@ -131,10 +137,10 @@ Tasks:
 |---|---|---|---|---|
 | AJ-021-T1 | Write the failing feature and NvmlBindingTests for candidates and TryLoadFirst with trait Spec=REQ-003 | tests/AgentJoules.Specs/Features/Metering/AJ-021-nvml-binding.feature, tests/AgentJoules.UnitTests/NvmlBindingTests.cs | 0.5 | AJ-020-T5 |
 | AJ-021-T2 | Add the assembly attributes and the LibraryImport declarations with API reference comments | src/AgentJoules.Nvml/AssemblyAttributes.cs, src/AgentJoules.Nvml/Interop/NvmlNative.cs | 1.5 | AJ-021-T1 |
-| AJ-021-T3 | Implement the candidate list and the resolver with the injected-loader overload | src/AgentJoules.Nvml/Interop/NvmlLibraryCandidates.cs, src/AgentJoules.Nvml/Interop/NvmlLibraryResolver.cs | 0.75 | AJ-021-T1 |
+| AJ-021-T3 | Implement the Windows and Linux candidate lists and the resolver with the injected-loader overload | src/AgentJoules.Nvml/Interop/NvmlLibraryCandidates.cs, src/AgentJoules.Nvml/Interop/NvmlLibraryResolver.cs | 1.0 | AJ-021-T1 |
 | AJ-021-T4 | Implement NvmlApi over NvmlNative with return-code mapping | src/AgentJoules.Nvml/NvmlApi.cs | 1.0 | AJ-021-T2, AJ-021-T3 |
 | AJ-021-T5 | Verify signatures against the NVML API reference and record the check | docs/build-log.md | 0.5 | AJ-021-T4 |
-Test mapping: NvmlBindingTests (candidate and loader tests); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-021-nvml-binding.feature. Linux candidates are added by AJ-036.
+Test mapping: NvmlBindingTests (Windows and Linux candidate lists and loader tests); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-021-nvml-binding.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results` and the signature check note.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
@@ -1090,7 +1096,7 @@ Conflict: EDGE-001 acceptance also requires "a unit test with the NVML loader fa
 Covers: EDGE-014, EDGE-001
 User story: As a user on Linux or WSL2, I want the meter to look for `libnvidia-ml.so.1` and to report "no GPU" instead of crashing when it is absent, so that the same CLI runs in a container, in CI and on the cloud VM.
 Acceptance criteria:
-1. `NvmlLibraryCandidates.For(OSPlatform.Linux, ...)` returns `libnvidia-ml.so.1` then `libnvidia-ml.so`, in that order (test).
+1. The Linux candidate list (`libnvidia-ml.so.1` then `libnvidia-ml.so`) and its unit test are delivered by AJ-021-T3 (MUST); this story only adds the absent-library test `Linux_absent_library_is_unavailable` on top of it (`dotnet test --filter "Spec=EDGE-014"` passes).
 2. With the Linux fake missing the library, `Open` returns Unavailable with a reason naming `libnvidia-ml.so.1`; no exception escapes (test).
 3. `docker manifest inspect mcr.microsoft.com/dotnet/sdk:10.0` exits 0 (the tag was inferred); otherwise the verified tag is recorded and used.
 4. The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`: `MSYS_NO_PATHCONV=1 docker run --rm -e DOTNET_NOLOGO=1 -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -v "$(pwd -W)":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; the path form and the two environment variables avoid Git Bash path rewriting and SDK banner text on stdout; builder confirms and records the exact command used).
@@ -1101,11 +1107,6 @@ BDD scenarios:
 ```gherkin
 @unit @AJ-S036 @EDGE-014 @EDGE-001
 Feature: Load NVML on Linux and WSL2 and prove the no-GPU container path
-  @positive
-  Scenario: AJ-036 Linux candidates are ordered soname first
-    Given the platform is Linux
-    When the candidate list is built
-    Then it is "libnvidia-ml.so.1" followed by "libnvidia-ml.so"
   @positive
   Scenario: AJ-036 A Linux machine without the library reports no GPU
     Given the Linux loader is faked as missing
@@ -1140,12 +1141,11 @@ Feature: Load NVML on Linux and WSL2 and prove the no-GPU container path
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-036-T1 | Write the failing Linux candidate and absent-library tests with traits Spec=EDGE-014 and Spec=EDGE-001 | tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature, tests/AgentJoules.UnitTests/NvmlBindingTests.cs | 0.5 | AJ-035-T5 |
-| AJ-036-T2 | Add the Linux candidates to the resolver | src/AgentJoules.Nvml/Interop/NvmlLibraryCandidates.cs | 0.25 | AJ-036-T1 |
-| AJ-036-T3 | Run the image check and the EDGE-001 container command, then repair the host restore | docs/build-log.md | 0.75 | AJ-036-T2 |
-| AJ-036-T4 | Run AJ probe inside WSL2 or record why not | docs/build-log.md | 0.5 | AJ-036-T2 |
+| AJ-036-T1 | Write the failing absent-library test with traits Spec=EDGE-014 and Spec=EDGE-001 | tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature, tests/AgentJoules.UnitTests/NvmlBindingTests.cs | 0.5 | AJ-035-T5 |
+| AJ-036-T3 | Run the image check and the EDGE-001 container command, then repair the host restore | docs/build-log.md | 0.75 | AJ-036-T1 |
+| AJ-036-T4 | Run AJ probe inside WSL2 or record why not | docs/build-log.md | 0.5 | AJ-036-T1 |
 | AJ-036-T5 | Write the container and WSL2 notes | docs/build-log.md | 0.25 | AJ-036-T3, AJ-036-T4 |
-Test mapping: NvmlBindingTests (design 6.1: missing library gives typed Unavailable; Linux candidates); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature.
+Test mapping: NvmlBindingTests (design 6.1: missing library gives typed Unavailable); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature.
 Docs impact: docs/build-log.md `## Probe and WSL2 notes`.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
@@ -1308,7 +1308,7 @@ Sum of task estimates in hours:
 | Story | Hours |
 |---|---|
 | AJ-020 | 2.50 |
-| AJ-021 | 4.25 |
+| AJ-021 | 4.50 |
 | AJ-022 | 3.00 |
 | AJ-023 | 2.00 |
 | AJ-024 | 2.00 |
@@ -1323,7 +1323,7 @@ Sum of task estimates in hours:
 | AJ-033 | 2.75 |
 | AJ-034 | 4.50 |
 | AJ-035 | 3.50 |
-| AJ-036 | 2.25 |
+| AJ-036 | 2.00 |
 | AJ-037 | 2.00 |
 | AJ-038 | 2.00 |
 | Total | 51.00 |

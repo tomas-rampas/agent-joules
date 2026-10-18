@@ -195,7 +195,7 @@ Acceptance criteria:
 4. `docs/cloudgpu-run.md` has the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost`, `Teardown`; the `Cost` section contains `USD` and a value of 30 or less; the `Teardown` section contains the word `deleted` and the user's deletion confirmation time (user action, section 12 step 13).
 5. `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` with the key set returns no hits (@integration) and `grep -cE "nvapi-[A-Za-z0-9_-]{8,}" docs/cloudgpu-run.md` prints 0.
 6. `sed -n '/<!-- results:begin -->/,/<!-- results:end -->/p' README.md | grep -c "cloudgpu"` prints 1 or more.
-7. If no cloudgpu evidence exists (criterion 1 or 2 fails), the story records boxes 21 and 22 as unchecked with the reason, notes that box 23 holds only literally (the row reads `cloudgpu | not run`), and triggers the cloudgpu-absent paths of AJ-158.
+7. If no cloudgpu evidence exists (criterion 1 or 2 fails), the story records boxes 21 and 22 as unchecked with the reason, and notes that box 23 holds only literally (the row reads `cloudgpu | not run`). It writes the cloudgpu-absent record itself in `docs/build-log.md` under `## cloudgpu absent`: the unchecked boxes, the reason, and the fixed steps that make the submission consistent (row `cloudgpu | not run` from `AJ report --in results/ --out docs/report/ --update-readme --render-content`, pitch A-local, singular tagline, Built-with list without `Nebius AI Cloud`, README sentence `None besides Token Factory.`, no cloudgpu sentence in story, posts, script or article). This holds without AJ-158: when AJ-158 exists its `Cut-off plan` cloudgpu row is the same list and is cross-checked against this record; when AJ-158 was cut, this record is the only fallback document. Check: `grep -c "^## cloudgpu absent" docs/build-log.md` prints 1 when no cloudgpu evidence exists.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S151 @DoD
@@ -263,7 +263,7 @@ Tasks:
 | AJ-151-T3 | Tick box 21: run the criterion 1 to 3 commands and record the output | docs/build-log.md | 0.5 | AJ-151-T2 |
 | AJ-151-T4 | Tick box 22: check the six headings, the USD cap and the user's deletion confirmation in the run record | docs/cloudgpu-run.md | 0.5 | AJ-151-T3 |
 | AJ-151-T5 | Tick box 23: confirm `cloudgpu` in the generated README block | README.md | 0.25 | AJ-151-T3 |
-| AJ-151-T6 | Write the cloudgpu-absent record (unchecked boxes 21 and 22, reason, literal box 23) when no evidence exists | docs/build-log.md | 0.5 | AJ-151-T3 |
+| AJ-151-T6 | Write the `## cloudgpu absent` record (unchecked boxes 21 and 22, reason, literal box 23, fixed consistency steps) when no evidence exists; create or extend, independent of AJ-158 | docs/build-log.md | 0.5 | AJ-151-T3 |
 | AJ-151-T7 | Run the key scan on the run record with the key set and record the exit code | docs/build-log.md | 0.25 | AJ-151-T4 |
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuEvidence.feature; CloudGpuTests, IncompleteRunTests
 Docs impact: docs/build-log.md; docs/cloudgpu-run.md (only a missing Teardown or Cost line)
