@@ -226,6 +226,7 @@ Acceptance criteria:
 5. `GpuAssertions.PowerLimitInRange(watts)` is unit tested with 85.059 (passes), 49.9 and 200.1 (fail).
 6. `tests/AgentJoules.IntegrationTests/PlaceholderIntegrationTests.cs` is deleted (`grep -rn "placeholder" tests/AgentJoules.IntegrationTests` exits 1).
 7. The counts of the gated and ungated runs are recorded under `## Test counts`.
+   Note (2026-10-18, post-exit review): `[IntegrationFact]` compares the trimmed variable value with `1`, so a trailing space from cmd.exe counts as set; the attribute lives in TestSupport next to `[PlaceholderFact]`.
 BDD scenarios:
 ```gherkin
 @integration @AJ-S023 @REQ-003
@@ -275,7 +276,6 @@ Definition of done:
 - [ ] docs listed above updated
 - [ ] the gated run output on the laptop is quoted in docs/build-log.md with the UTC date
 - [ ] REQ-003 commit made by the builder with a message starting `AJ-023 REQ-003:` (nothing pushed)
-- [ ] the file PlaceholderIntegrationTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no
 
 ### AJ-024: Define the Metric label object and the reading flags
@@ -480,7 +480,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] EDGE-003 commit by the builder with a message starting `AJ-026 EDGE-003:` once the flag test passes
-- [ ] the file AttributionBaselineTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no
 Conflict: EDGE-003 acceptance also requires "the rendered summary row for that reading contains `low-resolution`", which needs the summary renderer (REQ-016, M3). Proposed resolution: M1 delivers the flag in `EnergyReading` and its test; the M3 report story must assert that the rendered row contains `low-resolution` and reference EDGE-003 in its trait.
 
@@ -954,6 +953,11 @@ Acceptance criteria:
 7. With `CliHostOverrides` (`IncludeProcessEnvironment` false, `IncludeUserSecrets` false) neither environment variables nor user-secrets are sources: a test with `NVIDIA_API_KEY` set in the process still sees an empty key through the harness.
 8. Logging goes to stderr at every level (`LogToStandardErrorThreshold = Trace`); stdout carries only command output; `AJ --help` and `AJ probe --help` exit 0.
 9. Host shutdown (Ctrl+C, SIGTERM, SIGHUP) arrives through `IHostApplicationLifetime.ApplicationStopping` and cancels the token handed to the command action; the host registers a no-op `IHostLifetime` (so the console lifetime does not race System.CommandLine) and `InvocationConfiguration.ProcessTerminationTimeout` is 15 s (design 3.6). `ExitCodeMapper` maps an `OperationCanceledException` caused by that shutdown to exit 5 (design 3.4 step 3 and 5.2 EDGE-016). AJ-034 delivers the signal path, the no-op lifetime, the 15 s timeout and the exit 5 mapping, tested with a fake long-running command; marking in-flight steps `incomplete`, setting `run.status` `incomplete` and writing the checkpoint within the 15 s timeout is owned by M2 task AJ-056-T6a, not by this story. An `OperationCanceledException` not caused by shutdown still maps to 1. Proof: `ExitCodeTests` cases `Shutdown_cancels_command_and_exits_5` and `Unrelated_cancellation_exits_1`; a test reads `ProcessTerminationTimeout` and asserts 15 s.
+   Notes from the M0 post-exit review (2026-10-18, measured on the M0 classes):
+   - Drain at exit: `RedactingTextWriter.Flush` forwards complete lines only; `CliApplication.RunAsync` disposes the stdout and stderr wrappers in its `finally` (and a `ProcessExit` fallback drains them), otherwise newline-less output such as a JSON document written with `Write` is lost at exit.
+   - Escaped exceptions: an exception that escapes a thread, timer, ThreadPool item or async void is printed by the runtime below `System.Console` and bypasses the wrapper; an `AppDomain.CurrentDomain.UnhandledException` handler writes the redacted `error: <message> (<type>)` line, flushes and calls `Environment.Exit(1)`; a child-process test with a worker-thread throw proves it.
+   - Producers write whole lines per call (`TextWriter.Synchronized` serialises calls, not lines); the wrappers are created with `leaveOpen: true` for Console.Out and Console.Error.
+   - Carry-overs: async overloads, `\r` progress lines, the `char[]` fast path guarded by the per-character test, and the Register validation rules listed in AJ-010.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S034 @REQ-006

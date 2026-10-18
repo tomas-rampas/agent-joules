@@ -5,11 +5,13 @@ using AgentJoules.Core.Security;
 namespace AgentJoules.Cli.Output;
 
 /// <summary>
-/// A <see cref="TextWriter"/> that holds text until a newline or <see cref="Flush"/> and passes it through
+/// A <see cref="TextWriter"/> that holds text until a newline and passes each complete line through
 /// <see cref="SecretRedactor.Redact(string?)"/> before it reaches the inner writer, so a key split across several
-/// writes never reaches the inner writer unmasked. The wrapper owns and disposes the inner writer unless
-/// <c>leaveOpen</c> is true, which AJ-034 uses for Console.Out and Console.Error. Instances are not
-/// thread-safe; wrap one in <see cref="TextWriter.Synchronized(TextWriter)"/> when several threads write to it.
+/// writes never reaches the inner writer unmasked. <see cref="Flush"/> forwards complete lines only (they were
+/// already forwarded when written) and keeps an unfinished line buffered; <c>Dispose</c> drains the remainder. The wrapper owns and disposes the inner writer unless
+/// <c>leaveOpen</c> is true, which AJ-034 uses for Console.Out and Console.Error; the host disposes the wrappers at
+/// exit (AJ-034). Instances are not thread-safe. <see cref="TextWriter.Synchronized(TextWriter)"/> serialises calls,
+/// not lines, so every producer must write a whole line per call.
 /// </summary>
 public sealed class RedactingTextWriter : TextWriter
 {
@@ -47,10 +49,11 @@ public sealed class RedactingTextWriter : TextWriter
     /// <inheritdoc />
     public override void Write(char value)
     {
+        ThrowIfClosed();
         _buffer.Append(value);
         if (value == '\n')
         {
-            WriteBufferThrough();
+            ForwardCompleteLines();
         }
     }
 
@@ -60,6 +63,7 @@ public sealed class RedactingTextWriter : TextWriter
     /// <inheritdoc />
     public override void Write(ReadOnlySpan<char> buffer)
     {
+        ThrowIfClosed();
         int lastNewline = buffer.LastIndexOf('\n');
         if (lastNewline < 0)
         {
@@ -68,26 +72,27 @@ public sealed class RedactingTextWriter : TextWriter
         }
 
         _buffer.Append(buffer[..(lastNewline + 1)]);
-        WriteBufferThrough();
+        ForwardCompleteLines();
         _buffer.Append(buffer[(lastNewline + 1)..]);
     }
 
     /// <inheritdoc />
     public override void Flush()
     {
-        WriteBufferThrough();
+        ThrowIfClosed();
         _inner.Flush();
     }
 
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
-        if (disposing && !_disposed)
+        if (disposing && (_leaveOpen || !_disposed))
         {
             _disposed = true;
             try
             {
-                Flush();
+                Drain();
+                _inner.Flush();
             }
             finally
             {
@@ -101,15 +106,30 @@ public sealed class RedactingTextWriter : TextWriter
         base.Dispose(disposing);
     }
 
-    private void WriteBufferThrough()
+    private void ThrowIfClosed() => ObjectDisposedException.ThrowIf(_disposed && !_leaveOpen, this);
+
+    private void ForwardCompleteLines()
+    {
+        string pending = _buffer.ToString();
+        int lastNewline = pending.LastIndexOf('\n');
+        if (lastNewline < 0)
+        {
+            return;
+        }
+
+        _buffer.Remove(0, lastNewline + 1);
+        _inner.Write(_redactor.Redact(pending[..(lastNewline + 1)]));
+    }
+
+    private void Drain()
     {
         if (_buffer.Length == 0)
         {
             return;
         }
 
-        string redacted = _redactor.Redact(_buffer.ToString());
+        string pending = _buffer.ToString();
         _buffer.Clear();
-        _inner.Write(redacted);
+        _inner.Write(_redactor.Redact(pending));
     }
 }
