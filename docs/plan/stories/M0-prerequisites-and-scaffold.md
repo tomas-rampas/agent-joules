@@ -9,16 +9,16 @@ Convention for M0 scenarios: the Gherkin below is the verification contract. Whe
 Dates: 2026-10-18 to 2026-10-19.
 
 Exit criteria:
-- [ ] `dotnet --version` prints 10.0.401 (or a higher 10.0.4xx patch) and the toolchain facts are recorded under `## Toolchain check` in docs/build-log.md
-- [ ] `dotnet build -warnaserror -tl:off --no-incremental` exits 0 and its output contains `0 Warning(s)` and `0 Error(s)`
-- [ ] `dotnet test` exits 0 with 0 failed; `dotnet test --list-tests` output contains MeteredChatClientTests, AttributionBaselineTests, CostModelTests, JudgeParsingTests, ReportRenderingTests and SchemaValidationTests
-- [ ] `dotnet format --verify-no-changes` exits 0
-- [ ] `grep -rnE --include=*.csproj "<PackageReference[^>]*Version" .` returns no hits and `Directory.Packages.props` holds the 22 pinned rows of design section 2.4
-- [ ] `git check-ignore results/x.raw` prints `results/x.raw`; the same check prints the path for `a.pem`, `id_ed25519`, `id_rsa` and `results/x.partial`
-- [ ] `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` shows at least 1 passed and 0 failed
-- [ ] The secret scan name and exit code are recorded under `## Secret scan` in docs/build-log.md
-- [ ] `## User actions` in docs/build-log.md lists prompt section 12 steps 1 to 13 with owner, status and the milestone each one gates
-- [ ] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, standing order 5): `AJ-008 REQ-001:`, `AJ-009 REQ-002:` and `AJ-012 REQ-029:` exist (made by the builder, one per completed requirement, nothing pushed); check `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
+- [x] `dotnet --version` prints 10.0.401 (or a higher 10.0.4xx patch) and the toolchain facts are recorded under `## Toolchain check` in docs/build-log.md
+- [x] `dotnet build -warnaserror -tl:off --no-incremental` exits 0 and its output contains `0 Warning(s)` and `0 Error(s)`
+- [x] `dotnet test` exits 0 with 0 failed; `dotnet test --list-tests` output contains MeteredChatClientTests, AttributionBaselineTests, CostModelTests, JudgeParsingTests, ReportRenderingTests and SchemaValidationTests
+- [x] `dotnet format --verify-no-changes` exits 0
+- [x] `grep -rnE --include=*.csproj "<PackageReference[^>]*Version" .` returns no hits and `Directory.Packages.props` holds the 22 pinned rows of design section 2.4
+- [x] `git check-ignore results/x.raw` prints `results/x.raw`; the same check prints the path for `a.pem`, `id_ed25519`, `id_rsa` and `results/x.partial`
+- [x] `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` shows at least 1 passed and 0 failed
+- [x] The secret scan name and exit code are recorded under `## Secret scan` in docs/build-log.md
+- [x] `## User actions` in docs/build-log.md lists prompt section 12 steps 1 to 13 with owner, status and the milestone each one gates
+- [x] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, standing order 5): `AJ-008 REQ-001:`, `AJ-009 REQ-002:` and `AJ-012 REQ-029:` exist (made by the builder, one per completed requirement, nothing pushed); check `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
 
 ## Coverage
 
@@ -76,9 +76,9 @@ Tasks:
 Test mapping: no xUnit class (no behaviour); shell checks listed in the criteria, results logged in docs/build-log.md.
 Docs impact: docs/build-log.md (created here); later stories append rows.
 Definition of done:
-- [ ] scenarios green (shell checks), no projects exist yet so no build or unit test is run
-- [ ] docs listed above updated
-- [ ] the file is committed with the REQ-002 commit, never with a key or an em-dash
+- [x] scenarios green (shell checks), no projects exist yet so no build or unit test is run
+- [x] docs listed above updated
+- [x] the file is committed with the REQ-002 commit, never with a key or an em-dash
 Demo relevance: no
 
 ### AJ-002: Verify toolchain and machine prerequisites
@@ -139,9 +139,10 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria, results logged under `## Toolchain check`.
 Docs impact: docs/build-log.md `## Toolchain check`.
 Definition of done:
-- [ ] scenarios green (shell checks), no projects exist yet
-- [ ] docs listed above updated
-- [ ] every blocked item names the milestone it blocks (M1 container check, M1 gated NVML test, M4 local runtime)
+- [x] scenarios green (shell checks), no projects exist yet
+- [x] docs listed above updated
+- [x] every blocked item names the milestone it blocks (M1 container check, M1 gated NVML test, M4 local runtime)
+- Note (2026-10-18): acceptance criterion 4 is unmet, Ollama is not installed (user action, recorded under Requirements that cannot be met in docs/build-log.md); the M4 local runtime is gated on it.
 Demo relevance: no
 
 ### AJ-003: Create the repository folders
@@ -184,9 +185,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria.
 Docs impact: none (layout is defined by the design; results are logged in docs/build-log.md).
 Definition of done:
-- [ ] scenarios green (shell checks)
-- [ ] docs listed above updated
-- [ ] the four .gitkeep files are the only files added by this story
+- [x] scenarios green (shell checks)
+- [x] docs listed above updated
+- [x] the four .gitkeep files are the only files added by this story
 Demo relevance: no
 Conflict: REQ-001 requires `tasks/` to exist and git cannot track an empty folder, but design section 3.4 says `tasks/` holds exactly three JSON files and nothing else. Proposed resolution: M0 adds `tasks/.gitkeep`; the M2 story that adds the three task files (REQ-012) deletes `tasks/.gitkeep` in the same commit, so the loader and the REQ-012 acceptance ("2 or 3 .json files") see only task files.
 
@@ -258,9 +259,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. The mutation checks that prove the rules fire (unused using, nullable violation) run in AJ-008.
 Docs impact: docs/build-log.md `## Toolchain check` (check results).
 Definition of done:
-- [ ] scenarios green (shell checks), build checked in AJ-008
-- [ ] docs listed above updated
-- [ ] every rule that later proves a false positive is suppressed in .editorconfig with a one-line reason, never with an unexplained pragma (design 2.3)
+- [x] scenarios green (shell checks), build checked in AJ-008
+- [x] docs listed above updated
+- [x] every rule that later proves a false positive is suppressed in .editorconfig with a one-line reason, never with an unexplained pragma (design 2.3)
 Demo relevance: no
 
 ### AJ-005: Pin the central package versions
@@ -317,9 +318,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. Restore proof of the pins runs in AJ-008.
 Docs impact: docs/build-log.md `## Version deviations and additions`.
 Definition of done:
-- [ ] scenarios green (shell checks), restore proven in AJ-008
-- [ ] docs listed above updated
-- [ ] no package outside design section 2.4 is added in M0
+- [x] scenarios green (shell checks), restore proven in AJ-008
+- [x] docs listed above updated
+- [x] no package outside design section 2.4 is added in M0
 Demo relevance: no
 
 ### AJ-006: Create the solution and the seven source projects
@@ -392,9 +393,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria.
 Docs impact: none (layout defined by design section 2); check results go to docs/build-log.md.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no Class1.cs or template leftovers remain (`find src -name Class1.cs` prints nothing)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no Class1.cs or template leftovers remain (`find src -name Class1.cs` prints nothing)
 Demo relevance: no
 
 ### AJ-007: Create the test projects and the placeholder test classes
@@ -456,9 +457,10 @@ Tasks:
 Test mapping: placeholders for MeteredChatClientTests (owned by M2), AttributionBaselineTests (M1, AJ-026), CostModelTests, JudgeParsingTests, ReportRenderingTests and SchemaValidationTests (M3); no Specs feature yet.
 Docs impact: docs/build-log.md `## Test counts`.
 Definition of done:
-- [ ] scenarios green, `dotnet test` exit 0, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] if the xUnit1004 "test methods should not be skipped" analyzer surfaces as a warning, it is lowered for tests/ only in .editorconfig with a one-line reason
+- [x] scenarios green, `dotnet test` exit 0, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] if the xUnit1004 "test methods should not be skipped" analyzer surfaces as a warning, it is lowered for tests/ only in .editorconfig with a one-line reason
+- Note (2026-10-18): xUnit1004 did not surface as a warning; .editorconfig was not changed.
 Demo relevance: no
 
 ### AJ-008: Gate the skeleton with build, test and format checks
@@ -516,9 +518,9 @@ Tasks:
 Test mapping: no new xUnit class; exercises the skeleton from AJ-006 and AJ-007.
 Docs impact: docs/build-log.md `## Test counts` and `## Version deviations and additions`.
 Definition of done:
-- [ ] scenarios green, unit tests green (skipped placeholders only), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-001 commit made by the builder with a message starting `AJ-008 REQ-001:` (nothing pushed)
+- [x] scenarios green, unit tests green (skipped placeholders only), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-001 commit made by the builder with a message starting `AJ-008 REQ-001:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-009: Verify licence and README, extend the ignore and attribute files
@@ -581,9 +583,10 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria (they are the REQ-002 acceptance commands).
 Docs impact: docs/build-log.md; README.md is not edited in M0.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-002 commit made by the builder with a message starting `AJ-009 REQ-002:` (nothing pushed)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-002 commit made by the builder with a message starting `AJ-009 REQ-002:` (nothing pushed)
+- Note (2026-10-18): the commit subject is `AJ-009 REQ-002 REQ-029:` because the story covers both IDs (standing order 5); the literal `AJ-009 REQ-002:` is therefore not matched, the pattern check is.
 Demo relevance: no
 
 ### AJ-010: Redact key values in any text output
@@ -592,7 +595,7 @@ User story: As a user who keeps API keys in environment variables, I want every 
 Acceptance criteria:
 1. `dotnet test --filter "Spec=REQ-029" --logger "console;verbosity=normal"` shows at least 1 passed and 0 failed.
 2. A test builds a fake key at runtime as `"nvapi-" + "abcdef1234567890"`; `SecretRedactor.Redact` returns `nvapi-****` for it and the result does not contain `abcdef1234567890`.
-3. A value registered with the redactor (any format, for example an opaque string built at runtime) is replaced everywhere it occurs, including inside a longer sentence and twice in one string, by its first six characters followed by `****`.
+3. A value registered with the redactor (any format, for example an opaque string built at runtime) is replaced everywhere it occurs, including inside a longer sentence and twice in one string, by `****` and nothing of the value remains (design 3.2 and design-review N-09; the six-character reveal in the first version of this story was superseded on 2026-10-18 at the M0 peer review).
 4. The pattern `nvapi-[A-Za-z0-9_-]{4,}` masks an unregistered `nvapi-` value; `Redact(Redact(x))` equals `Redact(x)`.
 5. `RedactingTextWriter` wrapping a StringWriter masks a key that arrives split across two `Write` calls: text is held until a newline or `Flush`, so no unmasked fragment reaches the inner writer.
 6. `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" -- src tests` exits 1: no tracked line contains a literal key.
@@ -602,10 +605,10 @@ BDD scenarios:
 @unit @AJ-S010 @REQ-029
 Feature: Redact key values in any text output
   @positive
-  Scenario: AJ-010 A registered key is masked to six characters plus stars
+  Scenario: AJ-010 A registered key is masked completely
     Given a redactor registered with a runtime-built opaque key
     When I redact "request failed for <key> twice <key>"
-    Then both occurrences become the first six characters plus "****" and the suffix is absent
+    Then both occurrences become "****" and no character of the key remains
   @positive
   Scenario: AJ-010 An unregistered nvapi value is masked by pattern
     Given a redactor with no registered values
@@ -625,7 +628,7 @@ Feature: Redact key values in any text output
   Scenario: AJ-010 A short configured value is fully masked
     Given a redactor registered with the 5-character value "abc12"
     When I redact "token abc12 failed"
-    Then the output is "token **** failed" because six characters would reveal the whole value
+    Then the output is "token **** failed" because every registered value is masked completely
   @negative
   Scenario: AJ-010 Null input yields an empty string
     Given a redactor
@@ -644,13 +647,14 @@ Tasks:
 | AJ-010-T2 | Implement SecretRedactor with registered values, the nvapi pattern and the short-value rule | src/AgentJoules.Core/Security/SecretRedactor.cs | 0.5 | AJ-010-T1 |
 | AJ-010-T3 | Implement RedactingTextWriter with line buffering and flush | src/AgentJoules.Cli/Output/RedactingTextWriter.cs | 0.5 | AJ-010-T2 |
 | AJ-010-T4 | Run the Spec=REQ-029 filter and the literal-key grep and log both | docs/build-log.md | 0.25 | AJ-010-T3 |
-Test mapping: RedactionTests (tests/AgentJoules.UnitTests/RedactionTests.cs, trait Spec=REQ-029); Specs feature tests/AgentJoules.Specs/Features/Configuration/AJ-010-redact-key-values.feature. The short-value rule is an addition: design 3.2 says "first six characters plus ****" and is silent on values of six characters or fewer.
+Test mapping: RedactionTests (tests/AgentJoules.UnitTests/RedactionTests.cs, trait Spec=REQ-029); Specs feature tests/AgentJoules.Specs/Features/Configuration/AJ-010-redact-key-values.feature. Masking rule: every registered value becomes `****` and `nvapi-` keys become `nvapi-****` (design 3.2, design-review N-09); the six-character reveal in the first version of this story was superseded on 2026-10-18.
 Docs impact: docs/build-log.md `## Per-ID filter results` (REQ-029 filter row).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the tests fail before SecretRedactor exists (red first), recorded in docs/build-log.md
-- [ ] no test fixture contains a literal matching `nvapi-[A-Za-z0-9_-]{8,}`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the tests fail before SecretRedactor exists (red first), recorded in docs/build-log.md
+- [x] no test fixture contains a literal matching `nvapi-[A-Za-z0-9_-]{8,}`
+- Note (2026-10-18): criterion 3 and two scenarios were superseded at the M0 peer review (design 3.2, N-09): every registered value is masked as `****`; the feature file, steps and tests follow the updated text in the AJ-010 follow-up commit.
 Demo relevance: no
 
 ### AJ-011: Run the secret scan and record it
@@ -708,9 +712,10 @@ Tasks:
 Test mapping: no new xUnit class; the in-code half of REQ-029 is RedactionTests (AJ-010). The scan is a recorded command, rerun in M7.
 Docs impact: docs/build-log.md `## Secret scan`.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the scan is rerun after every commit that touches docs/ or config/ until M7 and the latest exit code is the one recorded
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the scan is rerun after every commit that touches docs/ or config/ until M7 and the latest exit code is the one recorded
+- Note (2026-10-18): broadened in docs/build-log.md to a re-run on the working tree before every commit until M7, not only those touching docs/ or config/.
 Demo relevance: no
 
 ### AJ-012: Record the user actions that gate M2 and M5
@@ -767,9 +772,9 @@ Tasks:
 Test mapping: no xUnit class; shell checks in the criteria. The code-side key handling (missing key exit 3, user-secrets) is built in M2.
 Docs impact: docs/build-log.md `## User actions`.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-029 commit made by the builder with a message starting `AJ-012 REQ-029:` (nothing pushed)
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-029 commit made by the builder with a message starting `AJ-012 REQ-029:` (nothing pushed)
 Demo relevance: no
 
 ## Risks
