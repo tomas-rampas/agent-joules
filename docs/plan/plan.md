@@ -4,6 +4,8 @@ Status: second refresh 2026-10-18 after the audit fix round; story files final; 
 
 ## 1. Purpose and binding inputs
 
+Each milestone is built in its own Claude Code session that starts from `docs/plan/milestone-session-prompt.md` (kickoff line, model rules, per-story loop, exit report); the orchestrator never pushes, the user pushes after each exit report.
+
 This plan turns the build prompt into a dated, gated, cuttable schedule for an autonomous build session that the user supervises. It does not change the prompt or the design.
 
 Precedence when two inputs disagree: (1) `docs/agent-joules.prompt.md`, the source of truth (32 REQ, 19 EDGE, 24 Definition of Done boxes, standing orders, sections 10 and 12); (2) `docs/design/technical-design.md`, which resolves prompt conflicts in its section 9.2 (standing order 8); (3) this file; (4) the eight story files in `docs/plan/stories/` (M0 to M7, 125 stories); (5) `docs/plan/traceability.md`, the generated mapping.
