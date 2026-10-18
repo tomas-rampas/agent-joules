@@ -710,9 +710,9 @@ Tasks:
 Test mapping: no new xUnit class; the in-code half of REQ-029 is RedactionTests (AJ-010). The scan is a recorded command, rerun in M7.
 Docs impact: docs/build-log.md `## Secret scan`.
 Definition of done:
-- [ ] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the scan is rerun after every commit that touches docs/ or config/ until M7 and the latest exit code is the one recorded
+- [x] scenarios green (shell checks), `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the scan is rerun after every commit that touches docs/ or config/ until M7 and the latest exit code is the one recorded
 Demo relevance: no
 
 ### AJ-012: Record the user actions that gate M2 and M5
