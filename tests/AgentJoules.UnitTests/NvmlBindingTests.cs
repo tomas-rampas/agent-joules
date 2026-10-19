@@ -630,6 +630,47 @@ public sealed class NvmlBindingTests
         }
     }
 
+    /// <summary>
+    /// AJ-036 criteria 1 and 2. What this proves on any host: with a loader that finds neither Linux candidate the resolver reports
+    /// that nothing loaded after trying exactly <c>libnvidia-ml.so.1</c> then <c>libnvidia-ml.so</c>, and a factory on the Linux platform whose
+    /// NVML session throws <see cref="DllNotFoundException"/> (the scripted missing library, the exception the production resolver throws when
+    /// nothing loads) returns Unavailable naming <c>libnvidia-ml.so.1</c> without letting an exception escape. What it cannot prove on Windows:
+    /// <see cref="NvmlLibraryResolver.Resolve"/> picks its platform from the running OS, so the real dlopen path runs only in the container
+    /// check (AJ-036-T3).
+    /// </summary>
+    [Fact]
+    [Trait("Spec", "EDGE-014")]
+    [Trait("Spec", "EDGE-001")]
+    public void Linux_absent_library_is_unavailable()
+    {
+        var tried = new List<string>();
+        IReadOnlyList<string> linuxPaths = NvmlLibraryResolver.LoadPaths(OSPlatform.Linux, null, @"C:\Windows\system32");
+
+        bool loaded = NvmlLibraryResolver.TryLoadFirst(
+            linuxPaths,
+            candidate =>
+            {
+                tried.Add(candidate);
+                return IntPtr.Zero;
+            },
+            out nint handle);
+
+        Assert.False(loaded);
+        Assert.Equal(IntPtr.Zero, handle);
+        Assert.Equal(["libnvidia-ml.so.1", "libnvidia-ml.so"], tried);
+
+        ScriptedNvmlApi api = NewApi();
+        api.MissingLibrary = true;
+        GpuOpenResult? result = null;
+
+        Exception? escaped = Record.Exception(() => result = new NvmlGpuTelemetrySourceFactory(api, OSPlatform.Linux).Open(0));
+
+        Assert.Null(escaped);
+        Assert.NotNull(result);
+        AssertUnavailable(result, $"NVML library not found: {LinuxLibrary} ({nameof(DllNotFoundException)})");
+        Assert.Equal(0, api.ShutdownCallCount);
+    }
+
     [Fact]
     public void Identity_and_the_counter_state_stay_readable_after_Dispose()
     {

@@ -18,7 +18,8 @@ public static class CliChildProcess
     /// <summary>The hidden root option that makes a worker thread throw <c>InvalidOperationException(message)</c>.</summary>
     public const string WorkerThrowOption = "--debug-throw-on-worker";
 
-    private static readonly string[] KeyVariables = ["NVIDIA_API_KEY", "NEBIUS_API_KEY", "NGC_API_KEY"];
+    /// <summary>The API key variables that no child process may inherit.</summary>
+    public static IReadOnlyList<string> KeyVariables { get; } = ["NVIDIA_API_KEY", "NEBIUS_API_KEY", "NGC_API_KEY"];
     private static readonly string[] RuntimeVariables = ["PATH", "SystemRoot", "windir", "TEMP", "TMP", "ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"];
 
     /// <summary>The path of the Cli assembly beside the test assembly.</summary>

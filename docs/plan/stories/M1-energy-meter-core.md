@@ -1122,11 +1122,11 @@ Covers: EDGE-014, EDGE-001
 User story: As a user on Linux or WSL2, I want the meter to look for `libnvidia-ml.so.1` and to report "no GPU" instead of crashing when it is absent, so that the same CLI runs in a container, in CI and on the cloud VM.
 Acceptance criteria:
 1. The Linux candidate list (`libnvidia-ml.so.1` then `libnvidia-ml.so`) and its unit test are delivered by AJ-021-T3 (MUST); this story only adds the absent-library test `Linux_absent_library_is_unavailable` on top of it (`dotnet test --filter "Spec=EDGE-014"` passes).
-2. With the Linux fake missing the library, `Open` returns Unavailable with a reason naming `libnvidia-ml.so.1`; no exception escapes (test).
+2. With the Linux fake missing the library, `Open` returns Unavailable with a reason naming `libnvidia-ml.so.1`; no exception escapes (test). Note (2026-10-19): the Windows host can prove the Linux candidate list, the Unavailable reason and the no-escape rule through the injected fake loader and the Linux factory (`OSPlatform.Linux`); the real dlopen path is proven only by the container run, because the resolver picks the platform from the running OS.
 3. `docker manifest inspect mcr.microsoft.com/dotnet/sdk:10.0` exits 0 (the tag was inferred); otherwise the verified tag is recorded and used.
-4. The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`: `MSYS_NO_PATHCONV=1 docker run --rm -e DOTNET_NOLOGO=1 -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -v "$(pwd -W)":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; the path form and the two environment variables avoid Git Bash path rewriting and SDK banner text on stdout; builder confirms and records the exact command used).
+4. The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`: `MSYS_NO_PATHCONV=1 docker run --rm -e DOTNET_NOLOGO=1 -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -v "$(pwd -W)":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; the path form and the two environment variables avoid Git Bash path rewriting and SDK banner text on stdout; builder confirms and records the exact command used). Note (2026-10-19): the exact command and its 32 s exit 0 run are recorded in docs/build-log.md (Probe and WSL2 notes and the AJ-036 entry).
 5. After the container run, the Linux restore artifacts in `obj/` are repaired by `dotnet restore` on the host and `dotnet build -warnaserror -tl:off` exits 0 (design R-10).
-6. Inside WSL2 on the laptop, `AJ probe` is run if a .NET SDK exists in the distro; its output (or `not run: <reason>`) is recorded under `## Probe and WSL2 notes`. If WSL2 reports no GPU although `nvidia-smi` sees it there, the note records it and proposes adding `/usr/lib/wsl/lib/libnvidia-ml.so.1` as a third candidate (a design amendment, not applied by this story).
+6. Inside WSL2 on the laptop, `AJ probe` is run if a .NET SDK exists in the distro; its output (or `not run: <reason>`) is recorded under `## Probe and WSL2 notes`. If WSL2 reports no GPU although `nvidia-smi` sees it there, the note records it and proposes adding `/usr/lib/wsl/lib/libnvidia-ml.so.1` as a third candidate (a design amendment, not applied by this story). Note (2026-10-19): the WSL2 probe is `not run` because no WSL2 distro carries a 10.0.4xx SDK (the default distro has 8.0.414 and 9.0.203); `nvidia-smi` sees the GPU inside WSL2, so the third candidate stays a proposal and is not applied.
 7. If Docker is not running (M0 AJ-002 recorded it), the container check is marked blocked in docs/build-log.md with the date and is retried before M7; it is never silently skipped Check: `grep -n "blocked: Docker daemon not running" docs/build-log.md` matches when `docker info` exits non-zero.
 BDD scenarios:
 ```gherkin
@@ -1173,9 +1173,9 @@ Tasks:
 Test mapping: NvmlBindingTests (design 6.1: missing library gives typed Unavailable); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature.
 Docs impact: docs/build-log.md `## Probe and WSL2 notes`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] commit by the builder with a message starting `AJ-036 EDGE-001 EDGE-014:` (the first GitHub Actions run is a user action after the push and is not a done item)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] commit by the builder with a message starting `AJ-036 EDGE-001 EDGE-014:` (the first GitHub Actions run is a user action after the push and is not a done item). Note (2026-10-19): committed by the orchestrator under the session rules with the subject `AJ-036 EDGE-001 EDGE-014: ...`, nothing pushed; the first GitHub Actions run stays a user action after the push.
 Demo relevance: no
 
 ### AJ-037: Save the probe result and commit the laptop probe file
