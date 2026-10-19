@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 
+using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 
 namespace AgentJoules.Core.Energy;
@@ -58,6 +59,22 @@ public static class ReadingCalculator
             flags |= ReadingFlags.LowResolution;
         }
 
+        // A power or thermal reason in any sample, an edge included, flags the window and names it (a positive claim needs one sample).
+        // An empty list ("nothing was active") is a negative claim and needs every sample supported; otherwise the list is null and
+        // no throttled claim is made either way (EDGE-013).
+        ThrottleReasons throttle = ThrottleReasons.Unsupported;
+        bool everySampleSupported = samples.Length > 0;
+        foreach (PowerSample sample in samples)
+        {
+            throttle = throttle.Or(sample.Reasons);
+            everySampleSupported &= sample.Reasons.Supported;
+        }
+
+        if (throttle.IsThrottled)
+        {
+            flags |= ReadingFlags.Throttled;
+        }
+
         Metric gross = GrossOf(input, integral);
         Metric net = NetOf(gross, input.BaselineMeanWatts, duration, ref flags);
 
@@ -71,7 +88,7 @@ public static class ReadingCalculator
             sampleCount: samples.Length,
             sampleRateHz: input.SampleRateHz,
             flags: flags,
-            throttleReasons: null);
+            throttleReasons: throttle.ReadingNames(everySampleSupported));
     }
 
     private static void Validate(ReadingInput input, double duration)

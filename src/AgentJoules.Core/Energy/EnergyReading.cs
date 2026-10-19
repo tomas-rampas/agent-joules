@@ -5,6 +5,8 @@ using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Labels;
 
+using GpuThrottleReasons = AgentJoules.Core.Gpu.ThrottleReasons;
+
 namespace AgentJoules.Core.Energy;
 
 /// <summary>
@@ -14,7 +16,8 @@ namespace AgentJoules.Core.Energy;
 /// with a reason, never 0. Deserialising a document runs the constructor checks: a violated invariant (a missing or null metric,
 /// a non-positive duration, a negative count, a non-positive rate, flags outside the vocabulary, a label other than measured,
 /// not-reported or N/A, a measured value without its unit J or W, a measured negative net without the below-baseline flag or that flag
-/// without such a net, the sampling-fallback flag with the counter method) surfaces as an unwrapped
+/// without such a net, the sampling-fallback flag with the counter method, the throttled flag without throttle reasons or reasons
+/// without the flag, a reason that is not one of the five throttle names or is repeated or out of bit order) surfaces as an unwrapped
 /// <see cref="ArgumentException"/>, and a malformed token (an unknown method, a bad flag name) as a <see cref="JsonException"/>.
 /// </summary>
 public sealed record EnergyReading
@@ -33,8 +36,11 @@ public sealed record EnergyReading
     /// <param name="sampleRateHz">The configured sampling rate in hertz; positive and finite.</param>
     /// <param name="flags">The qualifiers of this reading; only bits of the vocabulary.</param>
     /// <param name="throttleReasons">
-    /// The names of the throttle reasons seen in the window, none of them null or blank; <c>null</c> when the driver cannot report them,
-    /// an empty list when it can and none was active. Always <c>null</c> until the throttle mapping exists. The list is copied.
+    /// The names of the throttle reasons seen in the window: listed when any sample carried a throttling bit, an empty list when every
+    /// sample was supported and none was active, <c>null</c> when the driver could not report them for some sample and none was seen.
+    /// Every entry is one of <c>SwPowerCap</c>, <c>HwSlowdown</c>, <c>SwThermalSlowdown</c>, <c>HwThermalSlowdown</c>
+    /// and <c>HwPowerBrakeSlowdown</c>, in that (bit) order and without duplicates; a non-empty list and the throttled flag imply each other.
+    /// The list is copied.
     /// </param>
     /// <exception cref="ArgumentException">A metric is null, or another argument violates the rule named above.</exception>
     [JsonConstructor]
@@ -99,6 +105,9 @@ public sealed record EnergyReading
             throw Rejected(nameof(flags), $"The {nameof(ReadingFlags.SamplingFallback)} flag requires the sampling method, but the method is {method}.");
         }
 
+        ReadOnlyCollection<string>? reasons = CopyReasons(throttleReasons);
+        RequireThrottleShape(flags, reasons);
+
         GrossJoules = grossJoules;
         NetJoules = netJoules;
         AverageWatts = averageWatts;
@@ -108,7 +117,7 @@ public sealed record EnergyReading
         SampleCount = sampleCount;
         SampleRateHz = sampleRateHz;
         Flags = flags;
-        ThrottleReasons = CopyReasons(throttleReasons);
+        ThrottleReasons = reasons;
     }
 
     /// <summary>The energy the GPU drew in the window, in joules.</summary>
@@ -146,8 +155,11 @@ public sealed record EnergyReading
     public ReadingFlags Flags { get; }
 
     /// <summary>
-    /// The names of the throttle reasons seen in the window; <c>null</c> when the driver cannot report them, an empty list
-    /// when it can and none was active.
+    /// The names of the throttle reasons seen in the window. The names are listed when any sample carried a throttling bit (a positive
+    /// claim needs one sample); an empty list means every sample of the window was supported and none was active; <c>null</c> means
+    /// the driver could not report them for at least one sample and no throttling bit was seen, so nothing can be said. Every entry is
+    /// one of <c>SwPowerCap</c>, <c>HwSlowdown</c>, <c>SwThermalSlowdown</c>, <c>HwThermalSlowdown</c> and <c>HwPowerBrakeSlowdown</c>,
+    /// in that (bit) order and without duplicates; a non-empty list and the throttled flag imply each other.
     /// </summary>
     public IReadOnlyList<string>? ThrottleReasons { get; }
 
@@ -185,6 +197,52 @@ public sealed record EnergyReading
         }
 
         return Array.AsReadOnly(copy);
+    }
+
+    // The throttled flag and a non-empty list imply each other (EDGE-013); the names are the five throttle names in bit order, each once.
+    private static void RequireThrottleShape(ReadingFlags flags, ReadOnlyCollection<string>? reasons)
+    {
+        IReadOnlyList<string> vocabulary = GpuThrottleReasons.AllNames;
+        int previous = -1;
+        if (reasons is not null)
+        {
+            for (int i = 0; i < reasons.Count; i++)
+            {
+                int index = IndexOf(vocabulary, reasons[i]);
+                if (index < 0)
+                {
+                    throw Rejected("throttleReasons", $"The throttle reason at index {i} must be one of {string.Join(", ", vocabulary)}, but it is {TextEcho.ForMessage(reasons[i])}.");
+                }
+
+                if (index <= previous)
+                {
+                    throw Rejected("throttleReasons", $"The throttle reason {reasons[i]} at index {i} is repeated or out of bit order ({string.Join(", ", vocabulary)}).");
+                }
+
+                previous = index;
+            }
+        }
+
+        bool hasReasons = reasons is { Count: > 0 };
+        if (hasReasons != flags.HasFlag(ReadingFlags.Throttled))
+        {
+            throw hasReasons
+                ? Rejected("flags", $"Throttle reasons require the {nameof(ReadingFlags.Throttled)} flag.")
+                : Rejected("flags", $"The {nameof(ReadingFlags.Throttled)} flag requires at least one throttle reason.");
+        }
+    }
+
+    private static int IndexOf(IReadOnlyList<string> vocabulary, string name)
+    {
+        for (int i = 0; i < vocabulary.Count; i++)
+        {
+            if (string.Equals(vocabulary[i], name, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private static ArgumentException Rejected(string parameterName, FormattableString message) =>

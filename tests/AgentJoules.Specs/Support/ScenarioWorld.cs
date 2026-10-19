@@ -164,6 +164,18 @@ public sealed class ScenarioWorld : IDisposable
     /// <summary>The exception <c>MeterMethodSelector.Select</c> threw, or null.</summary>
     public AgentJoulesException? SelectionFailure { get; set; }
 
+    /// <summary>The clocks-event reader of a throttle scenario, over a current export that is missing and a deprecated export that works; null when none was built.</summary>
+    internal ClocksEventReader? ClocksReader { get; set; }
+
+    /// <summary>How often the reader called the current (new) export.</summary>
+    public int ClocksCurrentCalls { get; set; }
+
+    /// <summary>How often the reader called the deprecated export.</summary>
+    public int ClocksDeprecatedCalls { get; set; }
+
+    /// <summary>The bits the last <see cref="ClocksReader"/> read produced, or null when it has not run.</summary>
+    public ulong? ClocksBits { get; set; }
+
     public void Dispose()
     {
         // A scenario may script a blanket fault; clear it so releasing the session cannot fail the hook.

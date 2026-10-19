@@ -1116,4 +1116,171 @@ public sealed class MeteringSteps(ScenarioWorld world)
         Assert.Contains(reason, capabilities.CounterUnsupportedReason, StringComparison.Ordinal);
         Assert.Contains(code, capabilities.CounterUnsupportedReason, StringComparison.Ordinal);
     }
+
+    // AJ-028: throttle detection. A window is 11 samples at 50 W, 0.0 to 1.0 s, both edges included, each carrying scripted clock-event bits.
+    private const int ThrottleSampleCount = 11;
+    private const string SupportedSentence = "throttle reasons are supported on this GPU";
+    private const string UnavailableSentence = "throttle reasons are unavailable on this GPU";
+    private const string ProbeNotesHeading = "## Probe and WSL2 notes";
+
+    private static ulong ParseBits(string hex) =>
+        ulong.Parse(hex[2..], NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
+
+    // Every sample's reasons come from NvmlGpuTelemetrySource.ReadThrottleReasons() over a scripted NVML session: the fake reports
+    // bitsAt(i) for sample i, or answers every clock-event query with clockReturn when that is not Success.
+    private void AddThrottleWindow(Func<int, ulong> bitsAt, NvmlReturn clockReturn = NvmlReturn.Success)
+    {
+        var api = new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = 50, CounterSupported = true, ClockEventReturn = clockReturn };
+        OpenFakeSource(api);
+        IGpuTelemetrySource source = _world.Source ?? throw new InvalidOperationException("No GPU source was opened.");
+        for (int i = 0; i < ThrottleSampleCount; i++)
+        {
+            api.ClockEventReasons = bitsAt(i);
+            _world.PowerSamples.Add(new PowerSample(i / 10.0, 50.0, source.ReadThrottleReasons()));
+        }
+
+        _world.WindowStartSeconds = 0.0;
+        _world.WindowStopSeconds = (ThrottleSampleCount - 1) / 10.0;
+    }
+
+    private static string RepositoryRoot()
+    {
+        string? directory = AppContext.BaseDirectory;
+        while (directory is not null && !File.Exists(Path.Combine(directory, "global.json")))
+        {
+            directory = Path.GetDirectoryName(directory);
+        }
+
+        return directory ?? throw new InvalidOperationException("global.json was not found above " + AppContext.BaseDirectory);
+    }
+
+    // The text of one "## " section of the build log, from its heading line to the next "## " heading or the end of the file.
+    private static string BuildLogSection(string heading)
+    {
+        string text = File.ReadAllText(Path.Combine(RepositoryRoot(), "docs", "build-log.md")).Replace("\r\n", "\n", StringComparison.Ordinal);
+        int start = text.IndexOf("\n" + heading + "\n", StringComparison.Ordinal);
+        Assert.True(start >= 0, "docs/build-log.md has no section '" + heading + "'.");
+        int next = text.IndexOf("\n## ", start + heading.Length + 2, StringComparison.Ordinal);
+        return next < 0 ? text[start..] : text[start..next];
+    }
+
+    [Given(@"^a fake NVML reporting clock event bit (0x[0-9A-Fa-f]+) for the whole window$")]
+    public void GivenAFakeNvmlReportingClockEventBitForTheWholeWindow(string bits)
+    {
+        AddThrottleWindow(_ => ParseBits(bits));
+    }
+
+    [Given(@"^bit (0x[0-9A-Fa-f]+) appears only in the last sample of the window$")]
+    public void GivenBitAppearsOnlyInTheLastSampleOfTheWindow(string bits)
+    {
+        AddThrottleWindow(i => i == ThrottleSampleCount - 1 ? ParseBits(bits) : 0UL);
+    }
+
+    [Given(@"^the fake reports only the GpuIdle bit (0x[0-9A-Fa-f]+)$")]
+    public void GivenTheFakeReportsOnlyTheGpuIdleBit(string bits)
+    {
+        AddThrottleWindow(_ => ParseBits(bits));
+    }
+
+    [Given(@"^both throttle exports are missing$")]
+    public void GivenBothThrottleExportsAreMissing()
+    {
+        // The fake models a driver without either export as NotSupported; the source maps it to Unsupported on every sample.
+        AddThrottleWindow(_ => 0UL, NvmlReturn.NotSupported);
+    }
+
+    [Given(@"^the fake has no nvmlDeviceGetCurrentClocksEventReasons export but has the throttle-reasons export$")]
+    public void GivenTheFakeHasNoCurrentExportButHasTheDeprecatedOne()
+    {
+        int Current(nint device, out ulong reasons)
+        {
+            _world.ClocksCurrentCalls++;
+            throw new EntryPointNotFoundException("nvmlDeviceGetCurrentClocksEventReasons");
+        }
+
+        int Deprecated(nint device, out ulong reasons)
+        {
+            _world.ClocksDeprecatedCalls++;
+            reasons = 0x4UL;
+            return (int)NvmlReturn.Success;
+        }
+
+        _world.ClocksReader = new ClocksEventReader(Current, Deprecated);
+    }
+
+    [When(@"^throttle reasons are read$")]
+    public void WhenThrottleReasonsAreRead()
+    {
+        ClocksEventReader reader = _world.ClocksReader ?? throw new InvalidOperationException("No clocks-event reader was created.");
+        _world.LastReturn = reader.Read(0x1000, out ulong bits);
+        _world.ClocksBits = bits;
+    }
+
+    [Then(@"^the bits are returned from the deprecated export$")]
+    public void ThenTheBitsAreReturnedFromTheDeprecatedExport()
+    {
+        Assert.Equal(NvmlReturn.Success, _world.LastReturn);
+        Assert.Equal(0x4UL, _world.ClocksBits);
+        Assert.Equal(1, _world.ClocksCurrentCalls);
+        Assert.Equal(1, _world.ClocksDeprecatedCalls);
+    }
+
+    [Then(@"^the flags contain ""throttled"" and throttleReasons contains ""([^""]*)""$")]
+    public void ThenTheFlagsContainThrottledAndThrottleReasonsContains(string reason)
+    {
+        EnergyReading reading = ComputedReading;
+        Assert.Contains("throttled", ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.NotNull(reading.ThrottleReasons);
+        Assert.Contains(reason, reading.ThrottleReasons);
+    }
+
+    [Then(@"^the flags do not contain ""throttled"" and throttleReasons is an empty list$")]
+    public void ThenTheFlagsDoNotContainThrottledAndThrottleReasonsIsAnEmptyList()
+    {
+        EnergyReading reading = ComputedReading;
+        Assert.DoesNotContain("throttled", ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.NotNull(reading.ThrottleReasons);
+        Assert.Empty(reading.ThrottleReasons);
+    }
+
+    [Then(@"^throttleReasons is null, the flags do not contain ""throttled"" and nothing claims the GPU was not throttled$")]
+    public void ThenThrottleReasonsIsNullAndNothingClaimsTheGpuWasNotThrottled()
+    {
+        EnergyReading reading = ComputedReading;
+        Assert.Null(reading.ThrottleReasons);
+        Assert.DoesNotContain("throttled", ReadingFlagNames.ToStrings(reading.Flags));
+
+        // "Not throttled" would have to appear as a throttled flag or a throttled property; the document carries neither.
+        string json = JsonSerializer.Serialize(reading, MetricJsonOptions);
+        Assert.Contains("\"throttleReasons\":null", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"throttled\"", json, StringComparison.Ordinal);
+    }
+
+    [Given(@"^AGENTJOULES_INTEGRATION is ""([^""]*)""$")]
+    public void GivenAgentJoulesIntegrationIs(string value)
+    {
+        _world.GateValue = value;
+    }
+
+    [When(@"^the throttle API is queried on the laptop$")]
+    public void WhenTheThrottleApiIsQueriedOnTheLaptop()
+    {
+        // The query itself is the gated NVML integration test of AJ-023 (nvmlDeviceGetCurrentClocksEventReasons, rc 0 on this laptop).
+        // The Given step sets the literal "1", so the gate is open by construction; this scenario proves the AJ-023 record exists in
+        // docs/build-log.md, which is what criterion 7 asks for, and does not query the GPU itself.
+        EvaluateGate();
+        Assert.Null(_world.GateSkipReason);
+    }
+
+    [Then(@"^docs/build-log\.md records ""supported"" or ""unsupported"" with the UTC date$")]
+    public static void ThenTheBuildLogRecordsSupportedOrUnsupportedWithTheUtcDate()
+    {
+        string section = BuildLogSection(ProbeNotesHeading);
+
+        // The sentence and a UTC timestamp (2026-10-19T10:42Z form) must sit on one line (one note), so the date belongs to the result.
+        string? line = section.Split('\n').FirstOrDefault(candidate =>
+            candidate.Contains(SupportedSentence, StringComparison.Ordinal) || candidate.Contains(UnavailableSentence, StringComparison.Ordinal));
+        Assert.True(line is not null, $"'{ProbeNotesHeading}' contains neither '{SupportedSentence}' nor '{UnavailableSentence}'.");
+        Assert.Matches(@"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z", line);
+    }
 }

@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
@@ -1167,5 +1169,690 @@ public sealed class PowerIntegrationTests
         Assert.Equal("no counter", plain.Message);
         Assert.IsType<FormatException>(wrapped.InnerException);
         Assert.True(typeof(MeasurementPreconditionException).IsSealed);
+    }
+
+    // AJ-028 (EDGE-013): throttle detection. Every window below has samples at i / 10 s, both edges included, 50 W each.
+    private const ulong GpuIdleBit = 0x1;
+    private const ulong ApplicationsClocksBit = 0x2;
+    private const ulong SwPowerCapBit = 0x4;
+    private const ulong HwSlowdownBit = 0x8;
+    private const ulong SyncBoostBit = 0x10;
+    private const ulong SwThermalSlowdownBit = 0x20;
+    private const ulong HwThermalSlowdownBit = 0x40;
+    private const ulong HwPowerBrakeSlowdownBit = 0x80;
+
+    private static readonly string[] AllThrottleNames =
+        ["SwPowerCap", "HwSlowdown", "SwThermalSlowdown", "HwThermalSlowdown", "HwPowerBrakeSlowdown"];
+
+    private static readonly JsonSerializerOptions ThrottleJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() },
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    private static ThrottleReasons Read(ulong bits) => new(bits, true);
+
+    private static PowerSample[] ThrottleWindow(int count, Func<int, ThrottleReasons> reasonsAt) =>
+        [.. Enumerable.Range(0, count).Select(i => new PowerSample(i / 10.0, 50.0, reasonsAt(i)))];
+
+    private static PowerSample[] ThrottleWindowOf(params ThrottleReasons[] reasons) =>
+        ThrottleWindow(reasons.Length, i => reasons[i]);
+
+    private static EnergyReading ThrottleReading(PowerSample[] samples, EnergyMethod method = EnergyMethod.Sampling, long? deltaMillijoules = null) =>
+        ReadingCalculator.Compute(new ReadingInput(
+            Samples: samples,
+            WindowStartSeconds: 0.0,
+            WindowStopSeconds: samples[^1].Seconds,
+            Method: method,
+            CounterDeltaMillijoules: deltaMillijoules,
+            BaselineMeanWatts: null,
+            SampleRateHz: 10.0,
+            IsSamplingFallback: false));
+
+    private static string[] ReasonNames(EnergyReading reading) => [.. Assert.IsType<IEnumerable<string>>(reading.ThrottleReasons, exactMatch: false)];
+
+    private static string[] NamesOf(ThrottleReasons reasons) => [.. reasons.Names];
+
+    private static bool IsFlaggedThrottled(EnergyReading reading) => reading.Flags.HasFlag(ReadingFlags.Throttled);
+
+    private static EnergyReading BuildReading(ReadingFlags flags, IReadOnlyList<string>? reasons) =>
+        new(
+            Metric.Measured(180.0, "J"),
+            Metric.NotReported("no-baseline"),
+            Metric.Measured(60.0, "W"),
+            Metric.Measured(60.0, "W"),
+            3.0,
+            EnergyMethod.Sampling,
+            31,
+            10.0,
+            flags,
+            reasons);
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_power_cap_bit_in_every_sample_flags_the_reading_and_names_SwPowerCap()
+    {
+        PowerSample[] samples = ThrottleWindow(11, _ => Read(0x4));
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Contains("throttled", ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(SwPowerCapBit, "SwPowerCap")]
+    [InlineData(HwSlowdownBit, "HwSlowdown")]
+    [InlineData(SwThermalSlowdownBit, "SwThermalSlowdown")]
+    [InlineData(HwThermalSlowdownBit, "HwThermalSlowdown")]
+    [InlineData(HwPowerBrakeSlowdownBit, "HwPowerBrakeSlowdown")]
+    public void Each_of_the_five_throttle_bits_alone_flags_the_reading_and_yields_its_name(ulong bits, string name)
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(5, _ => Read(bits)));
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal([name], ReasonNames(reading));
+        Assert.True(Read(bits).IsThrottled);
+        Assert.Equal([name], NamesOf(Read(bits)));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_bit_values_are_the_nvml_clock_event_constants()
+    {
+        Assert.Equal(typeof(ulong), Enum.GetUnderlyingType(typeof(ThrottleReasonBits)));
+        Assert.Equal(0x1UL, (ulong)ThrottleReasonBits.GpuIdle);
+        Assert.Equal(0x2UL, (ulong)ThrottleReasonBits.ApplicationsClocksSetting);
+        Assert.Equal(0x4UL, (ulong)ThrottleReasonBits.SwPowerCap);
+        Assert.Equal(0x8UL, (ulong)ThrottleReasonBits.HwSlowdown);
+        Assert.Equal(0x10UL, (ulong)ThrottleReasonBits.SyncBoost);
+        Assert.Equal(0x20UL, (ulong)ThrottleReasonBits.SwThermalSlowdown);
+        Assert.Equal(0x40UL, (ulong)ThrottleReasonBits.HwThermalSlowdown);
+        Assert.Equal(0x80UL, (ulong)ThrottleReasonBits.HwPowerBrakeSlowdown);
+        Assert.Equal(8, Enum.GetValues<ThrottleReasonBits>().Length);
+        Assert.Equal(0xECUL, ThrottleReasons.ThrottlingMask);
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(GpuIdleBit)]
+    [InlineData(ApplicationsClocksBit)]
+    [InlineData(SyncBoostBit)]
+    [InlineData(GpuIdleBit | ApplicationsClocksBit | SyncBoostBit)]
+    [InlineData(0x0UL)]
+    public void Idle_applications_clocks_and_sync_boost_bits_do_not_flag_and_leave_an_empty_list(ulong bits)
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => Read(bits)));
+
+        Assert.False(IsFlaggedThrottled(reading));
+        Assert.DoesNotContain("throttled", ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.NotNull(reading.ThrottleReasons);
+        Assert.Empty(reading.ThrottleReasons);
+        Assert.False(Read(bits).IsThrottled);
+        Assert.Empty(Read(bits).Names);
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(0x100UL)]
+    [InlineData(0x200UL)]
+    [InlineData(0x400UL)]
+    [InlineData(0x8000000000000000UL)]
+    public void A_bit_outside_the_five_throttling_bits_does_not_flag_the_reading(ulong bits)
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => Read(bits)));
+
+        Assert.False(IsFlaggedThrottled(reading));
+        Assert.Empty(ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void An_idle_bit_next_to_a_throttle_bit_names_only_the_throttle_reason()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => Read(GpuIdleBit | SwPowerCapBit | SyncBoostBit)));
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_reason_in_only_the_last_sample_still_flags_the_reading()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, i => Read(i == 10 ? HwThermalSlowdownBit : 0UL)));
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["HwThermalSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_reason_in_only_the_first_sample_still_flags_the_reading()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, i => Read(i == 0 ? HwThermalSlowdownBit : 0UL)));
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["HwThermalSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_reason_in_only_a_middle_sample_still_flags_the_reading()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, i => Read(i == 5 ? HwSlowdownBit : 0UL)));
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["HwSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Two_different_bits_in_different_samples_give_both_names_in_bit_order()
+    {
+        // The higher bit comes first in time; the names still follow the bit value, not the time order.
+        PowerSample[] samples = ThrottleWindow(11, i => Read(i == 1 ? HwThermalSlowdownBit : i == 9 ? SwPowerCapBit : 0UL));
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap", "HwThermalSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_same_bit_in_many_samples_appears_once()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, i => Read(i % 2 == 0 ? SwPowerCapBit : SwPowerCapBit | HwSlowdownBit)));
+
+        Assert.Equal(["SwPowerCap", "HwSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void All_five_bits_spread_over_the_window_give_the_five_names_in_bit_order_without_duplicates()
+    {
+        ulong[] byTimeDescending =
+            [HwPowerBrakeSlowdownBit, HwThermalSlowdownBit, SwThermalSlowdownBit, HwSlowdownBit, SwPowerCapBit];
+        PowerSample[] samples = ThrottleWindow(10, i => Read(byTimeDescending[i / 2]));
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.Equal(AllThrottleNames, ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_throttled_reading_with_the_counter_method_keeps_the_flag_and_the_reasons()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => Read(SwPowerCapBit)), EnergyMethod.Counter, 50000L);
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+        Assert.Equal(EnergyMethod.Counter, reading.Method);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_throttled_flag_is_the_only_flag_the_throttle_adds()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => Read(SwPowerCapBit)));
+
+        Assert.Equal(ReadingFlags.Throttled, reading.Flags);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void When_every_sample_is_unsupported_the_reasons_are_null_and_no_flag_is_set()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, _ => ThrottleReasons.Unsupported));
+
+        Assert.Null(reading.ThrottleReasons);
+        Assert.False(IsFlaggedThrottled(reading));
+        Assert.Equal(ReadingFlags.None, reading.Flags);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Mixed_supported_and_unsupported_samples_give_the_union_of_the_supported_ones()
+    {
+        PowerSample[] samples = ThrottleWindowOf(
+            ThrottleReasons.Unsupported,
+            Read(SwPowerCapBit),
+            ThrottleReasons.Unsupported,
+            Read(HwSlowdownBit),
+            ThrottleReasons.Unsupported);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap", "HwSlowdown"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void An_empty_list_needs_every_sample_supported_so_one_unsupported_sample_with_nothing_active_gives_null()
+    {
+        PowerSample[] samples = ThrottleWindowOf(ThrottleReasons.Unsupported, Read(0UL), ThrottleReasons.Unsupported);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.Null(reading.ThrottleReasons);
+        Assert.False(IsFlaggedThrottled(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_throttling_bit_between_unsupported_samples_still_flags_and_names_it()
+    {
+        PowerSample[] samples = ThrottleWindowOf(ThrottleReasons.Unsupported, Read(SwPowerCapBit), ThrottleReasons.Unsupported);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_window_without_samples_makes_no_claim_about_throttling()
+    {
+        EnergyReading reading = ReadingCalculator.Compute(new ReadingInput(
+            Samples: [],
+            WindowStartSeconds: 0.0,
+            WindowStopSeconds: 1.0,
+            Method: EnergyMethod.Sampling,
+            CounterDeltaMillijoules: null,
+            BaselineMeanWatts: null,
+            SampleRateHz: 10.0,
+            IsSamplingFallback: false));
+
+        Assert.Null(reading.ThrottleReasons);
+        Assert.False(IsFlaggedThrottled(reading));
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(SwPowerCapBit, true)]
+    [InlineData(SwPowerCapBit, false)]
+    public void ReadingNames_lists_a_throttling_name_on_any_evidence_whatever_the_coverage(ulong bits, bool everyReadSupported)
+    {
+        IReadOnlyList<string>? names = Read(bits).ReadingNames(everyReadSupported);
+
+        Assert.NotNull(names);
+        string[] actual = [.. names];
+        Assert.Equal(["SwPowerCap"], actual);
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(0UL)]
+    [InlineData(GpuIdleBit)]
+    public void ReadingNames_is_an_empty_list_only_when_every_read_was_supported_and_nothing_is_active(ulong bits)
+    {
+        IReadOnlyList<string>? full = Read(bits).ReadingNames(everyReadSupported: true);
+
+        Assert.NotNull(full);
+        Assert.Empty(full);
+        Assert.Null(Read(bits).ReadingNames(everyReadSupported: false));
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReadingNames_is_null_for_an_unsupported_union(bool everyReadSupported)
+    {
+        Assert.Null(ThrottleReasons.Unsupported.ReadingNames(everyReadSupported));
+    }
+
+    // EDGE-013 names a fake NVML: the samples below take their reasons from NvmlGpuTelemetrySource.ReadThrottleReasons().
+    private static PowerSample[] SamplesFromFake(ScriptedNvmlApi api, int count, Action<int> scriptSample)
+    {
+        using IGpuTelemetrySource source = OpenSource(api);
+        PowerSample[] samples = new PowerSample[count];
+        for (int i = 0; i < count; i++)
+        {
+            scriptSample(i);
+            samples[i] = new PowerSample(i / 10.0, 50.0, source.ReadThrottleReasons());
+        }
+
+        return samples;
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_power_cap_bit_scripted_in_the_fake_nvml_drives_a_throttled_reading()
+    {
+        ScriptedNvmlApi api = NewApi();
+        PowerSample[] samples = SamplesFromFake(api, 11, _ => api.ClockEventReasons = SwPowerCapBit);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.All(samples, sample => Assert.Equal(Read(SwPowerCapBit), sample.Reasons));
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_bit_that_appears_part_way_through_the_fake_window_is_enough()
+    {
+        // The fake derives the bits from its clock: the cap starts at 0.5 s and each sample advances the clock by 100 ms.
+        var time = new FakeTimeProvider();
+        var api = new ScriptedNvmlApi(time) { ConstantPowerWatts = 50, CounterSupported = true, ClockEventReasonsAt = seconds => seconds >= 0.5 ? SwPowerCapBit : 0UL };
+        PowerSample[] samples = SamplesFromFake(api, 11, i =>
+        {
+            if (i > 0)
+            {
+                time.Advance(TimeSpan.FromMilliseconds(100));
+            }
+        });
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.Equal(Read(0UL), samples[0].Reasons);
+        Assert.Equal(Read(SwPowerCapBit), samples[^1].Reasons);
+        Assert.True(IsFlaggedThrottled(reading));
+        Assert.Equal(["SwPowerCap"], ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void An_idle_bit_scripted_in_the_fake_nvml_gives_no_flag_and_an_empty_list()
+    {
+        ScriptedNvmlApi api = NewApi();
+        PowerSample[] samples = SamplesFromFake(api, 11, _ => api.ClockEventReasons = GpuIdleBit);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.False(IsFlaggedThrottled(reading));
+        Assert.Empty(ReasonNames(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_fake_nvml_that_reports_the_clock_events_as_not_supported_gives_null_reasons_and_no_flag()
+    {
+        ScriptedNvmlApi api = NewApi();
+        api.ClockEventReturn = NvmlReturn.NotSupported;
+        PowerSample[] samples = SamplesFromFake(api, 11, _ => api.ClockEventReasons = SwPowerCapBit);
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        Assert.All(samples, sample => Assert.Equal(ThrottleReasons.Unsupported, sample.Reasons));
+        Assert.Null(reading.ThrottleReasons);
+        Assert.False(IsFlaggedThrottled(reading));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_bits_of_an_unsupported_sample_never_count()
+    {
+        // An unsupported value should carry no bits, but a hand-built one that does must still be ignored.
+        PowerSample[] samples = ThrottleWindowOf(new ThrottleReasons(HwPowerBrakeSlowdownBit, false), Read(0UL), Read(0UL));
+
+        EnergyReading reading = ThrottleReading(samples);
+
+        // The first sample is unsupported, so the window cannot claim that nothing was active: null, not an empty list.
+        Assert.False(IsFlaggedThrottled(reading));
+        Assert.Null(reading.ThrottleReasons);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Compute_reads_the_throttle_bits_without_changing_the_energy_numbers()
+    {
+        EnergyReading throttled = ThrottleReading(ThrottleWindow(11, _ => Read(SwPowerCapBit)));
+        EnergyReading plain = ThrottleReading(ThrottleWindow(11, _ => ThrottleReasons.Unsupported));
+
+        Assert.Equal(plain.GrossJoules, throttled.GrossJoules);
+        Assert.Equal(plain.NetJoules, throttled.NetJoules);
+        Assert.Equal(plain.AverageWatts, throttled.AverageWatts);
+        Assert.Equal(plain.PeakWatts, throttled.PeakWatts);
+        Assert.Equal(plain.SampleCount, throttled.SampleCount);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_reading_serialises_the_reason_names_as_an_array_and_unsupported_as_null()
+    {
+        EnergyReading throttled = ThrottleReading(ThrottleWindow(11, _ => Read(SwPowerCapBit)));
+        EnergyReading unsupported = ThrottleReading(ThrottleWindow(11, _ => ThrottleReasons.Unsupported));
+        EnergyReading idle = ThrottleReading(ThrottleWindow(11, _ => Read(GpuIdleBit)));
+
+        string throttledJson = JsonSerializer.Serialize(throttled, ThrottleJsonOptions);
+        string unsupportedJson = JsonSerializer.Serialize(unsupported, ThrottleJsonOptions);
+        string idleJson = JsonSerializer.Serialize(idle, ThrottleJsonOptions);
+
+        Assert.Contains("\"throttleReasons\":[\"SwPowerCap\"]", throttledJson, StringComparison.Ordinal);
+        Assert.Contains("\"flags\":[\"throttled\"]", throttledJson, StringComparison.Ordinal);
+        Assert.Contains("\"throttleReasons\":null", unsupportedJson, StringComparison.Ordinal);
+        Assert.Contains("\"flags\":[]", unsupportedJson, StringComparison.Ordinal);
+        Assert.Contains("\"throttleReasons\":[]", idleJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_throttled_reading_round_trips_through_json()
+    {
+        EnergyReading reading = ThrottleReading(ThrottleWindow(11, i => Read(i < 5 ? SwPowerCapBit : HwThermalSlowdownBit)));
+
+        EnergyReading? copy = JsonSerializer.Deserialize<EnergyReading>(JsonSerializer.Serialize(reading, ThrottleJsonOptions), ThrottleJsonOptions);
+
+        Assert.NotNull(copy);
+        Assert.Equal(["SwPowerCap", "HwThermalSlowdown"], ReasonNames(copy));
+        Assert.True(IsFlaggedThrottled(copy));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void A_reading_may_carry_the_flag_with_names_or_no_flag_with_an_empty_list_or_null()
+    {
+        EnergyReading flagged = BuildReading(ReadingFlags.Throttled, ["SwPowerCap", "HwThermalSlowdown"]);
+        EnergyReading allFive = BuildReading(ReadingFlags.Throttled, AllThrottleNames);
+        EnergyReading empty = BuildReading(ReadingFlags.None, []);
+        EnergyReading unsupported = BuildReading(ReadingFlags.None, null);
+
+        Assert.Equal(["SwPowerCap", "HwThermalSlowdown"], ReasonNames(flagged));
+        Assert.Equal(AllThrottleNames, ReasonNames(allFive));
+        Assert.Empty(ReasonNames(empty));
+        Assert.Null(unsupported.ThrottleReasons);
+    }
+
+    // The rejection tests below live here beside the throttle tests and carry both ids; each asserts the exact exception type and the parameter.
+    private static void AssertRejected(string parameterName, Func<object> build)
+    {
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => build());
+
+        Assert.Equal(parameterName, failure.ParamName);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    public void The_throttled_flag_without_any_reasons_is_rejected()
+    {
+        AssertRejected("flags", () => BuildReading(ReadingFlags.Throttled, null));
+        AssertRejected("flags", () => BuildReading(ReadingFlags.Throttled, []));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    public void Reasons_without_the_throttled_flag_are_rejected()
+    {
+        AssertRejected("flags", () => BuildReading(ReadingFlags.None, ["SwPowerCap"]));
+        AssertRejected("flags", () => BuildReading(ReadingFlags.BelowBaseline | ReadingFlags.LowResolution, ["HwSlowdown"]));
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    [InlineData("sw-power-cap")]
+    [InlineData("swpowercap")]
+    [InlineData("GpuIdle")]
+    [InlineData("SyncBoost")]
+    [InlineData("ApplicationsClocksSetting")]
+    [InlineData("Unknown")]
+    public void A_reason_that_is_not_one_of_the_five_names_is_rejected(string name)
+    {
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, ["SwPowerCap", name]));
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, [name]));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    public void A_duplicate_reason_is_rejected()
+    {
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, ["SwPowerCap", "SwPowerCap"]));
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, ["SwPowerCap", "HwSlowdown", "SwPowerCap"]));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    public void Reasons_out_of_bit_order_are_rejected()
+    {
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, ["HwThermalSlowdown", "SwPowerCap"]));
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, ["HwSlowdown", "SwPowerCap"]));
+        AssertRejected("throttleReasons", () => BuildReading(ReadingFlags.Throttled, [.. AllThrottleNames.Reverse()]));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    [Trait("Spec", "REQ-005")]
+    public void A_document_with_the_flag_and_no_reasons_or_the_reverse_is_rejected_on_deserialisation()
+    {
+        const string flagOnly = "{\"grossJoules\":{\"value\":180,\"label\":\"measured\",\"unit\":\"J\"},\"netJoules\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"no-baseline\"},"
+            + "\"avgW\":{\"value\":60,\"label\":\"measured\",\"unit\":\"W\"},\"peakW\":{\"value\":60,\"label\":\"measured\",\"unit\":\"W\"},"
+            + "\"durationSeconds\":3,\"method\":\"sampling\",\"sampleCount\":31,\"sampleRateHz\":10,\"flags\":[\"throttled\"],\"throttleReasons\":null}";
+        string reasonsOnly = flagOnly.Replace("\"flags\":[\"throttled\"],\"throttleReasons\":null", "\"flags\":[],\"throttleReasons\":[\"SwPowerCap\"]", StringComparison.Ordinal);
+
+        Assert.NotEqual(flagOnly, reasonsOnly);
+        AssertRejected("flags", () => JsonSerializer.Deserialize<EnergyReading>(flagOnly, ThrottleJsonOptions)!);
+        AssertRejected("flags", () => JsonSerializer.Deserialize<EnergyReading>(reasonsOnly, ThrottleJsonOptions)!);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Names_lists_the_set_throttle_bits_in_bit_order()
+    {
+        Assert.Equal(AllThrottleNames, NamesOf(Read(ThrottleReasons.ThrottlingMask)));
+        Assert.Equal(AllThrottleNames, NamesOf(Read(ulong.MaxValue)));
+        Assert.Equal(["HwSlowdown", "HwPowerBrakeSlowdown"], NamesOf(Read(HwPowerBrakeSlowdownBit | HwSlowdownBit | GpuIdleBit)));
+        Assert.Empty(Read(0UL).Names);
+        Assert.Empty(ThrottleReasons.Unsupported.Names);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void An_unsupported_value_is_never_throttled_and_has_no_names_whatever_its_bits_say()
+    {
+        var odd = new ThrottleReasons(SwPowerCapBit, false);
+
+        Assert.False(odd.IsThrottled);
+        Assert.Empty(odd.Names);
+        Assert.False(ThrottleReasons.Unsupported.IsThrottled);
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-013")]
+    [InlineData(GpuIdleBit, false)]
+    [InlineData(ApplicationsClocksBit, false)]
+    [InlineData(SyncBoostBit, false)]
+    [InlineData(SwPowerCapBit, true)]
+    [InlineData(HwSlowdownBit, true)]
+    [InlineData(SwThermalSlowdownBit, true)]
+    [InlineData(HwThermalSlowdownBit, true)]
+    [InlineData(HwPowerBrakeSlowdownBit, true)]
+    [InlineData(GpuIdleBit | SwPowerCapBit, true)]
+    [InlineData(0UL, false)]
+    public void IsThrottled_is_true_only_for_a_supported_value_with_a_throttle_bit(ulong bits, bool expected)
+    {
+        Assert.Equal(expected, Read(bits).IsThrottled);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Union_of_no_sample_or_only_unsupported_samples_is_unsupported()
+    {
+        Assert.Equal(ThrottleReasons.Unsupported, ThrottleReasons.Union([]));
+        Assert.Equal(
+            ThrottleReasons.Unsupported,
+            ThrottleReasons.Union(ThrottleWindow(4, _ => ThrottleReasons.Unsupported).Select(sample => sample.Reasons)));
+        Assert.False(ThrottleReasons.Union([]).Supported);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Union_ors_the_bits_of_the_supported_samples_and_is_supported()
+    {
+        PowerSample[] samples = ThrottleWindowOf(
+            Read(SwPowerCapBit),
+            ThrottleReasons.Unsupported,
+            Read(SwPowerCapBit | GpuIdleBit),
+            new ThrottleReasons(HwPowerBrakeSlowdownBit, false),
+            Read(HwThermalSlowdownBit));
+
+        ThrottleReasons union = ThrottleReasons.Union(samples.Select(sample => sample.Reasons));
+
+        Assert.True(union.Supported);
+        Assert.Equal(SwPowerCapBit | GpuIdleBit | HwThermalSlowdownBit, union.Bits);
+        Assert.Equal(["SwPowerCap", "HwThermalSlowdown"], NamesOf(union));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Union_of_one_supported_sample_with_no_bits_is_supported_with_zero_bits()
+    {
+        ThrottleReasons union = ThrottleReasons.Union(ThrottleWindowOf(Read(0UL), ThrottleReasons.Unsupported).Select(sample => sample.Reasons));
+
+        Assert.Equal(new ThrottleReasons(0UL, true), union);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Union_over_a_sequence_of_reads_follows_the_same_rules()
+    {
+        ThrottleReasons[] reads = [Read(SwPowerCapBit), ThrottleReasons.Unsupported, Read(HwSlowdownBit)];
+
+        Assert.Equal(new ThrottleReasons(SwPowerCapBit | HwSlowdownBit, true), ThrottleReasons.Union(reads));
+        ThrottleReasons[] onlyUnsupported = [ThrottleReasons.Unsupported];
+        Assert.Equal(ThrottleReasons.Unsupported, ThrottleReasons.Union(onlyUnsupported));
+        Assert.Equal(ThrottleReasons.Unsupported, ThrottleReasons.Union([]));
+        Assert.Throws<ArgumentNullException>(() => ThrottleReasons.Union(null!));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void Or_combines_two_reads_and_ignores_the_bits_of_an_unsupported_one()
+    {
+        var unsupportedWithBits = new ThrottleReasons(HwSlowdownBit, false);
+
+        Assert.Equal(Read(SwPowerCapBit | HwSlowdownBit), Read(SwPowerCapBit).Or(Read(HwSlowdownBit)));
+        Assert.Equal(Read(SwPowerCapBit), Read(SwPowerCapBit).Or(unsupportedWithBits));
+        Assert.Equal(Read(SwPowerCapBit), unsupportedWithBits.Or(Read(SwPowerCapBit)));
+        Assert.Equal(ThrottleReasons.Unsupported, unsupportedWithBits.Or(ThrottleReasons.Unsupported));
+        Assert.Equal(ThrottleReasons.Unsupported, ThrottleReasons.Unsupported.Or(ThrottleReasons.Unsupported));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-013")]
+    public void The_throttling_mask_equals_the_or_of_the_bits_the_five_names_stand_for()
+    {
+        ulong fromNames = 0;
+        foreach (string name in ThrottleReasons.AllNames)
+        {
+            fromNames |= (ulong)Enum.Parse<ThrottleReasonBits>(name);
+        }
+
+        Assert.Equal(ThrottleReasons.ThrottlingMask, fromNames);
+        Assert.Equal(AllThrottleNames, ThrottleReasons.AllNames.ToArray());
+        Assert.Same(ThrottleReasons.AllNames, ThrottleReasons.AllNames);
+        Assert.IsNotType<string[]>(ThrottleReasons.AllNames);
     }
 }

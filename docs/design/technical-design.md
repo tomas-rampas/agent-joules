@@ -254,6 +254,8 @@ public interface IMeterWindow { WindowSpan Span { get; } EnergyReading Close(); 
 
 Amended 2026-10-19 (AJ-027): `MeterCapabilities` also carries `CounterUnsupportedReason` (`counter-not-supported: NVML_ERROR_NOT_SUPPORTED` or `counter-not-supported: <code>`, null when supported) and validates its own state; `MeterMethodSelector` exposes `Parse`, `TrySelect` and `Select` (see the build log, AJ-027); the selector performs no counter read of its own, the factory's single read at Open is the REQ-004 probe.
 
+Amended 2026-10-19 (AJ-028): `throttleReasons` follows a coverage rule: the names of the set power and thermal bits when any window sample carries one, an empty list only when every sample of the window was supported and none carried one, and null when any sample was unsupported and nothing was active (a negative claim needs full coverage); the five mapped bits are SwPowerCap 0x4, HwSlowdown 0x8, SwThermalSlowdown 0x20, HwThermalSlowdown 0x40 and HwPowerBrakeSlowdown 0x80 (values verified against nvml.h); DisplayClockSetting 0x100, BoardLimit 0x200 and Reliability 0x400 are unmapped pending D-13.
+
 `ReadingCalculator.Compute(...)` is the single pure function both meters call. Rules:
 
 - Sampling integral: trapezoid between consecutive samples; the first sample is held from window start to its timestamp and the last from its timestamp to window stop. With 21 samples of 50 000 mW at 0.0 to 2.0 s the result is 100 J (REQ-004 test).

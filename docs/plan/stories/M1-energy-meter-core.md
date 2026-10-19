@@ -602,9 +602,9 @@ Tasks:
 Test mapping: PowerIntegrationTests (design 6.1: power-cap bit gives `throttled` plus reason); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-028-throttle-detection.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results` and `## Probe and WSL2 notes`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-013 commit by the builder with a message starting `AJ-028 EDGE-013:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-013 commit by the builder with a message starting `AJ-028 EDGE-013:` (nothing pushed)
 Demo relevance: no
 Conflict: EDGE-013 acceptance says that if the API is unsupported on the laptop, `docs/methodology.md` says so. That file is owned by REQ-022 (M4). Proposed resolution: M1 records the laptop result in docs/build-log.md and the M4 methodology story copies the sentence when the result is "unsupported".
 

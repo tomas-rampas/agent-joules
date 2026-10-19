@@ -158,7 +158,7 @@ public sealed class EnergyReadingJsonTests
     public void TheFlagsAndTheMethodOfAReadingStayStrictEvenWhenTheOptionsCarryAnEnumConverterAndNoNamingPolicy()
     {
         // A converter in the options outranks the attribute on the enum type, so the reading pins its own on the properties.
-        EnergyReading reading = Build(flags: ReadingFlags.Throttled, method: EnergyMethod.Counter);
+        EnergyReading reading = Build(flags: ReadingFlags.Throttled, reasons: ["SwPowerCap"], method: EnergyMethod.Counter);
 
         using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(reading, PlainEnumOptions));
 
@@ -200,12 +200,12 @@ public sealed class EnergyReadingJsonTests
     [Fact]
     public void AReadingWithThrottleReasonsRoundTripsTheirNames()
     {
-        EnergyReading reading = Build(reasons: ["sw-power-cap", "hw-thermal-slowdown"]);
+        EnergyReading reading = Build(flags: ReadingFlags.Throttled, reasons: ["SwPowerCap", "HwThermalSlowdown"]);
 
         EnergyReading? copy = JsonSerializer.Deserialize<EnergyReading>(JsonSerializer.Serialize(reading, ReadingOptions), ReadingOptions);
 
         Assert.NotNull(copy);
-        string[] expected = ["sw-power-cap", "hw-thermal-slowdown"];
+        string[] expected = ["SwPowerCap", "HwThermalSlowdown"];
         Assert.Equal(expected, copy.ThrottleReasons);
     }
 
@@ -298,7 +298,7 @@ public sealed class EnergyReadingJsonTests
     [InlineData("sampleCount", "-1")]
     [InlineData("sampleRateHz", "0")]
     [InlineData("sampleRateHz", "-5")]
-    [InlineData("throttleReasons", "[\"sw-power-cap\",\"\"]")]
+    [InlineData("throttleReasons", "[\"SwPowerCap\",\"\"]")]
     [InlineData("throttleReasons", "[\" \"]")]
     [InlineData("throttleReasons", "[null]")]
     public void ADocumentThatViolatesAnInvariantIsAnArgumentException(string property, string rawJson)
@@ -375,19 +375,19 @@ public sealed class EnergyReadingJsonTests
     [InlineData(null)]
     public void AThrottleReasonThatIsNullOrBlankIsRejected(string? reason)
     {
-        Assert.Equal("throttleReasons", Assert.Throws<ArgumentException>(() => Build(reasons: ["sw-power-cap", reason!])).ParamName);
+        Assert.Equal("throttleReasons", Assert.Throws<ArgumentException>(() => Build(flags: ReadingFlags.Throttled, reasons: ["SwPowerCap", reason!])).ParamName);
     }
 
     [Fact]
     public void TheThrottleReasonsAreCopiedSoALaterChangeToTheSourceListDoesNotReachTheReading()
     {
-        List<string> reasons = ["sw-power-cap"];
-        EnergyReading reading = Build(reasons: reasons);
+        List<string> reasons = ["SwPowerCap"];
+        EnergyReading reading = Build(flags: ReadingFlags.Throttled, reasons: reasons);
 
-        reasons.Add("hw-slowdown");
+        reasons.Add("HwSlowdown");
         reasons[0] = "changed";
 
-        string[] expected = ["sw-power-cap"];
+        string[] expected = ["SwPowerCap"];
         Assert.Equal(expected, reading.ThrottleReasons);
     }
 
@@ -559,8 +559,8 @@ public sealed class EnergyReadingJsonTests
     [Fact]
     public void AReadingWithTwoThrottleReasonsRoundTripsThroughTheSourceGeneratedContext()
     {
-        string[] reasons = ["sw-power-cap", "hw-thermal-slowdown"];
-        EnergyReading reading = Build(reasons: reasons);
+        string[] reasons = ["SwPowerCap", "HwThermalSlowdown"];
+        EnergyReading reading = Build(flags: ReadingFlags.Throttled, reasons: reasons);
 
         string json = JsonSerializer.Serialize(reading, EnergyReadingTestJsonContext.Default.EnergyReading);
         EnergyReading? copy = JsonSerializer.Deserialize(json, EnergyReadingTestJsonContext.Default.EnergyReading);
