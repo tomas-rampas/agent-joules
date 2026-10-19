@@ -707,7 +707,7 @@ One `TimeProvider` singleton (`TimeProvider.System` in production, `FakeTimeProv
 
 ### 5.5 Culture and number formatting
 
-`InvariantGlobalization=true` in `src/**` projects only (test projects run Reqnroll, which needs `en-US`, design-review B-02); CA1304/1305/1307/1309/1310 at warning; every `ToString`, `string.Format` and interpolation that formats a number in an output path uses `CultureInfo.InvariantCulture` explicitly, which is what guarantees invariant output in tests and production alike. Report numbers: joules and watts `F1`, latency `F0`, cost `F4`, quality integer. JSON numbers are written by System.Text.Json (invariant, shortest round-trip). All generated text files use LF and UTF-8 without BOM regardless of OS; `.gitattributes` starts with `* text=auto eol=lf` (section 2.3).
+`InvariantGlobalization=true` in `src/**` projects only (test projects run Reqnroll, which needs `en-US`, design-review B-02); CA1304/1305/1307/1309/1310 at warning; every `ToString`, `string.Format` and interpolation that formats a number in an output path uses `CultureInfo.InvariantCulture` explicitly, which is what guarantees invariant output in tests and production alike. Report numbers: joules and watts `F1`, latency `F0`, cost `F4`, quality integer. JSON numbers are written by System.Text.Json (invariant, shortest round-trip). All generated text files use LF and UTF-8 without BOM regardless of OS; `.gitattributes` starts with `* text=auto eol=lf` (section 2.3). Amended 2026-10-18 (post-M0 review): the switch is set through `RuntimeHostConfigurationOption` items in `src/Directory.Build.props`, not through the MSBuild property, because the property silences the culture analyzers this section relies on; see section 2.3.
 
 ### 5.6 Linux, WSL2 and the cloudgpu VM path
 
@@ -789,7 +789,7 @@ Workflow-level `permissions: { contents: read }`; job `timeout-minutes: 20`; mat
 | Analyzers, warnings as errors | `AnalysisLevel 10.0-recommended`, globalization and logging rules raised, `-warnaserror` with `--no-incremental` in CI |
 | Central package management | one `Directory.Packages.props`, no `Version` attribute in any project |
 | Source-generated JSON | `AgentJoulesJsonContext` and `CoreJsonContext`; schema exported from the same context |
-| Invariant formatting | explicit `InvariantCulture` everywhere, `InvariantGlobalization` in `src/**` only, LF output enforced by `.gitattributes` and `.editorconfig` |
+| Invariant formatting | explicit `InvariantCulture` everywhere, invariant globalization in `src/**` only as `RuntimeHostConfigurationOption` items (amended 2026-10-18, section 2.3), LF output enforced by `.gitattributes` and `.editorconfig` |
 | OpenTelemetry | `Meter` `AgentJoules` via `IMeterFactory`, agent spans via `UseOpenTelemetry`, console metrics exporter and env-driven OTLP |
 | Minimal APIs and SSE | dashboard on `WebApplication.CreateSlimBuilder`, loopback-only Kestrel, `TypedResults.ServerSentEvents` with `SseItem<T>`, bounded `Channel<T>` back-pressure |
 | No reflection-based mocking | fakes in TestSupport; no Moq or NSubstitute |

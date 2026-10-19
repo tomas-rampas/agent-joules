@@ -958,6 +958,7 @@ Acceptance criteria:
    - Escaped exceptions: an exception that escapes a thread, timer, ThreadPool item or async void is printed by the runtime below `System.Console` and bypasses the wrapper; an `AppDomain.CurrentDomain.UnhandledException` handler writes the redacted `error: <message> (<type>)` line, flushes and calls `Environment.Exit(1)`; a child-process test with a worker-thread throw proves it.
    - Producers write whole lines per call (`TextWriter.Synchronized` serialises calls, not lines); the wrappers are created with `leaveOpen: true` for Console.Out and Console.Error.
    - Carry-overs: async overloads, `\r` progress lines, the `char[]` fast path guarded by the per-character test, and the Register validation rules listed in AJ-010.
+   - Register validation: when `SecretRedactor.Register` returns false for a non-empty configured key, the host writes a warning to stderr naming the variable (never the value) or exits 3; a configured value containing a lone surrogate or a variation selector is not masked by either registered form (security LOW, peer review MINOR, 2026-10-18), so the host rejects such values with the same warning.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S034 @REQ-006
