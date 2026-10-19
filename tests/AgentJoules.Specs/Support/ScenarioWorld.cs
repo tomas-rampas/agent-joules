@@ -136,6 +136,24 @@ public sealed class ScenarioWorld : IDisposable
     /// <summary>The exception <c>PowerIntegrator</c> threw, or null.</summary>
     public Exception? IntegrationFailure { get; set; }
 
+    /// <summary>The energy method a reading scenario computes with; sampling unless a Given step says counter.</summary>
+    public EnergyMethod ReadingMethod { get; set; } = EnergyMethod.Sampling;
+
+    /// <summary>The counter delta in millijoules a reading scenario supplies, or null when the counter was not read.</summary>
+    public long? CounterDeltaMillijoules { get; set; }
+
+    /// <summary>The idle baseline mean in watts a reading scenario supplies, or null when none was measured.</summary>
+    public double? BaselineMeanWatts { get; set; }
+
+    /// <summary>The configured sampling rate in hertz a reading scenario supplies.</summary>
+    public double ReadingSampleRateHz { get; set; } = 10.0;
+
+    /// <summary>True when the reading scenario models an auto selection that fell back to sampling.</summary>
+    public bool ReadingIsSamplingFallback { get; set; }
+
+    /// <summary>What <c>ReadingCalculator.Compute</c> returned, or null when it has not run or threw.</summary>
+    public EnergyReading? Reading { get; set; }
+
     public void Dispose()
     {
         // A scenario may script a blanket fault; clear it so releasing the session cannot fail the hook.

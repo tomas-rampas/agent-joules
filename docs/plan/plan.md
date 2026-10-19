@@ -338,5 +338,6 @@ The demo is the CLI itself on the three committed tasks, from the repository roo
 | D-9 | May the session run independent stories in parallel sub-agents? Throughput unmeasured | No parallelism until the M1 gate shows the single-session velocity | Oct 21 |
 | D-10 | Steps 1 to 4 and 10 and 11 of prompt section 12 on the calendar of 3.6 | Do by the dates given | see 3.6 |
 | D-11 | (2026-10-19, AJ-024) The `Metric` unit and currency rule and the three added factories (design 3.2 amendment) | Accepted as a design addition by the orchestrator; confirm or amend | M1 gate |
+| D-12 | (2026-10-19, AJ-026) Counter-reset default: a negative energy-counter delta inside a window gives gross and net `not-reported` with reason `counter-went-backwards` (story criterion 6); design 5.2's extra row (gross from sampling plus a counter-reset flag) is not implemented in M1 | Story as built; confirm at the M1 gate whether M2 adds the design 5.2 row | M1 gate |
 
 Resolved audit findings (plan audit and re-audit, 2026-10-18; Y-01 to Y-09 incl. AJ-092 Ctrl+C scenario and AJ-131-T4 exit-code table): GAP-1 and D-4 (AJ-144), E-01 (AJ-131 now says ten demo steps), X-08 (`artifacts/demo-run`), X-10 (AJ-056-T4a), X-11 (AJ-100 MUST), X-12 (AJ-159 copies 3.4), S-02 (mechanics in 3.4), S-04 (AJ-038 MUST), S-16 (wording quoted in section 6), S-20 (traceability), S-21 (one calendar in 3.6).

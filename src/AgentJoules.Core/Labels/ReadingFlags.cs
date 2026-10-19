@@ -1,7 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace AgentJoules.Core.Labels;
 
-/// <summary>Qualifiers attached to one energy reading; each bit has a fixed vocabulary string in <see cref="ReadingFlagNames"/>.</summary>
+/// <summary>
+/// Qualifiers attached to one energy reading; each bit has a fixed vocabulary string in <see cref="ReadingFlagNames"/>.
+/// Serialized as an array of those strings by <see cref="ReadingFlagsJsonConverter"/>.
+/// </summary>
 [Flags]
+[JsonConverter(typeof(ReadingFlagsJsonConverter))]
 public enum ReadingFlags
 {
     /// <summary>No qualifier.</summary>
@@ -46,6 +52,10 @@ public static class ReadingFlagNames
 
     // Every bit the table names; a bit outside it is a caller error, not something to drop silently.
     private static readonly ReadingFlags KnownMask = Table.Aggregate(ReadingFlags.None, static (mask, entry) => mask | entry.Flag);
+
+    /// <summary>True when every set bit has a vocabulary string; <see cref="ReadingFlags.None"/> is known.</summary>
+    /// <param name="flags">The flags to check.</param>
+    internal static bool IsKnown(ReadingFlags flags) => (flags & ~KnownMask) == ReadingFlags.None;
 
     /// <summary>Returns the vocabulary string of every set bit in bit order; an empty list for <see cref="ReadingFlags.None"/>.</summary>
     /// <param name="flags">The flags to convert.</param>

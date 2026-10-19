@@ -789,6 +789,178 @@ public sealed class MeteringSteps(ScenarioWorld world)
         Assert.Contains(_world.FlagName!, failure.Message, StringComparison.Ordinal);
     }
 
+    private EnergyReading ComputedReading =>
+        _world.Reading ?? throw new InvalidOperationException("No reading was computed.");
+
+    private void GivenConstantPowerOverWindow(double watts, double windowSeconds)
+    {
+        int count = (int)Math.Round(windowSeconds * 10.0) + 1;
+        AddSamples(Enumerable.Range(0, count).Select(i => i / 10.0), _ => watts);
+        _world.WindowStartSeconds = 0.0;
+        _world.WindowStopSeconds = windowSeconds;
+    }
+
+    private static void AssertMeasured(Metric metric, double expected, string unit)
+    {
+        Assert.Equal(MetricLabel.Measured, metric.Label);
+        Assert.Equal(unit, metric.Unit);
+        Assert.NotNull(metric.Value);
+        Assert.Equal(expected, metric.Value.Value, 1e-9);
+    }
+
+    private static void AssertNotReported(Metric metric, string reason)
+    {
+        Assert.Equal(MetricLabel.NotReported, metric.Label);
+        Assert.Equal(reason, metric.Reason);
+        Assert.Null(metric.Value);
+    }
+
+    [Given(@"^(\d+) samples of (\d+) W over a (\d+) s window and a baseline of (\d+) W$")]
+    public void GivenSamplesOfWattsOverAWindowAndABaseline(int count, double watts, double windowSeconds, double baselineWatts)
+    {
+        AddSamples(Enumerable.Range(0, count).Select(i => i / 10.0), _ => watts);
+        _world.WindowStartSeconds = 0.0;
+        _world.WindowStopSeconds = windowSeconds;
+        _world.BaselineMeanWatts = baselineWatts;
+    }
+
+    [Given(@"^a (\d+) s window at (\d+) W and a baseline of (\d+) W$")]
+    public void GivenAWindowAtWattsAndABaseline(double windowSeconds, double watts, double baselineWatts)
+    {
+        GivenConstantPowerOverWindow(watts, windowSeconds);
+        _world.BaselineMeanWatts = baselineWatts;
+    }
+
+    [Given(@"^method counter, a counter delta of (-?\d+) mJ and samples at (\d+) W for (\d+) s$")]
+    public void GivenMethodCounterWithADeltaAndSamples(long deltaMillijoules, double watts, double windowSeconds)
+    {
+        _world.ReadingMethod = EnergyMethod.Counter;
+        _world.CounterDeltaMillijoules = deltaMillijoules;
+        GivenConstantPowerOverWindow(watts, windowSeconds);
+    }
+
+    [Given(@"^a (\d+) ms window at (\d+) Hz sampling$")]
+    public void GivenAMillisecondWindowAtHzSampling(int milliseconds, double hertz)
+    {
+        double stop = milliseconds / 1000.0;
+        List<double> timestamps = [];
+        for (int i = 0; i / hertz < stop - 1e-9; i++)
+        {
+            timestamps.Add(i / hertz);
+        }
+
+        timestamps.Add(stop);
+        AddSamples(timestamps, _ => 60.0);
+        _world.WindowStartSeconds = 0.0;
+        _world.WindowStopSeconds = stop;
+        _world.ReadingSampleRateHz = hertz;
+    }
+
+    [Given(@"^a window and no baseline$")]
+    public void GivenAWindowAndNoBaseline()
+    {
+        GivenConstantPowerOverWindow(60.0, 3.0);
+        _world.BaselineMeanWatts = null;
+    }
+
+    [Given(@"^a counter delta of (-?\d+) mJ$")]
+    public void GivenACounterDeltaOf(long deltaMillijoules)
+    {
+        _world.ReadingMethod = EnergyMethod.Counter;
+        _world.CounterDeltaMillijoules = deltaMillijoules;
+        GivenConstantPowerOverWindow(60.0, 3.0);
+    }
+
+    [Given(@"^a window with one sample and method sampling$")]
+    public void GivenAWindowWithOneSampleAndMethodSampling()
+    {
+        _world.ReadingMethod = EnergyMethod.Sampling;
+        AddSamples([1.5], _ => 60.0);
+        _world.WindowStartSeconds = 0.0;
+        _world.WindowStopSeconds = 3.0;
+    }
+
+    [When(@"^the reading is computed$")]
+    public void WhenTheReadingIsComputed()
+    {
+        _world.Reading = ReadingCalculator.Compute(new ReadingInput(
+            Samples: _world.PowerSamples,
+            WindowStartSeconds: _world.WindowStartSeconds,
+            WindowStopSeconds: _world.WindowStopSeconds,
+            Method: _world.ReadingMethod,
+            CounterDeltaMillijoules: _world.CounterDeltaMillijoules,
+            BaselineMeanWatts: _world.BaselineMeanWatts,
+            SampleRateHz: _world.ReadingSampleRateHz,
+            IsSamplingFallback: _world.ReadingIsSamplingFallback));
+    }
+
+    [Then(@"^gross is (\S+) J, net is (\S+) J, average is (\S+) W, peak is (\S+) W and sampleCount is (\d+)$")]
+    public void ThenTheFourMetricsAndTheSampleCountAre(string gross, string net, string average, string peak, int sampleCount)
+    {
+        EnergyReading reading = ComputedReading;
+        AssertMeasured(reading.GrossJoules, ParseNumber(gross), "J");
+        AssertMeasured(reading.NetJoules, ParseNumber(net), "J");
+        AssertMeasured(reading.AverageWatts, ParseNumber(average), "W");
+        AssertMeasured(reading.PeakWatts, ParseNumber(peak), "W");
+        Assert.Equal(sampleCount, reading.SampleCount);
+    }
+
+    [Then(@"^net is (\S+) J and the flags contain ""([^""]*)""$")]
+    public void ThenNetIsAndTheFlagsContain(string net, string flag)
+    {
+        AssertMeasured(ComputedReading.NetJoules, ParseNumber(net), "J");
+        Assert.Contains(flag, ReadingFlagNames.ToStrings(ComputedReading.Flags));
+    }
+
+    [Then(@"^gross is (\S+) J and average is (\S+) W from the samples$")]
+    public void ThenGrossIsAndAverageIsFromTheSamples(string gross, string average)
+    {
+        AssertMeasured(ComputedReading.GrossJoules, ParseNumber(gross), "J");
+        AssertMeasured(ComputedReading.AverageWatts, ParseNumber(average), "W");
+    }
+
+    [Then(@"^the flags contain ""([^""]*)"" and the reading is kept$")]
+    public void ThenTheFlagsContainAndTheReadingIsKept(string flag)
+    {
+        EnergyReading reading = ComputedReading;
+        Assert.Contains(flag, ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.Equal(MetricLabel.Measured, reading.GrossJoules.Label);
+        Assert.Equal(_world.PowerSamples.Count, reading.SampleCount);
+    }
+
+    [Then(@"^the flags do not contain ""([^""]*)""$")]
+    public void ThenTheFlagsDoNotContain(string flag)
+    {
+        Assert.DoesNotContain(flag, ReadingFlagNames.ToStrings(ComputedReading.Flags));
+    }
+
+    [Then(@"^net is label not-reported with reason ""([^""]*)"" and value null$")]
+    public void ThenNetIsNotReportedWithReason(string reason)
+    {
+        AssertNotReported(ComputedReading.NetJoules, reason);
+    }
+
+    [Then(@"^gross and net are not-reported with reason ""([^""]*)"" and no value is 0$")]
+    public void ThenGrossAndNetAreNotReportedAndNoValueIsZero(string reason)
+    {
+        EnergyReading reading = ComputedReading;
+        AssertNotReported(reading.GrossJoules, reason);
+        AssertNotReported(reading.NetJoules, reason);
+        foreach (Metric metric in new[] { reading.GrossJoules, reading.NetJoules, reading.AverageWatts, reading.PeakWatts })
+        {
+            Assert.True(metric.Value is not 0.0, "No metric of the reading may carry the value 0.");
+        }
+    }
+
+    [Then(@"^gross, average and peak are not-reported with reason ""([^""]*)""$")]
+    public void ThenGrossAverageAndPeakAreNotReported(string reason)
+    {
+        EnergyReading reading = ComputedReading;
+        AssertNotReported(reading.GrossJoules, reason);
+        AssertNotReported(reading.AverageWatts, reason);
+        AssertNotReported(reading.PeakWatts, reason);
+    }
+
     private static readonly JsonSerializerOptions MetricJsonOptions = new()
     {
         Converters = { new JsonStringEnumConverter() },

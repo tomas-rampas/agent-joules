@@ -419,7 +419,7 @@ Acceptance criteria:
 3. Test: method `counter` with a counter delta of 170 000 mJ gives gross 170 J while average, peak, `sampleCount` and `sampleRateHz` still come from the samples (REQ-005).
 4. Test (EDGE-003): a 150 ms window at 10 Hz carries flag `low-resolution`; exactly 200 ms and 250 ms do not (strict "shorter than 2 / rate", compared in integer ticks).
 5. Test: no baseline supplied gives net `not-reported` with reason `no-baseline` while gross stays measured.
-6. Test: a negative counter delta gives gross and net `not-reported` with reason `counter-went-backwards`, never 0. The design is silent on counter resets; this default is recorded in docs/build-log.md for owner confirmation.
+6. Test: a negative counter delta gives gross and net `not-reported` with reason `counter-went-backwards`, never 0. The design is silent on counter resets; this default is recorded in docs/build-log.md for owner confirmation. Note (2026-10-19, gates): design 5.2 does cover it (an extra row: gross from sampling plus a `counter-reset` flag); the story's not-reported default is the fail-closed interim for M1 and the choice is open decision D-12 in plan.md section 9.
 7. Test: fewer than two samples gives sampling gross, average and peak `not-reported` with reason `insufficient-samples`; with method `counter` only average and peak are not-reported.
 8. `EnergyReading` holds gross, net, average and peak as `Metric`, duration, method (`counter` or `sampling`), `sampleCount`, `sampleRateHz`, flags and `throttleReasons`.
 BDD scenarios:
@@ -477,9 +477,9 @@ Tasks:
 Test mapping: AttributionBaselineTests (traits Spec=REQ-005 and Spec=EDGE-003); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-026-compute-reading.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`, plus the counter-reset default.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-003 commit by the builder with a message starting `AJ-026 EDGE-003:` once the flag test passes
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-003 commit by the builder with a message starting `AJ-026 EDGE-003:` once the flag test passes
 Demo relevance: no
 Conflict: EDGE-003 acceptance also requires "the rendered summary row for that reading contains `low-resolution`", which needs the summary renderer (REQ-016, M3). Proposed resolution: M1 delivers the flag in `EnergyReading` and its test; the M3 report story must assert that the rendered row contains `low-resolution` and reference EDGE-003 in its trait.
 
