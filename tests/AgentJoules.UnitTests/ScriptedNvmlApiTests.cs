@@ -523,12 +523,12 @@ public sealed class ScriptedNvmlApiTests
         api.FaultFor = member => member switch
         {
             "GetName" => new BadImageFormatException("scripted"),
-            "GetClocksEventReasons" => new EntryPointNotFoundException("scripted"),
+            "GetClocksEventReasons" => new BadImageFormatException("scripted"),
             _ => null,
         };
 
         Assert.Throws<BadImageFormatException>(() => api.GetName(Device, out _));
-        Assert.Throws<EntryPointNotFoundException>(() => api.GetClocksEventReasons(Device, out _));
+        Assert.Throws<BadImageFormatException>(() => api.GetClocksEventReasons(Device, out _));
         Assert.Equal(NvmlReturn.Success, api.GetUuid(Device, out string uuid));
         Assert.False(string.IsNullOrEmpty(uuid));
     }

@@ -92,11 +92,11 @@ Acceptance criteria:
 1. `src/AgentJoules.Nvml/AssemblyAttributes.cs` contains `[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` and `[assembly: DisableRuntimeMarshalling]`; the build reports no CA5392 and no CA5393.
 2. `NvmlNative.cs` declares one `[LibraryImport("nvml", EntryPoint = "...")]` per function of the design 3.1 table (nvmlInit_v2, nvmlShutdown, nvmlSystemGetDriverVersion, nvmlDeviceGetCount_v2, nvmlDeviceGetHandleByIndex_v2, nvmlDeviceGetName, nvmlDeviceGetUUID, nvmlDeviceGetVbiosVersion, nvmlDeviceGetCudaComputeCapability, nvmlDeviceGetEnforcedPowerLimit, nvmlDeviceGetPowerUsage, nvmlDeviceGetTotalEnergyConsumption, nvmlDeviceGetMigMode, nvmlDeviceGetCurrentClocksEventReasons), `int` return, `nint` device handle, `Span<byte>` buffers decoded as UTF-8 up to the first NUL, no `StringMarshalling` (no SYSLIB1051). `grep -c "docs.nvidia.com/deploy/nvml-api" src/AgentJoules.Nvml/Interop/NvmlNative.cs` equals `grep -c "LibraryImport" src/AgentJoules.Nvml/Interop/NvmlNative.cs` (each declaration cites the NVML API reference).
 3. The builder re-checks each signature and unit (milliwatts, millijoules) against the NVML API reference and records the check in docs/build-log.md; a mismatch is fixed in code, not in the test.
-4. `NvmlLibraryCandidates.For(OSPlatform.Windows, programW6432)` returns `nvml.dll` then `<programW6432>\NVIDIA Corporation\NVSMI\nvml.dll`; the second entry is omitted when `programW6432` is null or empty.
+4. `NvmlLibraryCandidates.For(OSPlatform.Windows, programW6432)` returns `nvml.dll` then `<programW6432>\NVIDIA Corporation\NVSMI\nvml.dll`; the second entry is omitted when `programW6432` is null or empty. Note (2026-10-19, security gate): the second entry is also omitted when `programW6432` is whitespace or not a fully qualified path (`C:foo`, `\foo`, `relative`), so no relative path can be produced.
 4a. `NvmlLibraryCandidates.For(OSPlatform.Linux, ...)` returns `libnvidia-ml.so.1` then `libnvidia-ml.so`, in that order (test `Linux_candidates_are_ordered` in NvmlBindingTests); this serves REQ-003 on the Linux cloudgpu VM and EDGE-014.
-5. `NvmlLibraryResolver` registers once through a static `Lazy<bool>` and `NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, ...)` for the logical name `nvml`; the first candidate is tried with `NativeLibrary.TryLoad(name, assembly, DllImportSearchPath.System32, out h)`, the absolute path with `TryLoad(path, out h)`.
+5. `NvmlLibraryResolver` registers once through a static `Lazy<bool>` and `NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, ...)` for the logical name `nvml`; the first candidate is tried with `NativeLibrary.TryLoad(name, assembly, DllImportSearchPath.System32, out h)`, the absolute path with `TryLoad(path, out h)`. Note (2026-10-19, security gate, measured): superseded in the load mechanism by design 3.1 as amended: the bare name is loaded through its full `Environment.SystemDirectory` path with `TryLoad(path, out h)`, the Linux soname with `TryLoad(name, out h)`, a failed resolution throws `DllNotFoundException`, and the handle is cached; the registration and candidate order are unchanged.
 6. An injected-loader overload `TryLoadFirst(candidates, loader, out handle)` returns the first successful handle, returns false when every candidate fails, and never throws for a missing file.
-7. `NvmlApi` (the real `INvmlApi`) maps native return codes to `NvmlReturn`; a missing driver makes the first native call throw `DllNotFoundException` (caught by the factory in AJ-022), nothing else.
+7. `NvmlApi` (the real `INvmlApi`) maps native return codes to `NvmlReturn`; a missing driver makes the first native call throw `DllNotFoundException` (caught by the factory in AJ-022), nothing else. Note (2026-10-19, code-review gate): the clock-event fallback is `ClocksEventReader` behind injected delegates, unit-tested for all paths; a missing export surfaces as `NotSupported`.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S021 @REQ-003
@@ -143,9 +143,9 @@ Tasks:
 Test mapping: NvmlBindingTests (Windows and Linux candidate lists and loader tests); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-021-nvml-binding.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results` and the signature check note.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every NVML signature carries a URL comment (REQ-003)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every NVML signature carries a URL comment (REQ-003)
 Demo relevance: no
 
 ### AJ-022: Open, read and dispose an NVML device with a typed result
@@ -553,7 +553,7 @@ Acceptance criteria:
 2. The mapping is `SwPowerCap` 0x4, `HwSlowdown` 0x8, `SwThermalSlowdown` 0x20, `HwThermalSlowdown` 0x40, `HwPowerBrakeSlowdown` 0x80, each setting `throttled`; the builder copies the values from nvml.h and records the check (values inferred from macro names in the design).
 3. Test: only `GpuIdle` (0x1), applications-clocks (0x2) or sync-boost (0x10) bits give no `throttled` flag and an empty reason list.
 4. Test: a reason present in only one sample of the window (an edge sample included) still flags the reading; reasons are the distinct union ordered by bit value.
-5. `nvmlDeviceGetCurrentClocksEventReasons` is called first; on `EntryPointNotFoundException` the deprecated `nvmlDeviceGetCurrentClocksThrottleReasons` is used (test with a scripted missing-export switch); when both are missing the source reports throttling as unsupported.
+5. `nvmlDeviceGetCurrentClocksEventReasons` is called first; on `EntryPointNotFoundException` the deprecated `nvmlDeviceGetCurrentClocksThrottleReasons` is used (test with a scripted missing-export switch); when both are missing the source reports throttling as unsupported. Note (2026-10-19): delivered in AJ-021 as `ClocksEventReader` with delegate-level tests for the new export, the deprecated export and both missing; AJ-028-T3 wires the reader into `NvmlGpuTelemetrySource` and the `ScriptedNvmlApi` models the unsupported case through `ClockEventReturn = NotSupported`; the deprecated-export path is proven at the reader level, not through the fake.
 6. When throttling is unsupported, `throttleReasons` is null (not an empty list), no flag is set, and no `throttled: false` is claimed; an empty list means "supported and nothing active".
 7. On the laptop (`@integration`), whether the API is supported is recorded under `## Probe and WSL2 notes`; if unsupported, the note hands the sentence "throttle reasons are unavailable on this GPU" to the M4 methodology story.
 BDD scenarios:

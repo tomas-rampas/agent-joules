@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 using AgentJoules.Nvml.Interop;
 using AgentJoules.Specs.Support;
@@ -13,6 +14,8 @@ namespace AgentJoules.Specs.Steps;
 [Binding]
 public sealed class MeteringSteps(ScenarioWorld world)
 {
+    private const nint SecondCandidateHandle = 0x2000;
+
     private readonly ScenarioWorld _world = world;
 
     private static TimeSpan ParseSeconds(string seconds) =>
@@ -147,5 +150,108 @@ public sealed class MeteringSteps(ScenarioWorld world)
     {
         Assert.Equal(NvmlReturn.Uninitialized, _world.LastReturn);
         Assert.Null(_world.LastPowerMilliwatts);
+    }
+
+    [Given(@"the platform is Windows and ProgramW6432 is ""(.*)""")]
+    public void GivenThePlatformIsWindowsAndProgramW6432Is(string programW6432)
+    {
+        _world.Platform = OSPlatform.Windows;
+        _world.ProgramW6432 = programW6432;
+    }
+
+    [Given(@"ProgramW6432 is empty")]
+    public void GivenProgramW6432IsEmpty()
+    {
+        _world.ProgramW6432 = string.Empty;
+    }
+
+    [Given(@"the platform is Linux")]
+    public void GivenThePlatformIsLinux()
+    {
+        _world.Platform = OSPlatform.Linux;
+    }
+
+    [Given(@"the platform is neither Windows nor Linux")]
+    public void GivenThePlatformIsNeitherWindowsNorLinux()
+    {
+        _world.Platform = OSPlatform.OSX;
+    }
+
+    [Given(@"an injected loader that fails the first candidate and succeeds on the second")]
+    public void GivenAnInjectedLoaderThatFailsTheFirstCandidateAndSucceedsOnTheSecond()
+    {
+        string[] candidates = ["first-candidate", "second-candidate"];
+        _world.LoaderCandidates = candidates;
+        _world.Loader = name => name == candidates[1] ? SecondCandidateHandle : 0;
+    }
+
+    [Given(@"an injected loader that fails every candidate")]
+    public void GivenAnInjectedLoaderThatFailsEveryCandidate()
+    {
+        _world.LoaderCandidates = ["first-candidate", "second-candidate"];
+        _world.Loader = _ => 0;
+    }
+
+    [When(@"the candidate list is built")]
+    public void WhenTheCandidateListIsBuilt()
+    {
+        _world.Candidates = NvmlLibraryCandidates.For(_world.Platform, _world.ProgramW6432);
+    }
+
+    [When(@"the Windows candidate list is built")]
+    public void WhenTheWindowsCandidateListIsBuilt()
+    {
+        _world.Platform = OSPlatform.Windows;
+        _world.Candidates = NvmlLibraryCandidates.For(_world.Platform, _world.ProgramW6432);
+    }
+
+    [When(@"TryLoadFirst runs")]
+    public void WhenTryLoadFirstRuns()
+    {
+        Func<string, nint> loader = _world.Loader
+            ?? throw new InvalidOperationException("No injected loader was scripted.");
+        bool succeeded = false;
+        nint handle = 0;
+        _world.LastException = Record.Exception(
+            () => succeeded = NvmlLibraryResolver.TryLoadFirst(_world.LoaderCandidates, loader, out handle));
+        _world.LoadSucceeded = succeeded;
+        _world.LoadedHandle = handle;
+    }
+
+    [Then(@"it is ""(.*)"" followed by ""(.*)""")]
+    public void ThenItIsFollowedBy(string first, string second)
+    {
+        string[] expected = [first, second];
+        Assert.Equal(expected, _world.Candidates);
+    }
+
+    [Then(@"it contains only ""(.*)""")]
+    public void ThenItContainsOnly(string only)
+    {
+        string[] expected = [only];
+        Assert.Equal(expected, _world.Candidates);
+    }
+
+    [Then(@"it is empty")]
+    public void ThenItIsEmpty()
+    {
+        Assert.NotNull(_world.Candidates);
+        Assert.Empty(_world.Candidates);
+    }
+
+    [Then(@"it returns true with the second candidate's handle")]
+    public void ThenItReturnsTrueWithTheSecondCandidatesHandle()
+    {
+        Assert.Null(_world.LastException);
+        Assert.True(_world.LoadSucceeded);
+        Assert.Equal(SecondCandidateHandle, _world.LoadedHandle);
+    }
+
+    [Then(@"it returns false and no exception escapes")]
+    public void ThenItReturnsFalseAndNoExceptionEscapes()
+    {
+        Assert.Null(_world.LastException);
+        Assert.False(_world.LoadSucceeded);
+        Assert.Equal(0, _world.LoadedHandle);
     }
 }

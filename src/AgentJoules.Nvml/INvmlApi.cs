@@ -25,6 +25,10 @@ public interface INvmlApi
 
     NvmlReturn GetTotalEnergyConsumption(nint device, out ulong millijoules);
 
+    /// <summary>
+    /// Reads the clocks-event reason bitmask. A driver that lacks the clocks-event export reports
+    /// <see cref="NvmlReturn.NotSupported"/>; it never surfaces as <see cref="EntryPointNotFoundException"/>.
+    /// </summary>
     NvmlReturn GetClocksEventReasons(nint device, out ulong reasons);
 
     NvmlReturn GetMigMode(nint device, out uint current, out uint pending);

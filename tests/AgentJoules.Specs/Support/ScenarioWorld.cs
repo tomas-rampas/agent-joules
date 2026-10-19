@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 using AgentJoules.Nvml.Interop;
 using AgentJoules.TestSupport;
 
@@ -40,6 +42,27 @@ public sealed class ScenarioWorld : IDisposable
 
     /// <summary>The exception the last API call threw, or null.</summary>
     public Exception? LastException { get; set; }
+
+    /// <summary>The platform a candidate-list scenario builds the NVML library candidates for.</summary>
+    public OSPlatform Platform { get; set; }
+
+    /// <summary>The ProgramW6432 value a candidate-list scenario passes; null models an unset variable.</summary>
+    public string? ProgramW6432 { get; set; }
+
+    /// <summary>The candidate list the last build step produced, or null.</summary>
+    public IReadOnlyList<string>? Candidates { get; set; }
+
+    /// <summary>The candidate names a loader scenario offers to TryLoadFirst, in order.</summary>
+    public IReadOnlyList<string> LoaderCandidates { get; set; } = [];
+
+    /// <summary>The injected loader of a loader scenario; it returns 0 for a candidate that fails to load.</summary>
+    public Func<string, nint>? Loader { get; set; }
+
+    /// <summary>The result TryLoadFirst returned, or null when it has not run.</summary>
+    public bool? LoadSucceeded { get; set; }
+
+    /// <summary>The handle TryLoadFirst produced.</summary>
+    public nint LoadedHandle { get; set; }
 
     public void Dispose()
     {
