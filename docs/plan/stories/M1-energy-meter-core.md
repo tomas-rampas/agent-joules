@@ -210,9 +210,9 @@ Tasks:
 Test mapping: NvmlBindingTests (missing library yields typed Unavailable, MIG rc 3, lifecycle); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-022-open-dispose-device.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no device handle is wrapped in a SafeHandle (handles are borrowed, design 3.1); the owned resource is the init and shutdown pair
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no device handle is wrapped in a SafeHandle (handles are borrowed, design 3.1); the owned resource is the init and shutdown pair
 Demo relevance: no
 
 ### AJ-023: Gate the NVML integration tests on AGENTJOULES_INTEGRATION

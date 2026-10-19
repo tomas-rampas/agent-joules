@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 
+using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml.Interop;
 using AgentJoules.TestSupport;
 
@@ -64,6 +65,15 @@ public sealed class ScenarioWorld : IDisposable
     /// <summary>The handle TryLoadFirst produced.</summary>
     public nint LoadedHandle { get; set; }
 
+    /// <summary>The platform a factory scenario passes to the factory for the library-not-found reason; null selects the running one.</summary>
+    public OSPlatform? FactoryPlatform { get; set; }
+
+    /// <summary>The result the last factory Open step produced, or null when none ran.</summary>
+    public GpuOpenResult? OpenResult { get; set; }
+
+    /// <summary>The source of an Available result a scenario holds open; released before the scripted session is torn down.</summary>
+    public IGpuTelemetrySource? Source { get; set; }
+
     public void Dispose()
     {
         // A scenario may script a blanket fault; clear it so releasing the session cannot fail the hook.
@@ -72,6 +82,10 @@ public sealed class ScenarioWorld : IDisposable
             _api.FaultFor = null;
             _api.MissingLibrary = false;
         }
+
+        // Dispose is idempotent, so a scenario that already disposed the source is unaffected.
+        Source?.Dispose();
+        Source = null;
 
         // Init is reference counted, so release every outstanding session.
         while (_api is { IsInitialised: true })

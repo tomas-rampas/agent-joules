@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 
+using AgentJoules.Core.Gpu;
+using AgentJoules.Nvml;
 using AgentJoules.Nvml.Interop;
 using AgentJoules.Specs.Support;
 using AgentJoules.TestSupport;
@@ -253,5 +255,140 @@ public sealed class MeteringSteps(ScenarioWorld world)
         Assert.Null(_world.LastException);
         Assert.False(_world.LoadSucceeded);
         Assert.Equal(0, _world.LoadedHandle);
+    }
+
+    private static GpuOpenResult OpenThroughFactory(ScriptedNvmlApi api, OSPlatform? platform, int index) =>
+        new NvmlGpuTelemetrySourceFactory(api, platform).Open(index);
+
+    private void OpenAndHold(int index)
+    {
+        _world.OpenResult = OpenThroughFactory(_world.Api, _world.FactoryPlatform, index);
+        Assert.True(_world.OpenResult.IsAvailable, _world.OpenResult.Reason);
+        _world.Source = _world.OpenResult.Source;
+    }
+
+    [Given(@"a ScriptedNvmlApi with one device named ""(.*)"" and a (\d+) W power limit")]
+    public void GivenAScriptedNvmlApiWithOneDeviceNamedAndAWPowerLimit(string name, uint watts)
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time) { Name = name, PowerLimitMilliwatts = watts * 1000, DeviceCount = 1 };
+    }
+
+    [Given(@"the scripted MIG query returns rc (\d+)")]
+    public void GivenTheScriptedMigQueryReturnsRc(int code)
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time) { MigModeReturn = (NvmlReturn)code };
+    }
+
+    [Given(@"the scripted API is in missing-library mode on Windows")]
+    public void GivenTheScriptedApiIsInMissingLibraryModeOnWindows()
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time) { MissingLibrary = true };
+        _world.FactoryPlatform = OSPlatform.Windows;
+    }
+
+    [Given(@"nvmlInit_v2 returns rc (\d+)")]
+    public void GivenNvmlInitV2ReturnsRc(int code)
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time) { InitReturn = (NvmlReturn)code };
+    }
+
+    [Given(@"the device count is (\d+)")]
+    public void GivenTheDeviceCountIs(uint count)
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time) { DeviceCount = count };
+    }
+
+    [Given(@"an open source")]
+    public void GivenAnOpenSource()
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time);
+        OpenAndHold(0);
+    }
+
+    [Given(@"a disposed source")]
+    public void GivenADisposedSource()
+    {
+        _world.Api = new ScriptedNvmlApi(_world.Time);
+        OpenAndHold(0);
+        _world.Source!.Dispose();
+    }
+
+    [When(@"the factory opens index (-?\d+)")]
+    public void WhenTheFactoryOpensIndex(int index)
+    {
+        GpuOpenResult? result = null;
+        _world.LastException = Record.Exception(() => result = OpenThroughFactory(_world.Api, _world.FactoryPlatform, index));
+        _world.OpenResult = result;
+        _world.Source = result?.Source;
+    }
+
+    [When(@"Dispose is called twice")]
+    public void WhenDisposeIsCalledTwice()
+    {
+        IGpuTelemetrySource source = _world.Source ?? throw new InvalidOperationException("No source is open.");
+        source.Dispose();
+        source.Dispose();
+    }
+
+    [When(@"ReadPowerWatts is called")]
+    public void WhenReadPowerWattsIsCalled()
+    {
+        IGpuTelemetrySource source = _world.Source ?? throw new InvalidOperationException("No source is open.");
+        _world.LastException = Record.Exception(() => source.ReadPowerWatts());
+    }
+
+    [Then(@"the result is Available and the identity shows the name and a power limit of (\d+) W")]
+    public void ThenTheResultIsAvailableAndTheIdentityShowsTheNameAndAPowerLimitOfW(double watts)
+    {
+        Assert.Null(_world.LastException);
+        Assert.NotNull(_world.OpenResult);
+        Assert.True(_world.OpenResult.IsAvailable, _world.OpenResult.Reason);
+        Assert.NotNull(_world.OpenResult.Source);
+        GpuIdentity identity = _world.OpenResult.Source.Identity;
+        Assert.Equal(_world.Api.Name, identity.Name);
+        Assert.Equal(watts, identity.PowerLimitWatts);
+    }
+
+    [Then(@"the identity MIG mode is ""(.*)""")]
+    public void ThenTheIdentityMigModeIs(string expected)
+    {
+        Assert.Null(_world.LastException);
+        Assert.NotNull(_world.OpenResult);
+        Assert.True(_world.OpenResult.IsAvailable, _world.OpenResult.Reason);
+        Assert.NotNull(_world.OpenResult.Source);
+        Assert.Equal(expected, _world.OpenResult.Source.Identity.MigMode);
+    }
+
+    [Then(@"Shutdown was called exactly once")]
+    public void ThenShutdownWasCalledExactlyOnce()
+    {
+        Assert.Equal(1, _world.Api.ShutdownCallCount);
+    }
+
+    [Then(@"the result is Unavailable, the reason contains ""(.*)"" and no exception escapes")]
+    public void ThenTheResultIsUnavailableTheReasonContainsAndNoExceptionEscapes(string fragment)
+    {
+        Assert.Null(_world.LastException);
+        Assert.NotNull(_world.OpenResult);
+        Assert.False(_world.OpenResult.IsAvailable);
+        Assert.Null(_world.OpenResult.Source);
+        Assert.NotNull(_world.OpenResult.Reason);
+        Assert.Contains(fragment, _world.OpenResult.Reason, StringComparison.Ordinal);
+    }
+
+    [Then(@"the result is Unavailable with reason ""(.*)""")]
+    public void ThenTheResultIsUnavailableWithReason(string expected)
+    {
+        Assert.Null(_world.LastException);
+        Assert.NotNull(_world.OpenResult);
+        Assert.False(_world.OpenResult.IsAvailable);
+        Assert.Null(_world.OpenResult.Source);
+        Assert.Equal(expected, _world.OpenResult.Reason);
+    }
+
+    [Then(@"an ObjectDisposedException is thrown")]
+    public void ThenAnObjectDisposedExceptionIsThrown()
+    {
+        Assert.IsType<ObjectDisposedException>(_world.LastException);
     }
 }
