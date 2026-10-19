@@ -1048,12 +1048,12 @@ Demo relevance: no
 Covers: REQ-006, EDGE-001
 User story: As a user, I want `AJ probe` to tell me what GPU, driver, power limit and energy method will be measured, and `AJ probe --json` to say the same as one JSON object, with a clean "no GPU" answer on machines without NVML, so that I can check my machine before any run.
 Acceptance criteria:
-1. Text output has one `label: value` line each, in this order: `GPU name`, `GPU UUID`, `Driver version`, `Compute capability`, `VBIOS version`, `Power limit W`, `MIG mode`, `Energy counter supported`, `Method`, `Sample rate Hz`; an unavailable compute capability or VBIOS prints `N/A`. The exact label text is chosen here (the design leaves it open).
+1. Text output has one `label: value` line each, in this order: `GPU name`, `GPU UUID`, `Driver version`, `Compute capability`, `VBIOS version`, `Power limit W`, `MIG mode`, `Energy counter supported`, `Method`, `Sample rate Hz`; an unavailable compute capability or VBIOS prints `N/A`. The exact label text is chosen here (the design leaves it open). Note (2026-10-19): the labels are fixed in `ProbeFormatter` as the ten listed above, in that order; the choice is recorded in docs/build-log.md (AJ-035).
 2. `--json` prints one JSON object with the keys `gpuPresent`, `name`, `driverVersion`, `computeCapability`, `vbiosVersion`, `powerLimitW`, `energyCounterSupported`, `method`, `sampleRateHz` plus `gpuUuid` and `migMode`; unavailable values are `null`, never an empty string or 0. Serialization uses the source-generated `AgentJoulesJsonContext` (camelCase, indented, LF).
 3. Without NVML or a device (EDGE-001): text prints the single line `no GPU`; JSON has `gpuPresent: false` and every other field null; the exit code is 0 in both forms.
 4. stdout holds only the probe output; log lines and the method disclosure go to stderr; `AJ probe --json > out.json` parses with System.Text.Json in a test.
 5. The method comes from the AJ-027 selector with `Meter:Method`; `sampleRateHz` equals `Meter:SampleRateHz`; with the counter unsupported under `auto`, the text shows `Method: sampling (sampling-fallback)` and stderr shows `Energy method: sampling (counter unsupported)`.
-6. With `Meter:Method=counter` on an unsupported GPU, probe still prints its facts, with `method` null in JSON and `Method: N/A (counter forced but unsupported)` in text, exit 0. The design is silent here: probe is diagnostic, `run` fails with exit 6 later (M2). The default is recorded in docs/build-log.md.
+6. With `Meter:Method=counter` on an unsupported GPU, probe still prints its facts, with `method` null in JSON and `Method: N/A (counter forced but unsupported)` in text, exit 0. The design is silent here: probe is diagnostic, `run` fails with exit 6 later (M2). The default is recorded in docs/build-log.md. Note (2026-10-19): probe is diagnostic, so a forced counter on an unsupported GPU prints the facts with method null and exit 0; `run` fails with exit 6 in M2 (AJ-035 Decisions).
 7. The code-level exit-code mapping is tested: `ExitCodeTests.ExitCode_values_match_the_documented_list` asserts `Success` 0, `Unexpected` 1, `InvalidArguments` 2, `MissingKey` 3, `ModelNotFound` 4, `Unreachable` 5, `PreconditionFailed` 6, `ContentDiffers` 7 (`dotnet test --filter "Spec=REQ-006"` passes). The README exit-code table does not exist yet: it is created by AJ-131-T4 in M6; AJ-035 adds the probe subsection and the ExitCodeTests. This story adds only a `### probe` subsection under `## CLI reference` listing `--json`, `--save`, `--suffix` and `--config`; the existing placeholder paragraph is left untouched (`git diff --numstat README.md` shows 0 removed lines).
 BDD scenarios:
 ```gherkin
@@ -1111,9 +1111,9 @@ Tasks:
 Test mapping: ProbeCommandTests (design 6.1: probe JSON keys and the `no GPU` path); Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-035-probe-command.feature.
 Docs impact: README.md `## CLI reference` (probe subsection only); docs/build-log.md for the forced-counter default.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] AJ-035 is committed with a message starting `AJ-035 REQ-006:`; EDGE-001 is claimed in the `AJ-036 EDGE-001 EDGE-014:` commit once the container path is proven
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] AJ-035 is committed with a message starting `AJ-035 REQ-006:`; EDGE-001 is claimed in the `AJ-036 EDGE-001 EDGE-014:` commit once the container path is proven. Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-035 REQ-006: ...`, nothing pushed; EDGE-001 claimed by AJ-036.
 Demo relevance: yes: the demo opens with `AJ probe` showing the laptop GPU, driver and energy method.
 Conflict: EDGE-001 acceptance also requires "a unit test with the NVML loader faked as missing asserts `run --tier local` returns 6". The `run` command is built in M2 (REQ-017). Proposed resolution: M1 proves the 6 mapping at its source (`MeasurementPreconditionException` maps to exit 6 in AJ-034, and the meter selection path raises it when NVML is unavailable); the M2 `run` story must add the CLI-level test `run --tier local` with the missing-NVML fake and reference EDGE-001 in its trait.
 

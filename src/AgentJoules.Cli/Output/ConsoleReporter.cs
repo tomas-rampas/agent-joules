@@ -24,6 +24,23 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     internal TextWriter Output { get; } = output ?? throw new ArgumentNullException(nameof(output));
 
     /// <summary>
+    /// Discloses an automatic fallback to sampling: when <see cref="MeterCapabilities.IsFallback"/> is set, writes the one line of
+    /// <see cref="MeterCapabilities.Describe"/>, <c>Energy method: sampling (counter unsupported)</c>, to the error writer, never to the output
+    /// writer; writes nothing otherwise.
+    /// </summary>
+    /// <param name="capabilities">The selector outcome.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="capabilities"/> is null.</exception>
+    public void ReportFallback(MeterCapabilities capabilities)
+    {
+        ArgumentNullException.ThrowIfNull(capabilities);
+
+        if (capabilities.IsFallback)
+        {
+            _error.WriteLine(capabilities.Describe());
+        }
+    }
+
+    /// <summary>
     /// Warns about an unstable idle baseline: when <see cref="ReadingFlags.BaselineUnstable"/> is set, writes exactly one line to the
     /// error writer, <c>Warning: idle baseline unstable (CV 0.20 &gt; 0.10)</c>, with the coefficient of variation and the threshold
     /// to two decimals; writes nothing otherwise (a stable baseline, and a baseline that was not reported, have no flag).

@@ -536,6 +536,21 @@ public sealed class ExitCodeTests
         Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
         Assert.Contains("Meter:SampleRateHz", failure.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ExitCode_values_match_the_documented_list()
+    {
+        // The numbers are the documented contract; the enum must hold exactly these eight members.
+        Assert.Equal(0, (int)ExitCode.Success);
+        Assert.Equal(1, (int)ExitCode.Unexpected);
+        Assert.Equal(2, (int)ExitCode.InvalidArguments);
+        Assert.Equal(3, (int)ExitCode.MissingKey);
+        Assert.Equal(4, (int)ExitCode.ModelNotFound);
+        Assert.Equal(5, (int)ExitCode.Unreachable);
+        Assert.Equal(6, (int)ExitCode.PreconditionFailed);
+        Assert.Equal(7, (int)ExitCode.ContentDiffers);
+        Assert.Equal(8, Enum.GetValues<ExitCode>().Length);
+    }
 }
 
 internal sealed class ThrowOnStopService : IHostedService

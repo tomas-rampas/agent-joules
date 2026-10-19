@@ -1,7 +1,9 @@
 using System.CommandLine;
 
 using AgentJoules.Cli.Hosting;
+using AgentJoules.Cli.Output;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -12,8 +14,9 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Cli.Commands;
 
 /// <summary>
-/// <c>probe</c>: opens the configured GPU and reports whether one is present. AJ-034 delivers the command, its options and the exit-code
-/// paths; AJ-035 replaces the placeholder output with the full text and JSON result and a later story writes <c>--save</c> and <c>--suffix</c>.
+/// <c>probe</c>: opens the configured GPU and prints what will be measured, as text or, with <c>--json</c>, as one JSON object. Without NVML or a
+/// device it prints <c>no GPU</c> (EDGE-001). Every GPU outcome exits 0: probe is diagnostic, and a forced counter on a GPU without one is reported as
+/// a null method while <c>run</c> fails with exit 6 later. A factory exception outside the source contract still maps through <see cref="ExitCodeMapper"/>. <c>--save</c> and <c>--suffix</c> are accepted and inert until AJ-037.
 /// </summary>
 internal static class ProbeCommand
 {
@@ -39,19 +42,53 @@ internal static class ProbeCommand
     private static int Probe(IHost running, TextWriter output, bool asJson)
     {
         ILogger logger = running.Services.GetRequiredService<ILoggerFactory>().CreateLogger(Log.Category);
-        int index = running.Services.GetRequiredService<IOptions<AgentJoulesOptions>>().Value.Gpu.Index;
+        AgentJoulesOptions options = running.Services.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
+        int index = options.Gpu.Index;
 
         Log.OpeningGpu(logger, index);
         GpuOpenResult opened = running.Services.GetRequiredService<IGpuTelemetrySourceFactory>().Open(index);
-        if (!opened.IsAvailable)
+        ProbeResult result;
+        if (opened.IsAvailable)
+        {
+            using IGpuTelemetrySource source = opened.Source;
+            result = Describe(running, source, options.Meter);
+        }
+        else
         {
             Log.GpuUnavailable(logger, opened.Reason);
-            output.WriteLine(asJson ? "{\"gpuPresent\": false}" : "no GPU");
-            return 0;
+            result = ProbeResult.NoGpu;
         }
 
-        using IGpuTelemetrySource source = opened.Source;
-        output.WriteLine(asJson ? "{\"gpuPresent\": true}" : "name: " + source.Identity.Name);
+        Print(result, output, asJson);
         return 0;
+    }
+
+    // The selector decides the method; a forced counter on a GPU without one is not an error here, the method is simply null.
+    private static ProbeResult Describe(IHost running, IGpuTelemetrySource source, MeterOptions meter)
+    {
+        MeterMethodSetting setting = MeterMethodSelector.Parse(meter.Method);
+        if (!MeterMethodSelector.TrySelect(setting, source, meter.SampleRateHz, out MeterCapabilities? capabilities))
+        {
+            return ProbeResult.Create(source.Identity, source.EnergyCounterSupported, capabilities: null, meter.SampleRateHz);
+        }
+
+        // Stderr only: stdout carries nothing but the probe output.
+        running.Services.GetRequiredService<ConsoleReporter>().ReportFallback(capabilities);
+        return ProbeResult.Create(source.Identity, source.EnergyCounterSupported, capabilities, meter.SampleRateHz);
+    }
+
+    private static void Print(ProbeResult result, TextWriter output, bool asJson)
+    {
+        if (asJson)
+        {
+            // One Write with an explicit LF: the JSON uses LF on every platform, so WriteLine (the platform terminator) is not used.
+            output.Write(ProbeFormatter.Json(result) + "\n");
+            return;
+        }
+
+        foreach (string line in ProbeFormatter.Lines(result))
+        {
+            output.WriteLine(line);
+        }
     }
 }

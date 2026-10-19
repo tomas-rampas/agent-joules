@@ -50,6 +50,15 @@ Filled during the build from docs/nim-local-attempt.md, whichever way the time-b
 
 Filled during the build: the commands `probe`, `run`, `report`, `validate` and `calibrate` with their options and exit codes.
 
+### probe
+
+Prints the GPU, driver, power limit and energy method that will be measured; without NVML or a device it prints `no GPU` and still exits 0. Stdout holds only the probe output; log lines and the energy-method disclosure go to stderr.
+
+- `--json`: print the result as one JSON object instead of the ten `label: value` lines.
+- `--save`: write `results/probe-<timestamp>[-<suffix>].json` (arrives in AJ-037; accepted and ignored for now).
+- `--suffix <text>`: add a suffix such as `cloudgpu` to the saved file name (arrives in AJ-037; accepted and ignored for now).
+- `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
+
 ## Reproduce
 
 Filled during the build: the exact steps to regenerate every results file and the report on your own NVIDIA GPU.
