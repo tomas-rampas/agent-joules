@@ -83,7 +83,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test
-- [ ] the file MeteredChatClientTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no (internal contract; every console step line and results row in the demo comes from this record).
 
 ### AJ-041: Meter buffered and streaming calls with exactly one reading per call
@@ -778,7 +777,7 @@ User story: As a user running a hosted tier, I want the command to name every mi
 Acceptance criteria:
 1. With an empty environment, `run --tier all --dry-run` exits 3 and the one message names both `NVIDIA_API_KEY` and `NEBIUS_API_KEY` (test `Missing_keys_listed_in_one_message`).
 2. The message includes the alternative `dotnet user-secrets set "<NAME>" "<value>" --project src/AgentJoules.Cli` with the literal text `<value>` and no real value.
-3. A key set to a runtime-built `nvapi-` value together with a failing endpoint never appears in stdout or stderr: no character of the key beyond the public `nvapi-` prefix (test `Key_suffix_is_never_printed`; design 3.2 and design-review N-09, updated 2026-10-18 at the M0 exit).
+3. A key set to a runtime-built `nvapi-` value together with a failing endpoint never appears in stdout or stderr: no character of the key beyond the public `nvapi-` prefix (test `Key_suffix_is_never_printed`; design 3.2 and design-review N-09, updated 2026-10-18 at the M0 exit) (handled paths; an exception that escapes a thread is covered by the AJ-034 UnhandledException handler).
 4. A missing workflow-tier key exits 3 before any HTTP request (the fake handler records 0 requests).
 5. Outside `--dry-run`, a missing judge key only warns and the command continues; with `--dry-run` the judge key joins the same message.
 6. For `cloudgpu` on the laptop (`CloudGpu:RequireSshVariables` true) a missing `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` exits 3; on the VM (`RequireSshVariables` false) it does not.

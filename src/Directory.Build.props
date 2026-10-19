@@ -2,8 +2,10 @@
 
   <Import Project="$([MSBuild]::GetPathOfFileAbove(Directory.Build.props, $(MSBuildThisFileDirectory)../))" />
 
-  <PropertyGroup>
-    <InvariantGlobalization>true</InvariantGlobalization>
-  </PropertyGroup>
+  <!-- Invariant globalization as a runtime host option, not as the MSBuild property: the property is forwarded to the analyzers and silences CA1304 to CA1311, which design 5.5 relies on. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Globalization.Invariant" Value="true" Trim="true" />
+    <RuntimeHostConfigurationOption Include="System.Globalization.PredefinedCulturesOnly" Value="true" Trim="true" />
+  </ItemGroup>
 
 </Project>

@@ -1,10 +1,10 @@
-using Xunit;
+using AgentJoules.TestSupport;
 
 namespace AgentJoules.UnitTests;
 
 public sealed class SchemaValidationTests
 {
-    [Fact(Skip = "placeholder: replaced by AJ-078")]
+    [PlaceholderFact("AJ-078")]
     public void Placeholder()
     {
     }

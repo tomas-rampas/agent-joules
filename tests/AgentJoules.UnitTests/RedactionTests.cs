@@ -121,14 +121,18 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
-    public void RedactingTextWriter_FlushWithoutNewline_WritesRedactedRemainder()
+    public void RedactingTextWriter_FlushWithoutNewline_ForwardsNothingAndDisposeWritesRedactedRemainder()
     {
         using var inner = new StringWriter();
-        using var writer = new RedactingTextWriter(inner, new SecretRedactor());
 
-        writer.Write("token ");
-        writer.Write(BuildNvidiaKey());
-        writer.Flush();
+        using (var writer = new RedactingTextWriter(inner, new SecretRedactor(), leaveOpen: true))
+        {
+            writer.Write("token ");
+            writer.Write(BuildNvidiaKey());
+            writer.Flush();
+
+            Assert.Equal(string.Empty, inner.ToString());
+        }
 
         Assert.Equal("token " + MaskedNvidiaKey, inner.ToString());
         Assert.DoesNotContain(Suffix, inner.ToString(), StringComparison.Ordinal);
@@ -190,17 +194,17 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
-    public void Redact_RegisteredValueInsideNvidiaPrefix_StillMasksTheUnregisteredKey()
+    public void Redact_RegisteredValueThatIsAPrefixOfAnNvidiaKey_StillMasksTheWholeKey()
     {
         var redactor = new SecretRedactor();
-        redactor.Register("-");
+        redactor.Register("nvapi-ab");
         string input = $"auth {BuildNvidiaKey()} ok a-b";
 
         string once = redactor.Redact(input);
         string twice = redactor.Redact(once);
 
         Assert.DoesNotContain(Suffix, once, StringComparison.Ordinal);
-        Assert.Contains("nvapi", once, StringComparison.Ordinal);
+        Assert.Equal("auth " + MaskedNvidiaKey + " ok a-b", once);
         Assert.Equal(once, twice);
     }
 
@@ -314,5 +318,218 @@ public sealed class RedactionTests
         writer.WriteLine(BuildNvidiaKey());
 
         Assert.Equal(MaskedNvidiaKey + Environment.NewLine, inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_CharacterByCharacterWrites_ReachTheInnerWriterOnlyAfterTheNewline()
+    {
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, new SecretRedactor());
+
+        foreach (char character in BuildNvidiaKey())
+        {
+            writer.Write(character);
+            Assert.Equal(string.Empty, inner.ToString());
+        }
+
+        writer.Write('\n');
+
+        Assert.Equal(MaskedNvidiaKey + "\n", inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_FlushBetweenTwoHalvesOfAKey_DoesNotForwardEitherHalfUnmasked()
+    {
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, new SecretRedactor());
+
+        writer.Write("nvapi-");
+        writer.Flush();
+
+        Assert.Equal(string.Empty, inner.ToString());
+
+        writer.Write(Suffix);
+        writer.Write("\n");
+
+        Assert.Equal(MaskedNvidiaKey + "\n", inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Redact_RegisteredJwtShapedValueGluedAfterAnNvidiaKey_LeavesNothingOfEither()
+    {
+        string jwt = string.Join('.', "eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiIxMjM0In0", "c2lnbmF0dXJl");
+        var redactor = new SecretRedactor();
+        redactor.Register(jwt);
+
+        string result = redactor.Redact(BuildNvidiaKey() + jwt);
+
+        Assert.Equal(MaskedNvidiaKey, result);
+        Assert.Equal(result, redactor.Redact(result));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Redact_TwoOverlappingRegisteredValues_AreMaskedAsOne()
+    {
+        var redactor = new SecretRedactor();
+        redactor.Register("SECRETAAAA1");
+        redactor.Register("AAA1BBBB");
+
+        string result = redactor.Redact("x SECRETAAAA1BBBB y");
+
+        Assert.Equal("x **** y", result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Redact_RegisteredValueStartingWithTheNvidiaPrefix_KeepsOnlyThePublicPrefix()
+    {
+        string value = string.Concat("nvapi-", "abcd", ".efgh1234");
+        var redactor = new SecretRedactor();
+        redactor.Register(value);
+
+        string result = redactor.Redact($"see {value} end");
+
+        Assert.Equal("see " + MaskedNvidiaKey + " end", result);
+        Assert.Equal(result, redactor.Redact(result));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ShortStarredOrMaskFragmentValues_AreIgnored()
+    {
+        var redactor = new SecretRedactor();
+        foreach (string ignored in new[] { "*", "**", "nvapi", "vapi-", "api", "-", "x", "0" })
+        {
+            redactor.Register(ignored);
+        }
+
+        redactor.Register("abc12");
+        const string sentence = "x api - * ** nvapi vapi- 0 done";
+
+        string once = redactor.Redact(sentence);
+
+        Assert.Equal(sentence, once);
+        Assert.Equal(once, redactor.Redact(once));
+        Assert.Equal("t **** t", redactor.Redact("t abc12 t"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_ValueRegisteredWithCrLf_PreservesTheLineTerminators()
+    {
+        string key = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+        redactor.Register(key + "\r\n");
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, redactor);
+
+        writer.WriteLine("key=" + key);
+        writer.WriteLine("next");
+
+        string newLine = Environment.NewLine;
+        Assert.Equal("key=****" + newLine + "next" + newLine, inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithByteOrderMarkOrZeroWidthSpace_MasksTheBareValue()
+    {
+        string key = BuildOpaqueKey();
+        var withBom = new SecretRedactor();
+        withBom.Register(char.ConvertFromUtf32(0xFEFF) + key);
+        var withZeroWidth = new SecretRedactor();
+        withZeroWidth.Register(char.ConvertFromUtf32(0x200B) + key);
+
+        Assert.Equal("k=****", withBom.Redact("k=" + key));
+        Assert.Equal("k=****", withZeroWidth.Redact("k=" + key));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_LeaveOpenSecondDispose_DrainsATailWrittenInBetween()
+    {
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, new SecretRedactor(), leaveOpen: true);
+
+        writer.Write("a " + BuildNvidiaKey());
+        writer.Dispose();
+
+        Assert.Equal("a " + MaskedNvidiaKey, inner.ToString());
+
+        writer.Write(" b " + BuildNvidiaKey());
+        writer.Dispose();
+
+        Assert.Equal("a " + MaskedNvidiaKey + " b " + MaskedNvidiaKey, inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_WriteOrFlushAfterDisposeWithoutLeaveOpen_ThrowsObjectDisposedException()
+    {
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, new SecretRedactor());
+        writer.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => writer.Write("x"));
+        Assert.Throws<ObjectDisposedException>(() => writer.Write('x'));
+        Assert.Throws<ObjectDisposedException>(() => writer.Flush());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithInteriorZeroWidthSpace_MasksTheDecoratedAndTheBareForm()
+    {
+        string first = BuildOpaqueKey();
+        string second = BuildOpaqueKey();
+        string decorated = first + char.ConvertFromUtf32(0x200B) + second;
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(decorated);
+
+        Assert.True(registered);
+        Assert.Equal("echo ****", redactor.Redact("echo " + decorated));
+        Assert.Equal("echo ****", redactor.Redact("echo " + first + second));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithAppendedTagCharacter_MasksTheBareKey()
+    {
+        string key = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        redactor.Register(key + char.ConvertFromUtf32(0xE0041));
+
+        Assert.Equal("k=****", redactor.Redact("k=" + key));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ReturnsFalseForARejectedValueAndTrueForAnAcceptedOne()
+    {
+        var redactor = new SecretRedactor();
+
+        Assert.False(redactor.Register("P@ss*word99"));
+        Assert.False(redactor.Register(null));
+        Assert.False(redactor.Register("abc"));
+        Assert.True(redactor.Register(BuildOpaqueKey()));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_MultiLineValue_IsMaskedWhenItOccursWhole()
+    {
+        string first = BuildOpaqueKey();
+        string second = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+        redactor.Register(first + "\n" + second);
+
+        string result = redactor.Redact("v=" + first + "\n" + second + " end");
+
+        Assert.Equal("v=**** end", result);
     }
 }

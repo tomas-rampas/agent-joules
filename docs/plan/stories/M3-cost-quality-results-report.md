@@ -91,7 +91,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] every row in `config/prices.json` has `sourceUrl` and `retrievedDate` (validated by `Committed_prices_validate`)
-- [ ] the file CostModelTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no (prices feed the cost column of the report).
 
 ### AJ-071: Compute hosted token cost in USD or label it N/A
@@ -275,7 +274,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
-- [ ] the file JudgeParsingTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no.
 
 ### AJ-074: Derive joules and cost per quality point only when both inputs exist
@@ -592,7 +590,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] `dotnet test --filter "Spec=REQ-015"` shows at least one passed and no failed test for the model tests
-- [ ] the file SchemaValidationTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no.
 
 ### AJ-079: Generate the JSON Schema and guard it against drift
@@ -781,7 +778,6 @@ Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
 - [ ] selection never returns a probe, calibration, failed or running file
-- [ ] the file ReportRenderingTests.cs is removed from the xUnit1004 suppression section at the end of .editorconfig (added 2026-10-18 for the M0 placeholder only)
 Demo relevance: no.
 
 ### AJ-082: Aggregate repeats into report rows without merging tiers
