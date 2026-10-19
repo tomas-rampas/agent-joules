@@ -38,7 +38,7 @@ Acceptance criteria:
 3. `ScriptedNvmlApi` (tests/AgentJoules.TestSupport) returns power in milliwatts as a pure function of `FakeTimeProvider` time, returns the energy counter as the matching millijoule integral, returns `NotSupported` for the counter when its switch is off, returns scripted clock-event bits, a scripted MIG return code, and in missing-library mode throws `DllNotFoundException` from `Init`.
 4. Calling any read member before `Init`, or after `Shutdown`, returns `Uninitialized` (the fake mimics NVML).
 5. `FakeTimeDriver.RunUntilCompleteAsync(task, fake, step)` advances fake time until the task completes: a test awaits `Task.Delay(TimeSpan.FromSeconds(1), fake)` and finishes in under 200 ms of real time.
-6. `tests/AgentJoules.Specs/Support/ScenarioWorld.cs` and `Hooks.cs` create a `FakeTimeProvider` per scenario and dispose it afterwards; `dotnet test --filter "Spec=REQ-003"` runs the first feature of this story.
+6. `tests/AgentJoules.Specs/Support/ScenarioWorld.cs` and `Hooks.cs` create a `FakeTimeProvider` per scenario and dispose it afterwards; `dotnet test --filter "Spec=REQ-003"` runs the first feature of this story. Note (2026-10-19, spec gate): `Category=AJ-S020` runs the feature and `Spec=REQ-003` runs ScriptedNvmlApiTests (design 6.2: Reqnroll tags become Category traits); FakeTimeProvider 10.11.0 is not IDisposable, so 'dispose' means release per scenario.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S020 @REQ-003 @REQ-004
@@ -80,9 +80,9 @@ Tasks:
 Test mapping: ScriptedNvmlApiTests (new class, tests the fake itself); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-020-nvml-test-doubles.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `INvmlApi` lives in its own file INvmlApi.cs (the design names only NvmlApi.cs for the real implementation); this small addition is noted in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `INvmlApi` lives in its own file INvmlApi.cs (the design names only NvmlApi.cs for the real implementation); this small addition is noted in docs/build-log.md
 Demo relevance: no
 
 ### AJ-021: Bind NVML through LibraryImport with a DllImport resolver
