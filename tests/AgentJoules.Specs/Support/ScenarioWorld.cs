@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
@@ -153,6 +154,15 @@ public sealed class ScenarioWorld : IDisposable
 
     /// <summary>What <c>ReadingCalculator.Compute</c> returned, or null when it has not run or threw.</summary>
     public EnergyReading? Reading { get; set; }
+
+    /// <summary>The Meter:Method string a method-selection scenario offers to <c>MeterMethodSelector.Select</c>; null means the Given step did not set one.</summary>
+    public string? ConfiguredMethod { get; set; }
+
+    /// <summary>What <c>MeterMethodSelector.Select</c> returned, or null when it has not run or threw.</summary>
+    public MeterCapabilities? Capabilities { get; set; }
+
+    /// <summary>The exception <c>MeterMethodSelector.Select</c> threw, or null.</summary>
+    public AgentJoulesException? SelectionFailure { get; set; }
 
     public void Dispose()
     {

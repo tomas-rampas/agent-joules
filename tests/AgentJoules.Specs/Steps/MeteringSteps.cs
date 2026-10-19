@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
@@ -969,4 +970,150 @@ public sealed class MeteringSteps(ScenarioWorld world)
 
     private static Metric Deserialize(string json) =>
         JsonSerializer.Deserialize<Metric>(json, MetricJsonOptions) ?? throw new InvalidOperationException("The JSON document deserialised to null.");
+
+    private void OpenFakeSource(ScriptedNvmlApi api)
+    {
+        _world.Api = api;
+        GpuOpenResult result = new NvmlGpuTelemetrySourceFactory(api).Open(0);
+        Assert.True(result.IsAvailable, result.Reason);
+        _world.Source = result.Source;
+    }
+
+    private static string MethodName(MeterCapabilities capabilities) =>
+        capabilities.Method == EnergyMethod.Counter ? "counter" : "sampling";
+
+    private void SelectMethod(string? configured)
+    {
+        // A scenario that only states the configured value has no GPU yet; give it a default one with the counter supported.
+        if (_world.Source is null)
+        {
+            OpenFakeSource(new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = 50, CounterSupported = true });
+        }
+
+        IGpuTelemetrySource source = _world.Source ?? throw new InvalidOperationException("No GPU source was opened.");
+        _world.Capabilities = null;
+        _world.SelectionFailure = null;
+        try
+        {
+            _world.Capabilities = MeterMethodSelector.Select(configured, source, _world.ReadingSampleRateHz);
+        }
+        catch (AgentJoulesException failure)
+        {
+            _world.SelectionFailure = failure;
+        }
+    }
+
+    private MeterCapabilities SelectedCapabilities =>
+        _world.Capabilities ?? throw new InvalidOperationException("No method was selected: " + _world.SelectionFailure);
+
+    // A reading over a one second window at 50 W, computed from what the selector decided and nothing else.
+    private EnergyReading ReadingFromCapabilities()
+    {
+        MeterCapabilities capabilities = SelectedCapabilities;
+        _world.Reading = ReadingCalculator.Compute(new ReadingInput(
+            Samples: [new PowerSample(0.0, 50.0, ThrottleReasons.Unsupported), new PowerSample(1.0, 50.0, ThrottleReasons.Unsupported)],
+            WindowStartSeconds: 0.0,
+            WindowStopSeconds: 1.0,
+            Method: capabilities.Method,
+            CounterDeltaMillijoules: capabilities.Method == EnergyMethod.Counter ? 50000L : null,
+            BaselineMeanWatts: null,
+            SampleRateHz: capabilities.SampleRateHz,
+            IsSamplingFallback: capabilities.IsFallback));
+        return _world.Reading;
+    }
+
+    [Given(@"^a fake NVML whose counter is supported$")]
+    public void GivenAFakeNvmlWhoseCounterIsSupported()
+    {
+        OpenFakeSource(new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = 50, CounterSupported = true });
+    }
+
+    [Given(@"^a fake NVML returning NOT_SUPPORTED for the counter$")]
+    public void GivenAFakeNvmlReturningNotSupportedForTheCounter()
+    {
+        OpenFakeSource(new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = 50, CounterReturn = NvmlReturn.NotSupported });
+    }
+
+    [Given(@"^the counter read returns rc (\d+)$")]
+    public void GivenTheCounterReadReturnsRc(int code)
+    {
+        OpenFakeSource(new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = 50, CounterReturn = (NvmlReturn)code });
+    }
+
+    [Given(@"^Meter:Method is ""([^""]*)""$")]
+    public void GivenMeterMethodIs(string method)
+    {
+        _world.ConfiguredMethod = method;
+    }
+
+    [When(@"^the method is selected with Meter:Method (\S+)$")]
+    public void WhenTheMethodIsSelectedWithMeterMethod(string method)
+    {
+        SelectMethod(method);
+    }
+
+    [When(@"^the method is selected with Meter:Method (\S+) and a reading is computed$")]
+    public void WhenTheMethodIsSelectedWithMeterMethodAndAReadingIsComputed(string method)
+    {
+        SelectMethod(method);
+        _ = ReadingFromCapabilities();
+    }
+
+    [When(@"^the method is selected$")]
+    public void WhenTheMethodIsSelected()
+    {
+        SelectMethod(_world.ConfiguredMethod);
+    }
+
+    [Then(@"^the method is ""([^""]*)"" and IsFallback is false$")]
+    public void ThenTheMethodIsAndIsFallbackIsFalse(string method)
+    {
+        MeterCapabilities capabilities = SelectedCapabilities;
+        Assert.Equal(method, MethodName(capabilities));
+        Assert.False(capabilities.IsFallback);
+    }
+
+    [Then(@"^the method is ""([^""]*)"", the reading flags contain ""([^""]*)"" and Describe says ""([^""]*)""$")]
+    public void ThenTheMethodIsTheReadingFlagsContainAndDescribeSays(string method, string flag, string description)
+    {
+        MeterCapabilities capabilities = SelectedCapabilities;
+        Assert.Equal(method, MethodName(capabilities));
+        Assert.True(capabilities.IsFallback);
+        Assert.Contains(flag, ReadingFlagNames.ToStrings(ComputedReading.Flags));
+        Assert.Equal(description, capabilities.Describe());
+    }
+
+    [Then(@"^the method is ""([^""]*)"" and the flags do not contain ""([^""]*)""$")]
+    public void ThenTheMethodIsAndTheFlagsDoNotContain(string method, string flag)
+    {
+        MeterCapabilities capabilities = SelectedCapabilities;
+        Assert.Equal(method, MethodName(capabilities));
+        Assert.DoesNotContain(flag, ReadingFlagNames.ToStrings(ReadingFromCapabilities().Flags));
+    }
+
+    [Then(@"^a MeasurementPreconditionException with exit code (\d+) is thrown and its message names ""([^""]*)""$")]
+    public void ThenAMeasurementPreconditionExceptionIsThrown(int exitCode, string name)
+    {
+        MeasurementPreconditionException failure = Assert.IsType<MeasurementPreconditionException>(_world.SelectionFailure);
+        Assert.Equal(exitCode, (int)failure.ExitCode);
+        Assert.Contains(name, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Then(@"^a ConfigurationException with exit code (\d+) is thrown$")]
+    public void ThenAConfigurationExceptionIsThrown(int exitCode)
+    {
+        ConfigurationException failure = Assert.IsType<ConfigurationException>(_world.SelectionFailure);
+        Assert.Equal(exitCode, (int)failure.ExitCode);
+    }
+
+    [Then(@"^the method is ""([^""]*)"" with reason ""([^""]*)"" including the code$")]
+    public void ThenTheMethodIsWithReasonIncludingTheCode(string method, string reason)
+    {
+        MeterCapabilities capabilities = SelectedCapabilities;
+        Assert.Equal(method, MethodName(capabilities));
+        Assert.True(capabilities.IsFallback);
+        string code = ((int)_world.Api.CounterReturn).ToString(CultureInfo.InvariantCulture);
+        Assert.Contains(reason, capabilities.CounterUnsupportedReason, StringComparison.Ordinal);
+        Assert.Contains(code, capabilities.CounterUnsupportedReason, StringComparison.Ordinal);
+    }
 }

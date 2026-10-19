@@ -252,6 +252,8 @@ public interface IEnergyMeter : IAsyncDisposable
 public interface IMeterWindow { WindowSpan Span { get; } EnergyReading Close(); }
 ```
 
+Amended 2026-10-19 (AJ-027): `MeterCapabilities` also carries `CounterUnsupportedReason` (`counter-not-supported: NVML_ERROR_NOT_SUPPORTED` or `counter-not-supported: <code>`, null when supported) and validates its own state; `MeterMethodSelector` exposes `Parse`, `TrySelect` and `Select` (see the build log, AJ-027); the selector performs no counter read of its own, the factory's single read at Open is the REQ-004 probe.
+
 `ReadingCalculator.Compute(...)` is the single pure function both meters call. Rules:
 
 - Sampling integral: trapezoid between consecutive samples; the first sample is held from window start to its timestamp and the last from its timestamp to window stop. With 21 samples of 50 000 mW at 0.0 to 2.0 s the result is 100 J (REQ-004 test).

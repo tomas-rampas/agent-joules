@@ -1,7 +1,14 @@
 using System.Collections.ObjectModel;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Labels;
+using AgentJoules.Nvml;
+using AgentJoules.Nvml.Interop;
+using AgentJoules.TestSupport;
+
+using Microsoft.Extensions.Time.Testing;
 
 using Xunit;
 
@@ -476,5 +483,689 @@ public sealed class PowerIntegrationTests
 
         Assert.Contains("index 1", PeakRejected(outside, 0.0, 1.0).Message, StringComparison.Ordinal);
         _ = PeakRejected([], 1.0, 1.0);
+    }
+
+    private const double SelectedRateHz = 10.0;
+    private const string FallbackSentence = "Energy method: sampling (counter unsupported)";
+    private const string NotSupportedReason = "counter-not-supported: NVML_ERROR_NOT_SUPPORTED";
+
+    private static ScriptedNvmlApi NewApi(NvmlReturn counter = NvmlReturn.Success) =>
+        new(new FakeTimeProvider()) { ConstantPowerWatts = 50, CounterReturn = counter };
+
+    private static IGpuTelemetrySource OpenSource(ScriptedNvmlApi api)
+    {
+        GpuOpenResult result = new NvmlGpuTelemetrySourceFactory(api).Open(0);
+        Assert.True(result.IsAvailable, result.Reason);
+        Assert.NotNull(result.Source);
+        return result.Source;
+    }
+
+    private static MeterCapabilities Select(string? configured, NvmlReturn counter = NvmlReturn.Success)
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(counter));
+        return MeterMethodSelector.Select(configured, source, SelectedRateHz);
+    }
+
+    private static T SelectionFails<T>(string? configured, NvmlReturn counter = NvmlReturn.Success, double rateHz = SelectedRateHz)
+        where T : AgentJoulesException
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(counter));
+        return Assert.Throws<T>(() => { _ = MeterMethodSelector.Select(configured, source, rateHz); });
+    }
+
+    // A one second window at 50 W computed from nothing but what the selector decided.
+    private static EnergyReading ReadingFor(MeterCapabilities capabilities) =>
+        ReadingCalculator.Compute(new ReadingInput(
+            Samples: [Sample(0.0, 50.0), Sample(1.0, 50.0)],
+            WindowStartSeconds: 0.0,
+            WindowStopSeconds: 1.0,
+            Method: capabilities.Method,
+            CounterDeltaMillijoules: capabilities.Method == EnergyMethod.Counter ? 50000L : null,
+            BaselineMeanWatts: null,
+            SampleRateHz: capabilities.SampleRateHz,
+            IsSamplingFallback: capabilities.IsFallback));
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(3, NotSupportedReason)]
+    [InlineData(999, "counter-not-supported: 999")]
+    public void Opening_and_selecting_auto_reads_the_counter_exactly_once(int code, string? reason)
+    {
+        ScriptedNvmlApi api = NewApi((NvmlReturn)code);
+
+        using IGpuTelemetrySource source = OpenSource(api);
+        Assert.Equal(1, api.CounterCallCount);
+
+        MeterCapabilities capabilities = MeterMethodSelector.Select("auto", source, SelectedRateHz);
+
+        // The selector reads the state the factory decided at Open; it never asks NVML again.
+        Assert.Equal(1, api.CounterCallCount);
+        Assert.Equal(code == 0, capabilities.CounterSupported);
+        Assert.Equal(reason, capabilities.CounterUnsupportedReason);
+    }
+
+    [Fact]
+    public void Auto_with_the_counter_supported_selects_the_counter_and_is_not_a_fallback()
+    {
+        MeterCapabilities capabilities = Select("auto");
+
+        Assert.Equal(EnergyMethod.Counter, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+        Assert.True(capabilities.CounterSupported);
+        Assert.Null(capabilities.CounterUnsupportedReason);
+        Assert.Equal(SelectedRateHz, capabilities.SampleRateHz);
+        Assert.Equal("Energy method: counter", capabilities.Describe());
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void Auto_with_the_counter_unsupported_falls_back_to_sampling_and_flags_every_reading()
+    {
+        MeterCapabilities capabilities = Select("auto", NvmlReturn.NotSupported);
+
+        Assert.Equal(EnergyMethod.Sampling, capabilities.Method);
+        Assert.True(capabilities.IsFallback);
+        Assert.False(capabilities.CounterSupported);
+        Assert.Equal(NotSupportedReason, capabilities.CounterUnsupportedReason);
+        Assert.Equal(SelectedRateHz, capabilities.SampleRateHz);
+
+        EnergyReading reading = ReadingFor(capabilities);
+
+        Assert.Equal(EnergyMethod.Sampling, reading.Method);
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.SamplingFallback));
+        Assert.Contains("sampling-fallback", ReadingFlagNames.ToStrings(reading.Flags));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void The_fallback_is_disclosed_with_the_exact_console_sentence()
+    {
+        Assert.Equal(FallbackSentence, Select("auto", NvmlReturn.NotSupported).Describe());
+    }
+
+    [Theory]
+    [InlineData(1, "counter-not-supported: 1")]
+    [InlineData(2, "counter-not-supported: 2")]
+    [InlineData(3, NotSupportedReason)]
+    [InlineData(999, "counter-not-supported: 999")]
+    [Trait("Spec", "EDGE-002")]
+    public void Any_non_zero_counter_return_code_falls_back_and_carries_the_reason(int code, string reason)
+    {
+        MeterCapabilities capabilities = Select("auto", (NvmlReturn)code);
+
+        Assert.Equal(EnergyMethod.Sampling, capabilities.Method);
+        Assert.True(capabilities.IsFallback);
+        Assert.Equal(reason, capabilities.CounterUnsupportedReason);
+        Assert.Equal(FallbackSentence, capabilities.Describe());
+    }
+
+    [Fact]
+    public void Forced_sampling_with_the_counter_supported_is_not_a_fallback_and_the_reading_has_no_flag()
+    {
+        MeterCapabilities capabilities = Select("sampling");
+
+        Assert.Equal(EnergyMethod.Sampling, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+        Assert.True(capabilities.CounterSupported);
+        Assert.Equal("Energy method: sampling", capabilities.Describe());
+
+        EnergyReading reading = ReadingFor(capabilities);
+
+        Assert.False(reading.Flags.HasFlag(ReadingFlags.SamplingFallback));
+        Assert.DoesNotContain("sampling-fallback", ReadingFlagNames.ToStrings(reading.Flags));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void Forced_sampling_with_the_counter_unsupported_is_still_not_a_fallback()
+    {
+        MeterCapabilities capabilities = Select("sampling", NvmlReturn.NotSupported);
+
+        Assert.Equal(EnergyMethod.Sampling, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+        Assert.False(capabilities.CounterSupported);
+        Assert.Equal("Energy method: sampling", capabilities.Describe());
+        Assert.False(ReadingFor(capabilities).Flags.HasFlag(ReadingFlags.SamplingFallback));
+    }
+
+    [Fact]
+    public void Forced_counter_with_the_counter_supported_selects_the_counter()
+    {
+        MeterCapabilities capabilities = Select("counter");
+
+        Assert.Equal(EnergyMethod.Counter, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+        Assert.Equal("Energy method: counter", capabilities.Describe());
+    }
+
+    [Theory]
+    [InlineData(3, NotSupportedReason)]
+    [InlineData(999, "counter-not-supported: 999")]
+    [Trait("Spec", "EDGE-002")]
+    public void Forced_counter_with_the_counter_unsupported_is_a_precondition_failure_naming_the_setting_and_the_reason(int code, string reason)
+    {
+        MeasurementPreconditionException failure = SelectionFails<MeasurementPreconditionException>("counter", (NvmlReturn)code);
+
+        Assert.Equal(ExitCode.PreconditionFailed, failure.ExitCode);
+        Assert.Equal(6, (int)failure.ExitCode);
+        Assert.Contains("Meter:Method=counter", failure.Message, StringComparison.Ordinal);
+        Assert.Contains(reason, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("turbo")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void An_unknown_missing_or_blank_method_is_a_configuration_error_naming_the_setting(string? configured)
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>(configured);
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal(2, (int)failure.ExitCode);
+        Assert.Contains("Meter:Method", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unknown_method_message_names_the_offending_value()
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>("turbo");
+
+        Assert.Contains("turbo", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("AUTO", EnergyMethod.Counter)]
+    [InlineData("Auto", EnergyMethod.Counter)]
+    [InlineData(" counter ", EnergyMethod.Counter)]
+    [InlineData("COUNTER", EnergyMethod.Counter)]
+    [InlineData("SAMPLING", EnergyMethod.Sampling)]
+    [InlineData("\tsampling\n", EnergyMethod.Sampling)]
+    public void The_method_is_matched_case_insensitively_after_trimming(string configured, EnergyMethod expected)
+    {
+        MeterCapabilities capabilities = Select(configured);
+
+        Assert.Equal(expected, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-10.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void A_non_positive_or_non_finite_sample_rate_is_a_configuration_error_naming_the_setting(double rateHz)
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>("auto", rateHz: rateHz);
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Meter:SampleRateHz", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_method_is_validated_before_the_sample_rate()
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>("turbo", rateHz: double.NaN);
+
+        Assert.Contains("Meter:Method", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Meter:SampleRateHz", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_null_source_is_an_ArgumentNullException()
+    {
+        _ = Assert.Throws<ArgumentNullException>(() => { _ = MeterMethodSelector.Select("auto", null!, SelectedRateHz); });
+    }
+
+    private sealed class FakeSource(bool supported, string? reason) : IGpuTelemetrySource
+    {
+        public GpuIdentity Identity { get; } = new("Fake GPU", "GPU-0", "0", null, null, 85.0, "disabled");
+
+        public bool EnergyCounterSupported => supported;
+
+        public string? EnergyCounterUnsupportedReason => reason;
+
+        public double ReadPowerWatts() => 50.0;
+
+        public double? ReadEnergyMillijoules() => null;
+
+        public ThrottleReasons ReadThrottleReasons() => ThrottleReasons.Unsupported;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private static readonly string HostileMethod =
+        "x\u001b[31mRED\u001b[0m\nEnergy method: counter\r\u202e" + new string('A', 5000);
+
+    [Fact]
+    public void A_long_hostile_method_value_is_not_echoed_only_its_length()
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>(HostileMethod);
+
+        Assert.All(failure.Message, c => Assert.True(c >= ' ', "The message holds a control character."));
+        Assert.DoesNotContain('\u202e', failure.Message);
+        Assert.True(failure.Message.Length < 200, $"The message is {failure.Message.Length} characters long.");
+        Assert.Contains("Meter:Method", failure.Message, StringComparison.Ordinal);
+        Assert.Contains($"a value of {HostileMethod.Trim().Length} characters", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Energy method", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_short_hostile_method_value_is_echoed_with_control_and_format_characters_replaced()
+    {
+        ConfigurationException failure = SelectionFails<ConfigurationException>("x\u001b[31m\u202e");
+
+        Assert.Contains("'x?[31m?'", failure.Message, StringComparison.Ordinal);
+        Assert.All(failure.Message, c => Assert.True(c >= ' ', "The message holds a control character."));
+    }
+
+    [Fact]
+    public void A_method_value_of_16_characters_is_echoed_and_one_of_17_is_only_counted()
+    {
+        string sixteen = new('q', 16);
+        string seventeen = new('q', 17);
+
+        string echoed = SelectionFails<ConfigurationException>(sixteen).Message;
+        string counted = SelectionFails<ConfigurationException>(seventeen).Message;
+
+        Assert.Contains(sixteen, echoed, StringComparison.Ordinal);
+        Assert.DoesNotContain(seventeen, counted, StringComparison.Ordinal);
+        Assert.DoesNotContain("qqqq", counted, StringComparison.Ordinal);
+        Assert.Contains("a value of 17 characters", counted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_null_method_is_printed_as_null()
+    {
+        Assert.Contains("(null)", SelectionFails<ConfigurationException>(null).Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ExitCode.Success)]
+    [InlineData((ExitCode)42)]
+    [InlineData((ExitCode)(-1))]
+    public void AgentJoulesException_rejects_success_and_undefined_codes(ExitCode code)
+    {
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new AgentJoulesException(code, "message"));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new AgentJoulesException(code, "message", new InvalidOperationException("inner")));
+    }
+
+    [Fact]
+    public void The_unsupported_reason_from_the_source_is_filtered_before_it_reaches_a_message_or_the_capabilities()
+    {
+        using var source = new FakeSource(supported: false, reason: "bad\u001b[31m\nreason");
+
+        MeterCapabilities capabilities = MeterMethodSelector.Select("auto", source, SelectedRateHz);
+        MeasurementPreconditionException failure = Assert.Throws<MeasurementPreconditionException>(
+            () => MeterMethodSelector.Select("counter", source, SelectedRateHz));
+
+        Assert.Equal("bad?[31m?reason", capabilities.CounterUnsupportedReason);
+        Assert.Contains("bad?[31m?reason", failure.Message, StringComparison.Ordinal);
+        Assert.All(failure.Message, c => Assert.True(c >= ' ', "The message holds a control character."));
+    }
+
+    [Fact]
+    public void A_very_long_unsupported_reason_is_bounded()
+    {
+        using var source = new FakeSource(supported: false, reason: new string('r', 5000));
+
+        MeterCapabilities capabilities = MeterMethodSelector.Select("auto", source, SelectedRateHz);
+
+        Assert.NotNull(capabilities.CounterUnsupportedReason);
+        Assert.True(capabilities.CounterUnsupportedReason.Length <= 70);
+    }
+
+    [Fact]
+    public void A_missing_reason_on_an_unsupported_source_is_filled_in()
+    {
+        using var source = new FakeSource(supported: false, reason: null);
+
+        Assert.Equal("counter-not-supported", MeterMethodSelector.Select("auto", source, SelectedRateHz).CounterUnsupportedReason);
+    }
+
+    [Fact]
+    public void MeterCapabilities_accepts_the_three_consistent_combinations_and_describes_them()
+    {
+        var counter = new MeterCapabilities(EnergyMethod.Counter, true, null, 10.0, false);
+        var sampling = new MeterCapabilities(EnergyMethod.Sampling, true, null, 10.0, false);
+        var forcedWithoutCounter = new MeterCapabilities(EnergyMethod.Sampling, false, "why", 10.0, false);
+        var fallback = new MeterCapabilities(EnergyMethod.Sampling, false, "why", 10.0, true);
+
+        Assert.Equal("Energy method: counter", counter.Describe());
+        Assert.Equal("Energy method: sampling", sampling.Describe());
+        Assert.Equal("Energy method: sampling", forcedWithoutCounter.Describe());
+        Assert.Equal(FallbackSentence, fallback.Describe());
+        Assert.Equal(10.0, fallback.SampleRateHz);
+    }
+
+    [Fact]
+    public void MeterCapabilities_rejects_an_undefined_method()
+    {
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new MeterCapabilities(default, true, null, 10.0, false));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new MeterCapabilities((EnergyMethod)99, true, null, 10.0, false));
+    }
+
+    [Fact]
+    public void MeterCapabilities_rejects_a_fallback_that_is_not_sampling_without_the_counter()
+    {
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Counter, true, null, 10.0, true));
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, true, null, 10.0, true));
+    }
+
+    [Fact]
+    public void MeterCapabilities_rejects_the_counter_method_without_a_supported_counter()
+    {
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Counter, false, "why", 10.0, false));
+    }
+
+    [Fact]
+    public void MeterCapabilities_requires_the_reason_exactly_when_the_counter_is_unsupported()
+    {
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, true, "why", 10.0, false));
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, false, null, 10.0, false));
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, false, string.Empty, 10.0, false));
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, false, "   ", 10.0, false));
+        _ = Assert.ThrowsAny<ArgumentException>(() => new MeterCapabilities(EnergyMethod.Sampling, true, string.Empty, 10.0, false));
+    }
+
+    [Theory]
+    [InlineData(0x200B)]
+    [InlineData(0x0085)]
+    [InlineData(0x202E)]
+    public void A_reason_of_invisible_characters_only_is_treated_as_missing(int character)
+    {
+        string reason = new((char)character, 3);
+
+        MeterCapabilities capabilities = MeterMethodSelector.Select("auto", false, reason, SelectedRateHz);
+        MeasurementPreconditionException failure = Assert.Throws<MeasurementPreconditionException>(
+            () => MeterMethodSelector.Select("counter", false, reason, SelectedRateHz));
+
+        Assert.Equal("counter-not-supported", capabilities.CounterUnsupportedReason);
+        Assert.Contains("(counter-not-supported)", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_reason_with_visible_text_next_to_invisible_characters_keeps_the_text()
+    {
+        string reason = "why" + (char)0x200B;
+
+        Assert.Equal("why?", MeterMethodSelector.Select("auto", false, reason, SelectedRateHz).CounterUnsupportedReason);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void MeterCapabilities_rejects_a_sample_rate_that_is_not_positive_and_finite(double rateHz)
+    {
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => new MeterCapabilities(EnergyMethod.Sampling, true, null, rateHz, false));
+    }
+
+    [Theory]
+    [InlineData("auto", MeterMethodSetting.Auto)]
+    [InlineData(" AUTO ", MeterMethodSetting.Auto)]
+    [InlineData("Counter", MeterMethodSetting.Counter)]
+    [InlineData("\tsampling\n", MeterMethodSetting.Sampling)]
+    public void Parse_trims_and_ignores_case(string configured, MeterMethodSetting expected)
+    {
+        Assert.Equal(expected, MeterMethodSelector.Parse(configured));
+    }
+
+    [Theory]
+    [InlineData("turbo")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Parse_rejects_anything_else_with_a_configuration_error_naming_the_setting(string? configured)
+    {
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => MeterMethodSelector.Parse(configured));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Meter:Method", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrySelect_returns_true_with_the_capabilities_for_a_supported_counter()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi());
+
+        bool selected = MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, source, SelectedRateHz, out MeterCapabilities? capabilities);
+
+        Assert.True(selected);
+        Assert.NotNull(capabilities);
+        Assert.Equal(EnergyMethod.Counter, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+    }
+
+    [Fact]
+    public void TrySelect_auto_without_the_counter_returns_true_with_the_fallback()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(NvmlReturn.NotSupported));
+
+        bool selected = MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, source, SelectedRateHz, out MeterCapabilities? capabilities);
+
+        Assert.True(selected);
+        Assert.NotNull(capabilities);
+        Assert.True(capabilities.IsFallback);
+        Assert.Equal(NotSupportedReason, capabilities.CounterUnsupportedReason);
+    }
+
+    [Fact]
+    public void TrySelect_forced_sampling_returns_true_and_is_not_a_fallback()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(NvmlReturn.NotSupported));
+
+        bool selected = MeterMethodSelector.TrySelect(MeterMethodSetting.Sampling, source, SelectedRateHz, out MeterCapabilities? capabilities);
+
+        Assert.True(selected);
+        Assert.NotNull(capabilities);
+        Assert.Equal(EnergyMethod.Sampling, capabilities.Method);
+        Assert.False(capabilities.IsFallback);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void TrySelect_returns_false_with_a_null_value_only_for_a_forced_counter_that_is_unsupported()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(NvmlReturn.NotSupported));
+
+        bool selected = MeterMethodSelector.TrySelect(MeterMethodSetting.Counter, source, SelectedRateHz, out MeterCapabilities? capabilities);
+
+        Assert.False(selected);
+        Assert.Null(capabilities);
+    }
+
+    [Fact]
+    public void TrySelect_guards_its_arguments()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi());
+
+        _ = Assert.Throws<ArgumentNullException>(() => MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, null!, SelectedRateHz, out _));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => MeterMethodSelector.TrySelect(default, source, SelectedRateHz, out _));
+        ConfigurationException rate = Assert.Throws<ConfigurationException>(
+            () => MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, source, double.NaN, out _));
+        Assert.Contains("Meter:SampleRateHz", rate.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(MeterMethodSetting.Auto, 0, true)]
+    [InlineData(MeterMethodSetting.Counter, 0, true)]
+    [InlineData(MeterMethodSetting.Sampling, 3, true)]
+    [InlineData(MeterMethodSetting.Counter, 3, false)]
+    public void TrySelect_agrees_with_Select(MeterMethodSetting setting, int code, bool expected)
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi((NvmlReturn)code));
+
+        bool selected = MeterMethodSelector.TrySelect(setting, source, SelectedRateHz, out MeterCapabilities? capabilities);
+
+        Assert.Equal(expected, selected);
+        if (expected)
+        {
+            Assert.Equal(MeterMethodSelector.Select(setting.ToString(), source, SelectedRateHz), capabilities);
+        }
+        else
+        {
+            _ = Assert.Throws<MeasurementPreconditionException>(() => MeterMethodSelector.Select(setting.ToString(), source, SelectedRateHz));
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_missing_or_blank_reason_becomes_counter_not_supported_for_a_source_and_for_values(string? reason)
+    {
+        using var source = new FakeSource(supported: false, reason: reason);
+
+        MeterCapabilities fromSource = MeterMethodSelector.Select("auto", source, SelectedRateHz);
+        MeterCapabilities fromValues = MeterMethodSelector.Select("auto", false, reason, SelectedRateHz);
+        MeasurementPreconditionException failure = Assert.Throws<MeasurementPreconditionException>(
+            () => MeterMethodSelector.Select("counter", false, reason, SelectedRateHz));
+
+        Assert.Equal("counter-not-supported", fromSource.CounterUnsupportedReason);
+        Assert.Equal(fromSource, fromValues);
+        Assert.Contains("(counter-not-supported)", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_supported_counter_drops_a_stale_reason()
+    {
+        using var source = new FakeSource(supported: true, reason: "stale");
+
+        MeterCapabilities fromSource = MeterMethodSelector.Select("auto", source, SelectedRateHz);
+        MeterCapabilities fromValues = MeterMethodSelector.Select("sampling", true, "stale", SelectedRateHz);
+
+        Assert.Equal(EnergyMethod.Counter, fromSource.Method);
+        Assert.True(fromSource.CounterSupported);
+        Assert.Null(fromSource.CounterUnsupportedReason);
+        Assert.Null(fromValues.CounterUnsupportedReason);
+    }
+
+    [Fact]
+    public void The_source_free_Select_decides_like_the_source_overload()
+    {
+        MeterCapabilities fallback = MeterMethodSelector.Select("auto", false, NotSupportedReason, SelectedRateHz);
+        MeterCapabilities counter = MeterMethodSelector.Select(" Counter ", true, null, SelectedRateHz);
+
+        Assert.Equal(Select("auto", NvmlReturn.NotSupported), fallback);
+        Assert.Equal(Select("counter"), counter);
+        Assert.Equal(FallbackSentence, fallback.Describe());
+    }
+
+    [Fact]
+    public void The_source_free_Select_rejects_a_bad_method_and_a_forced_unsupported_counter()
+    {
+        _ = Assert.Throws<ConfigurationException>(() => MeterMethodSelector.Select("turbo", true, null, SelectedRateHz));
+        MeasurementPreconditionException failure = Assert.Throws<MeasurementPreconditionException>(
+            () => MeterMethodSelector.Select("counter", false, NotSupportedReason, SelectedRateHz));
+
+        Assert.Equal(ExitCode.PreconditionFailed, failure.ExitCode);
+        Assert.Contains("Meter:Method=counter", failure.Message, StringComparison.Ordinal);
+        Assert.Contains(NotSupportedReason, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_source_free_TrySelect_returns_false_only_for_a_forced_unsupported_counter()
+    {
+        Assert.True(MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, false, "why", SelectedRateHz, out MeterCapabilities? fallback));
+        Assert.True(fallback.IsFallback);
+        Assert.Equal("why", fallback.CounterUnsupportedReason);
+
+        Assert.True(MeterMethodSelector.TrySelect(MeterMethodSetting.Counter, true, null, SelectedRateHz, out MeterCapabilities? counter));
+        Assert.Equal(EnergyMethod.Counter, counter.Method);
+
+        Assert.False(MeterMethodSelector.TrySelect(MeterMethodSetting.Counter, false, "why", SelectedRateHz, out MeterCapabilities? none));
+        Assert.Null(none);
+    }
+
+    [Fact]
+    public void The_source_free_TrySelect_guards_the_setting_and_the_rate()
+    {
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => MeterMethodSelector.TrySelect(default, true, null, SelectedRateHz, out _));
+        _ = Assert.Throws<ConfigurationException>(() => MeterMethodSelector.TrySelect(MeterMethodSetting.Auto, true, null, 0.0, out _));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void The_sample_rate_is_validated_before_the_forced_counter_precondition()
+    {
+        using IGpuTelemetrySource source = OpenSource(NewApi(NvmlReturn.NotSupported));
+
+        ConfigurationException fromSource = Assert.Throws<ConfigurationException>(
+            () => MeterMethodSelector.Select("counter", source, double.NaN));
+        ConfigurationException fromValues = Assert.Throws<ConfigurationException>(
+            () => MeterMethodSelector.Select("counter", false, NotSupportedReason, double.NaN));
+
+        Assert.Contains("Meter:SampleRateHz", fromSource.Message, StringComparison.Ordinal);
+        Assert.Contains("Meter:SampleRateHz", fromValues.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(ExitCode.Success, 0)]
+    [InlineData(ExitCode.Unexpected, 1)]
+    [InlineData(ExitCode.InvalidArguments, 2)]
+    [InlineData(ExitCode.MissingKey, 3)]
+    [InlineData(ExitCode.ModelNotFound, 4)]
+    [InlineData(ExitCode.Unreachable, 5)]
+    [InlineData(ExitCode.PreconditionFailed, 6)]
+    [InlineData(ExitCode.ContentDiffers, 7)]
+    public void ExitCode_members_carry_the_documented_process_exit_values(ExitCode code, int value)
+    {
+        Assert.Equal(value, (int)code);
+    }
+
+    [Fact]
+    public void ExitCode_has_exactly_the_eight_documented_members()
+    {
+        Assert.Equal(8, Enum.GetValues<ExitCode>().Length);
+    }
+
+    [Fact]
+    public void AgentJoulesException_exposes_its_exit_code_message_and_inner_exception()
+    {
+        var inner = new InvalidOperationException("inner");
+
+        var plain = new AgentJoulesException(ExitCode.Unreachable, "unreachable");
+        var wrapped = new AgentJoulesException(ExitCode.ModelNotFound, "model missing", inner);
+
+        Assert.IsType<Exception>(plain, exactMatch: false);
+        Assert.Equal(ExitCode.Unreachable, plain.ExitCode);
+        Assert.Equal("unreachable", plain.Message);
+        Assert.Null(plain.InnerException);
+        Assert.Equal(ExitCode.ModelNotFound, wrapped.ExitCode);
+        Assert.Equal("model missing", wrapped.Message);
+        Assert.Same(inner, wrapped.InnerException);
+    }
+
+    [Fact]
+    public void ConfigurationException_is_fixed_to_exit_code_2()
+    {
+        var plain = new ConfigurationException("bad setting");
+        var wrapped = new ConfigurationException("bad setting", new FormatException("inner"));
+
+        Assert.IsType<AgentJoulesException>(plain, exactMatch: false);
+        Assert.Equal(ExitCode.InvalidArguments, plain.ExitCode);
+        Assert.Equal(ExitCode.InvalidArguments, wrapped.ExitCode);
+        Assert.Equal("bad setting", plain.Message);
+        Assert.IsType<FormatException>(wrapped.InnerException);
+        Assert.True(typeof(ConfigurationException).IsSealed);
+    }
+
+    [Fact]
+    public void MeasurementPreconditionException_is_fixed_to_exit_code_6()
+    {
+        var plain = new MeasurementPreconditionException("no counter");
+        var wrapped = new MeasurementPreconditionException("no counter", new FormatException("inner"));
+
+        Assert.IsType<AgentJoulesException>(plain, exactMatch: false);
+        Assert.Equal(ExitCode.PreconditionFailed, plain.ExitCode);
+        Assert.Equal(ExitCode.PreconditionFailed, wrapped.ExitCode);
+        Assert.Equal("no counter", plain.Message);
+        Assert.IsType<FormatException>(wrapped.InnerException);
+        Assert.True(typeof(MeasurementPreconditionException).IsSealed);
     }
 }

@@ -487,12 +487,12 @@ Conflict: EDGE-003 acceptance also requires "the rendered summary row for that r
 Covers: REQ-004, EDGE-002
 User story: As a user, I want the meter to use the energy counter when the GPU supports it and to fall back to power sampling with a visible disclosure when it does not, so that the method behind every joule value is known.
 Acceptance criteria:
-1. The selector performs one `nvmlDeviceGetTotalEnergyConsumption` read at startup; return code 0 means supported, any non-zero code means unsupported with the reason text `counter-not-supported: NVML_ERROR_NOT_SUPPORTED` (or the numeric code when the name is unknown). The fake records exactly 1 counter read for the probe.
+1. The selector performs one `nvmlDeviceGetTotalEnergyConsumption` read at startup; return code 0 means supported, any non-zero code means unsupported with the reason text `counter-not-supported: NVML_ERROR_NOT_SUPPORTED` (or the numeric code when the name is unknown). The fake records exactly 1 counter read for the probe. Note (2026-10-19): the single startup read is the factory's at Open (AJ-022) and the selector consumes its result; every non-zero code other than 3 gives `counter-not-supported: <code>` with the numeric code even when NvmlReturn names it (design 3.2 as amended by AJ-022).
 2. `Meter:Method=auto` with the counter supported gives method `counter`, `IsFallback` false.
 3. `auto` with the counter unsupported gives method `sampling`, `IsFallback` true, and every reading from that meter carries flag `sampling-fallback` (test with `ScriptedNvmlApi` returning NotSupported).
 4. `sampling` forced while the counter is supported gives method `sampling`, `IsFallback` false and no `sampling-fallback` flag.
 5. `counter` forced while unsupported throws `MeasurementPreconditionException` (exit code 6) whose message names `Meter:Method=counter` and the reason; an unknown method string throws `ConfigurationException` (exit code 2).
-6. `MeterCapabilities.Describe()` returns `Energy method: sampling (counter unsupported)` for the fallback and `Energy method: counter` otherwise; this is the startup console disclosure used by AJ-035.
+6. `MeterCapabilities.Describe()` returns `Energy method: sampling (counter unsupported)` for the fallback and `Energy method: counter` otherwise; this is the startup console disclosure used by AJ-035. Note (2026-10-19, spec gate): forced `sampling` returns `Energy method: sampling` (a third sentence; printing `counter` for a sampling method would be wrong), so the three sentences are: fallback, forced sampling, counter.
 7. `ExitCode` (0 Success, 1 Unexpected, 2 InvalidArguments, 3 MissingKey, 4 ModelNotFound, 5 Unreachable, 6 PreconditionFailed, 7 ContentDiffers), `AgentJoulesException(ExitCode, string)`, `ConfigurationException` and `MeasurementPreconditionException` exist in Core; the remaining subclasses of design 3.2 are added by the story that first throws them.
 BDD scenarios:
 ```gherkin
@@ -539,9 +539,9 @@ Tasks:
 Test mapping: PowerIntegrationTests (design 6.1: auto fallback and NOT_SUPPORTED); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-027-method-selection.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-004 and EDGE-002 are delivered in one commit by the builder with a message starting `AJ-027 REQ-004 EDGE-002:` once their tests pass
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-004 and EDGE-002 are delivered in one commit by the builder with a message starting `AJ-027 REQ-004 EDGE-002:` once their tests pass
 Demo relevance: no
 Conflict: EDGE-002 requires the fallback to be disclosed "in the report header and in the README" and, if the committed laptop probe shows `energyCounterSupported: false`, the README results block to contain the word `sampling`. Those surfaces are produced by REQ-016 and REQ-025 (M3, M6). Proposed resolution: M1 delivers the method, the per-reading flag, the console line and the probe output; the M3 report story and the M6 README story carry the header and README assertions and reference EDGE-002.
 
