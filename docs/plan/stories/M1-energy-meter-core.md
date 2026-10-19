@@ -272,10 +272,10 @@ Tasks:
 Test mapping: IntegrationGateTests (unit); NvmlIntegrationTests (gated, trait Spec=REQ-003); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-023-integration-gate.feature.
 Docs impact: docs/build-log.md `## Test counts` and `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the gated run output on the laptop is quoted in docs/build-log.md with the UTC date
-- [ ] REQ-003 commit made by the builder with a message starting `AJ-023 REQ-003:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the gated run output on the laptop is quoted in docs/build-log.md with the UTC date
+- [x] REQ-003 commit made by the builder with a message starting `AJ-023 REQ-003:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-024: Define the Metric label object and the reading flags

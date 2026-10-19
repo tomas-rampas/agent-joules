@@ -2,15 +2,20 @@ using Xunit;
 
 namespace AgentJoules.TestSupport;
 
-/// <summary>A fact that is skipped unless the environment variable AGENTJOULES_INTEGRATION is 1 after trimming surrounding whitespace, so a trailing space from a cmd.exe "set X=1 &amp;&amp;" still counts as set.</summary>
+/// <summary>A fact that is skipped unless the environment variable AGENTJOULES_INTEGRATION passes <see cref="IntegrationGate.SkipReason"/>.</summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class IntegrationFactAttribute : FactAttribute
 {
     public IntegrationFactAttribute()
+        : this(Environment.GetEnvironmentVariable(IntegrationGate.VariableName))
     {
-        if (Environment.GetEnvironmentVariable("AGENTJOULES_INTEGRATION")?.Trim() != "1")
-        {
-            Skip = "Set AGENTJOULES_INTEGRATION=1";
-        }
     }
+
+    // Private so that [IntegrationFact("1")] cannot compile in any assembly; the unit tests reach it through ForValue.
+    private IntegrationFactAttribute(string? rawValue)
+    {
+        Skip = IntegrationGate.SkipReason(rawValue);
+    }
+
+    internal static IntegrationFactAttribute ForValue(string? rawValue) => new(rawValue);
 }

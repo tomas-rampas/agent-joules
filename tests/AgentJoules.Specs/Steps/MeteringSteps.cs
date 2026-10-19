@@ -10,6 +10,7 @@ using AgentJoules.TestSupport;
 using Reqnroll;
 
 using Xunit;
+using Xunit.Sdk;
 
 namespace AgentJoules.Specs.Steps;
 
@@ -17,6 +18,7 @@ namespace AgentJoules.Specs.Steps;
 public sealed class MeteringSteps(ScenarioWorld world)
 {
     private const nint SecondCandidateHandle = 0x2000;
+    private const string ClosedGateReason = "Set AGENTJOULES_INTEGRATION=1";
 
     private readonly ScenarioWorld _world = world;
 
@@ -390,5 +392,133 @@ public sealed class MeteringSteps(ScenarioWorld world)
     public void ThenAnObjectDisposedExceptionIsThrown()
     {
         Assert.IsType<ObjectDisposedException>(_world.LastException);
+    }
+
+    private void EvaluateGate()
+    {
+        _world.GateSkipReason = IntegrationGate.SkipReason(_world.GateValue);
+        _world.GateEvaluated = true;
+    }
+
+    private void RunNvmlIntegrationTest()
+    {
+        EvaluateGate();
+        if (_world.GateSkipReason is not null)
+        {
+            return;
+        }
+
+        var factory = new NvmlGpuTelemetrySourceFactory(_world.Api, _world.FactoryPlatform);
+        LaptopGpuCheck? check = null;
+        _world.CheckFailure = Record.Exception(() => check = NvmlIntegrationChecks.AssertLaptopGpu(factory));
+        _world.LaptopCheck = check;
+    }
+
+    [Given(@"AGENTJOULES_INTEGRATION is ""(.*)"" and the NVIDIA driver is installed")]
+    public void GivenAgentJoulesIntegrationIsAndTheNvidiaDriverIsInstalled(string value)
+    {
+        _world.GateValue = value;
+        _world.Api = new ScriptedNvmlApi(_world.Time);
+        _world.FactoryPlatform = OSPlatform.Windows;
+    }
+
+    [Given(@"AGENTJOULES_INTEGRATION is ""(.*)"" and NVML cannot be loaded")]
+    public void GivenAgentJoulesIntegrationIsAndNvmlCannotBeLoaded(string value)
+    {
+        _world.GateValue = value;
+        _world.Api = new ScriptedNvmlApi(_world.Time) { MissingLibrary = true };
+        _world.FactoryPlatform = OSPlatform.Windows;
+    }
+
+    [Given(@"the variable value is ""(.*)""")]
+    public void GivenTheVariableValueIs(string value)
+    {
+        _world.GateValue = value;
+    }
+
+    [Given(@"the variable is unset")]
+    public void GivenTheVariableIsUnset()
+    {
+        _world.GateValue = null;
+    }
+
+    [Given(@"a reported power limit of (\d+) W")]
+    public void GivenAReportedPowerLimitOfW(double watts)
+    {
+        _world.ReportedPowerLimitWatts = watts;
+    }
+
+    [When(@"IntegrationGate\.SkipReason is evaluated")]
+    public void WhenIntegrationGateSkipReasonIsEvaluated()
+    {
+        EvaluateGate();
+    }
+
+    [When(@"the NVML integration test opens device 0")]
+    public void WhenTheNvmlIntegrationTestOpensDevice0()
+    {
+        RunNvmlIntegrationTest();
+    }
+
+    [When(@"the NVML integration test runs")]
+    public void WhenTheNvmlIntegrationTestRuns()
+    {
+        RunNvmlIntegrationTest();
+    }
+
+    [When(@"PowerLimitInRange is evaluated")]
+    public void WhenPowerLimitInRangeIsEvaluated()
+    {
+        _world.CheckFailure = Record.Exception(() => GpuAssertions.PowerLimitInRange(_world.ReportedPowerLimitWatts));
+    }
+
+    [Then(@"it returns null")]
+    public void ThenItReturnsNull()
+    {
+        Assert.True(_world.GateEvaluated);
+        Assert.Null(_world.GateSkipReason);
+    }
+
+    [Then(@"it returns ""(.*)""")]
+    public void ThenItReturns(string expected)
+    {
+        Assert.True(_world.GateEvaluated);
+        Assert.Equal(expected, _world.GateSkipReason);
+    }
+
+    [Then(@"the test is skipped")]
+    public void ThenTheTestIsSkipped()
+    {
+        Assert.True(_world.GateEvaluated);
+        Assert.Equal(ClosedGateReason, _world.GateSkipReason);
+    }
+
+    [Then(@"the name contains ""(.*)"" and the power limit is between (\d+) and (\d+) W")]
+    public void ThenTheNameContainsAndThePowerLimitIsBetweenAndW(string fragment, double minimum, double maximum)
+    {
+        Assert.Null(_world.GateSkipReason);
+        Assert.Null(_world.CheckFailure);
+        Assert.NotNull(_world.LaptopCheck);
+        Assert.Contains(fragment, _world.LaptopCheck.Name, StringComparison.Ordinal);
+        Assert.InRange(_world.LaptopCheck.PowerLimitWatts, minimum, maximum);
+
+        // The check must release its NVML session itself; ScenarioWorld.Dispose would otherwise hide a leak.
+        Assert.False(_world.Api.IsInitialised);
+    }
+
+    [Then(@"it fails with the Unavailable reason instead of skipping")]
+    public void ThenItFailsWithTheUnavailableReasonInsteadOfSkipping()
+    {
+        Assert.True(_world.GateEvaluated);
+        Assert.Null(_world.GateSkipReason);
+        Assert.Null(_world.LaptopCheck);
+        XunitException failure = Assert.IsType<XunitException>(_world.CheckFailure, exactMatch: false);
+        Assert.StartsWith("NVML unavailable: ", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Then(@"it fails")]
+    public void ThenItFails()
+    {
+        Assert.IsType<XunitException>(_world.CheckFailure, exactMatch: false);
     }
 }

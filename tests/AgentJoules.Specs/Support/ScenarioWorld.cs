@@ -74,6 +74,24 @@ public sealed class ScenarioWorld : IDisposable
     /// <summary>The source of an Available result a scenario holds open; released before the scripted session is torn down.</summary>
     public IGpuTelemetrySource? Source { get; set; }
 
+    /// <summary>The value of the gate variable a gate scenario models, held as scenario state and never written to the process environment; null models an unset variable.</summary>
+    public string? GateValue { get; set; }
+
+    /// <summary>What <c>IntegrationGate.SkipReason</c> returned for <see cref="GateValue"/>; null means the gate is open.</summary>
+    public string? GateSkipReason { get; set; }
+
+    /// <summary>True once a gate step evaluated <c>IntegrationGate.SkipReason</c>, so a null <see cref="GateSkipReason"/> means open rather than not evaluated.</summary>
+    public bool GateEvaluated { get; set; }
+
+    /// <summary>The record the laptop check returned when the gate was open and the GPU was available, or null.</summary>
+    public LaptopGpuCheck? LaptopCheck { get; set; }
+
+    /// <summary>The assertion failure the laptop check or <c>PowerLimitInRange</c> threw, or null when it passed or never ran.</summary>
+    public Exception? CheckFailure { get; set; }
+
+    /// <summary>The power limit in watts a <c>PowerLimitInRange</c> scenario reports.</summary>
+    public double ReportedPowerLimitWatts { get; set; }
+
     public void Dispose()
     {
         // A scenario may script a blanket fault; clear it so releasing the session cannot fail the hook.
