@@ -873,11 +873,11 @@ User story: As a user, I want the GPU index, meter method, sample rate and basel
 Acceptance criteria:
 1. `config/appsettings.json` has the root section `AgentJoules` with `Gpu:Index` 0, `Meter:Method` "auto", `Meter:SampleRateHz` 10, `Meter:AllowBelowMinRate` false, `Baseline:Seconds` 30, `Baseline:MaxCoefficientOfVariation` 0.10; it parses as JSON in a unit test, and `config/.gitkeep` is deleted in the same change.
 2. Options are mutable `sealed class` types (`GpuOptions`, `MeterOptions`, `BaselineOptions`, `AgentJoulesOptions`) with `{ get; set; }` properties, no `required`, no `init` and no positional record (with the binding generator `required` fails CS9035 and `init` is never bound, design 3.2); the generator binds them; absent keys give the same defaults as the file. Proof: `grep -rnE "required|init;|record " src/AgentJoules.Core/Configuration` exits 1.
-3. A test passes `AGENTJOULES__Gpu__Index=7` through the isolated in-memory `IConfiguration` of the CLI harness (the keys are normalised the way the environment provider does) and asserts `Gpu:Index` is 7 (`ConfigValidationTests.EnvironmentOverrideBinds`); no test sets a process environment variable (design 6.2).
-4. A sample rate below 10 Hz without `Meter:AllowBelowMinRate` fails validation with a message naming both keys (exit code 2 through `OptionsValidationException`); with `AllowBelowMinRate` true, 5 Hz is valid; a rate of 0 or less is invalid even with the override.
-5. `Meter:Method` outside `auto|counter|sampling` (case-insensitive) fails validation; `Gpu:Index` below 0, `Baseline:Seconds` of 0 or less and `Baseline:MaxCoefficientOfVariation` of 0 or less fail validation. These ranges are assumed (the prompt gives only the 10 Hz minimum) and recorded in docs/build-log.md.
+3. A test passes `AGENTJOULES__Gpu__Index=7` through the isolated in-memory `IConfiguration` of the CLI harness (the keys are normalised the way the environment provider does) and asserts `Gpu:Index` is 7 (`ConfigValidationTests.EnvironmentOverrideBinds`); no test sets a process environment variable (design 6.2). Note (2026-10-19): served by `ConfigurationFixtures.InMemory` with the normalised `AGENTJOULES:Gpu:Index` key until AJ-034's CliHarness exists; AJ-034 re-proves it through the harness's isolated configuration.
+4. A sample rate below 10 Hz without `Meter:AllowBelowMinRate` fails validation with a message naming both keys (exit code 2 through `OptionsValidationException`); with `AllowBelowMinRate` true, 5 Hz is valid; a rate of 0 or less is invalid even with the override. Note (2026-10-19): criterion 4 is served by `OptionsLoader.Load` and `ConfigurationException.ExitCode` 2 over the in-memory configuration until AJ-034 registers the validators in the host (ValidateOnStart, `OptionsValidationException` mapped to exit 2).
+5. `Meter:Method` outside `auto|counter|sampling` (case-insensitive) fails validation; `Gpu:Index` below 0, `Baseline:Seconds` of 0 or less and `Baseline:MaxCoefficientOfVariation` of 0 or less fail validation. These ranges are assumed (the prompt gives only the 10 Hz minimum) and recorded in docs/build-log.md. Note (2026-10-19): the ranges are recorded in docs/build-log.md and as D-16 in docs/plan/plan.md section 9.
 6. `Directory.Packages.props` gains the Options packages the design does not list (Microsoft.Extensions.Options and Microsoft.Extensions.Configuration.Binder at 10.0.12, the Hosting 10.0.12 family; the builder confirms each version exists on NuGet) and each addition is recorded under `## Version deviations and additions` as an addition, not a deviation.
-7. The validator is `FlatSectionsValidator : IValidateOptions<AgentJoulesOptions>` (design name), a source-generated `[OptionsValidator]` partial, plus a hand-written `CrossFieldValidator` for the rate rule; `grep -rn "class FlatSectionsValidator" src` prints 1 hit.
+7. The validator is `FlatSectionsValidator : IValidateOptions<AgentJoulesOptions>` (design name), a source-generated `[OptionsValidator]` partial, plus a hand-written `CrossFieldValidator` for the rate rule; `grep -rn "class FlatSectionsValidator" src` prints 1 hit. Note (2026-10-19): `MinimumValueAttribute` (Core) sits beside the validator because the generator drops `RangeAttribute`'s `ErrorMessage` (measured).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S033 @REQ-004
@@ -935,9 +935,9 @@ Tasks:
 Test mapping: ConfigValidationTests (design 6.1: sample rate 5 Hz without override gives exit 2); Specs feature tests/AgentJoules.Specs/Features/Configuration/AJ-033-meter-options.feature.
 Docs impact: config/appsettings.json (sample and default file); docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no model ID, base URL or key appears in config/appsettings.json (those arrive in M2)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no model ID, base URL or key appears in config/appsettings.json (those arrive in M2). Measured 2026-10-19: grep for model, URL and key in config/appsettings.json exits 1 (0 hits).
 Demo relevance: no
 
 ### AJ-034: Build the CLI foundation with exit codes and redacted output
