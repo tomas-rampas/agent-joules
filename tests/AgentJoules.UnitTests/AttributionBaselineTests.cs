@@ -1,9 +1,12 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using AgentJoules.Cli.Output;
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
+using AgentJoules.Core.Energy.Testing;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Nvml;
@@ -1432,6 +1435,878 @@ public sealed class AttributionBaselineTests
 
         Assert.Equal("maxCoefficientOfVariation", failure.ParamName);
         Assert.Equal(callsBefore, rig.PowerCalls);
+    }
+
+    // ---- AJ-031: the deterministic fake meter (REQ-005). Fake time only; nothing here waits on the wall clock. ----
+
+    // A watts function that records every instant it is asked about, so a test can read the synthesized grid back.
+    private static Func<double, double> Recording(List<double> instants, double watts) =>
+        t =>
+        {
+            instants.Add(t);
+            return watts;
+        };
+
+    // Alternates 20 W on even grid indices and 30 W on odd ones at 10 Hz.
+    private static double Alternating(double seconds) => (long)Math.Round(seconds * 10.0) % 2 == 0 ? 20.0 : 30.0;
+
+    private static DeterministicEnergyMeter NewFake(
+        TimeProvider? time,
+        Func<double, double>? wattsAt,
+        double rate = 10.0,
+        bool counterSupported = true,
+        MeterMethodSetting method = MeterMethodSetting.Auto,
+        double? baseline = null) =>
+        new(time!, wattsAt!, rate, counterSupported, method, baseline);
+
+    private static void AssertInstants(double[] expected, List<double> actual)
+    {
+        Assert.Equal(expected.Length, actual.Count);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i], actual[i], Tolerance);
+        }
+    }
+
+    private static EnergyReading CloseAfter(FakeRig rig, TimeSpan length)
+    {
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(length);
+        return window.Close();
+    }
+
+    // Runs the call and reports the status of its task, for an exception that must leave the call itself (not the task).
+    private static TaskStatus StartMeasuring(Func<ValueTask<BaselineResult>> call) => call().AsTask().Status;
+
+    // The fake reports every baseline error through the returned task, like the real meter, and the task is complete at once.
+    private static async Task<TException> FaultedAtOnceAsync<TException>(Func<ValueTask<BaselineResult>> call)
+        where TException : Exception
+    {
+        ValueTask<BaselineResult> measuring = call();
+        Assert.True(measuring.IsCompleted, "The returned task must be complete at once.");
+        Assert.True(measuring.IsFaulted, "The error must be carried by the returned task, not thrown by the call.");
+        return await Assert.ThrowsAsync<TException>(async () => await measuring);
+    }
+
+    [Fact]
+    public async Task The_fake_reference_window_under_the_counter_gives_the_documented_numbers()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0, baseline: 20.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(EnergyMethod.Counter, reading.Method);
+        Assert.Equal(MetricLabel.Measured, reading.GrossJoules.Label);
+        Assert.Equal(180.0, reading.GrossJoules.Value);
+        AssertMeasured(reading.NetJoules, 120.0, "J");
+        AssertMeasured(reading.AverageWatts, 60.0, "W");
+        AssertMeasured(reading.PeakWatts, 60.0, "W");
+        Assert.Equal(3.0, reading.DurationSeconds, Tolerance);
+        Assert.Equal(31, reading.SampleCount);
+        Assert.Equal(rig.Meter.LastWindowSampleCount, reading.SampleCount);
+        Assert.Equal(10.0, reading.SampleRateHz);
+        Assert.Equal(ReadingFlags.None, reading.Flags);
+
+        // The fake never claims throttling, and every synthesized sample is a supported read with nothing active.
+        Assert.NotNull(reading.ThrottleReasons);
+        Assert.Empty(reading.ThrottleReasons);
+    }
+
+    [Fact]
+    public async Task The_fake_reference_window_under_sampling_gives_the_documented_numbers()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0, method: MeterMethodSetting.Sampling, baseline: 20.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(EnergyMethod.Sampling, reading.Method);
+        AssertMeasured(reading.GrossJoules, 180.0, "J");
+        AssertMeasured(reading.NetJoules, 120.0, "J");
+        AssertMeasured(reading.AverageWatts, 60.0, "W");
+        AssertMeasured(reading.PeakWatts, 60.0, "W");
+        Assert.Equal(31, reading.SampleCount);
+        Assert.Equal(31, rig.Meter.LastWindowSampleCount);
+        Assert.Equal(ReadingFlags.None, reading.Flags);
+    }
+
+    [Fact]
+    public async Task The_fake_window_at_15_W_against_a_20_W_baseline_has_negative_net_and_below_baseline()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 15.0, baseline: 20.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(45.0, reading.GrossJoules.Value);
+        AssertMeasured(reading.NetJoules, -15.0, "J");
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.BelowBaseline));
+    }
+
+    [Fact]
+    public async Task The_fake_window_without_a_baseline_reports_no_net_value()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Null(rig.Meter.BaselineMeanWatts);
+        Assert.Equal(MetricLabel.NotReported, reading.NetJoules.Label);
+        Assert.Equal("no-baseline", reading.NetJoules.Reason);
+        Assert.False(reading.Flags.HasFlag(ReadingFlags.BelowBaseline));
+    }
+
+    [Fact]
+    public async Task A_150_ms_window_at_10_Hz_has_three_samples_and_is_low_resolution()
+    {
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 60.0));
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromMilliseconds(150));
+
+        Assert.Equal(3, reading.SampleCount);
+        Assert.Equal(3, rig.Meter.LastWindowSampleCount);
+        AssertInstants([0.0, 0.1, 0.15], instants);
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.LowResolution));
+    }
+
+    [Fact]
+    public async Task A_300_ms_window_at_10_Hz_has_no_duplicate_sample_at_the_stop_on_the_grid()
+    {
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 60.0));
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromMilliseconds(300));
+
+        Assert.Equal(4, reading.SampleCount);
+        Assert.Equal(4, rig.Meter.LastWindowSampleCount);
+        AssertInstants([0.0, 0.1, 0.2, 0.3], instants);
+        Assert.False(reading.Flags.HasFlag(ReadingFlags.LowResolution));
+    }
+
+    [Fact]
+    public async Task A_window_opened_between_grid_instants_has_both_edges_and_the_grid_inside()
+    {
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 60.0));
+        rig.Time.Advance(TimeSpan.FromMilliseconds(50));
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal(4, reading.SampleCount);
+        AssertInstants([0.05, 0.1, 0.2, 0.25], instants);
+    }
+
+    [Fact]
+    public async Task The_fake_counter_delta_is_the_trapezoid_integral_in_whole_millijoules()
+    {
+        // 10 + 10 t W over 3 s: a linear ramp, so the trapezoid integral is exact: 10 * 3 + 5 * 9 = 75 J.
+        await using FakeRig counter = await FakeRig.StartAsync(t => 10.0 + (10.0 * t));
+        await using FakeRig sampling = await FakeRig.StartAsync(t => 10.0 + (10.0 * t), method: MeterMethodSetting.Sampling);
+
+        EnergyReading counted = CloseAfter(counter, TimeSpan.FromSeconds(3));
+        EnergyReading sampled = CloseAfter(sampling, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(75.0, counted.GrossJoules.Value);
+        AssertMeasured(sampled.GrossJoules, 75.0, "J");
+        Assert.Equal(sampled.SampleCount, counted.SampleCount);
+    }
+
+    [Fact]
+    public async Task The_fake_window_span_follows_the_fake_clock()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+        rig.Time.Advance(TimeSpan.FromSeconds(2));
+
+        IMeterWindow window = rig.Meter.OpenWindow();
+        Assert.Equal(2.0, window.Span.StartSeconds, Tolerance);
+        Assert.Equal(window.Span.StartSeconds, window.Span.StopSeconds);
+
+        rig.Time.Advance(TimeSpan.FromSeconds(3));
+        _ = window.Close();
+
+        Assert.Equal(2.0, window.Span.StartSeconds, Tolerance);
+        Assert.Equal(5.0, window.Span.StopSeconds, Tolerance);
+        Assert.Equal(3.0, window.Span.DurationSeconds, Tolerance);
+    }
+
+    [Fact]
+    public async Task The_fake_baseline_completes_synchronously_without_advancing_the_clock()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(Alternating);
+        DateTimeOffset utcBefore = rig.Time.GetUtcNow();
+        long stampBefore = rig.Time.GetTimestamp();
+
+        ValueTask<BaselineResult> measuring = rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None);
+
+        Assert.True(measuring.IsCompleted, "The fake baseline must complete without waiting.");
+        BaselineResult baseline = await measuring;
+        Assert.Equal(utcBefore, rig.Time.GetUtcNow());
+        Assert.Equal(stampBefore, rig.Time.GetTimestamp());
+
+        // 301 samples on the grid (both edges), 151 at 20 W and 150 at 30 W: the mean is 7520 / 301 W (about 24.98) and the population
+        // deviation is computed in two passes, so the coefficient of variation is about 0.20014 and the story's 0.20 holds to 3 decimals.
+        double mean = 7520.0 / 301.0;
+        double squares = (151 * Math.Pow(20.0 - mean, 2)) + (150 * Math.Pow(30.0 - mean, 2));
+        double deviation = Math.Sqrt(squares / 301.0);
+        Assert.Equal(301, baseline.SampleCount);
+        Assert.Equal(30.0, baseline.Seconds, Tolerance);
+        AssertMeasured(baseline.MeanW, mean, "W");
+        AssertMeasured(baseline.StdDevW, deviation, "W");
+        Assert.NotNull(baseline.CoefficientOfVariation);
+        Assert.Equal(deviation / mean, baseline.CoefficientOfVariation.Value, Tolerance);
+        Assert.Equal(0.20, baseline.CoefficientOfVariation.Value, 1e-3);
+        Assert.Equal(ReadingFlags.BaselineUnstable, baseline.Flags);
+        Assert.Equal(Threshold, baseline.MaxCoefficientOfVariation);
+        Assert.Equal(baseline.MeanW.Value, rig.Meter.BaselineMeanWatts);
+    }
+
+    [Fact]
+    public async Task A_steady_fake_baseline_is_stable_and_is_used_by_the_next_window()
+    {
+        // 20 W while the baseline is measured (the first 30 s of the virtual line), 60 W afterwards.
+        await using FakeRig rig = await FakeRig.StartAsync(t => t <= 30.0 ? 20.0 : 60.0);
+
+        BaselineResult baseline = await rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None);
+        rig.Time.Advance(TimeSpan.FromSeconds(40));
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        AssertMeasured(baseline.MeanW, 20.0, "W");
+        Assert.Equal(ReadingFlags.None, baseline.Flags);
+        Assert.Equal(20.0, rig.Meter.BaselineMeanWatts);
+        Assert.Equal(180.0, reading.GrossJoules.Value);
+        AssertMeasured(reading.NetJoules, 120.0, "J");
+    }
+
+    [Fact]
+    public async Task The_fake_window_after_an_unstable_baseline_subtracts_the_measured_mean()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(t => t <= 30.0 ? Alternating(t) : 60.0, baseline: 5.0);
+
+        BaselineResult baseline = await rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None);
+        rig.Time.Advance(TimeSpan.FromSeconds(40));
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        double mean = baseline.MeanW.Value.GetValueOrDefault();
+        Assert.Equal(mean, rig.Meter.BaselineMeanWatts);
+        AssertMeasured(reading.NetJoules, 180.0 - (mean * 3.0), "J");
+    }
+
+    [Fact]
+    public async Task A_fake_baseline_that_is_not_reported_clears_the_stored_mean()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 0.0, baseline: 20.0);
+        Assert.Equal(20.0, rig.Meter.BaselineMeanWatts);
+
+        BaselineResult baseline = await rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None);
+
+        Assert.Equal(MetricLabel.NotReported, baseline.MeanW.Label);
+        Assert.Null(rig.Meter.BaselineMeanWatts);
+    }
+
+    [Fact]
+    public async Task The_fake_baseline_needs_a_started_meter_and_honours_a_cancelled_token()
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 20.0);
+
+        _ = await FaultedAtOnceAsync<InvalidOperationException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None));
+
+        await rig.Meter.StartAsync(CancellationToken.None);
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync();
+        ValueTask<BaselineResult> measuring = rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, cancelled.Token);
+        Assert.True(measuring.IsCompleted);
+        Assert.True(measuring.IsFaulted);
+
+        // Exactly OperationCanceledException (a canceled task would throw TaskCanceledException), carrying the caller's token, like the real meter.
+        OperationCanceledException failure = await Assert.ThrowsAsync<OperationCanceledException>(async () => await measuring);
+        Assert.Equal(cancelled.Token, failure.CancellationToken);
+        Assert.Null(rig.Meter.BaselineMeanWatts);
+    }
+
+    [Fact]
+    public async Task An_InvalidOperationException_from_the_function_faults_the_fake_baseline_task()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => throw new InvalidOperationException("scripted"));
+
+        InvalidOperationException failure = await FaultedAtOnceAsync<InvalidOperationException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None));
+
+        Assert.Equal("scripted", failure.Message);
+    }
+
+    [Fact]
+    public async Task Any_other_exception_from_the_function_leaves_the_fake_baseline_call_unchanged()
+    {
+        KeyNotFoundException original = new("scripted");
+        await using FakeRig rig = await FakeRig.StartAsync(_ => throw original);
+
+        KeyNotFoundException thrown = Assert.Throws<KeyNotFoundException>(
+            () => StartMeasuring(() => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None)));
+
+        Assert.Same(original, thrown);
+    }
+
+    [Fact]
+    public async Task A_cancellation_from_the_function_under_a_live_token_leaves_the_fake_baseline_call_unchanged()
+    {
+        OperationCanceledException original = new("scripted");
+        await using FakeRig rig = await FakeRig.StartAsync(_ => throw original);
+
+        OperationCanceledException thrown = Assert.Throws<OperationCanceledException>(
+            () => StartMeasuring(() => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None)));
+
+        Assert.Same(original, thrown);
+    }
+
+    [Fact]
+    public async Task A_three_millisecond_fake_baseline_keeps_its_on_grid_edges_at_a_long_fake_time()
+    {
+        // 81,920,040,000 ticks is 8,192.004 s: at 1000 Hz the stop edge, taken as a double sum of the start and the length, once landed
+        // one rounding step past a grid instant and the baseline gained a fifth sample. Both edges now come from the clock's ticks.
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 60.0), rate: 1000.0);
+        rig.Time.Advance(TimeSpan.FromTicks(81_920_040_000));
+
+        BaselineResult baseline = await rig.Meter.MeasureBaselineAsync(TimeSpan.FromMilliseconds(3), Threshold, CancellationToken.None);
+
+        Assert.Equal(4, baseline.SampleCount);
+        Assert.Equal(4, instants.Count);
+        Assert.Equal(0.003, baseline.Seconds, 1e-9);
+    }
+
+    [Fact]
+    public async Task A_window_of_exactly_one_million_samples_is_accepted_and_one_more_period_is_refused()
+    {
+        // 99,999.9 s at 10 Hz: both edges on the grid, 999,998 instants strictly inside, so exactly 1,000,000 samples.
+        await using FakeRig exact = await FakeRig.StartAsync(_ => 60.0);
+        EnergyReading reading = CloseAfter(exact, TimeSpan.FromSeconds(99_999.9));
+
+        Assert.Equal(1_000_000, reading.SampleCount);
+        Assert.Equal(1_000_000, exact.Meter.LastWindowSampleCount);
+
+        List<double> instants = [];
+        await using FakeRig over = await FakeRig.StartAsync(Recording(instants, 60.0));
+        IMeterWindow window = over.Meter.OpenWindow();
+        over.Time.Advance(TimeSpan.FromSeconds(100_000.0));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(window.Close);
+
+        Assert.Contains("1000000", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(instants);
+    }
+
+    [Fact]
+    public async Task A_fake_baseline_that_passes_the_length_check_is_never_refused_by_the_synthesis()
+    {
+        // Opened off the grid (0.05 s at 10 Hz). 99,999.8 s fits the cap exactly: 999,998 instants inside, 1,000,000 samples.
+        await using FakeRig fits = await FakeRig.StartAsync(_ => 20.0);
+        fits.Time.Advance(TimeSpan.FromMilliseconds(50));
+        BaselineResult baseline = await fits.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(99_999.8), Threshold, CancellationToken.None);
+
+        Assert.Equal(1_000_000, baseline.SampleCount);
+
+        // 99,999.9 s needs ceil(999,999) + 2 samples by length alone: refused as a duration error, never as the window error.
+        await using FakeRig over = await FakeRig.StartAsync(_ => 20.0);
+        over.Time.Advance(TimeSpan.FromMilliseconds(50));
+        ArgumentOutOfRangeException failure = await FaultedAtOnceAsync<ArgumentOutOfRangeException>(
+            () => over.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(99_999.9), Threshold, CancellationToken.None));
+
+        Assert.Equal("duration", failure.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(5000)]
+    public async Task A_fake_baseline_shorter_than_a_millisecond_is_rejected(long ticks)
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 20.0);
+
+        ArgumentOutOfRangeException failure = await FaultedAtOnceAsync<ArgumentOutOfRangeException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromTicks(ticks), Threshold, CancellationToken.None));
+
+        Assert.Equal("duration", failure.ParamName);
+    }
+
+    [Fact]
+    public async Task A_fake_baseline_longer_than_a_timer_can_wait_is_rejected()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 20.0);
+
+        ArgumentOutOfRangeException failure = await FaultedAtOnceAsync<ArgumentOutOfRangeException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromMilliseconds(uint.MaxValue), Threshold, CancellationToken.None));
+
+        Assert.Equal("duration", failure.ParamName);
+    }
+
+    [Fact]
+    public async Task A_fake_baseline_is_measured_in_whole_milliseconds()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 20.0);
+
+        BaselineResult baseline = await rig.Meter.MeasureBaselineAsync(TimeSpan.FromMilliseconds(1.5), Threshold, CancellationToken.None);
+
+        Assert.Equal(0.001, baseline.Seconds, 1e-12);
+        Assert.Equal(2, baseline.SampleCount);
+    }
+
+    [Fact]
+    public async Task A_fake_baseline_interval_over_the_sample_cap_is_refused_with_the_duration_parameter()
+    {
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 20.0), rate: 1000.0);
+
+        ArgumentOutOfRangeException failure = await FaultedAtOnceAsync<ArgumentOutOfRangeException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromHours(2), Threshold, CancellationToken.None));
+
+        Assert.Equal("duration", failure.ParamName);
+        Assert.Contains("interval", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(instants);
+        Assert.Null(rig.Meter.BaselineMeanWatts);
+    }
+
+    [Fact]
+    public async Task A_fake_window_over_the_sample_cap_is_refused_before_the_function_is_called()
+    {
+        List<double> instants = [];
+        await using FakeRig rig = await FakeRig.StartAsync(Recording(instants, 60.0), rate: 1000.0);
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(5000));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(window.Close);
+
+        Assert.Contains("window", failure.Message, StringComparison.Ordinal);
+        Assert.Empty(instants);
+    }
+
+    [Fact]
+    public async Task One_period_windows_and_baselines_keep_their_two_edge_samples_at_a_large_elapsed_time()
+    {
+        // 327,680,010,000 ticks is 32,768.001 s: at 1000 Hz the grid instants of the next period are not strictly inside the window in
+        // double arithmetic, which once produced a duplicate sample (an ArgumentException from the integrator) and a third baseline sample.
+        List<double> windowInstants = [];
+        await using FakeRig window = await FakeRig.StartAsync(Recording(windowInstants, 60.0), rate: 1000.0);
+        window.Time.Advance(TimeSpan.FromTicks(327_680_010_000));
+        EnergyReading reading = CloseAfter(window, TimeSpan.FromMilliseconds(1));
+
+        Assert.Equal(2, reading.SampleCount);
+        Assert.Equal(2, window.Meter.LastWindowSampleCount);
+        Assert.Equal(2, windowInstants.Count);
+        Assert.True(windowInstants[0] < windowInstants[1]);
+
+        List<double> baselineInstants = [];
+        await using FakeRig baseline = await FakeRig.StartAsync(Recording(baselineInstants, 60.0), rate: 1000.0);
+        baseline.Time.Advance(TimeSpan.FromTicks(327_680_010_000));
+        BaselineResult result = await baseline.Meter.MeasureBaselineAsync(TimeSpan.FromMilliseconds(1), Threshold, CancellationToken.None);
+
+        Assert.Equal(2, result.SampleCount);
+        Assert.Equal(2, baselineInstants.Count);
+        Assert.True(baselineInstants[0] < baselineInstants[1]);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-0.1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public async Task A_fake_baseline_threshold_that_is_not_finite_and_positive_is_rejected(double threshold)
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 20.0);
+
+        ArgumentOutOfRangeException failure = await FaultedAtOnceAsync<ArgumentOutOfRangeException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), threshold, CancellationToken.None));
+
+        Assert.Equal("maxCoefficientOfVariation", failure.ParamName);
+    }
+
+    [Fact]
+    public async Task Counter_support_off_with_method_auto_samples_and_flags_every_reading_as_a_fallback()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0, counterSupported: false, baseline: 20.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(EnergyMethod.Sampling, rig.Meter.Capabilities.Method);
+        Assert.True(rig.Meter.Capabilities.IsFallback);
+        Assert.False(rig.Meter.Capabilities.CounterSupported);
+        Assert.NotNull(rig.Meter.Capabilities.CounterUnsupportedReason);
+        Assert.Equal(10.0, rig.Meter.Capabilities.SampleRateHz);
+        Assert.Equal(EnergyMethod.Sampling, reading.Method);
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.SamplingFallback));
+        AssertMeasured(reading.GrossJoules, 180.0, "J");
+    }
+
+    [Fact]
+    public void Counter_support_off_with_method_counter_is_a_precondition_failure_at_construction()
+    {
+        MeasurementPreconditionException failure = Assert.Throws<MeasurementPreconditionException>(
+            () => NewFake(new FakeTimeProvider(), _ => 60.0, counterSupported: false, method: MeterMethodSetting.Counter));
+
+        Assert.Equal(ExitCode.PreconditionFailed, failure.ExitCode);
+    }
+
+    [Theory]
+    [InlineData(true, MeterMethodSetting.Auto, EnergyMethod.Counter, false)]
+    [InlineData(true, MeterMethodSetting.Counter, EnergyMethod.Counter, false)]
+    [InlineData(true, MeterMethodSetting.Sampling, EnergyMethod.Sampling, false)]
+    [InlineData(false, MeterMethodSetting.Auto, EnergyMethod.Sampling, true)]
+    [InlineData(false, MeterMethodSetting.Sampling, EnergyMethod.Sampling, false)]
+    public async Task The_fake_capabilities_come_from_the_method_selector(bool counterSupported, MeterMethodSetting setting, EnergyMethod method, bool fallback)
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0, counterSupported: counterSupported, method: setting, baseline: 20.0);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(method, rig.Meter.Capabilities.Method);
+        Assert.Equal(fallback, rig.Meter.Capabilities.IsFallback);
+        Assert.Equal(counterSupported, rig.Meter.Capabilities.CounterSupported);
+        Assert.Equal(method, reading.Method);
+        Assert.Equal(fallback, reading.Flags.HasFlag(ReadingFlags.SamplingFallback));
+    }
+
+    [Fact]
+    public async Task Close_twice_throws_InvalidOperationException()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(3));
+        _ = window.Close();
+
+        _ = Assert.Throws<InvalidOperationException>(window.Close);
+    }
+
+    [Fact]
+    public async Task Closing_a_window_that_has_no_duration_throws_InvalidOperationException()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+        IMeterWindow window = rig.Meter.OpenWindow();
+
+        _ = Assert.Throws<InvalidOperationException>(window.Close);
+    }
+
+    [Fact]
+    public async Task OpenWindow_before_StartAsync_throws_InvalidOperationException()
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 60.0);
+
+        _ = Assert.Throws<InvalidOperationException>(rig.Meter.OpenWindow);
+    }
+
+    [Fact]
+    public async Task A_second_StartAsync_throws_InvalidOperationException_like_the_real_meter()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await rig.Meter.StartAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Time_zero_is_the_instant_of_StartAsync()
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 60.0);
+        rig.Time.Advance(TimeSpan.FromSeconds(7));
+        await rig.Meter.StartAsync(CancellationToken.None);
+        rig.Time.Advance(TimeSpan.FromSeconds(5));
+
+        IMeterWindow window = rig.Meter.OpenWindow();
+
+        Assert.Equal(5.0, window.Span.StartSeconds, Tolerance);
+    }
+
+    [Fact]
+    public async Task StartAsync_with_a_cancelled_token_throws_OperationCanceledException()
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 60.0);
+        using CancellationTokenSource cancelled = new();
+        await cancelled.CancelAsync();
+
+        _ = await Assert.ThrowsAsync<OperationCanceledException>(async () => await rig.Meter.StartAsync(cancelled.Token));
+    }
+
+    [Fact]
+    public async Task StartAsync_after_DisposeAsync_throws_ObjectDisposedException()
+    {
+        FakeRig rig = FakeRig.Create(_ => 60.0);
+        await rig.Meter.DisposeAsync();
+
+        _ = await Assert.ThrowsAsync<ObjectDisposedException>(async () => await rig.Meter.StartAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task After_DisposeAsync_OpenWindow_throws_ObjectDisposedException_and_a_second_dispose_is_safe()
+    {
+        FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+        await rig.Meter.DisposeAsync();
+        await rig.Meter.DisposeAsync();
+
+        _ = Assert.Throws<ObjectDisposedException>(rig.Meter.OpenWindow);
+        _ = await FaultedAtOnceAsync<ObjectDisposedException>(
+            () => rig.Meter.MeasureBaselineAsync(TimeSpan.FromSeconds(30), Threshold, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Close_after_DisposeAsync_throws_ObjectDisposedException()
+    {
+        FakeRig rig = await FakeRig.StartAsync(_ => 60.0);
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(3));
+        await rig.Meter.DisposeAsync();
+
+        _ = Assert.Throws<ObjectDisposedException>(window.Close);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    [InlineData(-1.0)]
+    [InlineData(4_294_967.296)]
+    [InlineData(1e300)]
+    public async Task A_power_that_is_not_finite_or_outside_the_milliwatt_range_throws_naming_the_instant(double watts)
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => watts, method: MeterMethodSetting.Sampling, baseline: 20.0);
+        rig.Time.Advance(TimeSpan.FromSeconds(2));
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(3));
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(window.Close);
+
+        Assert.Contains(" at 2 s.", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_largest_milliwatt_power_is_accepted()
+    {
+        await using FakeRig rig = await FakeRig.StartAsync(_ => uint.MaxValue / 1000.0, method: MeterMethodSetting.Sampling);
+
+        EnergyReading reading = CloseAfter(rig, TimeSpan.FromSeconds(3));
+
+        AssertMeasured(reading.PeakWatts, uint.MaxValue / 1000.0, "W");
+    }
+
+    [Fact]
+    public async Task A_window_whose_function_threw_stays_open_and_can_be_closed_later()
+    {
+        bool failing = true;
+        await using FakeRig rig = await FakeRig.StartAsync(_ => failing ? double.NaN : 60.0);
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(3));
+
+        _ = Assert.Throws<InvalidOperationException>(window.Close);
+        Assert.Equal(window.Span.StartSeconds, window.Span.StopSeconds);
+        Assert.Equal(0, rig.Meter.LastWindowSampleCount);
+
+        failing = false;
+        EnergyReading reading = window.Close();
+
+        Assert.Equal(31, reading.SampleCount);
+        Assert.Equal(31, rig.Meter.LastWindowSampleCount);
+        InvalidOperationException again = Assert.Throws<InvalidOperationException>(window.Close);
+        Assert.Contains("already closed", again.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_fresh_fake_has_no_window_count_and_keeps_the_constructor_baseline()
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 60.0, baseline: 20.0);
+
+        Assert.Equal(0, rig.Meter.LastWindowSampleCount);
+        Assert.Equal(20.0, rig.Meter.BaselineMeanWatts);
+    }
+
+    [Fact]
+    public void The_fake_constructor_rejects_a_null_time_provider_and_a_null_function()
+    {
+        ArgumentNullException time = Assert.Throws<ArgumentNullException>(() => NewFake(null, _ => 60.0));
+        ArgumentNullException function = Assert.Throws<ArgumentNullException>(() => NewFake(new FakeTimeProvider(), null));
+
+        Assert.Equal("timeProvider", time.ParamName);
+        Assert.Equal("wattsAt", function.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-10.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(5000.0)]
+    [InlineData(1e13)]
+    public void The_fake_constructor_rejects_a_rate_that_is_not_positive_and_finite_or_has_no_timer_period(double rate)
+    {
+        ArgumentOutOfRangeException failure = Assert.Throws<ArgumentOutOfRangeException>(() => NewFake(new FakeTimeProvider(), _ => 60.0, rate: rate));
+
+        Assert.Equal("sampleRateHz", failure.ParamName);
+    }
+
+    [Theory]
+    [InlineData(1000.0)]
+    [InlineData(1.0)]
+    [InlineData(0.001)]
+    public async Task The_fake_constructor_accepts_the_rates_the_real_meter_accepts(double rate)
+    {
+        await using FakeRig rig = FakeRig.Create(_ => 60.0, rate: rate);
+
+        Assert.Equal(rate, rig.Meter.Capabilities.SampleRateHz);
+    }
+
+    [Fact]
+    public void The_fake_constructor_rejects_an_undefined_method_before_the_selector()
+    {
+        ArgumentOutOfRangeException failure = Assert.Throws<ArgumentOutOfRangeException>(
+            () => NewFake(new FakeTimeProvider(), _ => 60.0, method: (MeterMethodSetting)99));
+
+        Assert.Equal("method", failure.ParamName);
+    }
+
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void The_fake_constructor_rejects_a_baseline_that_is_not_positive_and_finite(double baseline)
+    {
+        ArgumentOutOfRangeException failure = Assert.Throws<ArgumentOutOfRangeException>(() => NewFake(new FakeTimeProvider(), _ => 60.0, baseline: baseline));
+
+        Assert.Equal("baselineMeanWatts", failure.ParamName);
+    }
+
+    [Fact]
+    public async Task The_fake_and_the_sampled_meter_agree_on_the_constant_60_W_window()
+    {
+        await using MeterRig real = MeterRig.Create(watts: 60.0);
+        await real.Meter.StartAsync(CancellationToken.None);
+        EnergyReading sampled = await real.WindowAsync();
+
+        await using FakeRig fake = await FakeRig.StartAsync(_ => 60.0, method: MeterMethodSetting.Sampling);
+        EnergyReading deterministic = CloseAfter(fake, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(EnergyMethod.Sampling, sampled.Method);
+        Assert.Equal(sampled.Method, deterministic.Method);
+        Assert.Equal(31, sampled.SampleCount);
+        Assert.Equal(sampled.SampleCount, deterministic.SampleCount);
+        Assert.Equal(sampled.SampleCount, fake.Meter.LastWindowSampleCount);
+        AssertMeasured(deterministic.GrossJoules, sampled.GrossJoules.Value.GetValueOrDefault(), "J");
+        AssertMeasured(deterministic.AverageWatts, sampled.AverageWatts.Value.GetValueOrDefault(), "W");
+        AssertMeasured(deterministic.PeakWatts, sampled.PeakWatts.Value.GetValueOrDefault(), "W");
+        Assert.Equal(sampled.Flags, deterministic.Flags);
+    }
+
+    [Fact]
+    public async Task The_fake_and_the_sampled_meter_agree_on_a_ramp_from_10_W_at_10_W_per_second()
+    {
+        // 10 + 10 t W: the power changes at every sample, so the two meters agree only if their samples sit on the same instants.
+        await using MeterRig real = MeterRig.Create(watts: 10.0, script: api => api.WattsAt = t => 10.0 + (10.0 * t));
+        await real.Meter.StartAsync(CancellationToken.None);
+        EnergyReading sampled = await real.WindowAsync();
+
+        await using FakeRig fake = await FakeRig.StartAsync(t => 10.0 + (10.0 * t), method: MeterMethodSetting.Sampling);
+        EnergyReading deterministic = CloseAfter(fake, TimeSpan.FromSeconds(3));
+
+        Assert.Equal(31, sampled.SampleCount);
+        Assert.Equal(sampled.SampleCount, deterministic.SampleCount);
+        AssertMeasured(deterministic.GrossJoules, sampled.GrossJoules.Value.GetValueOrDefault(), "J");
+        AssertMeasured(deterministic.GrossJoules, 75.0, "J");
+        AssertMeasured(deterministic.AverageWatts, sampled.AverageWatts.Value.GetValueOrDefault(), "W");
+        AssertMeasured(deterministic.PeakWatts, sampled.PeakWatts.Value.GetValueOrDefault(), "W");
+        AssertMeasured(deterministic.PeakWatts, 40.0, "W");
+    }
+
+    [Fact]
+    public void Only_the_testing_folder_of_the_core_project_refers_to_the_testing_namespace()
+    {
+        // The fake is a test double: nothing that ships may use it. A scan for the namespace written in full is bypassed by partial
+        // qualification, spaces around the dots, a relative name inside a parent namespace, an MSBuild <Using> item and a global using, so
+        // this scan looks for the type names themselves (read from the assembly) as whole words, and for the other doors separately.
+        const string testingNamespace = "AgentJoules.Core.Energy.Testing";
+        string root = FindRepositoryRoot();
+        string source = Path.Combine(root, "src");
+        string testing = Path.Combine(source, "AgentJoules.Core", "Energy", "Testing") + Path.DirectorySeparatorChar;
+        Assert.True(File.Exists(Path.Combine(testing, "DeterministicEnergyMeter.cs")), "The fake moved: update this test.");
+
+        string[] typeNames = [.. typeof(DeterministicEnergyMeter).Assembly.GetTypes()
+            .Where(type => type.Namespace == testingNamespace && !type.IsNested)
+            .Select(type => type.Name.Split('`')[0])
+            .Distinct()];
+        Assert.Contains(nameof(DeterministicEnergyMeter), typeNames);
+        Regex typeName = new($@"\b(?:{string.Join("|", typeNames.Select(Regex.Escape))})\b", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(10));
+
+        bool IsBuildOutput(string file) => Path.GetRelativePath(root, file).Split(Path.DirectorySeparatorChar).Any(part => part is "obj" or "bin");
+        List<string> sources = [.. Directory.EnumerateFiles(source, "*.cs", SearchOption.AllDirectories).Where(file => !IsBuildOutput(file))];
+        List<string> offenders = [];
+        foreach (string file in sources)
+        {
+            string text = File.ReadAllText(file);
+            bool insideTesting = file.StartsWith(testing, StringComparison.OrdinalIgnoreCase);
+            if (insideTesting
+                ? text.Contains("global using", StringComparison.Ordinal)
+                : typeName.IsMatch(text) || text.Contains(testingNamespace, StringComparison.Ordinal))
+            {
+                offenders.Add(Path.GetRelativePath(root, file));
+            }
+        }
+
+        // MSBuild <Using Include="..."> items in a project file or a root build file add the namespace to every file of a project.
+        IEnumerable<string> buildFiles = Directory.EnumerateFiles(source, "*.*proj", SearchOption.AllDirectories)
+            .Concat(Directory.EnumerateFiles(root, "Directory.Build.*", SearchOption.TopDirectoryOnly))
+            .Where(file => !IsBuildOutput(file));
+        offenders.AddRange(buildFiles
+            .Where(file => File.ReadAllText(file).Contains(testingNamespace, StringComparison.Ordinal))
+            .Select(file => Path.GetRelativePath(root, file)));
+
+        Assert.NotEmpty(sources);
+        Assert.Empty(offenders);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "AgentJoules.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException("AgentJoules.slnx was not found above " + AppContext.BaseDirectory);
+    }
+
+    /// <summary>A deterministic fake meter over its own fake clock; the clock is advanced by the test and nothing else moves it.</summary>
+    private sealed class FakeRig : IAsyncDisposable
+    {
+        private FakeRig(FakeTimeProvider time, DeterministicEnergyMeter meter)
+        {
+            Time = time;
+            Meter = meter;
+        }
+
+        public FakeTimeProvider Time { get; }
+
+        public DeterministicEnergyMeter Meter { get; }
+
+        public static FakeRig Create(
+            Func<double, double> wattsAt,
+            double rate = 10.0,
+            bool counterSupported = true,
+            MeterMethodSetting method = MeterMethodSetting.Auto,
+            double? baseline = null)
+        {
+            FakeTimeProvider time = new();
+            return new FakeRig(time, NewFake(time, wattsAt, rate, counterSupported, method, baseline));
+        }
+
+        public static async Task<FakeRig> StartAsync(
+            Func<double, double> wattsAt,
+            double rate = 10.0,
+            bool counterSupported = true,
+            MeterMethodSetting method = MeterMethodSetting.Auto,
+            double? baseline = null)
+        {
+            FakeRig rig = Create(wattsAt, rate, counterSupported, method, baseline);
+            await rig.Meter.StartAsync(CancellationToken.None);
+            return rig;
+        }
+
+        public ValueTask DisposeAsync() => Meter.DisposeAsync();
     }
 
     /// <summary>A started-on-demand sampled meter over a scripted NVML session; fake time only, so nothing waits on the wall clock.</summary>

@@ -754,11 +754,11 @@ Demo relevance: yes: the demo shows the measured idle baseline before the first 
 Covers: REQ-005
 User story: As a developer, I want a deterministic `IEnergyMeter` that computes readings from a power function without any background thread, so that middleware and report tests in later milestones get exact joules with no timing noise.
 Acceptance criteria:
-1. `DeterministicEnergyMeter` (namespace `AgentJoules.Core.Energy.Testing`) takes a `TimeProvider`, a `Func<double, double>` watts-at-time function, a sample rate and a counter-support switch plus a method setting, and uses the same `ReadingCalculator` and `MeterMethodSelector` as the real meter.
+1. `DeterministicEnergyMeter` (namespace `AgentJoules.Core.Energy.Testing`) takes a `TimeProvider`, a `Func<double, double>` watts-at-time function, a sample rate and a counter-support switch plus a method setting, and uses the same `ReadingCalculator` and `MeterMethodSelector` as the real meter. Note (2026-10-19): the file is in `Energy/Testing` (the folder of the fake; the namespace matches), and the constructor takes the method setting and an optional baseline mean (`baselineMeanWatts`), so a scenario can state a 20 W baseline without measuring.
 2. Test (REQ-005): a 3 s window at constant 60 W with a 20 W baseline gives gross 180 J, net 120 J, average 60 W, peak 60 W and `sampleCount` equal to `LastWindowSampleCount` (31 at 10 Hz).
 3. Test: a window at 15 W against a 20 W baseline gives a negative net value with flag `below-baseline`.
 4. Synthesized samples sit on the nominal grid inside the window plus both edges, with no duplicate when the stop lies on the grid: a 150 ms window at 10 Hz has 3 samples (0, 0.1, 0.15 s) and the flag `low-resolution`.
-5. `MeasureBaselineAsync(30 s)` completes immediately (no fake or real wait); a watts function alternating 20 W and 30 W on the grid yields CV 0.20 and `baseline-unstable`.
+5. `MeasureBaselineAsync(30 s)` completes immediately (no fake or real wait); a watts function alternating 20 W and 30 W on the grid yields CV 0.20 and `baseline-unstable`. Note (2026-10-19): the grid gives 301 samples over [0, 30 s] (151 at 20 W, 150 at 30 W), so CV is about 0.20014 and the mean about 24.98 W; the test asserts CV within 1e-3 of 0.20 and the flag.
 6. Counter switch off with method `auto` gives method `sampling` and flag `sampling-fallback`; method `counter` with the switch off throws `MeasurementPreconditionException`.
 7. `Close` twice throws `InvalidOperationException`, like the real meter.
 BDD scenarios:
@@ -805,9 +805,9 @@ Tasks:
 Test mapping: AttributionBaselineTests (exact REQ-005 acceptance: gross 180, net 120, 60 W, 60 W, sample count equals the fake's count; 15 W against 20 W); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-031-deterministic-meter.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-005 commit by the builder with a message starting `AJ-031 REQ-005:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-005 commit by the builder with a message starting `AJ-031 REQ-005:` (nothing pushed). Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-031 REQ-005: ...`, nothing pushed.
 Demo relevance: no
 
 ### AJ-032: Share one meter gate per process
