@@ -8,10 +8,14 @@ namespace AgentJoules.Cli.Output;
 /// A <see cref="TextWriter"/> that holds text until a newline and passes each complete line through
 /// <see cref="SecretRedactor.Redact(string?)"/> before it reaches the inner writer, so a key split across several
 /// writes never reaches the inner writer unmasked. <see cref="Flush"/> forwards complete lines only (they were
-/// already forwarded when written) and keeps an unfinished line buffered; <c>Dispose</c> drains the remainder. The wrapper owns and disposes the inner writer unless
-/// <c>leaveOpen</c> is true, which AJ-034 uses for Console.Out and Console.Error; the host disposes the wrappers at
-/// exit (AJ-034). Instances are not thread-safe. <see cref="TextWriter.Synchronized(TextWriter)"/> serialises calls,
-/// not lines, so every producer must write a whole line per call.
+/// already forwarded when written) and keeps an unfinished line buffered; <c>Dispose</c> drains the remainder.
+/// The wrapper owns and disposes the inner writer unless <c>leaveOpen</c> is true, which AJ-034 uses for
+/// Console.Out and Console.Error; the host disposes the wrappers at exit (AJ-034). With leaveOpen, the writer
+/// stays usable after Dispose and drains again on every later Dispose, because the AJ-034 console wrappers may
+/// receive output after the first drain and before the ProcessExit drain; without leaveOpen any Write or Flush
+/// after Dispose throws ObjectDisposedException. Instances are not thread-safe.
+/// <see cref="TextWriter.Synchronized(TextWriter)"/> serialises calls, not lines, so every producer must write a
+/// whole line per call.
 /// </summary>
 public sealed class RedactingTextWriter : TextWriter
 {
