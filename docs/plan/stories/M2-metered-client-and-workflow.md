@@ -467,6 +467,7 @@ Tasks:
 | AJ-046-T5 | Record the `Spec=REQ-013` gate results in the build log | docs/build-log.md | 0.25 | AJ-046-T3 |
 Test mapping: `ExecutionModeTests` (design class; the 1 s branches use wide margins and assert overlap only, never exact durations); feature file `tests/AgentJoules.Specs/Features/Metering/SerializedGate.feature`.
 Docs impact: `docs/build-log.md`; the README "serialized by default" note is written in M6.
+Carried from AJ-032 (2026-10-19): `SerializedMeterGate` is not re-entrant, so no judge call and no second metered call may start while a flow holds the gate; a streaming `MeteredChatClient` holds the gate until its enumerator is disposed, so an abandoned enumerator hangs the run until the run token fires; the try/finally that disposes the releaser must begin immediately after `AcquireAsync` returns, before `ledger.Reset()` and `OpenWindow()`, or one failed call keeps the only slot for the process; the composition root disposes the gate only after every metered call has finished (a waiter queued at Dispose never completes); the shared-window overlap rule is strict (a.Start < b.Stop and b.Start < a.Stop).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated

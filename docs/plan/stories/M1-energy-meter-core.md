@@ -814,7 +814,7 @@ Demo relevance: no
 Covers: REQ-005
 User story: As a developer, I want one process-wide gate that serializes measurement windows or lets them overlap, so that "one agent at a time" is enforced in one place and concurrent mode is a configuration choice, not a code path.
 Acceptance criteria:
-1. `IMeterGate.AcquireAsync(CancellationToken)` returns a `ValueTask<IAsyncDisposable>`; `SerializedMeterGate` wraps one `SemaphoreSlim(1, 1)`, `NoOpMeterGate` returns a cached completed releaser.
+1. `IMeterGate.AcquireAsync(CancellationToken)` returns a `ValueTask<IAsyncDisposable>`; `SerializedMeterGate` wraps one `SemaphoreSlim(1, 1)`, `NoOpMeterGate` returns a cached completed releaser. Note (2026-10-19): `SerializedMeterGate` also implements `IDisposable` and exposes `CurrentCount`, and `NoOpMeterGate` has a static `Instance`; the design names neither (design 3.3 amended 2026-10-19, AJ-032).
 2. Test: with the serialized gate, the second `AcquireAsync` stays incomplete until the first releaser is disposed, then completes.
 3. Test: cancelling a waiting `AcquireAsync` throws `OperationCanceledException` and leaves the gate usable (the next acquire after the holder releases succeeds, count not leaked).
 4. Test: disposing a releaser twice releases once (a third waiter is not admitted early).
@@ -861,9 +861,9 @@ Tasks:
 Test mapping: MeterGateTests (new class; ExecutionModeTests for `--mode` belongs to M2); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-032-meter-gate.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the M2 story for REQ-013 reuses these types and adds the mode wiring, `shared-window` flags and union totals
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] the M2 story for REQ-013 reuses these types and adds the mode wiring, `shared-window` flags and union totals. Forward reference to the M2 REQ-013 story (dated 2026-10-19): left unticked in M1.
 Demo relevance: no
 Conflict: the gate is specified by REQ-013 (serialized and concurrent modes), which the milestone table assigns to M2, while this milestone's brief asks for "the meter abstraction and the process-wide meter gate". Proposed resolution: M1 delivers `IMeterGate`, `SerializedMeterGate`, `NoOpMeterGate` and their tests under REQ-005 (readings from serialized windows never overlap); M2 keeps REQ-013 and its acceptance (`--mode`, `shared-window`, union totals, ExecutionModeTests).
 
