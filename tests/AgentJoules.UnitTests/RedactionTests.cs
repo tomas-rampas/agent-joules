@@ -597,28 +597,42 @@ public sealed class RedactionTests
         Assert.Equal("a **** b", redactor.Redact("a BBBBB2 b"));
     }
 
-    [Fact]
+    [Theory]
     [Trait("Spec", "REQ-029")]
-    public void Register_KeysJoinedByAUnicodeLineSeparator_MaskEachKeyPrintedAlone()
+    [InlineData(0x000D)]
+    [InlineData(0x000A)]
+    [InlineData(0x000B)]
+    [InlineData(0x000C)]
+    [InlineData(0x0085)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void Register_KeysJoinedByALineTerminator_MaskEachKeyPrintedAlone(int terminator)
     {
         string first = BuildOpaqueKey();
         string second = BuildOpaqueKey();
         var redactor = new SecretRedactor();
 
-        bool registered = redactor.Register(first + (char)0x2028 + second);
+        bool registered = redactor.Register(first + (char)terminator + second);
 
         Assert.True(registered);
         Assert.Equal("a **** b", redactor.Redact("a " + first + " b"));
         Assert.Equal("a **** b", redactor.Redact("a " + second + " b"));
     }
 
-    [Fact]
+    [Theory]
     [Trait("Spec", "REQ-029")]
-    public void Register_ShortPartsSeparatedByALineSeparator_MaskTheJoinedValue()
+    [InlineData(0x000D)]
+    [InlineData(0x000A)]
+    [InlineData(0x000B)]
+    [InlineData(0x000C)]
+    [InlineData(0x0085)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void Register_ShortPartsSeparatedByALineTerminator_MaskTheJoinedValue(int terminator)
     {
         var redactor = new SecretRedactor();
 
-        bool registered = redactor.Register("abcd" + (char)0x2028 + "efgh");
+        bool registered = redactor.Register("abcd" + (char)terminator + "efgh");
 
         Assert.True(registered);
         Assert.Equal("x=****", redactor.Redact("x=abcdefgh"));
