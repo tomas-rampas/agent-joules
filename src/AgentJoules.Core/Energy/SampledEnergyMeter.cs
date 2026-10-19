@@ -50,6 +50,23 @@ namespace AgentJoules.Core.Energy;
 /// <see cref="Capabilities"/>, and a meter built from fallback capabilities flags every window.
 /// </para>
 /// <para>
+/// Baseline. <see cref="MeasureBaselineAsync"/> takes an edge sample under the lock (the same path as opening a window), waits the
+/// duration on the injected <see cref="TimeProvider"/> without holding the lock while the loop keeps sampling, takes an edge sample at
+/// the end, and computes the baseline from the slice from start to stop inside the same locked section that took the stop sample and
+/// stores the result; the baseline therefore has both edges even when the duration is shorter than one sampling period. The wait is
+/// in whole milliseconds (<see cref="Task.Delay(TimeSpan, TimeProvider, CancellationToken)"/> truncates), so a duration below 1 ms is
+/// rejected and the <c>Seconds</c> of the result is the window actually measured, stop minus start. The meter holds one baseline: the
+/// mean of the most recently completed measurement, stored under the lock when that mean is reported and cleared to nothing when it is
+/// not (fewer than two samples, or a mean of 0 W or less), so a second measurement replaces the first, overlapping measurements leave
+/// the one whose stop sample was taken last, and a failed one never leaves a stale floor behind. Every window closed afterwards passes
+/// the stored mean as its baseline, so its net is computed against it; a window closed while none is stored has no net
+/// (<c>no-baseline</c>), and a window already closed is unaffected. A measurement that is rejected or cancelled throws and changes
+/// nothing stored. The wait also ends when the loop ends for any reason (disposal, a disposed source, a fault): the loop cancels a
+/// meter-owned token in a <c>finally</c>, and a wait interrupted that way throws <see cref="ObjectDisposedException"/> after disposal
+/// and <see cref="InvalidOperationException"/> ("The sampling loop stopped.", with the fault as inner exception when there is one, and an <see cref="ObjectDisposedException"/> naming the source type when the source was disposed under the meter)
+/// otherwise, without waiting for the rest of the duration.
+/// </para>
+/// <para>
 /// Ownership. The meter never disposes the <see cref="IGpuTelemetrySource"/> it was given; the caller that opened it disposes it
 /// after the meter, and <see cref="DisposeAsync"/> guarantees that no read happens once it has returned.
 /// </para>
@@ -83,6 +100,9 @@ public sealed class SampledEnergyMeter : IEnergyMeter
     private const double MinPeriodMilliseconds = 1.0;
     private const double MaxPeriodMilliseconds = uint.MaxValue - 1.0;
 
+    // Task.Delay waits in whole milliseconds, so this is the shortest baseline duration with a distinct stop instant.
+    private static readonly TimeSpan MinBaselineDuration = TimeSpan.FromMilliseconds(1.0);
+
     // NVML reports power as an unsigned 32-bit milliwatt count, so no real reading exceeds this many watts.
     private const double MaxWatts = uint.MaxValue / 1000.0;
 
@@ -95,11 +115,16 @@ public sealed class SampledEnergyMeter : IEnergyMeter
     private readonly Lock _gate = new();
     private readonly List<PowerSample> _samples = [];
 
+    // Cancelled when the sampling loop ends for any reason or the meter is disposed; it ends a pending baseline wait. It is never
+    // waited on, so it holds no handle and needs no disposal.
+    private readonly CancellationTokenSource _waitInterrupt = new();
+
     private long _startTimestamp;
     private bool _started;
     private int _disposed;
     private int _skippedReads;
     private int _throttleReadFailures;
+    private double? _baselineMeanWatts;
     private PeriodicTimer? _timer;
     private Task _loop = Task.CompletedTask;
 
@@ -235,6 +260,101 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         }
     }
 
+    /// <inheritdoc />
+    public async ValueTask<BaselineResult> MeasureBaselineAsync(
+        TimeSpan duration,
+        double maxCoefficientOfVariation,
+        CancellationToken cancellationToken)
+    {
+        // Arguments are checked before any sample is taken, so a rejected call leaves the meter and the source untouched.
+        // Task.Delay waits in whole milliseconds, so a shorter duration would complete at once with the edges at the same instant.
+        if (duration < MinBaselineDuration || duration.TotalMilliseconds > MaxPeriodMilliseconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(duration),
+                duration,
+                "The baseline duration must be at least 1 ms and no longer than a timer can wait (uint.MaxValue - 1 ms).");
+        }
+
+        if (!double.IsFinite(maxCoefficientOfVariation) || maxCoefficientOfVariation <= 0.0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxCoefficientOfVariation),
+                maxCoefficientOfVariation,
+                "The coefficient-of-variation threshold must be finite and positive.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        double start;
+        CancellationToken interrupt;
+        Task loop;
+        lock (_gate)
+        {
+            ThrowIfNotRunning();
+            interrupt = _waitInterrupt.Token;
+            loop = _loop;
+            start = ElapsedSeconds();
+            _ = TrySample(start);
+        }
+
+        // The wait is on the injected time provider, so a test advances a fake clock and nothing waits on the wall clock. The lock is
+        // not held: the sampling loop keeps collecting meanwhile. The loop ending for any reason cancels the interrupt token and ends the
+        // wait too.
+        using CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, interrupt);
+        try
+        {
+            await Task.Delay(duration, _timeProvider, wait.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller cancelled: the exception must carry the caller's token, not the internal linked one.
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            // The loop ended. Its task completes after the interrupt is cancelled, so wait for it before asking why: a fault is only
+            // visible on the finished task.
+            await loop.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            lock (_gate)
+            {
+                ThrowIfNotRunning();
+            }
+
+            // Not disposed and not faulted: the loop ended because the source was disposed under the meter. The inner exception names
+            // the source type only, so the cause is diagnosable without any device data.
+            throw new InvalidOperationException("The sampling loop stopped.", new ObjectDisposedException(_source.GetType().Name));
+        }
+
+        lock (_gate)
+        {
+            // A meter disposed or stopped during the wait refuses here; nothing is stored then.
+            ThrowIfNotRunning();
+            double stop = ElapsedSeconds();
+            if (stop <= start)
+            {
+                throw new InvalidOperationException("The baseline window has no duration: the clock did not advance or went backwards between its edge samples (zero or negative duration).");
+            }
+
+            _ = TrySample(stop);
+
+            // Computed and stored inside the lock that took the stop sample, over a span of the buffer that cannot change meanwhile, so
+            // the stored baseline is always that of the measurement whose stop sample was taken last. One baseline per meter: this
+            // replaces the previous one, and a baseline whose mean is not reported clears it, so a later window's net is not reported
+            // instead of being computed against a floor that was not measured.
+            int low = LowerBound(start);
+            int high = UpperBound(stop);
+            BaselineResult baseline = BaselineCalculator.Compute(
+                CollectionsMarshal.AsSpan(_samples)[low..high],
+                start,
+                stop,
+                maxCoefficientOfVariation);
+            _baselineMeanWatts = baseline.MeanW.Value;
+            return baseline;
+        }
+    }
+
     /// <summary>
     /// Stops the sampling loop and waits for it; safe to call twice and concurrently. No source read happens after it returns. The
     /// source stays open: its owner disposes it.
@@ -257,43 +377,54 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         // Disposing the timer completes the pending WaitForNextTickAsync with false, so the loop ends by itself. A loop that already
         // faulted is not rethrown here (LoopFault reports it); reading Exception observes it, so no unobserved fault remains, and a
         // second call finds a completed task and does nothing.
+        // The interrupt is cancelled here too, so a pending baseline wait ends even when the loop was never started.
         timer?.Dispose();
+        _waitInterrupt.Cancel();
         await loop.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         _ = loop.Exception;
     }
 
     private async Task RunLoopAsync(PeriodicTimer timer)
     {
-        while (await timer.WaitForNextTickAsync().ConfigureAwait(false))
+        try
         {
-            // A tick delivered inside the meter's own locked section is dropped: the caller's edge sample covers that instant.
-            if (_gate.IsHeldByCurrentThread)
+            while (await timer.WaitForNextTickAsync().ConfigureAwait(false))
             {
-                continue;
-            }
-
-            lock (_gate)
-            {
-                if (Volatile.Read(ref _disposed) != 0)
+                // A tick delivered inside the meter's own locked section is dropped: the caller's edge sample covers that instant.
+                if (_gate.IsHeldByCurrentThread)
                 {
-                    return;
+                    continue;
                 }
 
-                try
+                lock (_gate)
                 {
-                    _ = TrySample(ElapsedSeconds());
-                }
-                catch (ObjectDisposedException)
-                {
-                    // The source was disposed under the meter: nothing more can be read.
-                    return;
-                }
-                catch (InvalidOperationException)
-                {
-                    // The clock went backwards; the tick is skipped like a failed read.
-                    _skippedReads++;
+                    if (Volatile.Read(ref _disposed) != 0)
+                    {
+                        return;
+                    }
+
+                    try
+                    {
+                        _ = TrySample(ElapsedSeconds());
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The source was disposed under the meter: nothing more can be read.
+                        return;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The clock went backwards; the tick is skipped like a failed read.
+                        _skippedReads++;
+                    }
                 }
             }
+        }
+        finally
+        {
+            // However the loop ends (disposal, a disposed source, a fault), a pending baseline wait must not run on to its full
+            // duration. The lock is not held here, so a continuation that runs inline can take it.
+            _waitInterrupt.Cancel();
         }
     }
 
@@ -459,6 +590,7 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         PowerSample[] slice;
         double stop;
         double? closeMark;
+        double? baselineMeanWatts;
         lock (_gate)
         {
             if (window.IsClosed)
@@ -481,6 +613,7 @@ public sealed class SampledEnergyMeter : IEnergyMeter
             _ = TrySample(stop);
             closeMark = ReadCounterMark();
             window.MarkClosed(stop);
+            baselineMeanWatts = _baselineMeanWatts;
 
             // The slice is copied while the lock is held; a span over the list would not survive its growth.
             int low = LowerBound(window.StartSeconds);
@@ -494,7 +627,7 @@ public sealed class SampledEnergyMeter : IEnergyMeter
             WindowStopSeconds: stop,
             Method: Capabilities.Method,
             CounterDeltaMillijoules: CounterDelta(window.OpenMark, closeMark),
-            BaselineMeanWatts: null,
+            BaselineMeanWatts: baselineMeanWatts,
             SampleRateHz: Capabilities.SampleRateHz,
             IsSamplingFallback: Capabilities.IsFallback));
     }

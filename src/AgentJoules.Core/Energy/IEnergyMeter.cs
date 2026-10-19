@@ -5,8 +5,7 @@ namespace AgentJoules.Core.Energy;
 /// Every window is computed from the same sample buffer, with or without the energy counter.
 /// </summary>
 /// <remarks>
-/// The baseline measurement joins this interface with AJ-030 and the union computation with REQ-013 (M2); neither is declared
-/// here, so no member of this interface is a stub.
+/// The union computation joins this interface with REQ-013 (M2); it is not declared here, so no member of this interface is a stub.
 /// </remarks>
 public interface IEnergyMeter : IAsyncDisposable
 {
@@ -19,6 +18,28 @@ public interface IEnergyMeter : IAsyncDisposable
     /// <exception cref="ObjectDisposedException">The meter was disposed.</exception>
     /// <exception cref="OperationCanceledException">The token was already cancelled.</exception>
     ValueTask StartAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Measures the idle baseline: takes an edge sample now, waits <paramref name="duration"/> on the meter's time provider while the
+    /// sampling loop collects, takes an edge sample at the end and computes the baseline statistics of the samples in between. The
+    /// meter keeps the mean as its baseline (the most recently completed measurement replaces an earlier one; a baseline whose mean is not reported clears it), and every
+    /// window closed afterwards computes its net energy against it.
+    /// </summary>
+    /// <param name="duration">
+    /// How long to collect, waited in whole milliseconds (a fraction of a millisecond is dropped); at least 1 ms and no longer than a
+    /// timer can wait (<c>uint.MaxValue - 1</c> ms). The <c>Seconds</c> of the result is the window actually measured, stop minus start.
+    /// </param>
+    /// <param name="maxCoefficientOfVariation">
+    /// The stability threshold (<c>Baseline:MaxCoefficientOfVariation</c>); finite and positive. It is a parameter because the
+    /// capabilities describe the device, not the configuration.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the wait; nothing is stored then.</param>
+    /// <returns>The baseline; <see cref="Labels.ReadingFlags.BaselineUnstable"/> is set when its coefficient of variation exceeds the threshold.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="duration"/> or <paramref name="maxCoefficientOfVariation"/> is out of range; no sample was taken.</exception>
+    /// <exception cref="InvalidOperationException">The meter was not started, the clock went backwards or did not advance, or the sampling loop stopped before or during the wait (the inner exception is the cause); a stopped loop ends the wait at once.</exception>
+    /// <exception cref="ObjectDisposedException">The meter was disposed, before or during the wait; disposal ends the wait at once.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled before or during the wait.</exception>
+    ValueTask<BaselineResult> MeasureBaselineAsync(TimeSpan duration, double maxCoefficientOfVariation, CancellationToken cancellationToken);
 
     /// <summary>Opens a window: takes an immediate sample (and counter read) so the window has an edge sample at its exact start.</summary>
     /// <returns>The open window; its owner closes it exactly once.</returns>

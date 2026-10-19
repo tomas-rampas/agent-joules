@@ -692,8 +692,8 @@ Acceptance criteria:
 3. The console warning is exactly `Warning: idle baseline unstable (CV 0.20 > 0.10)`; it contains the words `baseline` and `unstable`.
 4. A coefficient of variation exactly equal to the threshold does not set the flag (comparison is strictly greater) (test `Cv_equal_to_threshold_is_not_flagged` asserts empty flags).
 5. The standard deviation is the population one: samples 10 and 20 give 5, not 7.07 (test `Population_standard_deviation` asserts 5).
-6. A mean of 0 W or less gives `meanW` `not-reported` with reason `baseline-mean-nonpositive`, no flag and a net value of `not-reported` downstream; fewer than two samples gives `not-reported` with reason `insufficient-samples`.
-7. `SampledEnergyMeter.MeasureBaselineAsync(duration)` waits the duration on the injected `TimeProvider` (fake time in tests) while the sampler collects, then calls the calculator.
+6. A mean of 0 W or less gives `meanW` `not-reported` with reason `baseline-mean-nonpositive`, no flag and a net value of `not-reported` downstream; fewer than two samples gives `not-reported` with reason `insufficient-samples`. Note (2026-10-19): `StdDevW` stays measured for a non-positive mean (this criterion names only `meanW`); `CoefficientOfVariation` is null in both cases (0.0 only for a zero deviation with a positive mean).
+7. `SampledEnergyMeter.MeasureBaselineAsync(duration)` waits the duration on the injected `TimeProvider` (fake time in tests) while the sampler collects, then calls the calculator. Note (2026-10-19): the threshold is a parameter of MeasureBaselineAsync (`MeasureBaselineAsync(duration, maxCoefficientOfVariation, cancellationToken)`), because capabilities describe the device and the CLI passes `Baseline:MaxCoefficientOfVariation` from options (AJ-033, AJ-034).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S030 @REQ-005 @EDGE-005
@@ -745,9 +745,9 @@ Tasks:
 Test mapping: AttributionBaselineTests (design 6.1: alternating 20 W and 30 W baseline gives `baseline-unstable` and the console line); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-030-baseline.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-005 commit by the builder with a message starting `AJ-030 EDGE-005:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-005 commit by the builder with a message starting `AJ-030 EDGE-005:` (nothing pushed). Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-030 REQ-005 EDGE-005: ...` (the milestone convention `AJ-NNN REQ-xxx [EDGE-yyy]:`), nothing pushed.
 Demo relevance: yes: the demo shows the measured idle baseline before the first agent step.
 
 ### AJ-031: Provide the deterministic fake meter
@@ -961,6 +961,7 @@ Acceptance criteria:
    Note on the Register contract (rules from AJ-010): Register registers the whole value and each of its lines (split on CR, LF, VT, FF, U+0085, U+2028 and U+2029) in up to three forms each (ends-trimmed with the original code units; cleaned of format, control, line-separator and invalid UTF-16 sequences, then trimmed; rune-normalised with U+FFFD), and returns false only when nothing is registrable: every form shorter than five characters, containing `*`, or part of the `nvapi-****` mask; a lone surrogate is kept in the ends-trimmed form so a raw echo is still masked (2026-10-19 review). A value containing a variation selector (Unicode category Mn) is not stripped and is masked only in the form it was configured in.
    Promoted 2026-10-19 from the M0 post-exit review notes at the start of the M1 session (M0 peer review finding); estimates unchanged, the work folds into tasks AJ-034-T2 and AJ-034-T4.
    Carry-overs, not criteria (2026-10-19): the async `TextWriter` overloads, `\r` progress lines and the `char[]` fast path guarded by the per-character test stay notes until a story needs them.
+   Carried from AJ-030 (2026-10-19): print the baseline warning through ConsoleReporter on the redacting stderr writer and record baseline-unstable on the run; test trait Spec=EDGE-005.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S034 @REQ-006
