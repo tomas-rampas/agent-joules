@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 
 using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Labels;
 using AgentJoules.Nvml.Interop;
 using AgentJoules.TestSupport;
 
@@ -91,6 +92,30 @@ public sealed class ScenarioWorld : IDisposable
 
     /// <summary>The power limit in watts a <c>PowerLimitInRange</c> scenario reports.</summary>
     public double ReportedPowerLimitWatts { get; set; }
+
+    /// <summary>The metric a label scenario holds: set by a factory Given step or produced by <see cref="Construction"/>.</summary>
+    public Metric? CurrentMetric { get; set; }
+
+    /// <summary>The deferred metric construction a negative label scenario runs in its When step.</summary>
+    public Func<Metric>? Construction { get; set; }
+
+    /// <summary>The exception the deferred construction threw, or null when it succeeded or never ran.</summary>
+    public Exception? ConstructionFailure { get; set; }
+
+    /// <summary>The JSON text the serialize step produced, or null.</summary>
+    public string? Json { get; set; }
+
+    /// <summary>The reading flags a flags scenario converts.</summary>
+    public ReadingFlags Flags { get; set; }
+
+    /// <summary>What <c>ReadingFlagNames.ToStrings</c> returned, or null when it has not run.</summary>
+    public IReadOnlyList<string>? FlagStrings { get; set; }
+
+    /// <summary>The string a flag-parsing scenario offers to <c>ReadingFlagNames.Parse</c>.</summary>
+    public string? FlagName { get; set; }
+
+    /// <summary>The exception <c>ReadingFlagNames.Parse</c> threw, or null.</summary>
+    public Exception? ParseFailure { get; set; }
 
     public void Dispose()
     {

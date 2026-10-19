@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Labels;
 using AgentJoules.Nvml;
 using AgentJoules.Nvml.Interop;
 using AgentJoules.Specs.Support;
@@ -521,4 +524,155 @@ public sealed class MeteringSteps(ScenarioWorld world)
     {
         Assert.IsType<XunitException>(_world.CheckFailure, exactMatch: false);
     }
+
+    [Given(@"a metric created with Measured\((\d+), ""([^""]*)""\)")]
+    public void GivenAMetricCreatedWithMeasured(double value, string unit)
+    {
+        _world.CurrentMetric = Metric.Measured(value, unit);
+    }
+
+    [Given(@"a metric created with NotReported\(""([^""]*)""\)")]
+    public void GivenAMetricCreatedWithNotReported(string reason)
+    {
+        _world.CurrentMetric = Metric.NotReported(reason);
+    }
+
+    [Given(@"the flags (\w+) and (\w+)")]
+    public void GivenTheFlagsAnd(string first, string second)
+    {
+        _world.Flags = Enum.Parse<ReadingFlags>(first) | Enum.Parse<ReadingFlags>(second);
+    }
+
+    [Given(@"a metric constructed with label N/A and value (\d+)")]
+    public void GivenAMetricConstructedWithLabelNAAndValue(int value)
+    {
+        _world.Construction = () => Deserialize(string.Create(CultureInfo.InvariantCulture, $"{{\"value\":{value},\"label\":\"N/A\",\"reason\":\"x\"}}"));
+    }
+
+    [Given(@"a metric constructed with label measured and a null value")]
+    public void GivenAMetricConstructedWithLabelMeasuredAndANullValue()
+    {
+        _world.Construction = () => Deserialize("""{"value":null,"label":"measured","unit":"J"}""");
+    }
+
+    [Given(@"^a metric constructed with label N/A and an empty reason$")]
+    public void GivenAMetricConstructedWithLabelNAAndAnEmptyReason()
+    {
+        _world.Construction = () => Deserialize("""{"value":null,"label":"N/A","reason":""}""");
+    }
+
+    [Given(@"a measured metric with value NaN")]
+    public void GivenAMeasuredMetricWithValueNaN()
+    {
+        _world.Construction = () => Metric.Measured(double.NaN, "J");
+    }
+
+    [Given(@"the string ""([^""]*)""")]
+    public void GivenTheString(string text)
+    {
+        _world.FlagName = text;
+    }
+
+    [When(@"it is serialized")]
+    public void WhenItIsSerialized()
+    {
+        _world.Json = JsonSerializer.Serialize(_world.CurrentMetric, MetricJsonOptions);
+    }
+
+    [When(@"ToStrings is called")]
+    public void WhenToStringsIsCalled()
+    {
+        _world.FlagStrings = ReadingFlagNames.ToStrings(_world.Flags);
+    }
+
+    [When(@"the constructor runs")]
+    public void WhenTheConstructorRuns()
+    {
+        Assert.NotNull(_world.Construction);
+        try
+        {
+            _world.CurrentMetric = _world.Construction();
+        }
+        catch (Exception ex)
+        {
+            _world.ConstructionFailure = ex;
+        }
+    }
+
+    [When(@"ReadingFlagNames\.Parse runs")]
+    public void WhenReadingFlagNamesParseRuns()
+    {
+        Assert.NotNull(_world.FlagName);
+        try
+        {
+            _ = ReadingFlagNames.Parse(_world.FlagName);
+        }
+        catch (Exception ex)
+        {
+            _world.ParseFailure = ex;
+        }
+    }
+
+    [Then(@"the JSON has ""value"": (\d+), ""label"": ""([^""]*)"" and ""unit"": ""([^""]*)""")]
+    public void ThenTheJsonHasValueLabelAndUnit(double value, string label, string unit)
+    {
+        Assert.NotNull(_world.Json);
+        using JsonDocument document = JsonDocument.Parse(_world.Json);
+        JsonElement root = document.RootElement;
+
+        Assert.Equal(value, root.GetProperty("value").GetDouble());
+        Assert.Equal(label, root.GetProperty("label").GetString());
+        Assert.Equal(unit, root.GetProperty("unit").GetString());
+        Assert.False(root.TryGetProperty("reason", out _));
+        Assert.False(root.TryGetProperty("currency", out _));
+    }
+
+    [Then(@"the JSON has ""value"": null, ""label"": ""([^""]*)"" and the reason")]
+    public void ThenTheJsonHasValueNullLabelAndTheReason(string label)
+    {
+        Assert.NotNull(_world.Json);
+        Assert.NotNull(_world.CurrentMetric);
+        using JsonDocument document = JsonDocument.Parse(_world.Json);
+        JsonElement root = document.RootElement;
+
+        Assert.True(root.TryGetProperty("value", out JsonElement value));
+        Assert.Equal(JsonValueKind.Null, value.ValueKind);
+        Assert.Equal(label, root.GetProperty("label").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(_world.CurrentMetric.Reason));
+        Assert.Equal(_world.CurrentMetric.Reason, root.GetProperty("reason").GetString());
+        Assert.False(root.TryGetProperty("unit", out _));
+        Assert.False(root.TryGetProperty("currency", out _));
+    }
+
+    [Then(@"the result is ""([^""]*)"" and ""([^""]*)""")]
+    public void ThenTheResultIsAnd(string first, string second)
+    {
+        Assert.NotNull(_world.FlagStrings);
+        string[] expectedNames = [first, second];
+        Assert.Equal(expectedNames, _world.FlagStrings);
+    }
+
+    [Then(@"an ArgumentException is thrown")]
+    public void ThenAnArgumentExceptionIsThrown()
+    {
+        Exception? failure = _world.ConstructionFailure;
+        Assert.NotNull(failure);
+        Assert.IsType<ArgumentException>(failure, exactMatch: false);
+    }
+
+    [Then(@"it fails with a typed error")]
+    public void ThenItFailsWithATypedError()
+    {
+        ArgumentException failure = Assert.IsType<ArgumentException>(_world.ParseFailure, exactMatch: false);
+        Assert.Contains(_world.FlagName!, failure.Message, StringComparison.Ordinal);
+    }
+
+    private static readonly JsonSerializerOptions MetricJsonOptions = new()
+    {
+        Converters = { new JsonStringEnumConverter() },
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    private static Metric Deserialize(string json) =>
+        JsonSerializer.Deserialize<Metric>(json, MetricJsonOptions) ?? throw new InvalidOperationException("The JSON document deserialised to null.");
 }

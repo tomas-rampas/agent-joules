@@ -342,9 +342,9 @@ Tasks:
 Test mapping: MetricTests (new class); the schema-level rule "no N/A or not-reported metric has a numeric value" is added to SchemaValidationTests by M3. Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-024-metric-labels.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] Metric is the only representation of a metric value in M1 code (design 3.2)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] Metric is the only representation of a metric value in M1 code (design 3.2)
 Demo relevance: no
 
 ### AJ-025: Integrate power samples into joules
