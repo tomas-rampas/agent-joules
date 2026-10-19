@@ -405,9 +405,9 @@ Tasks:
 Test mapping: PowerIntegrationTests; Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-025-integrate-power.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] timestamps are seconds since meter start derived from `TimeProvider.GetTimestamp()`, never a nominal interval
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] timestamps are seconds since meter start derived from `TimeProvider.GetTimestamp()`, never a nominal interval. Note (2026-10-19): the integrator uses the actual timestamps it is given and has no nominal-interval input; the derivation from `TimeProvider.GetTimestamp()` is implemented by the meter in AJ-029.
 Demo relevance: no
 
 ### AJ-026: Compute gross, net, average and peak energy per window

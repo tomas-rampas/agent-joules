@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Nvml;
@@ -655,9 +656,130 @@ public sealed class MeteringSteps(ScenarioWorld world)
     [Then(@"an ArgumentException is thrown")]
     public void ThenAnArgumentExceptionIsThrown()
     {
-        Exception? failure = _world.ConstructionFailure;
+        // The label scenarios record a construction failure, the integration scenarios an integrator failure; only one is ever set.
+        Exception? failure = _world.ConstructionFailure ?? _world.IntegrationFailure;
         Assert.NotNull(failure);
         Assert.IsType<ArgumentException>(failure, exactMatch: false);
+        if (_world.ConstructionFailure is null)
+        {
+            // An integration rejection in these scenarios blames a sample, so its message must name the index.
+            Assert.Contains("index", failure.Message, StringComparison.Ordinal);
+        }
+    }
+
+    private static double[] ParseTimestamps(string list) =>
+        [.. list.Replace(" and ", ", ", StringComparison.Ordinal)
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(token => double.Parse(token, CultureInfo.InvariantCulture))];
+
+    private static double ParseNumber(string number) => double.Parse(number, CultureInfo.InvariantCulture);
+
+    private void AddSamples(IEnumerable<double> timestamps, Func<double, double> wattsAt)
+    {
+        foreach (double seconds in timestamps)
+        {
+            _world.PowerSamples.Add(new PowerSample(seconds, wattsAt(seconds), ThrottleReasons.Unsupported));
+        }
+    }
+
+    private void IntegrateWindow()
+    {
+        _world.IntegrationRan = true;
+        _world.IntegratedJoules = null;
+        _world.IntegrationFailure = null;
+        try
+        {
+            _world.IntegratedJoules = PowerIntegrator.IntegrateJoules(_world.PowerSamples, _world.WindowStartSeconds, _world.WindowStopSeconds);
+        }
+        catch (ArgumentException ex)
+        {
+            _world.IntegrationFailure = ex;
+        }
+    }
+
+    [Given(@"^(\d+) samples of (\d+) mW at t = 0\.0, 0\.1, \.\.\., 2\.0 s$")]
+    public void GivenSamplesOfMilliwattsAtTenthSecondSteps(int count, int milliwatts)
+    {
+        double watts = milliwatts / 1000.0;
+        AddSamples(Enumerable.Range(0, count).Select(i => i / 10.0), _ => watts);
+    }
+
+    [Given(@"^a (\d+) W to (\d+) W linear ramp sampled at (.+) s$")]
+    public void GivenALinearRampSampledAt(double fromWatts, double toWatts, string timestamps)
+    {
+        double[] times = ParseTimestamps(timestamps);
+        double span = times[^1] - times[0];
+        AddSamples(times, t => fromWatts + (toWatts - fromWatts) * (t - times[0]) / span);
+    }
+
+    [Given(@"^two (\d+) W samples at (\S+) s and (\S+) s$")]
+    public void GivenTwoSamplesAt(double watts, string first, string second)
+    {
+        AddSamples([ParseNumber(first), ParseNumber(second)], _ => watts);
+    }
+
+    [Given(@"^samples at (.+) s following power = 100 W/s x t$")]
+    public void GivenSamplesFollowingPowerEqualsHundredWattsPerSecondTimesT(string timestamps)
+    {
+        AddSamples(ParseTimestamps(timestamps), t => 100.0 * t);
+    }
+
+    [Given(@"^samples at (.+) s$")]
+    public void GivenSamplesAt(string timestamps)
+    {
+        AddSamples(ParseTimestamps(timestamps), _ => 50.0);
+    }
+
+    [Given(@"^a single sample in the window$")]
+    public void GivenASingleSampleInTheWindow()
+    {
+        AddSamples([1.0], _ => 50.0);
+    }
+
+    [Given(@"^a sample at (\S+) s and the window (\S+) to (\S+) s$")]
+    public void GivenASampleAtAndTheWindow(string sample, string start, string stop)
+    {
+        AddSamples([ParseNumber(sample)], _ => 50.0);
+        _world.WindowStartSeconds = ParseNumber(start);
+        _world.WindowStopSeconds = ParseNumber(stop);
+    }
+
+    [When(@"^the window (\S+) to (\S+) s is integrated$")]
+    public void WhenTheWindowIsIntegrated(string start, string stop)
+    {
+        _world.WindowStartSeconds = ParseNumber(start);
+        _world.WindowStopSeconds = ParseNumber(stop);
+        IntegrateWindow();
+        Assert.Null(_world.IntegrationFailure);
+    }
+
+    [When(@"^the integrator runs$")]
+    public void WhenTheIntegratorRuns()
+    {
+        IntegrateWindow();
+    }
+
+    [Then(@"^the result is (\S+) J within 1 percent$")]
+    public void ThenTheResultIsJoulesWithinOnePercent(string expected)
+    {
+        Assert.NotNull(_world.IntegratedJoules);
+        double target = ParseNumber(expected);
+        Assert.InRange(_world.IntegratedJoules.Value, target * 0.99, target * 1.01);
+    }
+
+    [Then(@"^the result is (\S+) J$")]
+    public void ThenTheResultIsJoules(string expected)
+    {
+        Assert.NotNull(_world.IntegratedJoules);
+        Assert.Equal(ParseNumber(expected), _world.IntegratedJoules.Value, 1e-9);
+    }
+
+    [Then(@"^the result is null, not 0$")]
+    public void ThenTheResultIsNullNotZero()
+    {
+        Assert.True(_world.IntegrationRan);
+        Assert.Null(_world.IntegrationFailure);
+        Assert.Null(_world.IntegratedJoules);
     }
 
     [Then(@"it fails with a typed error")]

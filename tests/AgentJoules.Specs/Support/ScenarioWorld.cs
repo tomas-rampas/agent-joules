@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 
+using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Nvml.Interop;
@@ -116,6 +117,24 @@ public sealed class ScenarioWorld : IDisposable
 
     /// <summary>The exception <c>ReadingFlagNames.Parse</c> threw, or null.</summary>
     public Exception? ParseFailure { get; set; }
+
+    /// <summary>The power samples an integration scenario hands to <c>PowerIntegrator</c>, in the order the Given step listed them.</summary>
+    public List<PowerSample> PowerSamples { get; } = [];
+
+    /// <summary>The integration window start in seconds since meter start; a Given or When step overrides the default.</summary>
+    public double WindowStartSeconds { get; set; }
+
+    /// <summary>The integration window stop in seconds since meter start; a Given or When step overrides the default.</summary>
+    public double WindowStopSeconds { get; set; } = 2.0;
+
+    /// <summary>True once an integration step called <c>PowerIntegrator</c>, so a null <see cref="IntegratedJoules"/> means no value rather than not run.</summary>
+    public bool IntegrationRan { get; set; }
+
+    /// <summary>What <c>PowerIntegrator.IntegrateJoules</c> returned, or null when it returned null or has not run.</summary>
+    public double? IntegratedJoules { get; set; }
+
+    /// <summary>The exception <c>PowerIntegrator</c> threw, or null.</summary>
+    public Exception? IntegrationFailure { get; set; }
 
     public void Dispose()
     {
