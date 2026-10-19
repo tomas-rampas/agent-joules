@@ -521,15 +521,214 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
-    public void Register_MultiLineValue_IsMaskedWhenItOccursWhole()
+    public void Register_MultiLineValue_MasksEachLineSeparately()
+    {
+        string first = BuildOpaqueKey();
+        string second = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(first + "\n" + second);
+
+        Assert.True(registered);
+        Assert.Equal("v=**** end", redactor.Redact("v=" + first + "\n" + second + " end"));
+        Assert.Equal("v=**** end", redactor.Redact("v=" + first + " end"));
+        Assert.Equal("v=**** end", redactor.Redact("v=" + second + " end"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_KeyFollowedByLineFeedAndLoneSurrogate_StillMasksTheKey()
+    {
+        string key = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(key + "\n" + (char)0xDC00);
+
+        Assert.True(registered);
+        Assert.Equal("k=****", redactor.Redact("k=" + key));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_MultiLineValueOfShortLines_MasksTheJoinedValue()
+    {
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register("abcd\nefgh\nijkl");
+
+        Assert.True(registered);
+        Assert.Equal("x **** y", redactor.Redact("x abcdefghijkl y"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ShortLineBeforeALongLine_MasksTheJoinedValueEchoedWithoutTheNewline()
+    {
+        var redactor = new SecretRedactor();
+
+        redactor.Register("ab\ncdefgh");
+
+        Assert.Equal("x=****", redactor.Redact("x=abcdefgh"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithCrLfInside_MasksTheWholeValueAndEachLine()
+    {
+        var redactor = new SecretRedactor();
+
+        redactor.Register("AAAAA1\r\nBBBBB2");
+
+        Assert.Equal("****", redactor.Redact("AAAAA1\r\nBBBBB2"));
+        Assert.Equal("****\r\n****", redactor.Redact("AAAAA1") + "\r\n" + redactor.Redact("BBBBB2"));
+        Assert.Equal("****\r\n****", redactor.Redact("AAAAA1\r\n") + redactor.Redact("BBBBB2"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithALoneCarriageReturnInside_MasksEachPart()
+    {
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register("AAAAA1\rBBBBB2");
+
+        Assert.True(registered);
+        Assert.Equal("a **** b", redactor.Redact("a AAAAA1 b"));
+        Assert.Equal("a **** b", redactor.Redact("a BBBBB2 b"));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-029")]
+    [InlineData(0x000D)]
+    [InlineData(0x000A)]
+    [InlineData(0x000B)]
+    [InlineData(0x000C)]
+    [InlineData(0x0085)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void Register_KeysJoinedByALineTerminator_MaskEachKeyPrintedAlone(int terminator)
+    {
+        string first = BuildOpaqueKey();
+        string second = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(first + (char)terminator + second);
+
+        Assert.True(registered);
+        Assert.Equal("a **** b", redactor.Redact("a " + first + " b"));
+        Assert.Equal("a **** b", redactor.Redact("a " + second + " b"));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-029")]
+    [InlineData(0x000D)]
+    [InlineData(0x000A)]
+    [InlineData(0x000B)]
+    [InlineData(0x000C)]
+    [InlineData(0x0085)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void Register_ShortPartsSeparatedByALineTerminator_MaskTheJoinedValue(int terminator)
+    {
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register("abcd" + (char)terminator + "efgh");
+
+        Assert.True(registered);
+        Assert.Equal("x=****", redactor.Redact("x=abcdefgh"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueOfOnlyLineBreaks_ReturnsFalse()
+    {
+        var redactor = new SecretRedactor();
+
+        Assert.False(redactor.Register("\r\n\n\r"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_TheSameValueTwice_ReturnsTrueBothTimes()
+    {
+        string key = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        Assert.True(redactor.Register(key));
+        Assert.True(redactor.Register(key));
+        Assert.Equal("k=****", redactor.Redact("k=" + key));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithSurroundingSpaces_KeepsTheNeighbouringWhitespaceInTheOutput()
+    {
+        string key = BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        redactor.Register("  " + key + "  ");
+
+        Assert.Equal("a **** b", redactor.Redact("a " + key + " b"));
+        Assert.Equal("a  ****  b", redactor.Redact("a  " + key + "  b"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithInteriorLoneSurrogate_MasksTheReplacementCharacterEcho()
+    {
+        string raw = "ab" + (char)0xD800 + "cdefghij";
+        string echoed = "ab" + char.ConvertFromUtf32(0xFFFD) + "cdefghij";
+        var redactor = new SecretRedactor();
+
+        redactor.Register(raw);
+
+        Assert.Equal("see **** end", redactor.Redact("see " + echoed + " end"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void RedactingTextWriter_MultiLineRegistration_MasksEachWrittenLine()
     {
         string first = BuildOpaqueKey();
         string second = BuildOpaqueKey();
         var redactor = new SecretRedactor();
         redactor.Register(first + "\n" + second);
+        using var inner = new StringWriter();
+        using var writer = new RedactingTextWriter(inner, redactor);
 
-        string result = redactor.Redact("v=" + first + "\n" + second + " end");
+        writer.WriteLine(first);
+        writer.WriteLine(second);
 
-        Assert.Equal("v=**** end", result);
+        string newLine = Environment.NewLine;
+        Assert.Equal("****" + newLine + "****" + newLine, inner.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithInteriorLoneSurrogate_MasksTheRawEchoAndTheWellFormedForm()
+    {
+        string raw = "ab" + (char)0xD800 + "cdefghij";
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(raw);
+
+        Assert.True(registered);
+        Assert.Equal("see **** end", redactor.Redact("see " + raw + " end"));
+        Assert.Equal("see **** end", redactor.Redact("see abcdefghij end"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
+    public void Register_ValueWithTrailingLoneSurrogate_MasksTheRawEchoAndTheBareKey()
+    {
+        string key = BuildOpaqueKey();
+        string raw = key + (char)0xDC00;
+        var redactor = new SecretRedactor();
+
+        bool registered = redactor.Register(raw);
+
+        Assert.True(registered);
+        Assert.Equal("k=****", redactor.Redact("k=" + raw));
+        Assert.Equal("k=****", redactor.Redact("k=" + key));
     }
 }

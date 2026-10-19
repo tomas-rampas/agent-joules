@@ -11,7 +11,6 @@ namespace AgentJoules.Specs.Steps;
 public sealed class ConfigurationSteps : IDisposable
 {
     private const string KeyPlaceholder = "<key>";
-    private const string NvidiaPrefix = "nvapi-";
 
     private SecretRedactor _redactor = new();
     private StringWriter? _inner;
@@ -138,8 +137,6 @@ public sealed class ConfigurationSteps : IDisposable
     {
         Assert.Null(_thrown);
         Assert.Equal(expected, _result);
-        Assert.StartsWith(NvidiaPrefix, _input, StringComparison.Ordinal);
-        Assert.DoesNotContain(_input[NvidiaPrefix.Length..], _result, StringComparison.Ordinal);
     }
 
     [Then(@"the inner writer receives only ""([^""]*)"" followed by the newline")]

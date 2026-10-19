@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -15,22 +16,34 @@ public sealed partial class SecretRedactor
     private const string MaskedNvidiaKey = "nvapi-****";
     private const int MinimumRegisteredLength = 5;
 
+    private static readonly char[] LineTerminators =
+        ['\r', '\n', '\v', '\f', (char)0x0085, (char)0x2028, (char)0x2029];
+
     private readonly Lock _gate = new();
     private readonly HashSet<string> _registered = new(StringComparer.Ordinal);
     private string[] _snapshot = [];
 
     /// <summary>
-    /// Registers a configured secret value in up to two forms: the value with whitespace, Unicode format and control
-    /// characters trimmed from both ends only (interior characters kept, so a decorated value echoed as configured is
-    /// masked), and the bare value with every Unicode format and control character removed (byte order mark, zero-width
-    /// space, tag characters, NUL, carriage return, line feed and similar) and then trimmed. Characters are handled as
-    /// Unicode scalar values, so surrogate-pair characters are removed too. A form is registered, once, only when it is
-    /// at least five characters long (short placeholders such as <c>x</c> or <c>0</c> would rewrite unrelated output),
+    /// Registers a configured secret value as a whole and line by line: the whole value is registered, and the value
+    /// is also split on CR, LF and the other Unicode line separators (empty segments dropped) with every segment
+    /// registered on its own, because a key may sit on one line of a multi-line value and the line-buffered writer
+    /// may see one line at a time, while a single write of several lines is redacted as one string. Every line of
+    /// five or more characters of a multi-line value is therefore masked as well, which errs on the safe side (for
+    /// example a JSON <c>"type"</c> line of a service-account file). Each text (the whole value, each segment) is
+    /// registered in up to three forms: the text with whitespace, Unicode format and control characters trimmed from
+    /// both ends only (a slice of the original string; interior characters kept, so a decorated value echoed as
+    /// configured is masked); the bare text with every Unicode format, control and line-separator character removed
+    /// (byte order mark, zero-width space, tag characters, line breaks, NUL and similar) and then trimmed; and the
+    /// ends-trimmed text with every lone
+    /// surrogate replaced by U+FFFD (what a UTF-8 round trip of a malformed value yields). Characters are handled as
+    /// Unicode scalar values, so surrogate-pair characters are removed too; a lone surrogate counts as a visible
+    /// character in the first form and is dropped from the second. A form is registered, once, only when it is at
+    /// least five characters long (short placeholders such as <c>x</c> or <c>0</c> would rewrite unrelated output),
     /// does not contain <c>*</c> (redaction would stop being idempotent) and is not a part of the <c>nvapi-****</c>
     /// mask (it would corrupt the mask).
     /// </summary>
     /// <param name="value">The secret value to mask wherever it occurs; null is ignored.</param>
-    /// <returns>True when at least one form of the value is registered; otherwise false.</returns>
+    /// <returns>True when at least one form of the value or of one of its lines is registrable.</returns>
     public bool Register(string? value)
     {
         if (value is null)
@@ -38,23 +51,27 @@ public sealed partial class SecretRedactor
             return false;
         }
 
-        string endsTrimmed = TrimEnds(value);
-        string clean = RemoveInvisibleCharacters(value).Trim();
-        bool endsTrimmedValid = IsRegistrable(endsTrimmed);
-        bool cleanValid = IsRegistrable(clean);
-        if (!endsTrimmedValid && !cleanValid)
+        HashSet<string> forms = new(StringComparer.Ordinal);
+        AddForms(forms, value);
+        foreach (string segment in value.Split(LineTerminators, StringSplitOptions.RemoveEmptyEntries))
+        {
+            AddForms(forms, segment);
+        }
+
+        if (forms.Count == 0)
         {
             return false;
         }
 
         lock (_gate)
         {
-            bool added = endsTrimmedValid && _registered.Add(endsTrimmed);
-            added |= cleanValid && _registered.Add(clean);
-            if (added)
+            if (_registered.IsSupersetOf(forms))
             {
-                Volatile.Write(ref _snapshot, [.. _registered]);
+                return true;
             }
+
+            _registered.UnionWith(forms);
+            Volatile.Write(ref _snapshot, [.. _registered]);
         }
 
         return true;
@@ -110,7 +127,8 @@ public sealed partial class SecretRedactor
             }
 
             builder.Append(text, copied, start - copied);
-            builder.Append(text.AsSpan(start).StartsWith(NvidiaPrefix, StringComparison.Ordinal) ? MaskedNvidiaKey : Stars);
+            bool isNvidiaKey = text.AsSpan(start).StartsWith(NvidiaPrefix, StringComparison.Ordinal);
+            builder.Append(isNvidiaKey ? MaskedNvidiaKey : Stars);
             copied = end;
             if (i < spans.Count)
             {
@@ -123,47 +141,90 @@ public sealed partial class SecretRedactor
         return builder.ToString();
     }
 
+    private static void AddForms(HashSet<string> forms, string text)
+    {
+        string endsTrimmed = TrimEnds(text);
+        AddIfRegistrable(forms, endsTrimmed);
+        AddIfRegistrable(forms, RemoveInvisibleCharacters(text).Trim());
+        AddIfRegistrable(forms, string.Concat(endsTrimmed.EnumerateRunes()));
+    }
+
+    private static void AddIfRegistrable(HashSet<string> forms, string form)
+    {
+        if (IsRegistrable(form))
+        {
+            forms.Add(form);
+        }
+    }
+
     private static bool IsRegistrable(string form) =>
         form.Length >= MinimumRegisteredLength
         && !form.Contains('*', StringComparison.Ordinal)
         && !MaskedNvidiaKey.Contains(form, StringComparison.Ordinal);
+
+    private static bool IsLineTerminator(Rune rune) =>
+        rune.IsBmp && Array.IndexOf(LineTerminators, (char)rune.Value) >= 0;
 
     private static bool IsInvisible(Rune rune) =>
         Rune.GetUnicodeCategory(rune) is UnicodeCategory.Format or UnicodeCategory.Control;
 
     private static string TrimEnds(string value)
     {
-        Rune[] runes = [.. value.EnumerateRunes()];
         int start = 0;
-        int end = runes.Length;
-        while (start < end && (IsInvisible(runes[start]) || Rune.IsWhiteSpace(runes[start])))
+        while (start < value.Length && IsTrimmable(value.AsSpan(start), out int consumed))
         {
-            start++;
+            start += consumed;
         }
 
-        while (end > start && (IsInvisible(runes[end - 1]) || Rune.IsWhiteSpace(runes[end - 1])))
+        int end = value.Length;
+        while (end > start && IsTrimmableLast(value.AsSpan(start, end - start), out int consumed))
         {
-            end--;
+            end -= consumed;
         }
 
-        var builder = new StringBuilder(value.Length);
-        for (int i = start; i < end; i++)
+        return value[start..end];
+    }
+
+    private static bool IsTrimmable(ReadOnlySpan<char> text, out int consumed)
+    {
+        if (Rune.DecodeFromUtf16(text, out Rune rune, out consumed) != OperationStatus.Done)
         {
-            builder.Append(runes[i].ToString());
+            consumed = 0;
+            return false;
         }
 
-        return builder.ToString();
+        return IsInvisible(rune) || Rune.IsWhiteSpace(rune);
+    }
+
+    private static bool IsTrimmableLast(ReadOnlySpan<char> text, out int consumed)
+    {
+        if (Rune.DecodeLastFromUtf16(text, out Rune rune, out consumed) != OperationStatus.Done)
+        {
+            consumed = 0;
+            return false;
+        }
+
+        return IsInvisible(rune) || Rune.IsWhiteSpace(rune);
     }
 
     private static string RemoveInvisibleCharacters(string value)
     {
         var builder = new StringBuilder(value.Length);
-        foreach (Rune rune in value.EnumerateRunes())
+        int index = 0;
+        while (index < value.Length)
         {
-            if (!IsInvisible(rune))
+            if (Rune.DecodeFromUtf16(value.AsSpan(index), out Rune rune, out int consumed) != OperationStatus.Done)
             {
-                builder.Append(rune.ToString());
+                index++;
+                continue;
             }
+
+            if (!IsInvisible(rune) && !IsLineTerminator(rune))
+            {
+                builder.Append(value, index, consumed);
+            }
+
+            index += consumed;
         }
 
         return builder.ToString();
