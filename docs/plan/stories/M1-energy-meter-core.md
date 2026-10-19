@@ -612,14 +612,14 @@ Conflict: EDGE-013 acceptance says that if the API is unsupported on the laptop,
 Covers: REQ-004, REQ-005
 User story: As a developer, I want one process-wide meter that samples power in the background and hands out windows with exact edge samples, so that every window's energy is computed from the same buffer, with or without the counter.
 Acceptance criteria:
-1. `IEnergyMeter` exposes `Capabilities`, `StartAsync`, `MeasureBaselineAsync` (implemented by AJ-030) and `OpenWindow`; `IMeterWindow` exposes `Span` and `Close`; `WindowSpan` is a record of start and stop in seconds. `ComputeUnion` is not declared in M1; REQ-013 (M2) adds it, so no stub that throws exists.
+1. `IEnergyMeter` exposes `Capabilities`, `StartAsync`, `MeasureBaselineAsync` (implemented by AJ-030) and `OpenWindow`; `IMeterWindow` exposes `Span` and `Close`; `WindowSpan` is a record of start and stop in seconds. `ComputeUnion` is not declared in M1; REQ-013 (M2) adds it, so no stub that throws exists. Note (2026-10-19): `MeasureBaselineAsync` is not in the AJ-029 build; AJ-030 adds it with its result type, because a throwing stub is what this criterion forbids.
 2. `StartAsync` starts one background loop over `PeriodicTimer(TimeSpan.FromSeconds(1 / SampleRateHz), timeProvider)`; with `FakeTimeProvider` advanced by 2.0 s at 10 Hz, the fake NVML records exactly 21 power reads (one at start plus 20 ticks).
 3. Sample timestamps are seconds since meter start from `TimeProvider.GetTimestamp()`; advancing fake time in irregular steps stores those actual times.
 4. `OpenWindow` and `Close` each take an immediate sample and, when the method is `counter`, an immediate counter read, so a 150 ms window with no timer tick still has at least 2 samples.
 5. A 3 s window at a scripted constant 60 W returns gross 180 J within 1 percent (sampling) and exactly 180 J (counter); average, peak, `sampleCount` and `sampleRateHz` always come from the samples.
 6. Two overlapping windows opened at 0 s and 1 s on one meter each report their own energy (buffer slices), not a shared total (test `Overlapping_windows_report_own_energy`: 180 J and 120 J at 60 W).
 7. `OpenWindow` before `StartAsync` throws `InvalidOperationException`; a second `Close` on the same window throws `InvalidOperationException`.
-8. A power read that fails (the source throws) skips that sample, never records 0, and the loop continues; a window ending with fewer than two samples reports average and peak `not-reported` with reason `insufficient-samples` (AJ-026).
+8. A power read that fails (the source throws) skips that sample, never records 0, and the loop continues; a window ending with fewer than two samples reports average and peak `not-reported` with reason `insufficient-samples` (AJ-026). Note (2026-10-19): a zero-duration window (Close at the open instant) throws InvalidOperationException and produces no reading; fewer than two samples arises when an edge read fails, and that case is tested.
 9. `DisposeAsync` cancels the timer wait and awaits the loop; after it, advancing fake time causes no further NVML reads; disposing twice is safe.
 BDD scenarios:
 ```gherkin
@@ -678,9 +678,9 @@ Tasks:
 Test mapping: SampledEnergyMeterTests (new class); PowerIntegrationTests for the integral; Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-029-sampled-meter.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no `Task.Run` for I/O and no wall-clock wait in the tests (fake time only)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no `Task.Run` for I/O and no wall-clock wait in the tests (fake time only)
 Demo relevance: yes: the per-window joules and watts that the demo prints per agent step come from this meter.
 
 ### AJ-030: Measure the idle baseline and flag an unstable one

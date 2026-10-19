@@ -176,6 +176,21 @@ public sealed class ScenarioWorld : IDisposable
     /// <summary>The bits the last <see cref="ClocksReader"/> read produced, or null when it has not run.</summary>
     public ulong? ClocksBits { get; set; }
 
+    /// <summary>The sampled meter of a metering scenario, over <see cref="Source"/> and <see cref="Time"/>; disposed before the source.</summary>
+    public SampledEnergyMeter? Meter { get; set; }
+
+    /// <summary>The windows a meter scenario opened, in the order they were opened.</summary>
+    public List<IMeterWindow> Windows { get; } = [];
+
+    /// <summary>The readings the windows of a meter scenario returned when they closed, in the order they closed.</summary>
+    public List<EnergyReading> MeterReadings { get; } = [];
+
+    /// <summary>The fake's successful power reads when the meter scenario started; the factory's own calls are not the meter's.</summary>
+    public int PowerReadBaseline { get; set; }
+
+    /// <summary>The fake's successful power reads at the moment the meter was disposed.</summary>
+    public int PowerReadsAtDispose { get; set; }
+
     public void Dispose()
     {
         // A scenario may script a blanket fault; clear it so releasing the session cannot fail the hook.
@@ -184,6 +199,11 @@ public sealed class ScenarioWorld : IDisposable
             _api.FaultFor = null;
             _api.MissingLibrary = false;
         }
+
+        // The meter does not own the source, so it goes first: its loop must be gone before the session is torn down.
+        // DisposeAsync is idempotent, so a scenario that already disposed the meter is unaffected.
+        Meter?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        Meter = null;
 
         // Dispose is idempotent, so a scenario that already disposed the source is unaffected.
         Source?.Dispose();

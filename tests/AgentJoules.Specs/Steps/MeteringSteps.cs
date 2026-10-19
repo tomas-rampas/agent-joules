@@ -1283,4 +1283,223 @@ public sealed class MeteringSteps(ScenarioWorld world)
         Assert.True(line is not null, $"'{ProbeNotesHeading}' contains neither '{SupportedSentence}' nor '{UnavailableSentence}'.");
         Assert.Matches(@"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z", line);
     }
+
+    // AJ-029: the sampled meter over a scripted NVML session. FakeTimeProvider runs each due tick inline on the thread that calls
+    // Advance (measured), so the read is normally counted before Advance returns; a step still moves the fake clock one timer period
+    // at a time and yields (never waits on the wall clock) until the fake has counted that tick's read, in case a clock does not.
+    private const int MeterMaxYields = 2_000_000;
+
+    private SampledEnergyMeter Meter => _world.Meter ?? throw new InvalidOperationException("No meter was created.");
+
+    private EnergyReading MeterReading(int index) =>
+        index < _world.MeterReadings.Count ? _world.MeterReadings[index] : throw new InvalidOperationException($"Window {index} was not closed.");
+
+    private async Task StartMeterAsync(string method, double watts, bool start = true, Action<ScriptedNvmlApi>? afterOpen = null)
+    {
+        OpenFakeSource(new ScriptedNvmlApi(_world.Time) { ConstantPowerWatts = watts, CounterSupported = true });
+        afterOpen?.Invoke(_world.Api);
+        IGpuTelemetrySource source = _world.Source ?? throw new InvalidOperationException("No GPU source was opened.");
+        MeterCapabilities capabilities = MeterMethodSelector.Select(method, source, _world.ReadingSampleRateHz);
+        _world.Capabilities = capabilities;
+        _world.PowerReadBaseline = _world.Api.PowerReadCount;
+        SampledEnergyMeter meter = new(source, capabilities, _world.Time);
+        _world.Meter = meter;
+        if (start)
+        {
+            await meter.StartAsync(CancellationToken.None);
+        }
+    }
+
+    private async Task AdvanceMeterClockAsync(double seconds)
+    {
+        SampledEnergyMeter meter = Meter;
+        double rateHz = (_world.Capabilities ?? throw new InvalidOperationException("No capabilities were selected.")).SampleRateHz;
+        TimeSpan period = TimeSpan.FromSeconds(1.0 / rateHz);
+        int ticks = (int)Math.Round(seconds * rateHz);
+        for (int i = 0; i < ticks; i++)
+        {
+            int target = _world.Api.PowerCallCount + 1;
+            _world.Time.Advance(period);
+            int yields = 0;
+            while (_world.Api.PowerCallCount < target)
+            {
+                Assert.True(yields++ < MeterMaxYields, "The sampling loop did not take its tick.");
+                await Task.Yield();
+            }
+
+            // Reading the count takes the meter lock, which the loop holds until its sample is stored.
+            _ = meter.SampleCount;
+        }
+    }
+
+    private void OpenAndTrackWindow() => _world.Windows.Add(Meter.OpenWindow());
+
+    private void CloseAndTrackWindow(IMeterWindow window) => _world.MeterReadings.Add(window.Close());
+
+    [Given(@"^a started meter at 10 Hz over a fake NVML$")]
+    public async Task GivenAStartedMeterAt10HzOverAFakeNvml() => await StartMeterAsync("auto", 60.0);
+
+    [Given(@"^a started meter and a scripted constant 60 W$")]
+    public async Task GivenAStartedMeterAndAScriptedConstant60W() => await StartMeterAsync("sampling", 60.0);
+
+    [Given(@"^a started meter on the counter method$")]
+    public async Task GivenAStartedMeterOnTheCounterMethod() => await StartMeterAsync("counter", 60.0);
+
+    [Given(@"^a started meter$")]
+    public async Task GivenAStartedMeter() => await StartMeterAsync("auto", 60.0);
+
+    [Given(@"^windows opened at 0 s and 1 s on one meter$")]
+    public async Task GivenWindowsOpenedAt0SAnd1SOnOneMeter()
+    {
+        await StartMeterAsync("auto", 60.0);
+        OpenAndTrackWindow();
+        await AdvanceMeterClockAsync(1.0);
+        OpenAndTrackWindow();
+    }
+
+    [Given(@"^a meter that was not started$")]
+    public async Task GivenAMeterThatWasNotStarted() => await StartMeterAsync("auto", 60.0, start: false);
+
+    [Given(@"^a closed window$")]
+    public async Task GivenAClosedWindow()
+    {
+        await StartMeterAsync("auto", 60.0);
+        OpenAndTrackWindow();
+
+        // 50 ms is half a 10 Hz period, so the window closes between ticks.
+        _world.Time.Advance(TimeSpan.FromMilliseconds(50));
+        CloseAndTrackWindow(_world.Windows[0]);
+    }
+
+    [Given(@"^the fake throws on the third power read$")]
+    public async Task GivenTheFakeThrowsOnTheThirdPowerRead()
+    {
+        // Read 1 is the start sample and read 2 the opening edge of the window below, so read 3 is the first tick.
+        await StartMeterAsync("auto", 60.0, afterOpen: api => api.ThrowOnPowerReadNumber = api.PowerCallCount + 3);
+        OpenAndTrackWindow();
+    }
+
+    [When(@"^the (?:fake )?clock advances (\S+) s$")]
+    public async Task WhenTheFakeClockAdvances(string seconds) => await AdvanceMeterClockAsync(ParseNumber(seconds));
+
+    [When(@"^a window is opened, the clock advances 3 s and the window is closed$")]
+    public async Task WhenAWindowIsOpenedTheClockAdvances3SAndTheWindowIsClosed()
+    {
+        OpenAndTrackWindow();
+        await AdvanceMeterClockAsync(3.0);
+        CloseAndTrackWindow(_world.Windows[0]);
+    }
+
+    [When(@"^a window spans 3 s at 60 W$")]
+    public async Task WhenAWindowSpans3SAt60W()
+    {
+        OpenAndTrackWindow();
+        await AdvanceMeterClockAsync(3.0);
+        CloseAndTrackWindow(_world.Windows[0]);
+    }
+
+    [When(@"^both close at 3 s at a constant 60 W$")]
+    public async Task WhenBothCloseAt3SAtAConstant60W()
+    {
+        await AdvanceMeterClockAsync(2.0);
+        CloseAndTrackWindow(_world.Windows[0]);
+        CloseAndTrackWindow(_world.Windows[1]);
+    }
+
+    [When(@"^OpenWindow is called$")]
+    public void WhenOpenWindowIsCalled()
+    {
+        SampledEnergyMeter meter = Meter;
+        _world.LastException = Record.Exception(() => meter.OpenWindow());
+    }
+
+    [When(@"^Close is called again$")]
+    public void WhenCloseIsCalledAgain()
+    {
+        IMeterWindow window = _world.Windows[0];
+        _world.LastException = Record.Exception(() => window.Close());
+    }
+
+    [When(@"^the meter is disposed and the clock advances 5 s$")]
+    public async Task WhenTheMeterIsDisposedAndTheClockAdvances5S()
+    {
+        _world.PowerReadsAtDispose = _world.Api.PowerReadCount;
+        await Meter.DisposeAsync();
+
+        // Both in 0.1 s steps (one period each, as a running loop would see them) and in one 5 s step.
+        for (int i = 0; i < 50; i++)
+        {
+            _world.Time.Advance(TimeSpan.FromMilliseconds(100));
+        }
+
+        _world.Time.Advance(TimeSpan.FromSeconds(5.0));
+    }
+
+    [Then(@"^the fake recorded exactly (\d+) power reads$")]
+    public void ThenTheFakeRecordedExactlyPowerReads(int expected)
+    {
+        Assert.Equal(expected, _world.Api.PowerReadCount - _world.PowerReadBaseline);
+    }
+
+    [Then(@"^gross is 180 J within 1 percent and average is 60 W$")]
+    public void ThenGrossIs180JWithin1PercentAndAverageIs60W()
+    {
+        EnergyReading reading = MeterReading(0);
+        Assert.Equal(EnergyMethod.Sampling, reading.Method);
+        Assert.Equal(MetricLabel.Measured, reading.GrossJoules.Label);
+        Assert.Equal(180.0, reading.GrossJoules.Value ?? double.NaN, 1.8);
+        AssertMeasured(reading.AverageWatts, 60.0, "W");
+    }
+
+    [Then(@"^gross is 180 J from the counter delta and sampleCount comes from the samples$")]
+    public void ThenGrossIs180JFromTheCounterDeltaAndSampleCountComesFromTheSamples()
+    {
+        EnergyReading reading = MeterReading(0);
+        Assert.Equal(EnergyMethod.Counter, reading.Method);
+        AssertMeasured(reading.GrossJoules, 180.0, "J");
+
+        // The last two successful counter reads are the open and close marks of the window; the fake adds a fixed offset to both.
+        IReadOnlyList<ulong> counter = _world.Api.CounterReads;
+        Assert.Equal(180000UL, counter[^1] - counter[^2]);
+
+        // 3 s at 10 Hz is thirty ticks plus the start sample, whose slot the opening edge takes over, so 31 samples with both edges.
+        Assert.Equal(31, reading.SampleCount);
+    }
+
+    [Then(@"^the first reports 180 J and the second reports 120 J$")]
+    public void ThenTheFirstReports180JAndTheSecondReports120J()
+    {
+        AssertMeasured(MeterReading(0).GrossJoules, 180.0, "J");
+        AssertMeasured(MeterReading(1).GrossJoules, 120.0, "J");
+        Assert.Equal(31, MeterReading(0).SampleCount);
+        Assert.Equal(21, MeterReading(1).SampleCount);
+    }
+
+    [Then(@"^an InvalidOperationException is thrown$")]
+    public void ThenAnInvalidOperationExceptionIsThrown()
+    {
+        // Exactly this type: ObjectDisposedException derives from it and would mean the meter was disposed, not misused.
+        Assert.IsType<InvalidOperationException>(_world.LastException);
+    }
+
+    [Then(@"^no sample with 0 W exists and the loop is still running$")]
+    public void ThenNoSampleWith0WExistsAndTheLoopIsStillRunning()
+    {
+        // The start sample, the opening edge and ten ticks are twelve power calls; the third threw, so eleven returned a value.
+        // Ticks 4 to 12 came after the failure, so the loop kept running past it.
+        Assert.Equal(11, _world.Api.PowerReadCount - _world.PowerReadBaseline);
+        Assert.Equal(1, Meter.SkippedReadCount);
+
+        // A recorded 0 W would pull the time-weighted average below 60 W.
+        EnergyReading reading = _world.Windows[0].Close();
+        AssertMeasured(reading.AverageWatts, 60.0, "W");
+        AssertMeasured(reading.PeakWatts, 60.0, "W");
+        Assert.Equal(10, reading.SampleCount);
+    }
+
+    [Then(@"^the fake records no further power reads$")]
+    public void ThenTheFakeRecordsNoFurtherPowerReads()
+    {
+        Assert.Equal(_world.PowerReadsAtDispose, _world.Api.PowerReadCount);
+    }
 }
