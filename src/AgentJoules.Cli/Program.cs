@@ -1,2 +1,3 @@
-Console.Error.WriteLine("AgentJoules: no commands implemented yet");
-return 1;
+using AgentJoules.Cli;
+
+return await CliApplication.RunAsync(args, CancellationToken.None);

@@ -6,7 +6,6 @@ using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
-using AgentJoules.Nvml;
 using AgentJoules.Nvml.Interop;
 using AgentJoules.TestSupport;
 
@@ -487,20 +486,13 @@ public sealed class PowerIntegrationTests
         _ = PeakRejected([], 1.0, 1.0);
     }
 
-    private const double SelectedRateHz = 10.0;
+    private const double SelectedRateHz = MeterSelectionFixtures.SelectedRateHz;
     private const string FallbackSentence = "Energy method: sampling (counter unsupported)";
-    private const string NotSupportedReason = "counter-not-supported: NVML_ERROR_NOT_SUPPORTED";
+    private const string NotSupportedReason = MeterSelectionFixtures.NotSupportedReason;
 
-    private static ScriptedNvmlApi NewApi(NvmlReturn counter = NvmlReturn.Success) =>
-        new(new FakeTimeProvider()) { ConstantPowerWatts = 50, CounterReturn = counter };
+    private static ScriptedNvmlApi NewApi(NvmlReturn counter = NvmlReturn.Success) => MeterSelectionFixtures.NewApi(counter);
 
-    private static IGpuTelemetrySource OpenSource(ScriptedNvmlApi api)
-    {
-        GpuOpenResult result = new NvmlGpuTelemetrySourceFactory(api).Open(0);
-        Assert.True(result.IsAvailable, result.Reason);
-        Assert.NotNull(result.Source);
-        return result.Source;
-    }
+    private static IGpuTelemetrySource OpenSource(ScriptedNvmlApi api) => MeterSelectionFixtures.OpenSource(api);
 
     private static MeterCapabilities Select(string? configured, NvmlReturn counter = NvmlReturn.Success)
     {
@@ -509,11 +501,7 @@ public sealed class PowerIntegrationTests
     }
 
     private static T SelectionFails<T>(string? configured, NvmlReturn counter = NvmlReturn.Success, double rateHz = SelectedRateHz)
-        where T : AgentJoulesException
-    {
-        using IGpuTelemetrySource source = OpenSource(NewApi(counter));
-        return Assert.Throws<T>(() => { _ = MeterMethodSelector.Select(configured, source, rateHz); });
-    }
+        where T : AgentJoulesException => MeterSelectionFixtures.SelectionFails<T>(configured, counter, rateHz);
 
     // A one second window at 50 W computed from nothing but what the selector decided.
     private static EnergyReading ReadingFor(MeterCapabilities capabilities) =>
@@ -640,34 +628,6 @@ public sealed class PowerIntegrationTests
         Assert.Equal("Energy method: counter", capabilities.Describe());
     }
 
-    [Theory]
-    [InlineData(3, NotSupportedReason)]
-    [InlineData(999, "counter-not-supported: 999")]
-    [Trait("Spec", "EDGE-002")]
-    public void Forced_counter_with_the_counter_unsupported_is_a_precondition_failure_naming_the_setting_and_the_reason(int code, string reason)
-    {
-        MeasurementPreconditionException failure = SelectionFails<MeasurementPreconditionException>("counter", (NvmlReturn)code);
-
-        Assert.Equal(ExitCode.PreconditionFailed, failure.ExitCode);
-        Assert.Equal(6, (int)failure.ExitCode);
-        Assert.Contains("Meter:Method=counter", failure.Message, StringComparison.Ordinal);
-        Assert.Contains(reason, failure.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("turbo")]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData(" ")]
-    public void An_unknown_missing_or_blank_method_is_a_configuration_error_naming_the_setting(string? configured)
-    {
-        ConfigurationException failure = SelectionFails<ConfigurationException>(configured);
-
-        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
-        Assert.Equal(2, (int)failure.ExitCode);
-        Assert.Contains("Meter:Method", failure.Message, StringComparison.Ordinal);
-    }
-
     [Fact]
     public void An_unknown_method_message_names_the_offending_value()
     {
@@ -689,20 +649,6 @@ public sealed class PowerIntegrationTests
 
         Assert.Equal(expected, capabilities.Method);
         Assert.False(capabilities.IsFallback);
-    }
-
-    [Theory]
-    [InlineData(0.0)]
-    [InlineData(-10.0)]
-    [InlineData(double.NaN)]
-    [InlineData(double.PositiveInfinity)]
-    [InlineData(double.NegativeInfinity)]
-    public void A_non_positive_or_non_finite_sample_rate_is_a_configuration_error_naming_the_setting(double rateHz)
-    {
-        ConfigurationException failure = SelectionFails<ConfigurationException>("auto", rateHz: rateHz);
-
-        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
-        Assert.Contains("Meter:SampleRateHz", failure.Message, StringComparison.Ordinal);
     }
 
     [Fact]
