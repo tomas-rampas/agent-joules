@@ -42,7 +42,7 @@ namespace AgentJoules.Workflow.Agents;
 /// <para>
 /// The instruction of an agent travels in <see cref="ChatOptions.Instructions"/>: <see cref="ChatClientAgentOptions"/> of Microsoft.Agents.AI 1.23.0 has no
 /// <c>Instructions</c> member (the agent reads its instructions from the chat options it is given). The agent merges them into every request it sends, so the
-/// provider client gets them as the system message. <c>UseOpenTelemetry</c> on the pipeline belongs to the telemetry story and is not added here.
+/// provider client gets them as the system message. The agent that <c>Create</c> returns is the <see cref="OpenTelemetryAgent"/> around the <see cref="ChatClientAgent"/> (<c>UseOpenTelemetry</c>, source <c>AgentJoules</c>, REQ-014): ask it for the inner agent with <c>GetService&lt;ChatClientAgent&gt;()</c>. Sensitive data is off, so no prompt or answer text reaches a span.
 /// </para>
 /// </remarks>
 /// <param name="providerClients">Makes the provider chat client at the bottom of each pipeline.</param>
@@ -63,7 +63,7 @@ public sealed class AgentFactory(IProviderClientFactory providerClients, Meterin
     /// <summary>Creates the agent <see cref="StepIdentity.Agent"/> with the catalog instruction and no tier prefix.</summary>
     /// <param name="identity">Who the agent is and where it runs; the agent name must be in the <see cref="AgentCatalog"/>.</param>
     /// <param name="chatOptions">The default options of the agent's calls (temperature, output cap, model); copied, the caller keeps its instance.</param>
-    /// <returns>A <see cref="ChatClientAgent"/> named <see cref="StepIdentity.Agent"/> over a new metered pipeline.</returns>
+    /// <returns>An <see cref="OpenTelemetryAgent"/> named <see cref="StepIdentity.Agent"/> around a <see cref="ChatClientAgent"/> over a new metered pipeline.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ArgumentException">See <see cref="Create(StepIdentity, ChatOptions, string?)"/>: a judge identity, options with tools or a tool mode, or a model that is not the identity's.</exception>
     /// <exception cref="ConfigurationException">The agent name is not in the catalog (exit code 2), or the provider client cannot be created.</exception>
@@ -73,7 +73,7 @@ public sealed class AgentFactory(IProviderClientFactory providerClients, Meterin
     /// <param name="identity">Who the agent is and where it runs; the agent name must be in the <see cref="AgentCatalog"/>.</param>
     /// <param name="chatOptions">The default options of the agent's calls; copied, the caller keeps its instance. Its <see cref="ChatOptions.Instructions"/> is replaced by the instruction of the catalog; its <see cref="ChatOptions.ModelId"/> is set to the model of <paramref name="identity"/> when null.</param>
     /// <param name="systemPromptPrefix"><c>Tiers:&lt;tier&gt;:SystemPromptPrefix</c>, or null (see <see cref="AgentCatalog.InstructionsFor"/> for the exact join).</param>
-    /// <returns>A <see cref="ChatClientAgent"/> named <see cref="StepIdentity.Agent"/> over a new metered pipeline.</returns>
+    /// <returns>An <see cref="OpenTelemetryAgent"/> named <see cref="StepIdentity.Agent"/> around a <see cref="ChatClientAgent"/> over a new metered pipeline.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="identity"/> or <paramref name="chatOptions"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="identity"/> is a judge identity (the judge is not an agent of the catalog and builds its own client); <paramref name="chatOptions"/> carries tools (<see cref="ChatOptions.Tools"/> not empty) or a <see cref="ChatOptions.ToolMode"/> (the agents have no tools by design, and a tool definition would reach the provider request); or its <see cref="ChatOptions.ModelId"/> is not the model of <paramref name="identity"/> (the reading's model and the request's model could differ). Nothing was created.</exception>
     /// <exception cref="ConfigurationException">The agent name is not in the catalog (exit code 2; nothing was created), or the provider client cannot be created.</exception>
@@ -122,12 +122,18 @@ public sealed class AgentFactory(IProviderClientFactory providerClients, Meterin
             throw;
         }
 
-        return new ChatClientAgent(pipeline, new ChatClientAgentOptions
+        var chatAgent = new ChatClientAgent(pipeline, new ChatClientAgentOptions
         {
             Name = identity.Agent,
             ChatOptions = options,
             UseProvidedChatClientAsIs = true,
         });
+
+        // The wrapper creates the spans of the agent on the activity source AgentJoules (REQ-014). Sensitive data is switched off explicitly: its default is off, but the default
+        // also follows the environment variable OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT, and an explicit value wins over it, so no prompt or answer text can reach a span.
+        return chatAgent.AsBuilder()
+            .UseOpenTelemetry(sourceName: "AgentJoules", configure: static telemetry => telemetry.EnableSensitiveData = false)
+            .Build();
     }
 
     /// <summary>

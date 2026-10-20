@@ -67,7 +67,7 @@ public sealed class RateLimitRetryContext : IDisposable
         await _meter.StartAsync(CancellationToken.None);
 
         var ledger = new RetryLedger();
-        var services = new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, NotConfiguredCostCalculator.Instance, Time);
+        var services = new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), Time);
         IChatClient provider = _host.Factory.Create(Tier.Nvidia, Identity.ModelId);
         if (Decorate is not null)
         {

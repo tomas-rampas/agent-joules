@@ -377,7 +377,7 @@ public sealed class ExecutionModeTests
         }
 
         public MeteredChatClient ClientOver(IChatClient inner, string agent, bool isJudge = false) =>
-            new(inner, new StepIdentity(agent, "model-a", Tier.Local, "summarise", 1, isJudge), new MeteringServices(Meter, Gate, Sink, NotConfiguredCostCalculator.Instance, Time));
+            new(inner, new StepIdentity(agent, "model-a", Tier.Local, "summarise", 1, isJudge), new MeteringServices(Meter, Gate, Sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), Time));
 
         public StepReading Reading(string agent) => Sink.Snapshot().Single(reading => reading.Agent == agent);
 

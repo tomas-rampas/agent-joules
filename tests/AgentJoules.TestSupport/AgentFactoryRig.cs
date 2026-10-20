@@ -88,7 +88,7 @@ public sealed class AgentFactoryRig : IAsyncDisposable
         await meter.StartAsync(CancellationToken.None).ConfigureAwait(false);
 
         var sink = new InMemoryMetricsSink();
-        var services = new MeteringServices(meter, gate ?? NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, time);
+        var services = new MeteringServices(meter, gate ?? NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time);
         IProviderClientFactory clients = providers(time);
         var factory = new AgentFactory(clients, services, retry ?? RetryOptions.Default, time, new Random(RandomSeed));
 

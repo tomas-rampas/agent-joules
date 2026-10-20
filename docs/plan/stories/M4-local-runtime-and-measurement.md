@@ -660,7 +660,7 @@ Definition of done:
 Demo relevance: no (the report header shows the reasoning mode per tier).
 
 ### AJ-109: Compute the counter versus sampling calibration
-Covers: REQ-021
+Covers: REQ-021, REQ-014
 User story: As a reader who doubts the energy figures, I want `AJ calibrate` to measure one workload window with both methods and publish both totals and their relative difference, so that the agreement or disagreement of the two methods is a published fact.
 Acceptance criteria:
 1. `AJ calibrate [--task <name>] [--seconds <n>]` (defaults: the first task in file order, 60) runs a warm-up, then one window during which the task workflow repeats until `--seconds` have elapsed, and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -668,6 +668,7 @@ Acceptance criteria:
 3. When the counter is unsupported, `counterJoules` is `{value:null,label:"N/A",reason:"counter-not-supported: <probe reason>"}` and `relativeDifference` is N/A with a reason; the command exits 0 and nothing is estimated. A counter of 0 gives `relativeDifference` N/A with reason `counter-zero`.
 4. Without a GPU the command exits 6 and writes no file; `--seconds 0` or an unknown `--task` exits 2.
 5. The file validates against `$defs/calibration` of `docs/results-schema.json`; `dotnet test --filter "Spec=REQ-021" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
+6. Added 2026-10-20 (AJ-051 spec review): `calibrate` offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given (test `Calibrate_no_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S109 @REQ-021
@@ -719,7 +720,7 @@ Tasks:
 | AJ-109-T1 | Write the failing feature and unit tests | tests/AgentJoules.Specs/Features/Cli/Calibration.feature, tests/AgentJoules.UnitTests/CalibrationTests.cs | 0.75 | AJ-108-T7 |
 | AJ-109-T2 | Add or confirm the calibration document model and its schema definition | src/AgentJoules.Core/Results/CalibrationDocument.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs, docs/results-schema.json | 0.75 | AJ-109-T1 |
 | AJ-109-T3 | Implement the calibration service (one window, two methods, difference) | src/AgentJoules.Workflow/Runs/CalibrationService.cs | 1.0 | AJ-109-T2 |
-| AJ-109-T4 | Implement the calibrate command and its argument checks | src/AgentJoules.Cli/Commands/CalibrateCommand.cs | 0.75 | AJ-109-T3 |
+| AJ-109-T4 | Implement the calibrate command and its argument checks, incl. `--no-console-telemetry` and the `TelemetrySetup.Add` call | src/AgentJoules.Cli/Commands/CalibrateCommand.cs | 0.75 | AJ-109-T3 |
 | AJ-109-T5 | Bind the feature steps | tests/AgentJoules.Specs/Steps/CliSteps.cs | 0.5 | AJ-109-T4 |
 | AJ-109-T6 | Regenerate the schema and run the committed-schema test | docs/results-schema.json | 0.25 | AJ-109-T5 |
 | AJ-109-T7 | Document the command and the file fields | docs/build-log.md | 0.25 | AJ-109-T6 |

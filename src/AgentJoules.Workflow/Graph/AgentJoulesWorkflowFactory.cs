@@ -42,6 +42,9 @@ public sealed class AgentJoulesWorkflowFactory
     private readonly AIAgent _reviewer;
     private readonly TaskDefinition _task;
 
+    /// <summary>A test seam: true puts the messages between the executors into the workflow spans. Internal, so no configuration or command line reaches it; it is false in every run.</summary>
+    internal bool EnableSensitiveData { get; init; }
+
     /// <summary>Creates the factory for the four agents of a repeat and the task they run.</summary>
     /// <param name="agents">Exactly the four agents of the catalog, in any order, each by its catalog name; from <see cref="AgentFactory.CreateAll"/>.</param>
     /// <param name="task">The task whose prompt is the input of the workflow.</param>
@@ -171,10 +174,13 @@ public sealed class AgentJoulesWorkflowFactory
         var writer = new WriterExecutor(_writer);
         var reviewer = new ReviewerExecutor(_reviewer, _task.Prompt);
 
+        // Workflow telemetry is off unless the builder asks for it (REQ-014). The spans of the sources Microsoft.Agents.AI.Workflows* carry metadata only: sensitive data is set explicitly
+        // from the internal switch, false in every run, because it is what would put the task text, the plan and the notes (the messages between the executors) into a span.
         WorkflowGraph graph = new WorkflowBuilder(planner)
             .AddFanOutEdge(planner, [researcher, writer])
             .AddFanInBarrierEdge([researcher, writer], reviewer)
             .WithOutputFrom(reviewer)
+            .WithOpenTelemetry(telemetry => telemetry.EnableSensitiveData = EnableSensitiveData)
             .Build();
 
         return (graph, reviewer);

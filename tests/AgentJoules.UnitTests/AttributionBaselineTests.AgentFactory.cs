@@ -44,7 +44,8 @@ public sealed partial class AttributionBaselineTests
         private static ChatOptions AgentOptions(string agent) =>
             ChatOptionsFactory.Create(AgentFactoryRig.FourModelTier(), agent, 512, seed: 42);
 
-        private static ChatClientAgent ChatAgent(AIAgent agent) => Assert.IsType<ChatClientAgent>(agent);
+        // The agent the factory returns is the OpenTelemetry wrapper (AJ-051); the chat agent inside it answers through GetService.
+        private static ChatClientAgent ChatAgent(AIAgent agent) => Assert.IsType<ChatClientAgent>(agent.GetService<ChatClientAgent>());
 
         // ChatClientAgent.ChatOptions is internal; the agent answers its default options through GetService.
         private static ChatOptions AgentChatOptions(AIAgent agent) => Assert.IsType<ChatOptions>(agent.GetService<ChatOptions>());

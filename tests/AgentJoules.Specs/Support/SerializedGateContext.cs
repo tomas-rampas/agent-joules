@@ -82,7 +82,7 @@ public sealed class SerializedGateContext : IDisposable
         return new MeteredChatClient(
             inner,
             new StepIdentity(agent, "model-a", Tier.Local, "summarise", 1, isJudge),
-            new MeteringServices(meter, gate, Sink, NotConfiguredCostCalculator.Instance, Time));
+            new MeteringServices(meter, gate, Sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), Time));
     }
 
     /// <summary>The one reading of an agent.</summary>

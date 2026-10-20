@@ -20,7 +20,7 @@ Legend. Scenarios and Tasks in Tables A and B are summed over the covering stori
 | REQ-011 | M2 | AJ-049, AJ-050 | 10 | 13 | MUST |
 | REQ-012 | M2 | AJ-043, AJ-044, AJ-048 | 17 | 19 | MUST |
 | REQ-013 | M2 | AJ-046, AJ-047, AJ-056 | 19 | 20 | MUST* |
-| REQ-014 | M2 | AJ-051 | 5 | 6 | SHOULD |
+| REQ-014 | M2 | AJ-051, AJ-054, AJ-109 | 19 | 18 | SHOULD |
 | REQ-015 | M3 | AJ-078, AJ-079, AJ-080 | 21 | 18 | MUST |
 | REQ-016 | M3/M6 | AJ-081, AJ-082, AJ-083, AJ-084, AJ-086, AJ-087, AJ-144 | 46 | 38 | MUST |
 | REQ-017 | M2 | AJ-054, AJ-055, AJ-056, AJ-057, AJ-058 | 30 | 31 | MUST* |
@@ -141,7 +141,7 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 | AJ-051 | M2 | SHOULD | 4.25 | 5 | 6 | REQ-014 |
 | AJ-052 | M2 | MUST | 5.00 | 8 | 6 | EDGE-011 |
 | AJ-053 | M2 | MUST | 3.00 | 5 | 5 | EDGE-008 |
-| AJ-054 | M2 | MUST | 4.00 | 6 | 5 | REQ-017 |
+| AJ-054 | M2 | MUST | 4.00 | 6 | 5 | REQ-017, REQ-014 |
 | AJ-055 | M2 | MUST | 4.75 | 6 | 5 | REQ-017 |
 | AJ-056 | M2 | MUST | 10.00 | 8 | 10 | REQ-013, REQ-017 |
 | AJ-057 | M2 | SHOULD | 3.50 | 5 | 6 | REQ-017, EDGE-006 |
@@ -179,7 +179,7 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 | AJ-106 | M4 | MUST | 5.00 | 10 | 8 | REQ-021 |
 | AJ-107 | M4 | MUST | 4.00 | 6 | 7 | REQ-018, REQ-020, EDGE-009 |
 | AJ-108 | M4 | MUST | 4.50 | 6 | 7 | REQ-018 |
-| AJ-109 | M4 | MUST | 4.25 | 8 | 7 | REQ-021 |
+| AJ-109 | M4 | MUST | 4.25 | 8 | 7 | REQ-021, REQ-014 |
 | AJ-110 | M4 | MUST | 1.45 | 6 | 6 | REQ-021 |
 | AJ-111 | M4 | MUST | 1.35 | 5 | 4 | REQ-021 |
 | AJ-112 | M4 | MUST | 4.25 | 8 | 6 | REQ-022 |

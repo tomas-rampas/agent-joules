@@ -73,7 +73,7 @@ public sealed class AgentFactoryContext : IDisposable
     /// <returns>The client.</returns>
     /// <exception cref="InvalidOperationException">The agent is not a <see cref="ChatClientAgent"/> whose client is a <see cref="MeteredChatClient"/>.</exception>
     public static MeteredChatClient MeteredOf(AIAgent agent) =>
-        (agent as ChatClientAgent)?.ChatClient as MeteredChatClient
+        agent.GetService<ChatClientAgent>()?.ChatClient as MeteredChatClient
         ?? throw new InvalidOperationException("The agent is not a ChatClientAgent over a MeteredChatClient.");
 
     /// <inheritdoc />

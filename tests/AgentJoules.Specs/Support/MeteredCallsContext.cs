@@ -64,7 +64,7 @@ public sealed class MeteredCallsContext : IDisposable
 
         _meter = new DeterministicEnergyMeter(Time, static _ => 100.0, sampleRateHz: 10.0, counterSupported: true, MeterMethodSetting.Auto);
         await _meter.StartAsync(CancellationToken.None);
-        return new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, Cost, Time);
+        return new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, Cost, TestInstruments.Create(), Time);
     }
 
     /// <summary>The readings published so far.</summary>

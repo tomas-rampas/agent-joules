@@ -156,7 +156,7 @@ public sealed class RetryPolicyTests
             var sink = new InMemoryMetricsSink();
             var gate = new CountingGate();
             var cost = new RecordingCost();
-            var services = new MeteringServices(meter, gate, sink, cost, time);
+            var services = new MeteringServices(meter, gate, sink, cost, TestInstruments.Create(), time);
             var identity = new StepIdentity("Planner", "model-nvidia", Tier.Nvidia, "summarise", 1, IsJudge: false);
 
             IChatClient provider = host.Factory.Create(Tier.Nvidia, "model-nvidia");
@@ -958,7 +958,7 @@ public sealed class RetryPolicyTests
         var ledger = new RetryLedger();
         using var retry = new RateLimitRetryChatClient(inner, ledger, RetryOptions.Default, time, new Random(Seed));
         var identity = new StepIdentity("Planner", "model-a", Tier.Local, "summarise", 1, IsJudge: false);
-        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, time);
+        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time);
 
         ArgumentException wrong = Assert.Throws<ArgumentException>(() => new MeteredChatClient(retry, identity, services, new RetryLedger()));
         using var same = new MeteredChatClient(retry, identity, services, ledger);
@@ -975,7 +975,7 @@ public sealed class RetryPolicyTests
         var time = new FakeTimeProvider();
         using var inner = new FakeChatClient(time);
         var identity = new StepIdentity("Planner", "model-a", Tier.Local, "summarise", 1, IsJudge: false);
-        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, time);
+        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time);
         var retryLedger = new RetryLedger();
         ChatClientBuilder mismatched = new ChatClientBuilder(inner)
             .UseMetering(identity, services, new RetryLedger())
@@ -1012,7 +1012,7 @@ public sealed class RetryPolicyTests
         await meter.StartAsync(CancellationToken.None);
         var sink = new InMemoryMetricsSink();
         var identity = new StepIdentity("Planner", "model-a", Tier.Nvidia, "summarise", 1, IsJudge: false);
-        using var metered = new MeteredChatClient(inner, identity, new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, time));
+        using var metered = new MeteredChatClient(inner, identity, new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time));
 
         _ = await metered.GetResponseAsync(Hello);
 
@@ -1119,7 +1119,7 @@ public sealed class RetryPolicyTests
         var time = new FakeTimeProvider();
         using var inner = new FakeChatClient(time);
         var identity = new StepIdentity("Planner", "model-a", Tier.Local, "summarise", 1, IsJudge: false);
-        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, time);
+        var services = new MeteringServices(new UnmeteredEnergyMeter(time), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time);
 
         _ = Assert.Throws<ArgumentNullException>(() => new MeteredChatClient(inner, identity, services, null!));
         _ = Assert.Throws<ArgumentNullException>(() => new ChatClientBuilder(inner).UseMetering(identity, services, null!));

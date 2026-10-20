@@ -57,7 +57,7 @@ namespace AgentJoules.Metering;
 /// A failure of the meter itself (the window cannot be opened or closed) is not swallowed when the call itself succeeded: it leaves the call as an
 /// exception, after the gate was given back. When the call had already failed, its own exception wins, the meter failure is attached to it under
 /// <see cref="MeterCloseFailureKey"/> in <see cref="Exception.Data"/>, and no reading is published (there is no energy to put in it).
-/// The same holds for a failure of the reading itself (the cost calculator, the reading's checks, the sink): after a failed call it is attached under
+/// The same holds for a failure of the reading itself (the cost calculator, the reading's checks, the sink, the OpenTelemetry instruments, which record the reading right after the sink received it, REQ-014): after a failed call it is attached under
 /// <see cref="ReadingFailureKey"/>, after a successful call it surfaces.
 /// </para>
 /// </remarks>
@@ -70,7 +70,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
     /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the meter when the window could not be closed while the call itself failed.</summary>
     public const string MeterCloseFailureKey = "AgentJoules.MeterCloseFailure";
 
-    /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of building or publishing the reading (the cost calculator, the reading's own checks, the sink) when the call itself had already failed.</summary>
+    /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of building or publishing the reading (the cost calculator, the reading's own checks, the sink, the OpenTelemetry instruments) when the call itself had already failed.</summary>
     public const string ReadingFailureKey = "AgentJoules.ReadingFailure";
 
     /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the inner enumerator's <c>DisposeAsync</c> when the call itself had already failed.</summary>
@@ -85,7 +85,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
     /// <summary>Creates a client that meters the calls of one agent and reads the retries of its calls from <paramref name="ledger"/>.</summary>
     /// <param name="inner">The client whose calls are metered; in an agent's pipeline it holds the <see cref="RateLimitRetryChatClient"/> that writes <paramref name="ledger"/>.</param>
     /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
-    /// <param name="services">The shared meter, gate, sink, cost calculator and clock.</param>
+    /// <param name="services">The shared meter, gate, sink, cost calculator, instruments and clock.</param>
     /// <param name="ledger">The ledger the retry layer below this client records its retries and waits in. It must be the same instance as the retry layer's, which offers it through <c>GetService(typeof(RetryLedger))</c>: the client resets it when a call starts and copies <see cref="RetryLedger.Retries"/> and <see cref="RetryLedger.WaitMs"/> into the reading. A ledger belongs to exactly one pipeline.</param>
     /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="inner"/> holds a retry layer whose ledger is not <paramref name="ledger"/>: such a pipeline would report 0 retries and a latency that includes the waits.</exception>
@@ -98,6 +98,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
         ArgumentNullException.ThrowIfNull(services.Gate);
         ArgumentNullException.ThrowIfNull(services.Sink);
         ArgumentNullException.ThrowIfNull(services.Cost);
+        ArgumentNullException.ThrowIfNull(services.Instruments);
         ArgumentNullException.ThrowIfNull(services.Time);
         ArgumentNullException.ThrowIfNull(ledger);
 
@@ -117,7 +118,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
     /// </summary>
     /// <param name="inner">The client whose calls are metered.</param>
     /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
-    /// <param name="services">The shared meter, gate, sink, cost calculator and clock.</param>
+    /// <param name="services">The shared meter, gate, sink, cost calculator, instruments and clock.</param>
     /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
     public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services)
         : this(inner, identity, services, LedgerOf(inner))
@@ -391,7 +392,11 @@ public sealed class MeteredChatClient : DelegatingChatClient
             {
                 try
                 {
-                    owner._services.Sink.Publish(BuildReading(energy, elapsedMs, retries, waitMs, endUtc));
+                    StepReading reading = BuildReading(energy, elapsedMs, retries, waitMs, endUtc);
+                    owner._services.Sink.Publish(reading);
+
+                    // The instruments are recorded after the sink received the reading, in the same guarded block: a recording failure follows the rule of every other failure of the reading.
+                    owner._services.Instruments.Record(reading);
                 }
                 catch (Exception readingFailure) when (Error is not null)
                 {

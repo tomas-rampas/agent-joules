@@ -2179,7 +2179,9 @@ public sealed class MeteredChatClientTests
         // The cost calculator the services carry; a test replaces it before it builds a client.
         public ICostCalculator Cost { get; set; } = NotConfiguredCostCalculator.Instance;
 
-        public MeteringServices Services => new(Meter, Gate, Sink, Cost, Time);
+        public AgentJoulesInstruments Instruments { get; set; } = TestInstruments.Create();
+
+        public MeteringServices Services => new(Meter, Gate, Sink, Cost, Instruments, Time);
 
         public static async Task<MeterRig> CreateAsync(Tier tier = Tier.Local, IMeterGate? gate = null, bool startMeter = true)
         {

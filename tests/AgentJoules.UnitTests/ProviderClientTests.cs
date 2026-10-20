@@ -643,7 +643,7 @@ public sealed class ProviderClientTests
         var sink = new InMemoryMetricsSink();
         await using var meter = new UnmeteredEnergyMeter(TimeProvider.System);
         await meter.StartAsync(CancellationToken.None);
-        var services = new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, TimeProvider.System);
+        var services = new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), TimeProvider.System);
         var identity = new StepIdentity("Planner", "model-nvidia", Tier.Nvidia, "summarise", 1, IsJudge: false);
         using IChatClient client = new ChatClientBuilder(host.Factory.Create(Tier.Nvidia, "model-nvidia")).UseMetering(identity, services).Build();
         StringBuilder text = new();

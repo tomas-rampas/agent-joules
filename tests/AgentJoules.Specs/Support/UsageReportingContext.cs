@@ -52,7 +52,7 @@ public sealed class UsageReportingContext : IDisposable
 
         _meter = new DeterministicEnergyMeter(Time, static _ => 100.0, sampleRateHz: 10.0, counterSupported: true, MeterMethodSetting.Auto);
         await _meter.StartAsync(CancellationToken.None);
-        return new MeteredChatClient(inner, Identity, new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, NotConfiguredCostCalculator.Instance, Time));
+        return new MeteredChatClient(inner, Identity, new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), Time));
     }
 
     /// <summary>The one reading the sink holds.</summary>

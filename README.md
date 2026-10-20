@@ -59,6 +59,30 @@ Prints the GPU, driver, power limit and energy method that will be measured; wit
 - `--suffix <text>`: only with `--save`; adds `-<text>` to the file name, for example `--suffix cloudgpu` gives `results/probe-20261019T093015Z-cloudgpu.json`. The text must be 1 to 20 ASCII letters or digits (`^[A-Za-z0-9]{1,20}$`), so it cannot hold a path separator or `..`; anything else, or `--suffix` without `--save`, exits 2 and writes nothing.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
 
+## Telemetry
+
+Every metered agent step records OpenTelemetry metrics on the meter named `AgentJoules`.
+
+| Instrument | Kind | Unit | Attribute |
+|---|---|---|---|
+| `agentjoules.step.energy` | histogram | J | `aj.energy.kind`: `gross` or `net` |
+| `agentjoules.step.power` | histogram | W | the step average |
+| `agentjoules.step.tokens` | counter | `{token}` | `aj.token.type`: `input` or `output` |
+| `agentjoules.step.latency` | histogram | ms | none |
+| `agentjoules.step.cost` | counter | none (the currency is in `aj.currency`) | `aj.currency` |
+
+Only the instruments whose names start with `agentjoules.` leave the process; the instruments of the agent middleware on the same meter are dropped.
+
+Every measurement carries `gen_ai.agent.name`, `aj.tier` and `gen_ai.request.model`. A value that does not exist (hosted-tier energy, unreported tokens, unpriced cost) is not recorded rather than recorded as 0. No prompt or output text is ever exported: `EnableSensitiveData` is off. Net energy is not recorded for a step that ends below the idle baseline, so the count of net points can be lower than the count of gross points; the results file keeps the value.
+
+- Console exporter: on by default for `run` and `calibrate`; switch it off with `--no-console-telemetry`. It is never on for `probe`, whose stdout holds only the probe output.
+- OTLP exporter: enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set to an absolute http or https URL without user-info, query or fragment; a set but invalid value stops the command with exit 2 and names the variable, never its value. `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` enable their own signal on their own. It carries the metrics and the traces of the sources `AgentJoules` and `Microsoft.Agents.AI.Workflows*`. Blank or unset means no OTLP exporter is added.
+- OTLP protocol and headers: `OTEL_EXPORTER_OTLP_PROTOCOL` and the headers keys `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS` and `OTEL_EXPORTER_OTLP_TRACES_HEADERS` are read from the same configuration as the endpoint and sent only to that endpoint. With headers configured for a signal, its endpoint must be https unless its host is loopback, so a header token never travels in cleartext; use an https collector you trust.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dotnet run --project src/AgentJoules.Cli -- run --tier nvidia
+```
+
 ## Reproduce
 
 Filled during the build: the exact steps to regenerate every results file and the report on your own NVIDIA GPU.

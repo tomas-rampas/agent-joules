@@ -768,10 +768,10 @@ Tasks:
 Test mapping: `TelemetryTests` (design class, trait `Spec=REQ-014`); feature file `tests/AgentJoules.Specs/Features/Metering/Telemetry.feature`.
 Docs impact: README section "Telemetry" (instrument names, `--no-console-telemetry`, `OTEL_EXPORTER_OTLP_ENDPOINT`).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-014"` shows at least one passed and no failed test
-- [ ] `grep -rn "UseOpenTelemetry" src` returns at least one hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,412/0/5)
+- [x] docs listed above updated (2026-10-20: README `## Telemetry` written and this entry)
+- [x] `dotnet test --filter "Spec=REQ-014"` shows at least one passed and no failed test (2026-10-20: Spec=REQ-014 68 passed, 0 failed)
+- [x] `grep -rn "UseOpenTelemetry" src` returns at least one hit (2026-10-20: 1 hit, `src/AgentJoules.Workflow/Agents/AgentFactory.cs` line 135)
 Demo relevance: no (optional: the console exporter output can be shown for a few seconds).
 
 ### AJ-052: Exit 3 before any call when an API key is missing
@@ -913,16 +913,17 @@ Definition of done:
 Demo relevance: no.
 
 ### AJ-054: Add `run --dry-run` that validates everything and makes no completion call
-Covers: REQ-017, EDGE-001
+Covers: REQ-017, REQ-014, EDGE-001
 Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
 User story: As a user, I want `AJ run --dry-run` to validate configuration, keys and model IDs and to show the endpoint and matched models per tier without spending a token, so that I find setup problems before a long measured run.
 Acceptance criteria:
-1. `AJ run --help` lists `--tier`, `--task`, `--mode`, `--out`, `--baseline-seconds`, `--repeat` and `--dry-run` (test `Help_lists_seven_options`).
+1. `AJ run --help` lists `--tier`, `--task`, `--mode`, `--out`, `--baseline-seconds`, `--repeat`, `--no-console-telemetry` and `--dry-run` (test `Help_lists_eight_options`).
 2. `AJ run --tier all --dry-run` with fake endpoints, fake keys and models listed exits 0 and prints, per tier, the endpoint, the matched model IDs and `OK`.
 3. A dry-run never calls a chat completions route (test `Dry_run_never_calls_completions`: no recorded request path ends in `/chat/completions`).
 4. `AJ run --tier bogus` exits 2; `--mode bogus`, `--repeat 0` and `--baseline-seconds -1` exit 2.
 5. For `local` the dry-run runs the probe through the GPU port; with no GPU it exits 6.
 6. Live check on the laptop (keys required): `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` exit 0; the `local` dry-run is completed in M4.
+7. Added 2026-10-20 (AJ-051 spec review): the run command offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given; `probe` never enables it (tests `Run_registers_console_exporter_by_default` and `No_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`, using the AJ-051 registration-count helpers). `AgentJoulesInstruments` is registered by AJ-056 with the composition root.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S054 @REQ-017
@@ -963,11 +964,11 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-054-T1 | Write the failing BDD feature and unit tests for run options and dry-run | tests/AgentJoules.Specs/Features/Cli/DryRun.feature, tests/AgentJoules.UnitTests/DryRunTests.cs | 0.5 | AJ-053-T1 |
-| AJ-054-T2 | Define the `run` command and its options with allowed values and defaults | src/AgentJoules.Cli/Commands/RunCommand.cs | 1.0 | AJ-054-T1 |
+| AJ-054-T2 | Define the `run` command and its options with allowed values and defaults, incl. `--no-console-telemetry`, and call `TelemetrySetup.Add` from the run host | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 1.0 | AJ-054-T1 |
 | AJ-054-T3 | Return exit 2 when `ParseResult.Errors` is non-empty before invoking any action | src/AgentJoules.Cli/CliApplication.cs | 0.75 | AJ-054-T2 |
 | AJ-054-T4 | Implement `DryRunService` with the per-tier output lines and the local probe | src/AgentJoules.Workflow/Runs/DryRunService.cs | 1.25 | AJ-054-T2, AJ-053-T4 |
 | AJ-054-T5 | Add the run options table and the dry-run example to the README | README.md | 0.5 | AJ-054-T4 |
-Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
+Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6) and `Spec=REQ-014` on the two console-exporter tests); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
 Docs impact: README section "Run" (options table and dry-run example).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
