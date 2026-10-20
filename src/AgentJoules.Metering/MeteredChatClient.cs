@@ -1,0 +1,379 @@
+using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
+
+using AgentJoules.Core.Energy;
+using AgentJoules.Core.Labels;
+using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
+
+using Microsoft.Extensions.AI;
+
+namespace AgentJoules.Metering;
+
+/// <summary>
+/// The decorator that meters every call of one agent and publishes exactly one <see cref="StepReading"/> per call (REQ-007, design 3.3). In the
+/// pipeline of an agent it is the outermost client, so the retry layer below it is inside the measurement window:
+/// <c>ChatClientAgent -> MeteredChatClient -> RateLimitRetryChatClient -> OpenAIChatClient</c>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Attribution is by construction: the <see cref="StepIdentity"/> is a constructor argument and is copied into the reading, and there is no
+/// ambient context to read it from. The price is the one-in-flight rule: a client serves one call at a time (an agent makes one call at a time),
+/// and a second call that starts while one is in flight, buffered or streaming, throws <see cref="InvalidOperationException"/> and changes
+/// nothing about the call in flight. A streaming call is in flight from the first <c>MoveNextAsync</c> until its enumerator is disposed or ends.
+/// </para>
+/// <para>
+/// Per call, in this order: take the gate (its wait is outside the window and outside the latency; a call cancelled while it waits has no window
+/// and so no reading); then, in a <c>try</c> that begins right after the gate was taken and ends by giving it back, open the window, read the
+/// start, call the inner client, and in the <c>finally</c> close the window, give the gate back and publish the reading. A streaming call does
+/// the same in an iterator whose <c>finally</c> runs on completion, on an exception, on a cancellation and when the consumer disposes the
+/// enumerator early, which is why there is one reading per call on every path where the enumerator is disposed. An enumerator that is neither
+/// run to its end nor disposed is never finished: an async iterator has no finalizer and nothing resumes a paused one, so the window stays open
+/// and the process-wide gate stays held for the life of the gate (the run token only ends the other callers' waits; AJ-032 carry); consumers
+/// must dispose (<c>await foreach</c> does). A stream that was obtained but never
+/// enumerated started no call and costs nothing. The exception of a failed call is published as an <c>error</c> (or
+/// <c>cancelled</c> or <c>incomplete</c>, see <see cref="OutcomeClassifier"/>) reading and then rethrown unchanged.
+/// </para>
+/// <para>
+/// The time to the first token of a stream is the time from the start to the first update that holds non-empty answer text or reasoning text;
+/// a buffered call has none (N/A, reason <c>buffered-call</c>), and a stream that ends without any text has none either (N/A, reason
+/// <c>no-content-update</c>). The output fingerprint and the output text are those of the answer text only (reasoning text is not output).
+/// Until the usage collection and the price table arrive, the token counts are not-reported with the reason <c>provider-omitted-usage</c> and
+/// the cost is N/A with the reason <c>cost-not-configured</c>; the retry count and the retry wait are 0 until the retry layer reports them.
+/// </para>
+/// <para>
+/// A failure of the meter itself (the window cannot be opened or closed) is not swallowed when the call itself succeeded: it leaves the call as an
+/// exception, after the gate was given back. When the call had already failed, its own exception wins, the meter failure is attached to it under
+/// <see cref="MeterCloseFailureKey"/> in <see cref="Exception.Data"/>, and no reading is published (there is no energy to put in it).
+/// </para>
+/// </remarks>
+public sealed class MeteredChatClient : DelegatingChatClient
+{
+    // The retry layer (AJ-045) reports how many retries a call needed and how long they waited; until it exists both are 0, so the latency and
+    // the time to the first token are the elapsed times unchanged.
+    private const int Retries = 0;
+    private const long WaitMs = 0;
+
+    private const string MillisecondUnit = "ms";
+    private const string UsageOmittedReason = "provider-omitted-usage";
+    private const string CostNotConfiguredReason = "cost-not-configured";
+    private const string BufferedReason = "buffered-call";
+    private const string NoContentReason = "no-content-update";
+
+    /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the meter when the window could not be closed while the call itself failed.</summary>
+    public const string MeterCloseFailureKey = "AgentJoules.MeterCloseFailure";
+
+    /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the inner enumerator's <c>DisposeAsync</c> when the call itself had already failed.</summary>
+    public const string InnerDisposeFailureKey = "AgentJoules.InnerDisposeFailure";
+
+    private readonly StepIdentity _identity;
+    private readonly MeteringServices _services;
+
+    private int _inFlight;
+
+    /// <summary>Creates a client that meters the calls of one agent.</summary>
+    /// <param name="inner">The client whose calls are metered.</param>
+    /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
+    /// <param name="services">The shared meter, gate, sink and clock.</param>
+    /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
+    public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services)
+        : base(inner)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(services.Meter);
+        ArgumentNullException.ThrowIfNull(services.Gate);
+        ArgumentNullException.ThrowIfNull(services.Sink);
+        ArgumentNullException.ThrowIfNull(services.Time);
+
+        _identity = identity;
+        _services = services;
+    }
+
+    /// <inheritdoc />
+    /// <exception cref="InvalidOperationException">Another call of this client is in flight.</exception>
+    public override async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        EnterCall();
+        try
+        {
+            IAsyncDisposable releaser = await _services.Gate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+            MeteredCall call = new(this, releaser, streaming: false, cancellationToken);
+            try
+            {
+                call.Open();
+                ChatResponse response = await InnerClient.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+                call.SetText(response.Text);
+                call.Completed = true;
+                return response;
+            }
+            catch (Exception failure)
+            {
+                call.Error = failure;
+                throw;
+            }
+            finally
+            {
+                await call.FinishAsync().ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            ExitCall();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>The call starts, and the one-in-flight rule and the gate apply, at the first <c>MoveNextAsync</c> of the returned sequence.</remarks>
+    public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        return StreamAsync(messages, options, cancellationToken);
+    }
+
+    // An iterator cannot yield inside a try that has a catch, so only the MoveNextAsync of the inner enumerator is in the try/catch, the yield is
+    // outside it, and the outer finally (no catch) closes the window, gives the gate back and publishes on every way out of the iterator.
+    private async IAsyncEnumerable<ChatResponseUpdate> StreamAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        EnterCall();
+        try
+        {
+            IAsyncDisposable releaser = await _services.Gate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+            MeteredCall call = new(this, releaser, streaming: true, cancellationToken);
+            IAsyncEnumerator<ChatResponseUpdate>? updates = null;
+            try
+            {
+                call.Open();
+                while (true)
+                {
+                    bool hasNext;
+                    ChatResponseUpdate? current = null;
+                    try
+                    {
+                        updates ??= InnerClient.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+                        hasNext = await updates.MoveNextAsync().ConfigureAwait(false);
+
+                        // Reading and observing the update is inside the try: a failure here is the call's error, never a benign outcome.
+                        if (hasNext)
+                        {
+                            current = updates.Current;
+                            call.Observe(current);
+                        }
+                    }
+                    catch (Exception failure)
+                    {
+                        call.Error = failure;
+                        throw;
+                    }
+
+                    if (!hasNext)
+                    {
+                        call.Completed = true;
+                        break;
+                    }
+
+                    // The consumer walking away is only known when the finally runs while the iterator is paused right here.
+                    call.PausedAtYield = true;
+                    yield return current!;
+                    call.PausedAtYield = false;
+                }
+            }
+            finally
+            {
+                try
+                {
+                    await DisposeUpdatesAsync(updates, call).ConfigureAwait(false);
+                }
+                finally
+                {
+                    await call.FinishAsync().ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            ExitCall();
+        }
+    }
+
+    // A failing DisposeAsync of the inner enumerator is the call's error even when the stream itself ended cleanly (a clean-looking ok must not hide it);
+    // when the call had already failed, the first exception stays the call's error and this one is attached to it.
+    private static async ValueTask DisposeUpdatesAsync(IAsyncEnumerator<ChatResponseUpdate>? updates, MeteredCall call)
+    {
+        if (updates is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await updates.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception disposeFailure) when (call.Error is not null)
+        {
+            // The call had already failed: its exception is the one the caller receives, so the disposal failure rides along on it.
+            call.Error.Data[InnerDisposeFailureKey] = disposeFailure;
+        }
+        catch (Exception disposeFailure)
+        {
+            call.Error = disposeFailure;
+            throw;
+        }
+    }
+
+    private void EnterCall()
+    {
+        if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
+        {
+            throw new InvalidOperationException(
+                $"The metered client of agent {_identity.Agent} already has a call in flight. An agent makes one call at a time, and a second call on the same instance would blur which reading it belongs to.");
+        }
+    }
+
+    private void ExitCall() => Volatile.Write(ref _inFlight, 0);
+
+    // The state of one call between the gate and the sink. Every field is touched by the one flow that runs the call, one step at a time.
+    private sealed class MeteredCall(MeteredChatClient owner, IAsyncDisposable releaser, bool streaming, CancellationToken callerToken)
+    {
+        private readonly StringBuilder _text = new();
+        private IMeterWindow? _window;
+        private long _startTimestamp;
+        private DateTimeOffset _startUtc;
+        private Metric? _timeToFirstToken;
+
+        public Exception? Error { get; set; }
+
+        public bool Completed { get; set; }
+
+        // True while the iterator of a stream is paused at its yield; a finally that runs then is the consumer walking away.
+        public bool PausedAtYield { get; set; }
+
+        // True once any update arrived (even one without text, such as a role-only first chunk); this, not the first text, is what EDGE-016 means.
+        private bool AnyUpdateSeen { get; set; }
+
+        public void Open()
+        {
+            TimeProvider time = owner._services.Time;
+            _window = owner._services.Meter.OpenWindow();
+            _startTimestamp = time.GetTimestamp();
+            _startUtc = time.GetUtcNow();
+        }
+
+        public void SetText(string text) => _text.Append(text);
+
+        // Collects the answer text of an update and notes the time of the first update that holds text (answer or reasoning).
+        public void Observe(ChatResponseUpdate update)
+        {
+            AnyUpdateSeen = true;
+            bool hasText = false;
+            foreach (AIContent content in update.Contents)
+            {
+                switch (content)
+                {
+                    case TextContent { Text.Length: > 0 } answer:
+                        _text.Append(answer.Text);
+                        hasText = true;
+                        break;
+                    case TextReasoningContent { Text.Length: > 0 }:
+                        hasText = true;
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (hasText && _timeToFirstToken is null)
+            {
+                _timeToFirstToken = Metric.Measured(ElapsedMilliseconds(), MillisecondUnit);
+            }
+        }
+
+        // Closes the window, gives the gate back and publishes the reading, in this order. A call whose window never opened has nothing to publish.
+        public async ValueTask FinishAsync()
+        {
+            EnergyReading? energy = null;
+            double elapsedMs = 0.0;
+            DateTimeOffset endUtc = _startUtc;
+            try
+            {
+                if (_window is not null)
+                {
+                    elapsedMs = ElapsedMilliseconds();
+                    endUtc = owner._services.Time.GetUtcNow();
+                    energy = _window.Close();
+                }
+            }
+            catch (Exception meterFailure) when (Error is not null)
+            {
+                // The call's own exception wins: it is the one the caller needs, and it is on its way. The meter failure stays attached to it, and
+                // no reading is published because there is no energy to put in it. A call that succeeded gets no such cover: its meter failure
+                // surfaces, because a benchmark must not return ok without a measurement.
+                Error.Data[MeterCloseFailureKey] = meterFailure;
+            }
+            finally
+            {
+                await releaser.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (energy is not null)
+            {
+                owner._services.Sink.Publish(BuildReading(energy, elapsedMs, endUtc));
+            }
+        }
+
+        private double ElapsedMilliseconds() =>
+            Math.Max(0.0, owner._services.Time.GetElapsedTime(_startTimestamp).TotalMilliseconds - WaitMs);
+
+        private StepReading BuildReading(EnergyReading energy, double elapsedMs, DateTimeOffset endUtc)
+        {
+            StepIdentity identity = owner._identity;
+
+            // No exception and no completion: a stream whose enumerator was disposed while paused at its yield did not fail, its consumer walked
+            // away. Any other way to end without an exception or a completion is not understood, and an error is the honest label for it.
+            string outcome = Error is null && !Completed
+                ? PausedAtYield ? StepOutcomes.Cancelled : StepOutcomes.Error
+                : OutcomeClassifier.Classify(Error, identity.Tier, firstUpdateSeen: AnyUpdateSeen, callerToken);
+
+            string text = _text.ToString();
+            bool hasOutput = text.Length > 0 || outcome == StepOutcomes.Ok;
+            Metric ttft = _timeToFirstToken ?? Metric.NotApplicable(streaming ? NoContentReason : BufferedReason);
+
+            // The one place a closed window becomes the energy members of a step reading. A hosted tier's unmetered window has no method, no
+            // samples and no rate to state (the reading refuses the unmetered method and requires them absent on a hosted tier).
+            bool metered = energy.Method != EnergyMethod.Unmetered;
+
+            return new StepReading(
+                task: identity.Task,
+                repeat: identity.Repeat,
+                agent: identity.Agent,
+                modelId: identity.ModelId,
+                tier: identity.Tier,
+                startUtc: _startUtc,
+                endUtc: endUtc < _startUtc ? _startUtc : endUtc,
+                outcome: outcome,
+                latencyMs: Metric.Measured(elapsedMs, MillisecondUnit),
+                ttftMs: ttft,
+                inputTokens: Metric.NotReported(UsageOmittedReason),
+                outputTokens: Metric.NotReported(UsageOmittedReason),
+                grossJoules: energy.GrossJoules,
+                netJoules: energy.NetJoules,
+                avgW: energy.AverageWatts,
+                peakW: energy.PeakWatts,
+                cost: Metric.NotApplicable(CostNotConfiguredReason),
+                retries: Retries,
+                waitMs: WaitMs,
+                flags: energy.Flags,
+                method: metered ? energy.Method : null,
+                sampleCount: metered ? energy.SampleCount : null,
+                sampleRateHz: metered ? energy.SampleRateHz : null,
+                throttleReasons: energy.ThrottleReasons,
+                outputSha256: hasOutput ? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))) : null,
+                outputChars: hasOutput ? text.Length : null,
+                outputText: hasOutput ? text : null);
+        }
+    }
+}

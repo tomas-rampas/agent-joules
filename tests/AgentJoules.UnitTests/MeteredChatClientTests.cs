@@ -1,19 +1,27 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Energy;
+using AgentJoules.Core.Energy.Testing;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
 using AgentJoules.TestSupport;
 
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Time.Testing;
+
 using Xunit;
 
 namespace AgentJoules.UnitTests;
 
-/// <summary>AJ-040: the per-call reading (<see cref="StepReading"/>) and the metrics sinks that receive it (REQ-008).</summary>
+/// <summary>AJ-040: the per-call reading (<see cref="StepReading"/>) and the metrics sinks that receive it (REQ-008); AJ-041: the metered chat client that publishes exactly one reading per call (REQ-007).</summary>
 public sealed class MeteredChatClientTests
 {
     private static readonly DateTimeOffset Start = StepReadingFixtures.StartUtc;
@@ -615,6 +623,970 @@ public sealed class MeteredChatClientTests
     public void A_hosted_tier_reading_with_an_energy_flag_is_rejected(ReadingFlags flags)
     {
         Assert.Equal("flags", Assert.Throws<ArgumentException>(() => Make(tier: Tier.Nvidia, flags: flags)).ParamName);
+    }
+
+    // ---- AJ-041: the metered chat client, one reading per call (REQ-007) ----
+
+    private static readonly IReadOnlyList<ChatMessage> Prompt = [new ChatMessage(ChatRole.User, "Summarise the report.")];
+
+    // A test that waits on a held call or on the gate must fail, not hang the run, when the code under test leaks; this is the system clock, not the fake one.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Buffered_call_yields_one_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        DateTimeOffset before = rig.Time.GetUtcNow();
+        FakeChatClient inner = new(rig.Time) { ResponseText = "Hello world", ResponseDelay = TimeSpan.FromMilliseconds(1500) };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        ChatResponse response = await client.GetResponseAsync(Prompt);
+
+        Assert.Equal("Hello world", response.Text);
+        _ = Assert.Single(inner.Calls);
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(MetricLabel.NotApplicable, reading.TtftMs.Label);
+        Assert.Equal("buffered-call", reading.TtftMs.Reason);
+        Assert.Null(reading.TtftMs.Value);
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+        Assert.Equal("Planner", reading.Agent);
+        Assert.Equal(Metric.Measured(1500, "ms"), reading.LatencyMs);
+        Assert.Equal(before, reading.StartUtc);
+        Assert.Equal(before.AddMilliseconds(1500), reading.EndUtc);
+
+        // The placeholders AJ-042 replaces, and the retry numbers AJ-045 fills in.
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.InputTokens);
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.OutputTokens);
+        Assert.Equal(Metric.NotApplicable("cost-not-configured"), reading.Cost);
+        Assert.Equal(0, reading.Retries);
+        Assert.Equal(0L, reading.WaitMs);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_local_window_is_mapped_into_the_reading_with_its_method_samples_and_rate()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseDelay = TimeSpan.FromMilliseconds(1500) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(MetricLabel.Measured, reading.GrossJoules.Label);
+        Assert.Equal("J", reading.GrossJoules.Unit);
+        Assert.Equal(150.0, reading.GrossJoules.Value ?? double.NaN, 6);
+        Assert.Equal(100.0, reading.AvgW.Value ?? double.NaN, 6);
+        Assert.Equal(100.0, reading.PeakW.Value ?? double.NaN, 6);
+        Assert.Equal(rig.Meter.Capabilities.Method, reading.Method);
+        Assert.Equal(10.0, reading.SampleRateHz);
+        Assert.True(reading.SampleCount > 0);
+        Assert.Equal(ReadingFlags.None, reading.Flags);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-007")]
+    [InlineData(Tier.Nvidia)]
+    [InlineData(Tier.Nebius)]
+    public async Task An_unmetered_window_of_a_hosted_tier_is_mapped_without_method_samples_or_rate(Tier tier)
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync(tier);
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time), "Planner", tier);
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(tier, reading.Tier);
+        Assert.All(
+            [reading.GrossJoules, reading.NetJoules, reading.AvgW, reading.PeakW],
+            metric => Assert.Equal(Metric.NotApplicable("hosted-tier"), metric));
+        Assert.Null(reading.Method);
+        Assert.Null(reading.SampleCount);
+        Assert.Null(reading.SampleRateHz);
+        Assert.Null(reading.ThrottleReasons);
+        Assert.Equal(ReadingFlags.None, reading.Flags);
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Streaming_ttft_matches_first_update_delay()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("The ", TimeSpan.FromMilliseconds(300)), new FakeUpdate("report", TimeSpan.FromMilliseconds(100))],
+        };
+        MeteredChatClient client = rig.ClientOver(inner, "Writer");
+
+        (int count, string text) = await ConsumeAsync(client);
+
+        Assert.Equal(2, count);
+        Assert.Equal("The report", text);
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+        Assert.Equal("Writer", reading.Agent);
+        Assert.Equal(MetricLabel.Measured, reading.TtftMs.Label);
+        Assert.Equal("ms", reading.TtftMs.Unit);
+        Assert.InRange(reading.TtftMs.Value ?? double.NaN, 280.0, 320.0);
+        Assert.Equal(300.0, reading.TtftMs.Value ?? double.NaN, 6);
+        Assert.Equal(Metric.Measured(400, "ms"), reading.LatencyMs);
+        Assert.Equal(MetricLabel.Measured, reading.GrossJoules.Label);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Streaming_ttft_counts_reasoning_text_and_skips_updates_without_text()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        UsageDetails usage = new() { InputTokenCount = 10, OutputTokenCount = 2 };
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(50), usage),
+                new FakeUpdate("thinking", TimeSpan.FromMilliseconds(150), Reasoning: true),
+                new FakeUpdate("answer", TimeSpan.FromMilliseconds(100)),
+            ],
+        };
+
+        _ = await ConsumeAsync(rig.ClientOver(inner, "Planner"));
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(200.0, reading.TtftMs.Value ?? double.NaN, 6);
+
+        // Only the answer text is the output; the reasoning text is not part of it.
+        Assert.Equal("answer", reading.OutputText);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_stream_that_ends_without_text_has_a_ttft_that_is_NA_and_never_zero()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(200))] };
+
+        _ = await ConsumeAsync(rig.ClientOver(inner, "Planner"));
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+        Assert.Equal(MetricLabel.NotApplicable, reading.TtftMs.Label);
+        Assert.Equal("no-content-update", reading.TtftMs.Reason);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Builds_via_ChatClientBuilder_Use()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time);
+        StepIdentity identity = MeterRig.IdentityOf("Planner", Tier.Local);
+        MeteringServices services = rig.Services;
+
+        IChatClient built = new ChatClientBuilder(inner).Use(next => new MeteredChatClient(next, identity, services)).Build();
+        _ = await built.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        Assert.IsType<MeteredChatClient>(built);
+        Assert.Equal("Planner", Assert.Single(rig.Sink.Snapshot()).Agent);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task UseMetering_adds_the_decorator_as_the_outermost_client_of_the_pipeline()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time);
+
+        ChatClientBuilder builder = new(inner);
+        Assert.Same(builder, builder.UseMetering(MeterRig.IdentityOf("Researcher", Tier.Local), rig.Services));
+        IChatClient built = builder.Build();
+        _ = await built.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        MeteredChatClient metered = Assert.IsType<MeteredChatClient>(built);
+        Assert.Same(inner, metered.GetService(typeof(FakeChatClient)));
+        Assert.Equal("Researcher", Assert.Single(rig.Sink.Snapshot()).Agent);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_constructor_and_the_extension_reject_null_arguments()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time);
+        StepIdentity identity = MeterRig.IdentityOf("Planner", Tier.Local);
+
+        _ = Assert.Throws<ArgumentNullException>(() => new MeteredChatClient(inner, identity, null!));
+        _ = Assert.Throws<ArgumentNullException>(() => new MeteredChatClient(inner, null!, rig.Services));
+        _ = Assert.Throws<ArgumentNullException>(() => new MeteredChatClient(null!, identity, rig.Services));
+        _ = Assert.Throws<ArgumentNullException>(() => new ChatClientBuilder(inner).UseMetering(identity, null!));
+        _ = await Assert.ThrowsAsync<ArgumentNullException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(null!));
+        Assert.Empty(rig.Sink.Snapshot());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_output_fingerprint_is_the_lowercase_sha256_of_the_utf8_text_on_both_paths()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        string text = "caf" + (char)0xE9 + " says hello";
+        string expected = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+        FakeChatClient buffered = new(rig.Time) { ResponseText = text };
+        FakeChatClient streaming = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("caf" + (char)0xE9, TimeSpan.FromMilliseconds(10)), new FakeUpdate(" says hello", TimeSpan.FromMilliseconds(10))],
+        };
+
+        _ = await rig.ClientOver(buffered, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard);
+        _ = await ConsumeAsync(rig.ClientOver(streaming, "Writer"));
+
+        IReadOnlyList<StepReading> readings = rig.Sink.Snapshot();
+        Assert.Equal(2, readings.Count);
+        Assert.All(readings, reading =>
+        {
+            Assert.Equal(expected, reading.OutputSha256);
+            Assert.Equal(text.Length, reading.OutputChars);
+            Assert.Equal(text, reading.OutputText);
+        });
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_cancelled_stream_yields_one_cancelled_reading_and_rethrows()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [.. Enumerable.Range(0, 5).Select(static i => new FakeUpdate($"part {i} ", TimeSpan.FromMilliseconds(50)))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+        using CancellationTokenSource cancellation = new();
+        int seen = 0;
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt, cancellationToken: cancellation.Token))
+            {
+                Assert.NotNull(update);
+                seen++;
+                if (seen == 2)
+                {
+                    await cancellation.CancelAsync();
+                }
+            }
+        });
+
+        Assert.Equal(2, seen);
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Cancelled, reading.Outcome);
+        Assert.Equal("part 0 part 1 ", reading.OutputText);
+        Assert.Equal(MetricLabel.Measured, reading.TtftMs.Label);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_stream_that_throws_after_two_updates_yields_one_error_reading_and_rethrows_the_same_exception()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        InvalidDataException failure = new("The stream broke.");
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [.. Enumerable.Range(0, 5).Select(static i => new FakeUpdate($"part {i} ", TimeSpan.FromMilliseconds(50)))],
+            FailAfterUpdates = 2,
+            Failure = failure,
+        };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+        int seen = 0;
+
+        InvalidDataException thrown = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+        {
+            await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt))
+            {
+                Assert.NotNull(update);
+                seen++;
+            }
+        });
+
+        Assert.Same(failure, thrown);
+        Assert.Equal(2, seen);
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Error, reading.Outcome);
+        Assert.Equal("part 0 part 1 ", reading.OutputText);
+        // Two updates of 50 ms, then the failure delay of the fake (100 ms by default).
+        Assert.Equal(Metric.Measured(200, "ms"), reading.LatencyMs);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Abandoning_the_enumerator_early_yields_one_cancelled_reading_when_it_is_disposed()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [.. Enumerable.Range(0, 5).Select(static i => new FakeUpdate($"part {i} ", TimeSpan.FromMilliseconds(50)))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        IAsyncEnumerator<ChatResponseUpdate> enumerator = client.GetStreamingResponseAsync(Prompt).GetAsyncEnumerator();
+        Assert.True(await enumerator.MoveNextAsync());
+        Assert.Empty(rig.Sink.Snapshot());
+        await enumerator.DisposeAsync();
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Cancelled, reading.Outcome);
+        Assert.Equal("part 0 ", reading.OutputText);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Leaving_the_loop_early_yields_one_cancelled_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [.. Enumerable.Range(0, 5).Select(static i => new FakeUpdate($"part {i} ", TimeSpan.FromMilliseconds(50)))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt))
+        {
+            Assert.NotNull(update);
+            break;
+        }
+
+        Assert.Equal(StepOutcomes.Cancelled, Assert.Single(rig.Sink.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_buffered_call_that_fails_yields_one_error_reading_and_rethrows()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        InvalidDataException failure = new("The provider broke.");
+        FakeChatClient inner = new(rig.Time) { Failure = failure, ResponseDelay = TimeSpan.FromMilliseconds(500) };
+
+        InvalidDataException thrown = await Assert.ThrowsAsync<InvalidDataException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        Assert.Same(failure, thrown);
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Error, reading.Outcome);
+        Assert.Equal(MetricLabel.NotApplicable, reading.TtftMs.Label);
+        Assert.Null(reading.OutputSha256);
+        Assert.Null(reading.OutputChars);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_buffered_call_cancelled_by_the_caller_yields_one_cancelled_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        TaskCompletionSource never = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeChatClient inner = new(rig.Time) { Hold = never.Task };
+        using CancellationTokenSource cancellation = new();
+
+        Task<ChatResponse> call = rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt, cancellationToken: cancellation.Token);
+        Assert.False(call.IsCompleted);
+        rig.Time.Advance(TimeSpan.FromMilliseconds(250));
+        await cancellation.CancelAsync();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(HangGuard));
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Cancelled, reading.Outcome);
+        Assert.Equal(Metric.Measured(250, "ms"), reading.LatencyMs);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-007")]
+    [InlineData(Tier.Local, 0, StepOutcomes.Error)]
+    [InlineData(Tier.Local, 1, StepOutcomes.Incomplete)]
+    [InlineData(Tier.CloudGpu, 0, StepOutcomes.Incomplete)]
+    [InlineData(Tier.Nvidia, 0, StepOutcomes.Error)]
+    [InlineData(Tier.Nebius, 1, StepOutcomes.Incomplete)]
+    public async Task A_dropped_connection_in_a_stream_is_incomplete_on_cloudgpu_or_after_the_first_update_and_an_error_otherwise(Tier tier, int updatesBeforeDrop, string expected)
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync(tier);
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("part 0 ", TimeSpan.FromMilliseconds(50)), new FakeUpdate("part 1 ", TimeSpan.FromMilliseconds(50))],
+            FailAfterUpdates = updatesBeforeDrop,
+            Failure = new IOException("The connection was closed."),
+        };
+
+        _ = await Assert.ThrowsAsync<IOException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner", tier)));
+
+        Assert.Equal(expected, Assert.Single(rig.Sink.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public void The_classifier_maps_no_error_and_a_caller_cancellation()
+    {
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+
+        Assert.Equal(StepOutcomes.Ok, OutcomeClassifier.Classify(null, Tier.Local, firstUpdateSeen: true, CancellationToken.None));
+        Assert.Equal(StepOutcomes.Cancelled, OutcomeClassifier.Classify(new OperationCanceledException(cancelled.Token), Tier.Local, false, cancelled.Token));
+        Assert.Equal(StepOutcomes.Cancelled, OutcomeClassifier.Classify(new TaskCanceledException(), Tier.CloudGpu, true, cancelled.Token));
+
+        // A cancellation the caller did not ask for (a timeout of the HTTP client, say) is an error.
+        Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(new TaskCanceledException(), Tier.Local, true, CancellationToken.None));
+        Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(new OperationCanceledException(), Tier.Nvidia, false, CancellationToken.None));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public void The_classifier_treats_a_transport_failure_without_a_status_as_incomplete_only_on_cloudgpu_or_after_the_first_update()
+    {
+        Exception[] transport =
+        [
+            new IOException("closed"),
+            new SocketException((int)SocketError.ConnectionReset),
+            new HttpRequestException("The connection ended."),
+            new HttpRequestException("wrapped", new IOException("closed")),
+            new InvalidOperationException("outer", new IOException("closed")),
+            new InvalidOperationException("outer", new HttpRequestException("inner", new SocketException((int)SocketError.ConnectionReset))),
+        ];
+
+        foreach (Exception error in transport)
+        {
+            Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(error, Tier.Local, false, CancellationToken.None));
+            Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(error, Tier.Nvidia, false, CancellationToken.None));
+            Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(error, Tier.Nebius, false, CancellationToken.None));
+            Assert.Equal(StepOutcomes.Incomplete, OutcomeClassifier.Classify(error, Tier.CloudGpu, false, CancellationToken.None));
+            Assert.Equal(StepOutcomes.Incomplete, OutcomeClassifier.Classify(error, Tier.Local, true, CancellationToken.None));
+            Assert.Equal(StepOutcomes.Incomplete, OutcomeClassifier.Classify(error, Tier.Nebius, true, CancellationToken.None));
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public void The_classifier_treats_an_http_status_error_and_every_other_failure_as_an_error_on_every_tier()
+    {
+        Exception[] errors =
+        [
+            new HttpRequestException("Too many requests.", inner: null, HttpStatusCode.TooManyRequests),
+            new HttpRequestException("outer", new HttpRequestException("inner", inner: null, HttpStatusCode.BadGateway)),
+            new IOException("closed", new HttpRequestException("inner", inner: null, HttpStatusCode.ServiceUnavailable)),
+            new InvalidOperationException("broken"),
+            new TimeoutException("slow"),
+            new InvalidDataException("bad"),
+        ];
+
+        foreach (Exception error in errors)
+        {
+            foreach (Tier tier in Enum.GetValues<Tier>())
+            {
+                Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(error, tier, true, CancellationToken.None));
+                Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(error, tier, false, CancellationToken.None));
+            }
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_agent_name_comes_from_the_constructor_and_overlapping_clients_never_mix_their_readings()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        TaskCompletionSource releaseBoth = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        MeteredChatClient planner = rig.ClientOver(new FakeChatClient(rig.Time) { Hold = releaseBoth.Task }, "Planner");
+        MeteredChatClient writer = rig.ClientOver(new FakeChatClient(rig.Time) { Hold = releaseBoth.Task }, "Writer");
+
+        Task<ChatResponse> first = planner.GetResponseAsync(Prompt);
+        Task<ChatResponse> second = writer.GetResponseAsync(Prompt);
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+        releaseBoth.SetResult();
+        _ = await Task.WhenAll(first, second).WaitAsync(HangGuard);
+
+        IReadOnlyList<StepReading> readings = rig.Sink.Snapshot();
+        Assert.Equal(2, readings.Count);
+        Assert.Equal(["Planner", "Writer"], readings.Select(static reading => reading.Agent).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_second_buffered_call_while_one_is_in_flight_throws_and_leaves_the_first_alone()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeChatClient inner = new(rig.Time) { Hold = release.Task };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        Task<ChatResponse> first = client.GetResponseAsync(Prompt);
+        Assert.False(first.IsCompleted);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await ConsumeAsync(client));
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.False(first.IsCompleted);
+
+        release.SetResult();
+        _ = await first.WaitAsync(HangGuard);
+        _ = Assert.Single(rig.Sink.Snapshot());
+        _ = Assert.Single(inner.Calls);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_stream_call_in_flight_rejects_a_second_call_until_the_stream_is_disposed()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [new FakeUpdate("part 0 ", TimeSpan.FromMilliseconds(50)), new FakeUpdate("part 1 ", TimeSpan.FromMilliseconds(50))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        IAsyncEnumerator<ChatResponseUpdate> first = client.GetStreamingResponseAsync(Prompt).GetAsyncEnumerator();
+        Assert.True(await first.MoveNextAsync());
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(async () => await ConsumeAsync(client));
+
+        await first.DisposeAsync();
+        _ = Assert.Single(rig.Sink.Snapshot());
+
+        // The slot is free again: a later call is metered normally.
+        _ = await ConsumeAsync(client);
+        Assert.Equal(2, rig.Sink.Snapshot().Count);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_one_in_flight_slot_is_free_again_after_a_call_that_failed()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient failing = new(rig.Time) { Failure = new InvalidDataException("The provider broke.") };
+        MeteredChatClient client = rig.ClientOver(failing, "Planner");
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        Assert.Equal(2, rig.Sink.Snapshot().Count);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Cancellation_while_waiting_for_the_gate_yields_no_reading()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        FakeChatClient inner = new(rig.Time);
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+        IAsyncDisposable held = await gate.AcquireAsync(CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+
+        Task<ChatResponse> waiting = client.GetResponseAsync(Prompt, cancellationToken: cancellation.Token);
+        Assert.False(waiting.IsCompleted);
+        await cancellation.CancelAsync();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(HangGuard));
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Empty(inner.Calls);
+
+        // The waiter took nothing from the gate and left the client's slot free.
+        await held.DisposeAsync();
+        Assert.Equal(1, gate.CurrentCount);
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+        _ = Assert.Single(rig.Sink.Snapshot());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_time_spent_waiting_for_the_gate_is_not_part_of_the_latency()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseDelay = TimeSpan.FromMilliseconds(1000) }, "Planner");
+        IAsyncDisposable held = await gate.AcquireAsync(CancellationToken.None);
+
+        Task<ChatResponse> waiting = client.GetResponseAsync(Prompt);
+        rig.Time.Advance(TimeSpan.FromSeconds(5));
+        Assert.False(waiting.IsCompleted);
+        await held.DisposeAsync();
+        _ = await waiting.WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(1000, "ms"), reading.LatencyMs);
+        Assert.Equal(100.0, reading.GrossJoules.Value ?? double.NaN, 6);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_gate_is_released_after_a_failed_buffered_call_a_failed_stream_and_an_abandoned_stream()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        FakeChatClient failing = new(rig.Time) { Failure = new InvalidDataException("broke") };
+        FakeChatClient failingStream = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("part 0 ", TimeSpan.FromMilliseconds(50))],
+            FailAfterUpdates = 0,
+            Failure = new InvalidDataException("broke"),
+        };
+        FakeChatClient endless = new(rig.Time) { Updates = [new FakeUpdate("part 0 ", TimeSpan.FromMilliseconds(50)), new FakeUpdate("part 1 ", TimeSpan.FromMilliseconds(50))] };
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => rig.ClientOver(failing, "A").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        Assert.Equal(1, gate.CurrentCount);
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => ConsumeAsync(rig.ClientOver(failingStream, "B")));
+        Assert.Equal(1, gate.CurrentCount);
+        IAsyncEnumerator<ChatResponseUpdate> abandoned = rig.ClientOver(endless, "C").GetStreamingResponseAsync(Prompt).GetAsyncEnumerator();
+        Assert.True(await abandoned.MoveNextAsync());
+        Assert.Equal(0, gate.CurrentCount);
+        await abandoned.DisposeAsync();
+        Assert.Equal(1, gate.CurrentCount);
+        Assert.Equal(3, rig.Sink.Snapshot().Count);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task The_gate_is_released_when_opening_the_window_fails_and_no_reading_is_published()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate, startMeter: false);
+        FakeChatClient inner = new(rig.Time);
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        Assert.Equal(1, gate.CurrentCount);
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner")));
+
+        Assert.Equal(1, gate.CurrentCount);
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Empty(inner.Calls);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_caller_cancellation_on_a_clock_that_did_not_move_surfaces_the_cancellation_and_publishes_no_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        TaskCompletionSource never = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakeChatClient inner = new(rig.Time) { Hold = never.Task };
+        using CancellationTokenSource cancellation = new();
+
+        Task<ChatResponse> call = rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt, cancellationToken: cancellation.Token);
+        await cancellation.CancelAsync();
+
+        // The window has no length (the clock did not move), so closing it fails; that must not replace the cancellation.
+        OperationCanceledException thrown = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call.WaitAsync(HangGuard));
+        Assert.Empty(rig.Sink.Snapshot());
+        _ = Assert.IsType<InvalidOperationException>(thrown.Data[MeteredChatClient.MeterCloseFailureKey]);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_meter_failure_after_a_failed_call_keeps_the_calls_exception_attaches_the_meter_failure_and_frees_the_gate()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        InvalidDataException failure = new("The provider broke.");
+        FakeChatClient inner = new(rig.Time) { Failure = failure, ResponseDelay = TimeSpan.Zero };
+
+        InvalidDataException thrown = await Assert.ThrowsAsync<InvalidDataException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        Assert.Same(failure, thrown);
+        _ = Assert.IsType<InvalidOperationException>(thrown.Data[MeteredChatClient.MeterCloseFailureKey]);
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_meter_failure_after_a_successful_call_surfaces_and_frees_the_gate_and_the_slot()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseDelay = TimeSpan.Zero }, "Planner");
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        Assert.Equal(1, gate.CurrentCount);
+
+        // The slot is free as well: the second call fails the same way and not with the in-flight message.
+        InvalidOperationException second = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        Assert.DoesNotContain("in flight", second.Message, StringComparison.Ordinal);
+        Assert.Empty(rig.Sink.Snapshot());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_failure_while_observing_an_update_is_an_error_and_never_a_cancellation()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        ScriptedStreamClient inner = new(() => NullUpdateAsync(rig.Time));
+
+        _ = await Assert.ThrowsAsync<NullReferenceException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner")));
+
+        Assert.Equal(StepOutcomes.Error, Assert.Single(rig.Sink.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_clean_stream_whose_inner_enumerator_fails_to_dispose_is_an_error_and_the_exception_reaches_the_caller()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        ScriptedStreamClient inner = new(() => new DisposeFailsStream(rig.Time));
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner")));
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Error, reading.Outcome);
+        Assert.Equal("text", reading.OutputText);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task When_the_stream_fails_and_the_inner_dispose_fails_too_the_caller_receives_the_first_exception_with_the_second_attached()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        InvalidOperationException first = new("The stream broke.");
+        ScriptedStreamClient inner = new(() => new DisposeFailsStream(rig.Time, first));
+
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner")));
+
+        Assert.Same(first, thrown);
+        InvalidDataException second = Assert.IsType<InvalidDataException>(thrown.Data[MeteredChatClient.InnerDisposeFailureKey]);
+        Assert.Equal("The enumerator failed to dispose.", second.Message);
+        Assert.Equal(StepOutcomes.Error, Assert.Single(rig.Sink.Snapshot()).Outcome);
+        Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_transport_drop_after_a_role_only_update_is_incomplete_on_a_hosted_tier()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync(Tier.Nvidia);
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(50)), new FakeUpdate("text", TimeSpan.FromMilliseconds(50))],
+            FailAfterUpdates = 1,
+            Failure = new IOException("The connection was closed."),
+        };
+
+        _ = await Assert.ThrowsAsync<IOException>(() => ConsumeAsync(rig.ClientOver(inner, "Planner", Tier.Nvidia)));
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Incomplete, reading.Outcome);
+
+        // The time to the first token stays content-based: no text arrived, so there is none.
+        Assert.Equal(Metric.NotApplicable("no-content-update"), reading.TtftMs);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_consumer_that_throws_between_yields_leaves_one_cancelled_reading_and_its_own_exception()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [new FakeUpdate("part 0 ", TimeSpan.FromMilliseconds(50)), new FakeUpdate("part 1 ", TimeSpan.FromMilliseconds(50))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt))
+            {
+                Assert.NotNull(update);
+                throw new InvalidOperationException("The consumer failed.");
+            }
+        });
+
+        Assert.Equal("The consumer failed.", thrown.Message);
+        Assert.Equal(StepOutcomes.Cancelled, Assert.Single(rig.Sink.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task Cancellation_through_WithCancellation_yields_one_cancelled_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [.. Enumerable.Range(0, 5).Select(static i => new FakeUpdate($"part {i} ", TimeSpan.FromMilliseconds(50)))] };
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+        using CancellationTokenSource cancellation = new();
+        int seen = 0;
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt).WithCancellation(cancellation.Token))
+            {
+                Assert.NotNull(update);
+                seen++;
+                if (seen == 2)
+                {
+                    await cancellation.CancelAsync();
+                }
+            }
+        });
+
+        Assert.Equal(2, seen);
+        Assert.Equal(StepOutcomes.Cancelled, Assert.Single(rig.Sink.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task An_ok_call_with_empty_output_has_zero_chars_and_the_sha256_of_the_empty_string()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseText = string.Empty }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+        Assert.Equal(0, reading.OutputChars);
+        Assert.Equal("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", reading.OutputSha256);
+        Assert.Equal(string.Empty, reading.OutputText);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public async Task A_stream_that_was_obtained_but_never_enumerated_starts_no_call_and_leaves_the_slot_and_the_gate_free()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        FakeChatClient inner = new(rig.Time);
+        MeteredChatClient client = rig.ClientOver(inner, "Planner");
+
+        IAsyncEnumerable<ChatResponseUpdate> unused = client.GetStreamingResponseAsync(Prompt);
+
+        Assert.NotNull(unused);
+        Assert.Equal(1, gate.CurrentCount);
+        Assert.Empty(rig.Sink.Snapshot());
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+        _ = Assert.Single(rig.Sink.Snapshot());
+        Assert.DoesNotContain(inner.Calls, static call => call.Streaming);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public void The_classifier_follows_every_member_of_an_aggregate_and_gives_up_past_its_node_limit()
+    {
+        AggregateException cutAndUnauthorized = new(new IOException("closed"), new HttpRequestException("auth", inner: null, HttpStatusCode.Unauthorized));
+        AggregateException cutOnly = new(new InvalidOperationException("other"), new IOException("closed"));
+        Exception shallow = new IOException("closed");
+        for (int i = 0; i < 10; i++)
+        {
+            shallow = new InvalidOperationException("wrap", shallow);
+        }
+
+        Exception deep = new IOException("closed");
+        for (int i = 0; i < 70; i++)
+        {
+            deep = new InvalidOperationException("wrap", deep);
+        }
+
+        Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(cutAndUnauthorized, Tier.CloudGpu, false, CancellationToken.None));
+        Assert.Equal(StepOutcomes.Incomplete, OutcomeClassifier.Classify(cutOnly, Tier.CloudGpu, false, CancellationToken.None));
+        Assert.Equal(StepOutcomes.Incomplete, OutcomeClassifier.Classify(shallow, Tier.CloudGpu, false, CancellationToken.None));
+        Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(deep, Tier.CloudGpu, false, CancellationToken.None));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-007")]
+    public void A_cancellation_caused_by_a_timeout_is_an_error_even_when_the_caller_token_is_cancelled_too()
+    {
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+
+        Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(new TaskCanceledException("timed out", new TimeoutException()), Tier.Local, true, cancelled.Token));
+        Assert.Equal(StepOutcomes.Cancelled, OutcomeClassifier.Classify(new TaskCanceledException("cancelled"), Tier.Local, true, cancelled.Token));
+    }
+
+    private static async IAsyncEnumerable<ChatResponseUpdate> NullUpdateAsync(FakeTimeProvider time)
+    {
+        time.Advance(TimeSpan.FromMilliseconds(50));
+        await Task.Yield();
+        yield return null!;
+    }
+
+    // An inner client whose stream is whatever the test builds; its buffered path is not used.
+    private sealed class ScriptedStreamClient(Func<IAsyncEnumerable<ChatResponseUpdate>> stream) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            stream();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    // One update of text, then the end of the stream (or a failing MoveNextAsync when one is given), and a DisposeAsync that fails.
+    private sealed class DisposeFailsStream(FakeTimeProvider time, Exception? moveNextFailure = null) : IAsyncEnumerable<ChatResponseUpdate>, IAsyncEnumerator<ChatResponseUpdate>
+    {
+        private bool _served;
+
+        public ChatResponseUpdate Current { get; private set; } = new();
+
+        public IAsyncEnumerator<ChatResponseUpdate> GetAsyncEnumerator(CancellationToken cancellationToken = default) => this;
+
+        public ValueTask<bool> MoveNextAsync()
+        {
+            if (_served)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            _served = true;
+            if (moveNextFailure is not null)
+            {
+                time.Advance(TimeSpan.FromMilliseconds(50));
+                return ValueTask.FromException<bool>(moveNextFailure);
+            }
+
+            time.Advance(TimeSpan.FromMilliseconds(50));
+            Current = new ChatResponseUpdate(ChatRole.Assistant, "text");
+            return ValueTask.FromResult(true);
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidDataException("The enumerator failed to dispose."));
+    }
+
+    private static Task<(int Count, string Text)> ConsumeAsync(MeteredChatClient client) => ConsumeCoreAsync(client).WaitAsync(HangGuard);
+
+    private static async Task<(int Count, string Text)> ConsumeCoreAsync(MeteredChatClient client)
+    {
+        int count = 0;
+        StringBuilder text = new();
+        await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt))
+        {
+            count++;
+            _ = text.Append(update.Text);
+        }
+
+        return (count, text.ToString());
+    }
+
+    // The services of one test: a fake clock, a sink, a meter fitting the tier (deterministic for the measured tiers, unmetered for the hosted
+    // ones) and a gate (the one that admits everyone unless the test brings its own). Nothing in a test waits on the wall clock.
+    private sealed class MeterRig : IAsyncDisposable
+    {
+        private MeterRig(FakeTimeProvider time, InMemoryMetricsSink sink, IEnergyMeter meter, IMeterGate gate)
+        {
+            Time = time;
+            Sink = sink;
+            Meter = meter;
+            Gate = gate;
+        }
+
+        public FakeTimeProvider Time { get; }
+
+        public InMemoryMetricsSink Sink { get; }
+
+        public IEnergyMeter Meter { get; }
+
+        public IMeterGate Gate { get; }
+
+        public MeteringServices Services => new(Meter, Gate, Sink, Time);
+
+        public static async Task<MeterRig> CreateAsync(Tier tier = Tier.Local, IMeterGate? gate = null, bool startMeter = true)
+        {
+            FakeTimeProvider time = new();
+            IEnergyMeter meter = tier is Tier.Nvidia or Tier.Nebius
+                ? new UnmeteredEnergyMeter(time)
+                : new DeterministicEnergyMeter(time, static _ => 100.0, sampleRateHz: 10.0, counterSupported: true, MeterMethodSetting.Auto);
+            if (startMeter)
+            {
+                await meter.StartAsync(CancellationToken.None);
+            }
+
+            return new MeterRig(time, new InMemoryMetricsSink(), meter, gate ?? NoOpMeterGate.Instance);
+        }
+
+        public static StepIdentity IdentityOf(string agent, Tier tier) => new(agent, "model-a", tier, "summarise", 1, IsJudge: false);
+
+        public MeteredChatClient ClientOver(IChatClient inner, string agent, Tier tier = Tier.Local) => new(inner, IdentityOf(agent, tier), Services);
+
+        public ValueTask DisposeAsync() => Meter.DisposeAsync();
     }
 
     // Defaults describe a valid local-tier reading with measured energy; a hosted tier gets N/A energy with the hosted-tier reason and no method.

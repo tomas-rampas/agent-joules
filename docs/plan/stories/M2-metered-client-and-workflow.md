@@ -147,10 +147,10 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/MeteredCalls.feature`.
 Docs impact: `docs/build-log.md` (test result line); `docs/methodology.md` input note on attribution by construction (written in M4).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-007"` shows at least one passed and no failed test
-- [ ] `grep -rnE "AsyncLocal" src` returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,821/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=REQ-007"` shows at least one passed and no failed test (2026-10-20: Spec=REQ-007 46 passed, 0 failed)
+- [x] `grep -rnE "AsyncLocal" src` returns no hit (2026-10-20: `grep -rnIE "AsyncLocal" src --include=*.cs` 0 hits; the literal command matches third-party DLLs under bin/)
 Demo relevance: yes: each streamed step line in the demo (agent, joules, watts, tokens, latency) is one reading from this decorator.
 
 ### AJ-042: Report absent usage as not-reported, never 0
