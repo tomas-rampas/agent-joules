@@ -84,6 +84,8 @@ public sealed record EnergyReading
             throw Rejected(nameof(flags), $"The flags value {(int)flags} has a bit outside the reading-flag vocabulary.");
         }
 
+        RequireNoStepFlags(flags);
+
         RequireShape(nameof(grossJoules), grossJoules, JouleUnit);
         RequireShape(nameof(netJoules), netJoules, JouleUnit);
         RequireShape(nameof(averageWatts), averageWatts, WattUnit);

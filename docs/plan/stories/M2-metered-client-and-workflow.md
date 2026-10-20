@@ -211,10 +211,10 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/UsageReporting.feature`.
 Docs impact: `docs/build-log.md`. Whether Ollama honours `stream_options.include_usage` is unverified (design O-04); M4 verifies it and records it in `docs/endpoints.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-007"` shows at least one passed and no failed test
-- [ ] the report-cell half of the no-usage acceptance (token cells show `not-reported`, cost cell shows `N/A`) is carried by the Markdown rendering story in M3 with the no-usage fixture this story creates in `RunDocumentFixtures`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,865/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=EDGE-007"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-007 6 passed, 0 failed)
+- [x] the report-cell half of the no-usage acceptance (token cells show `not-reported`, cost cell shows `N/A`) is carried by the Markdown rendering story in M3 with the no-usage fixture this story creates in `RunDocumentFixtures` (2026-10-20: the fixture is `StepReadingFixtures.NoUsage()`; RunDocument does not exist before AJ-055; `RunDocumentFixtures` is created by AJ-078-T5 (M3) and AJ-083-T2 adds the no-usage row; the report-cell assertion stays with M3)
 Demo relevance: yes: the honesty rule "a value that does not exist is N/A or not-reported, never 0" is visible in the console step line (`in=not-reported`).
 
 ### AJ-043: Bind and validate tier configuration

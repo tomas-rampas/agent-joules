@@ -1,3 +1,4 @@
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Energy.Testing;
 using AgentJoules.Core.Results;
@@ -31,6 +32,9 @@ public sealed class MeteredCallsContext : IDisposable
     /// <summary>The client under test, built directly or through the builder.</summary>
     public IChatClient? Client { get; set; }
 
+    /// <summary>The cost calculator of the services of the scenario; M2 ships the one that answers N/A.</summary>
+    public ICostCalculator Cost { get; } = NotConfiguredCostCalculator.Instance;
+
     /// <summary>The cancellation source of a scenario in which the caller cancels.</summary>
     public CancellationTokenSource? Cancellation { get; set; }
 
@@ -60,7 +64,7 @@ public sealed class MeteredCallsContext : IDisposable
 
         _meter = new DeterministicEnergyMeter(Time, static _ => 100.0, sampleRateHz: 10.0, counterSupported: true, MeterMethodSetting.Auto);
         await _meter.StartAsync(CancellationToken.None);
-        return new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, Time);
+        return new MeteringServices(_meter, NoOpMeterGate.Instance, Sink, Cost, Time);
     }
 
     /// <summary>The readings published so far.</summary>

@@ -68,6 +68,15 @@ internal static class EnergyShapeRules
         }
     }
 
+    // A step flag describes the step, not the window: an energy reading never carries it (the step reading adds it after the window closed).
+    internal static void RequireNoStepFlags(ReadingFlags flags)
+    {
+        if (flags.HasFlag(ReadingFlags.MaxTokensExceeded))
+        {
+            throw Rejected("flags", $"An energy reading never carries the step flag {ReadingFlagNames.ToStrings(ReadingFlags.MaxTokensExceeded)[0]}.");
+        }
+    }
+
     internal static void RequireNoEnergyFlags(ReadingFlags flags)
     {
         if ((flags & EnergyFlags) != ReadingFlags.None)

@@ -33,6 +33,9 @@ public enum ReadingFlags
 
     /// <summary>The model was only partly offloaded to the GPU.</summary>
     PartialOffload = 64,
+
+    /// <summary>The step produced more output tokens than the output limit of its task (a step-level qualifier; an energy reading never carries it).</summary>
+    MaxTokensExceeded = 128,
 }
 
 /// <summary>Maps <see cref="ReadingFlags"/> to the vocabulary strings of the results file and back.</summary>
@@ -48,6 +51,7 @@ public static class ReadingFlagNames
         (ReadingFlags.BelowBaseline, "below-baseline"),
         (ReadingFlags.Throttled, "throttled"),
         (ReadingFlags.PartialOffload, "partial-offload"),
+        (ReadingFlags.MaxTokensExceeded, "max-tokens-exceeded"),
     ];
 
     // Every bit the table names; a bit outside it is a caller error, not something to drop silently.

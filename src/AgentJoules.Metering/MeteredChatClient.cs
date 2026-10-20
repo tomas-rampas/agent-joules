@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
@@ -39,13 +40,19 @@ namespace AgentJoules.Metering;
 /// The time to the first token of a stream is the time from the start to the first update that holds non-empty answer text or reasoning text;
 /// a buffered call has none (N/A, reason <c>buffered-call</c>), and a stream that ends without any text has none either (N/A, reason
 /// <c>no-content-update</c>). The output fingerprint and the output text are those of the answer text only (reasoning text is not output).
-/// Until the usage collection and the price table arrive, the token counts are not-reported with the reason <c>provider-omitted-usage</c> and
-/// the cost is N/A with the reason <c>cost-not-configured</c>; the retry count and the retry wait are 0 until the retry layer reports them.
+/// The token counts are the provider's own (REQ-008, EDGE-007, see <see cref="TokenCounts"/>): the usage of a buffered response, or the last usage
+/// content of a stream (the last replaces the earlier ones, because a server may repeat cumulative usage on every chunk); counts the provider
+/// omitted are not-reported with the reason <c>provider-omitted-usage</c>, never 0. The cost comes only from the <see cref="ICostCalculator"/> of the
+/// services. Completion tokens above the <see cref="ChatOptions.MaxOutputTokens"/> of the call add the <see cref="ReadingFlags.MaxTokensExceeded"/>
+/// flag to the reading; the flag is absent when the call has no limit or the completion tokens are not reported. The retry count and the retry wait
+/// are 0 until the retry layer reports them.
 /// </para>
 /// <para>
 /// A failure of the meter itself (the window cannot be opened or closed) is not swallowed when the call itself succeeded: it leaves the call as an
 /// exception, after the gate was given back. When the call had already failed, its own exception wins, the meter failure is attached to it under
 /// <see cref="MeterCloseFailureKey"/> in <see cref="Exception.Data"/>, and no reading is published (there is no energy to put in it).
+/// The same holds for a failure of the reading itself (the cost calculator, the reading's checks, the sink): after a failed call it is attached under
+/// <see cref="ReadingFailureKey"/>, after a successful call it surfaces.
 /// </para>
 /// </remarks>
 public sealed class MeteredChatClient : DelegatingChatClient
@@ -56,13 +63,14 @@ public sealed class MeteredChatClient : DelegatingChatClient
     private const long WaitMs = 0;
 
     private const string MillisecondUnit = "ms";
-    private const string UsageOmittedReason = "provider-omitted-usage";
-    private const string CostNotConfiguredReason = "cost-not-configured";
     private const string BufferedReason = "buffered-call";
     private const string NoContentReason = "no-content-update";
 
     /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the meter when the window could not be closed while the call itself failed.</summary>
     public const string MeterCloseFailureKey = "AgentJoules.MeterCloseFailure";
+
+    /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of building or publishing the reading (the cost calculator, the reading's own checks, the sink) when the call itself had already failed.</summary>
+    public const string ReadingFailureKey = "AgentJoules.ReadingFailure";
 
     /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the inner enumerator's <c>DisposeAsync</c> when the call itself had already failed.</summary>
     public const string InnerDisposeFailureKey = "AgentJoules.InnerDisposeFailure";
@@ -75,7 +83,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
     /// <summary>Creates a client that meters the calls of one agent.</summary>
     /// <param name="inner">The client whose calls are metered.</param>
     /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
-    /// <param name="services">The shared meter, gate, sink and clock.</param>
+    /// <param name="services">The shared meter, gate, sink, cost calculator and clock.</param>
     /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
     public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services)
         : base(inner)
@@ -85,6 +93,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
         ArgumentNullException.ThrowIfNull(services.Meter);
         ArgumentNullException.ThrowIfNull(services.Gate);
         ArgumentNullException.ThrowIfNull(services.Sink);
+        ArgumentNullException.ThrowIfNull(services.Cost);
         ArgumentNullException.ThrowIfNull(services.Time);
 
         _identity = identity;
@@ -101,12 +110,13 @@ public sealed class MeteredChatClient : DelegatingChatClient
         try
         {
             IAsyncDisposable releaser = await _services.Gate.AcquireAsync(cancellationToken).ConfigureAwait(false);
-            MeteredCall call = new(this, releaser, streaming: false, cancellationToken);
+            MeteredCall call = new(this, releaser, streaming: false, options?.MaxOutputTokens, cancellationToken);
             try
             {
                 call.Open();
                 ChatResponse response = await InnerClient.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
                 call.SetText(response.Text);
+                call.SetUsage(response.Usage);
                 call.Completed = true;
                 return response;
             }
@@ -143,7 +153,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
         try
         {
             IAsyncDisposable releaser = await _services.Gate.AcquireAsync(cancellationToken).ConfigureAwait(false);
-            MeteredCall call = new(this, releaser, streaming: true, cancellationToken);
+            MeteredCall call = new(this, releaser, streaming: true, options?.MaxOutputTokens, cancellationToken);
             IAsyncEnumerator<ChatResponseUpdate>? updates = null;
             try
             {
@@ -237,13 +247,16 @@ public sealed class MeteredChatClient : DelegatingChatClient
     private void ExitCall() => Volatile.Write(ref _inFlight, 0);
 
     // The state of one call between the gate and the sink. Every field is touched by the one flow that runs the call, one step at a time.
-    private sealed class MeteredCall(MeteredChatClient owner, IAsyncDisposable releaser, bool streaming, CancellationToken callerToken)
+    private sealed class MeteredCall(MeteredChatClient owner, IAsyncDisposable releaser, bool streaming, int? maxOutputTokens, CancellationToken callerToken)
     {
         private readonly StringBuilder _text = new();
         private IMeterWindow? _window;
         private long _startTimestamp;
         private DateTimeOffset _startUtc;
         private Metric? _timeToFirstToken;
+        // The two counts the provider stated, each replaced on its own by a later non-null count and never added up.
+        private long? _inputTokenCount;
+        private long? _outputTokenCount;
 
         public Exception? Error { get; set; }
 
@@ -265,6 +278,16 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
         public void SetText(string text) => _text.Append(text);
 
+        // The usage of a buffered response or of a stream's update: only the two token counts are read, and no provider object is kept. A non-null
+        // count replaces the earlier one; a null count leaves it, so a trailing usage chunk that states nothing wipes nothing.
+        public void SetUsage(UsageDetails? usage)
+        {
+            _inputTokenCount = usage?.InputTokenCount ?? _inputTokenCount;
+            _outputTokenCount = usage?.OutputTokenCount ?? _outputTokenCount;
+        }
+
+        private TokenCounts Tokens => TokenCounts.From(_inputTokenCount, _outputTokenCount);
+
         // Collects the answer text of an update and notes the time of the first update that holds text (answer or reasoning).
         public void Observe(ChatResponseUpdate update)
         {
@@ -280,6 +303,11 @@ public sealed class MeteredChatClient : DelegatingChatClient
                         break;
                     case TextReasoningContent { Text.Length: > 0 }:
                         hasText = true;
+                        break;
+                    case UsageContent { Details: { } details }:
+                        // The last stated count wins and replaces the earlier ones: a server that repeats cumulative usage on every chunk would be
+                        // counted several times by a sum (ToChatResponse().Usage adds every UsageContent up).
+                        SetUsage(details);
                         break;
                     default:
                         break;
@@ -321,7 +349,17 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
             if (energy is not null)
             {
-                owner._services.Sink.Publish(BuildReading(energy, elapsedMs, endUtc));
+                try
+                {
+                    owner._services.Sink.Publish(BuildReading(energy, elapsedMs, endUtc));
+                }
+                catch (Exception readingFailure) when (Error is not null)
+                {
+                    // Same rule as the meter failure: the gate is already free, the call's own exception is the one the caller needs and stays the
+                    // one that is thrown, and the failure of the cost calculator, the reading or the sink rides along on it. A call that succeeded
+                    // gets no such cover: the failure surfaces, because a benchmark must not return ok without its reading.
+                    Error.Data[ReadingFailureKey] = readingFailure;
+                }
             }
         }
 
@@ -346,6 +384,10 @@ public sealed class MeteredChatClient : DelegatingChatClient
             // samples and no rate to state (the reading refuses the unmetered method and requires them absent on a hosted tier).
             bool metered = energy.Method != EnergyMethod.Unmetered;
 
+            // The only source of the cost is the calculator of the services; the decorator holds no price. The wall time is the latency of the reading.
+            TokenCounts tokens = Tokens;
+            Metric cost = owner._services.Cost.Compute(identity, tokens, energy, elapsedMs / 1000.0);
+
             return new StepReading(
                 task: identity.Task,
                 repeat: identity.Repeat,
@@ -357,16 +399,16 @@ public sealed class MeteredChatClient : DelegatingChatClient
                 outcome: outcome,
                 latencyMs: Metric.Measured(elapsedMs, MillisecondUnit),
                 ttftMs: ttft,
-                inputTokens: Metric.NotReported(UsageOmittedReason),
-                outputTokens: Metric.NotReported(UsageOmittedReason),
+                inputTokens: tokens.InputTokens,
+                outputTokens: tokens.OutputTokens,
                 grossJoules: energy.GrossJoules,
                 netJoules: energy.NetJoules,
                 avgW: energy.AverageWatts,
                 peakW: energy.PeakWatts,
-                cost: Metric.NotApplicable(CostNotConfiguredReason),
+                cost: cost,
                 retries: Retries,
                 waitMs: WaitMs,
-                flags: energy.Flags,
+                flags: energy.Flags | (tokens.ExceedsOutputLimit(maxOutputTokens) ? ReadingFlags.MaxTokensExceeded : ReadingFlags.None),
                 method: metered ? energy.Method : null,
                 sampleCount: metered ? energy.SampleCount : null,
                 sampleRateHz: metered ? energy.SampleRateHz : null,

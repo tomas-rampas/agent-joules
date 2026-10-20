@@ -369,6 +369,13 @@ public sealed class EnergyReadingJsonTests
         Assert.Equal("flags", Assert.Throws<ArgumentException>(() => Build(flags: (ReadingFlags)1024)).ParamName);
     }
 
+    [Fact]
+    public void TheMaxTokensStepFlagIsRejectedByTheEnergyReading()
+    {
+        Assert.Equal("flags", Assert.Throws<ArgumentException>(() => Build(flags: ReadingFlags.MaxTokensExceeded)).ParamName);
+        Assert.Equal("flags", Assert.Throws<ArgumentException>(() => Build(flags: ReadingFlags.LowResolution | ReadingFlags.MaxTokensExceeded)).ParamName);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("  ")]

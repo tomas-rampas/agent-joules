@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Energy.Testing;
 using AgentJoules.Core.Labels;
@@ -655,7 +656,7 @@ public sealed class MeteredChatClientTests
         Assert.Equal(before, reading.StartUtc);
         Assert.Equal(before.AddMilliseconds(1500), reading.EndUtc);
 
-        // The placeholders AJ-042 replaces, and the retry numbers AJ-045 fills in.
+        // No usage came back (tokens not-reported, cost N/A through the calculator M2 ships), and the retry numbers are the ones AJ-045 fills in.
         Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.InputTokens);
         Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.OutputTokens);
         Assert.Equal(Metric.NotApplicable("cost-not-configured"), reading.Cost);
@@ -1531,6 +1532,615 @@ public sealed class MeteredChatClientTests
         public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidDataException("The enumerator failed to dispose."));
     }
 
+    // ---- AJ-042: usage is measured when reported and not-reported when omitted, never 0 (REQ-008, EDGE-007) ----
+
+    private static UsageDetails Usage(long? input, long? output) => new() { InputTokenCount = input, OutputTokenCount = output };
+
+    private static ChatOptions Limit(int maxOutputTokens) => new() { MaxOutputTokens = maxOutputTokens };
+
+    private static async Task ConsumeStreamAsync(MeteredChatClient client, ChatOptions? options = null)
+    {
+        await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt, options))
+        {
+            _ = update;
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Usage_is_recorded_as_measured()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(120, 45) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(120, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(45, "tokens"), reading.OutputTokens);
+        string json = JsonSerializer.Serialize(reading, Context);
+        Assert.Contains("\"inputTokens\":{\"value\":120,\"label\":\"measured\",\"unit\":\"tokens\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"outputTokens\":{\"value\":45,\"label\":\"measured\",\"unit\":\"tokens\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Streaming_usage_is_recorded_as_measured()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("The ", TimeSpan.FromMilliseconds(100)), new FakeUpdate("report", TimeSpan.FromMilliseconds(100), Usage(120, 45))],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(120, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(45, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    [Trait("Spec", "EDGE-007")]
+    public async Task No_usage_buffered_is_not_reported()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time), "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        AssertTokensNotReported(reading);
+        string json = JsonSerializer.Serialize(reading, Context);
+        Assert.Contains("\"inputTokens\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"provider-omitted-usage\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"outputTokens\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"provider-omitted-usage\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    [Trait("Spec", "EDGE-007")]
+    public async Task No_usage_streaming_is_not_reported()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("The ", TimeSpan.FromMilliseconds(100)), new FakeUpdate("report", TimeSpan.FromMilliseconds(100))],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Ok, reading.Outcome);
+        AssertTokensNotReported(reading);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-007")]
+    public async Task Cost_is_NA_with_a_null_value_when_tokens_are_not_reported_and_never_0()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time), "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(MetricLabel.NotApplicable, reading.Cost.Label);
+        Assert.Null(reading.Cost.Value);
+        Assert.Equal("cost-not-configured", reading.Cost.Reason);
+        Assert.Contains("\"cost\":{\"value\":null,\"label\":\"N/A\",\"reason\":\"cost-not-configured\"}", JsonSerializer.Serialize(reading, Context), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_provider_reported_zero_stays_measured_zero_on_both_paths()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient buffered = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(0, 0) }, "Planner");
+        _ = await buffered.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+        FakeChatClient streamingInner = new(rig.Time) { Updates = [new FakeUpdate("x", TimeSpan.FromMilliseconds(10), Usage(0, 0))] };
+        await ConsumeStreamAsync(rig.ClientOver(streamingInner, "Writer")).WaitAsync(HangGuard);
+
+        IReadOnlyList<StepReading> readings = rig.Sink.Snapshot();
+        Assert.Equal(2, readings.Count);
+        Assert.All(
+            readings,
+            reading =>
+            {
+                Assert.Equal(Metric.Measured(0, "tokens"), reading.InputTokens);
+                Assert.Equal(Metric.Measured(0, "tokens"), reading.OutputTokens);
+                Assert.Equal(MetricLabel.Measured, reading.InputTokens.Label);
+                Assert.Equal(0.0, reading.OutputTokens.Value);
+            });
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-008")]
+    [InlineData(120L, null)]
+    [InlineData(null, 45L)]
+    public async Task Each_count_is_mapped_on_its_own(long? input, long? output)
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(input, output) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(input is { } i ? Metric.Measured(i, "tokens") : Metric.NotReported("provider-omitted-usage"), reading.InputTokens);
+        Assert.Equal(output is { } o ? Metric.Measured(o, "tokens") : Metric.NotReported("provider-omitted-usage"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_negative_count_is_not_reported_as_invalid_and_never_measured()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(-1, 5) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.NotReported("provider-invalid-usage"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(5, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_stream_that_repeats_cumulative_usage_reports_the_last_values_not_their_sum()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("a ", TimeSpan.FromMilliseconds(10), Usage(11, 0)),
+                new FakeUpdate("b ", TimeSpan.FromMilliseconds(10), Usage(11, 1)),
+                new FakeUpdate("c", TimeSpan.FromMilliseconds(10), Usage(11, 2)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10)),
+            ],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(11, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(2, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_stream_that_fails_after_its_usage_keeps_the_usage_it_saw_on_the_error_reading()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("a", TimeSpan.FromMilliseconds(10), Usage(7, 3))],
+            Failure = new InvalidDataException("The stream broke."),
+            FailAfterUpdates = 1,
+        };
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard));
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Error, reading.Outcome);
+        Assert.Equal(Metric.Measured(7, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(3, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_failed_buffered_call_reports_its_tokens_as_not_reported()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Failure = new InvalidDataException("The call broke.") };
+
+        _ = await Assert.ThrowsAsync<InvalidDataException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        AssertTokensNotReported(Assert.Single(rig.Sink.Snapshot()));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Max_tokens_exceeded_flag()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(120, 600) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt, Limit(512)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+        Assert.Contains("max-tokens-exceeded", ReadingFlagNames.ToStrings(reading.Flags));
+        Assert.Equal(Metric.Measured(600, "tokens"), reading.OutputTokens);
+        Assert.Contains("\"flags\":[\"max-tokens-exceeded\"]", JsonSerializer.Serialize(reading, Context), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Max_tokens_exceeded_flag_on_the_streaming_path()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { Updates = [new FakeUpdate("long answer", TimeSpan.FromMilliseconds(10), Usage(120, 600))] };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer"), Limit(512)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task The_max_tokens_flag_is_added_to_the_energy_flags_of_the_window_and_never_replaces_them()
+    {
+        // A window shorter than two sample periods carries the low-resolution flag; the step flag joins it.
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time) { ResponseUsage = Usage(10, 600), ResponseDelay = TimeSpan.FromMilliseconds(10) };
+
+        _ = await rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt, Limit(512)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.LowResolution));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-008")]
+    [InlineData(512, 512L, false)]
+    [InlineData(512, 100L, false)]
+    [InlineData(0, 1L, true)]
+    [InlineData(512, 513L, true)]
+    public async Task Only_output_tokens_above_the_limit_raise_the_flag_and_a_limit_of_zero_is_a_limit(int limit, long output, bool flagged)
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(10, output) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt, Limit(limit)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(flagged, reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Unreported_output_tokens_or_no_limit_leave_the_max_tokens_flag_absent()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+
+        // No usage with a limit; usage with no options; usage with options that have no limit.
+        _ = await rig.ClientOver(new FakeChatClient(rig.Time), "A").GetResponseAsync(Prompt, Limit(512)).WaitAsync(HangGuard);
+        _ = await rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(10, 9999) }, "B").GetResponseAsync(Prompt).WaitAsync(HangGuard);
+        _ = await rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(10, 9999) }, "C").GetResponseAsync(Prompt, new ChatOptions()).WaitAsync(HangGuard);
+
+        IReadOnlyList<StepReading> readings = rig.Sink.Snapshot();
+        Assert.Equal(3, readings.Count);
+        Assert.All(readings, reading => Assert.False(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded)));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-008")]
+    [InlineData(Tier.Nvidia)]
+    [InlineData(Tier.Nebius)]
+    public async Task A_hosted_tier_reading_may_carry_the_max_tokens_flag_because_it_names_no_measurement(Tier tier)
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync(tier);
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(10, 600) }, "Planner", tier);
+
+        _ = await client.GetResponseAsync(Prompt, Limit(512)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(tier, reading.Tier);
+        Assert.Equal(ReadingFlags.MaxTokensExceeded, reading.Flags);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task The_cost_of_a_step_comes_only_from_the_cost_calculator_and_is_computed_from_the_call()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        RecordingCostCalculator calculator = new(Metric.Estimated(0.25, "USD"));
+        rig.Cost = calculator;
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time) { ResponseUsage = Usage(120, 45), ResponseDelay = TimeSpan.FromMilliseconds(1500) }, "Planner");
+
+        _ = await client.GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Estimated(0.25, "USD"), reading.Cost);
+        RecordingCostCalculator.Call call = Assert.Single(calculator.Calls);
+        Assert.Equal(MeterRig.IdentityOf("Planner", Tier.Local), call.Identity);
+        Assert.Equal(TokenCounts.From(120, 45), call.Tokens);
+        Assert.Equal(1.5, call.WallSeconds, 6);
+        Assert.Equal(reading.GrossJoules, call.Energy.GrossJoules);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task The_calculator_sees_not_reported_tokens_when_the_provider_sent_no_usage()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        RecordingCostCalculator calculator = new(Metric.NotApplicable("no-token-basis"));
+        rig.Cost = calculator;
+
+        _ = await rig.ClientOver(new FakeChatClient(rig.Time), "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard);
+
+        Assert.Equal(TokenCounts.NotReported, Assert.Single(calculator.Calls).Tokens);
+        Assert.Equal("no-token-basis", Assert.Single(rig.Sink.Snapshot()).Cost.Reason);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-007")]
+    public async Task The_cost_calculator_is_required_by_the_decorator()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        MeteringServices withoutCost = rig.Services with { Cost = null! };
+
+        _ = Assert.Throws<ArgumentNullException>(() => new MeteredChatClient(new FakeChatClient(rig.Time), MeterRig.IdentityOf("Planner", Tier.Local), withoutCost));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-007")]
+    public async Task The_not_configured_calculator_answers_NA_cost_not_configured_for_every_input()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        IMeterWindow window = rig.Meter.OpenWindow();
+        rig.Time.Advance(TimeSpan.FromSeconds(1));
+        EnergyReading energy = window.Close();
+        NotConfiguredCostCalculator calculator = NotConfiguredCostCalculator.Instance;
+
+        foreach (TokenCounts tokens in new[] { TokenCounts.NotReported, TokenCounts.From(0, 0), TokenCounts.From(1_000_000, 2_000_000) })
+        {
+            foreach (Tier tier in Enum.GetValues<Tier>())
+            {
+                Metric cost = calculator.Compute(MeterRig.IdentityOf("Planner", tier), tokens, energy, 1.0);
+
+                Assert.Equal(Metric.NotApplicable("cost-not-configured"), cost);
+                Assert.Null(cost.Value);
+            }
+        }
+
+        _ = Assert.Throws<ArgumentNullException>(() => calculator.Compute(null!, TokenCounts.NotReported, energy, 1.0));
+        _ = Assert.Throws<ArgumentNullException>(() => calculator.Compute(MeterRig.IdentityOf("Planner", Tier.Local), null!, energy, 1.0));
+        _ = Assert.Throws<ArgumentNullException>(() => calculator.Compute(MeterRig.IdentityOf("Planner", Tier.Local), TokenCounts.NotReported, null!, 1.0));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public void TokenCounts_maps_each_count_by_its_label_and_never_invents_a_zero()
+    {
+        TokenCounts none = TokenCounts.From(null, null);
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), none.InputTokens);
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), none.OutputTokens);
+        Assert.Null(none.InputCount);
+        Assert.Null(none.OutputCount);
+
+        TokenCounts zero = TokenCounts.From(0, 0);
+        Assert.Equal(Metric.Measured(0, "tokens"), zero.InputTokens);
+        Assert.Equal(0L, zero.OutputCount);
+
+        Assert.True(TokenCounts.From(1, 600).ExceedsOutputLimit(512));
+        Assert.False(TokenCounts.From(1, 512).ExceedsOutputLimit(512));
+        Assert.False(TokenCounts.From(1, null).ExceedsOutputLimit(0));
+        Assert.False(TokenCounts.From(1, 600).ExceedsOutputLimit(null));
+        Assert.Equal(TokenCounts.NotReported, TokenCounts.From(null, null));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-007")]
+    public void The_no_usage_fixture_is_a_well_formed_reading_with_not_reported_tokens_and_NA_cost()
+    {
+        StepReading reading = StepReadingFixtures.NoUsage();
+
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.InputTokens);
+        Assert.Equal(Metric.NotReported("provider-omitted-usage"), reading.OutputTokens);
+        Assert.Equal(Metric.NotApplicable("cost-not-configured"), reading.Cost);
+        string json = JsonSerializer.Serialize(reading, Context);
+        Assert.Contains("\"inputTokens\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"provider-omitted-usage\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"cost\":{\"value\":null,\"label\":\"N/A\",\"reason\":\"cost-not-configured\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_trailing_usage_chunk_with_both_counts_null_keeps_the_earlier_counts_and_the_max_tokens_flag()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("a ", TimeSpan.FromMilliseconds(10), Usage(11, 600)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10), Usage(null, null)),
+            ],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer"), Limit(512)).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(11, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(600, "tokens"), reading.OutputTokens);
+        Assert.True(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task Each_count_of_a_stream_is_replaced_on_its_own_by_a_later_non_null_count()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("a ", TimeSpan.FromMilliseconds(10), Usage(11, null)),
+                new FakeUpdate("b ", TimeSpan.FromMilliseconds(10), Usage(null, 2)),
+                new FakeUpdate("c", TimeSpan.FromMilliseconds(10), Usage(null, 5)),
+            ],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(11, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(5, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_final_text_less_usage_update_is_captured_and_does_not_move_the_time_to_the_first_token()
+    {
+        // The shape of an OpenAI stream with include_usage: the last chunk has no choices, only usage.
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("The ", TimeSpan.FromMilliseconds(300)),
+                new FakeUpdate("report", TimeSpan.FromMilliseconds(100)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(50), Usage(11, 2)),
+            ],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(300, "ms"), reading.TtftMs);
+        Assert.Equal(Metric.Measured(11, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(2, "tokens"), reading.OutputTokens);
+        Assert.Equal("The report", reading.OutputText);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_consumer_that_stops_reading_after_a_usage_update_gets_a_cancelled_reading_with_the_usage_kept()
+    {
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("a ", TimeSpan.FromMilliseconds(10)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10), Usage(7, 3)),
+                new FakeUpdate("b", TimeSpan.FromMilliseconds(10)),
+            ],
+        };
+        MeteredChatClient client = rig.ClientOver(inner, "Writer");
+
+        await StopAfterUsageAsync(client).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(StepOutcomes.Cancelled, reading.Outcome);
+        Assert.Equal(Metric.Measured(7, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(3, "tokens"), reading.OutputTokens);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_failing_cost_calculator_after_a_failed_buffered_call_keeps_the_calls_exception_attaches_the_failure_and_frees_the_gate()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        InvalidOperationException calculatorFailure = new("The price table broke.");
+        rig.Cost = new ThrowingCostCalculator(calculatorFailure);
+        TimeoutException failure = new("The provider timed out.");
+        FakeChatClient inner = new(rig.Time) { Failure = failure };
+
+        TimeoutException thrown = await Assert.ThrowsAsync<TimeoutException>(() => rig.ClientOver(inner, "Planner").GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        Assert.Same(failure, thrown);
+        Assert.Same(calculatorFailure, thrown.Data[MeteredChatClient.ReadingFailureKey]);
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_failing_cost_calculator_after_a_failed_stream_keeps_the_calls_exception_attaches_the_failure_and_frees_the_gate()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        InvalidOperationException calculatorFailure = new("The price table broke.");
+        rig.Cost = new ThrowingCostCalculator(calculatorFailure);
+        InvalidDataException failure = new("The stream broke.");
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("a", TimeSpan.FromMilliseconds(10))],
+            Failure = failure,
+            FailAfterUpdates = 1,
+        };
+
+        InvalidDataException thrown = await Assert.ThrowsAsync<InvalidDataException>(() => ConsumeStreamAsync(rig.ClientOver(inner, "Writer")).WaitAsync(HangGuard));
+
+        Assert.Same(failure, thrown);
+        Assert.Same(calculatorFailure, thrown.Data[MeteredChatClient.ReadingFailureKey]);
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Equal(1, gate.CurrentCount);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-008")]
+    public async Task A_failing_cost_calculator_after_a_successful_call_surfaces_and_frees_the_gate_and_the_slot()
+    {
+        using SerializedMeterGate gate = new();
+        await using MeterRig rig = await MeterRig.CreateAsync(gate: gate);
+        InvalidOperationException calculatorFailure = new("The price table broke.");
+        rig.Cost = new ThrowingCostCalculator(calculatorFailure);
+        MeteredChatClient client = rig.ClientOver(new FakeChatClient(rig.Time), "Planner");
+
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+
+        Assert.Same(calculatorFailure, thrown);
+        Assert.Empty(rig.Sink.Snapshot());
+        Assert.Equal(1, gate.CurrentCount);
+
+        // The slot is free as well: the second call fails the same way and not with the in-flight message.
+        InvalidOperationException second = await Assert.ThrowsAsync<InvalidOperationException>(() => client.GetResponseAsync(Prompt).WaitAsync(HangGuard));
+        Assert.Same(calculatorFailure, second);
+    }
+
+    private static async Task StopAfterUsageAsync(MeteredChatClient client)
+    {
+        await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(Prompt))
+        {
+            if (update.Contents.OfType<UsageContent>().Any())
+            {
+                break;
+            }
+        }
+    }
+
+    // A calculator that always fails, to prove that a failure of the reading never replaces the exception of the call.
+    private sealed class ThrowingCostCalculator(Exception failure) : ICostCalculator
+    {
+        public Metric Compute(StepIdentity identity, TokenCounts tokens, EnergyReading energy, double wallSeconds) => throw failure;
+    }
+
+    private static void AssertTokensNotReported(StepReading reading)
+    {
+        foreach (Metric tokens in new[] { reading.InputTokens, reading.OutputTokens })
+        {
+            Assert.Equal(MetricLabel.NotReported, tokens.Label);
+            Assert.Null(tokens.Value);
+            Assert.Equal("provider-omitted-usage", tokens.Reason);
+        }
+
+        Assert.Equal(MetricLabel.NotApplicable, reading.Cost.Label);
+        Assert.Null(reading.Cost.Value);
+        Assert.False(reading.Flags.HasFlag(ReadingFlags.MaxTokensExceeded));
+    }
+
+    // Records what the decorator hands to the calculator and answers one fixed metric.
+    private sealed class RecordingCostCalculator(Metric answer) : ICostCalculator
+    {
+        private readonly List<Call> _calls = [];
+
+        public IReadOnlyList<Call> Calls => _calls;
+
+        public Metric Compute(StepIdentity identity, TokenCounts tokens, EnergyReading energy, double wallSeconds)
+        {
+            _calls.Add(new Call(identity, tokens, energy, wallSeconds));
+            return answer;
+        }
+
+        public sealed record Call(StepIdentity Identity, TokenCounts Tokens, EnergyReading Energy, double WallSeconds);
+    }
+
     private static Task<(int Count, string Text)> ConsumeAsync(MeteredChatClient client) => ConsumeCoreAsync(client).WaitAsync(HangGuard);
 
     private static async Task<(int Count, string Text)> ConsumeCoreAsync(MeteredChatClient client)
@@ -1566,7 +2176,10 @@ public sealed class MeteredChatClientTests
 
         public IMeterGate Gate { get; }
 
-        public MeteringServices Services => new(Meter, Gate, Sink, Time);
+        // The cost calculator the services carry; a test replaces it before it builds a client.
+        public ICostCalculator Cost { get; set; } = NotConfiguredCostCalculator.Instance;
+
+        public MeteringServices Services => new(Meter, Gate, Sink, Cost, Time);
 
         public static async Task<MeterRig> CreateAsync(Tier tier = Tier.Local, IMeterGate? gate = null, bool startMeter = true)
         {
