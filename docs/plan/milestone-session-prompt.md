@@ -46,7 +46,7 @@ Take stories in the dependency order of the story file. For each story:
 
 ## 5. Never
 
-- Never `git push`; the user pushes after the exit report.
+- Push only `main`, only at the milestone exit after the exit commit; never force-push, never push a milestone branch, never push mid-milestone (user decision 2026-10-20, recorded under `## User decisions after the M1 exit` in docs/build-log.md).
 - Never create, resize or delete a cloud resource; the user creates and deletes the VM (prompt section 12, steps 10 to 13).
 - Never print or store a key, a hostname or an IP in any file; keys reach the process from user-scope environment variables or `dotnet user-secrets` only.
 - Never report an unverified pass: every "green" names the command and its integer exit code.
@@ -61,9 +61,9 @@ Record for every story: the story's estimated hours, the wall-clock minutes from
 1. Run every command in the story file's "Dates and exit criteria" section through an executor and list the exit codes.
 2. `spec-compliance-reviewer` (opus): full pass over the milestone's REQ and EDGE IDs; every item PASS.
 3. `peer-review-critic` (opus) over `main..milestone/<Mk>`; resolve BLOCKER and MAJOR findings; the verdict line must read APPROVED.
-4. Merge locally: `git switch main && git merge --no-ff milestone/<Mk>`. Do not push.
-5. Append `## <Mk> exit` to `docs/build-log.md`: the merge commit hash, stories delivered and blocked, measured numbers with labels, velocity (MUST hours delivered, wall-clock, tokens, hours per calendar day), the projection against plan.md 3.5, the cut-order recommendation, the user actions due before the next milestone, and the exact kickoff line for the next session with the new base commit. Commit it on main with the message `<Mk> exit: <one line>`.
-6. Final message to the user, standing alone: what shipped, exit criteria with exit codes, velocity numbers, decisions needed, the command `git push origin main`, and the next kickoff line.
+4. Merge locally: `git switch main && git merge --no-ff milestone/<Mk>`. Push after step 5.
+5. Append `## <Mk> exit` to `docs/build-log.md`: the merge commit hash, stories delivered and blocked, measured numbers with labels, velocity (MUST hours delivered, wall-clock, tokens, hours per calendar day), the projection against plan.md 3.5, the cut-order recommendation, the user actions due before the next milestone, and the exact kickoff line for the next session with the new base commit. Commit it on main with the message `<Mk> exit: <one line>`. Then check that `origin/main` is an ancestor of `main` (`git merge-base --is-ancestor origin/main main`), run `git push origin main`, watch the run with `gh run watch`, and record the run id and its result in an addendum commit `<Mk> exit addendum: <one line>`.
+6. Final message to the user, standing alone: what shipped, exit criteria with exit codes, velocity numbers, decisions needed, the push and the CI run result, and the next kickoff line.
 
 ## 8. Milestone notes
 
