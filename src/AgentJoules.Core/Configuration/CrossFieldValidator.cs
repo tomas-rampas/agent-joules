@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 
@@ -6,18 +8,23 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Core.Configuration;
 
 /// <summary>
-/// Checks what annotations cannot: that <c>Meter:Method</c> is a known name, and the 10 Hz rule. A rate below 10 Hz is valid only
-/// when <c>Meter:AllowBelowMinRate</c> is true.
+/// Checks what annotations cannot: that <c>Meter:Method</c> is a known name, the 10 Hz rule (a rate below 10 Hz is valid only when
+/// <c>Meter:AllowBelowMinRate</c> is true), and the <c>Tiers</c> and <c>Judge</c> sections.
 /// </summary>
 /// <remarks>
 /// Every failure is reported, one line each, and the checks do not stop at the first one. A rate of 0 or less, NaN or infinity, which
 /// no override allows, is left to the annotation on <see cref="MeterOptions.SampleRateHz"/> so that a caller that runs both validators
-/// sees that failure once.
+/// sees that failure once. The tiers are a dictionary, which the generated <see cref="FlatSectionsValidator"/> does not enumerate, so this
+/// validator loops over them: a known tier name, a <c>BaseUrl</c> (absolute, no user info, query or fragment, https unless loopback) and a <c>ModelId</c> when the tier is enabled,
+/// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c>, a positive <c>TimeoutSeconds</c>, the names and values of
+/// <c>AgentModelIds</c>, and an <c>ApiKeyVariable</c> that is a variable name. A line names the key path and never shows a configured value.
 /// </remarks>
 public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 {
     /// <summary>The lowest sample rate in hertz that is valid without <c>Meter:AllowBelowMinRate</c>.</summary>
     public const double MinimumRateHz = 10.0;
+
+    private static readonly MinimumValueAttribute Positive = new(0.0) { IsExclusive = true };
 
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, AgentJoulesOptions options)
@@ -43,6 +50,136 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add("Meter:SampleRateHz is below 10 Hz; set Meter:AllowBelowMinRate to true to allow it");
         }
 
+        foreach ((string tierName, TierOptions? tier) in options.Tiers)
+        {
+            ValidateTier(tierName, tier, failures);
+        }
+
+        ValidateJudge(options, failures);
+
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
+
+    private static void ValidateTier(string tierName, TierOptions? tier, List<string> failures)
+    {
+        // A tier name comes from the configuration sources, so it is bounded and cleaned before it is printed.
+        string path = $"{nameof(AgentJoulesOptions.Tiers)}:{ConfigurationMessages.Segment(tierName)}";
+
+        if (!IsKnownTierName(tierName))
+        {
+            failures.Add(ConfigurationMessages.UnknownTier(path));
+            return;
+        }
+
+        if (tier is null)
+        {
+            failures.Add($"{path} must be a section that holds keys");
+            return;
+        }
+
+        bool hasBaseUrl = !string.IsNullOrWhiteSpace(tier.BaseUrl);
+        if (tier.Enabled && !hasBaseUrl)
+        {
+            failures.Add($"{path}:BaseUrl must be set when the tier is enabled");
+        }
+        else if (hasBaseUrl)
+        {
+            // Plain http is for a loopback host only: a hosted tier must not send its key or its prompts in the clear.
+            if (!Uri.TryCreate(tier.BaseUrl, UriKind.Absolute, out Uri? baseUrl) || !IsPlainHttpOrHttps(baseUrl))
+            {
+                failures.Add($"{path}:BaseUrl must be an absolute http or https URL without user info, query or fragment; the value is not shown");
+            }
+            else if (!string.Equals(baseUrl.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) && !baseUrl.IsLoopback)
+            {
+                failures.Add($"{path}:BaseUrl must be https unless the host is loopback");
+            }
+        }
+
+        if (tier.Enabled && string.IsNullOrWhiteSpace(tier.ModelId))
+        {
+            failures.Add($"{path}:ModelId must be set when the tier is enabled");
+        }
+
+        if (tier.ApiKeyVariable is not null && !IsVariableName(tier.ApiKeyVariable))
+        {
+            failures.Add($"{path}:ApiKeyVariable must be the name of an environment variable (letters, digits and underscores), never a key; the value is not shown");
+        }
+
+        if (!TierOptions.ReasoningModes.Contains(tier.ReasoningMode, StringComparer.Ordinal))
+        {
+            failures.Add($"{path}:ReasoningMode must be {ConfigurationMessages.OrList(TierOptions.ReasoningModes)}; the value is not shown");
+        }
+
+        if (tier.ExtraBodyJson is not null && !IsJsonObject(tier.ExtraBodyJson))
+        {
+            failures.Add($"{path}:ExtraBodyJson must be a JSON object; the value is not shown");
+        }
+
+        if (!TierOptions.MaxTokensFields.Contains(tier.MaxTokensField, StringComparer.Ordinal))
+        {
+            failures.Add($"{path}:MaxTokensField must be {ConfigurationMessages.OrList(TierOptions.MaxTokensFields)}; the value is not shown");
+        }
+
+        if (!Positive.IsValid(tier.TimeoutSeconds))
+        {
+            failures.Add($"{path}:TimeoutSeconds must be greater than 0");
+        }
+
+        foreach ((string agent, string? modelId) in tier.AgentModelIds)
+        {
+            string agentPath = $"{path}:{nameof(TierOptions.AgentModelIds)}:{ConfigurationMessages.Segment(agent)}";
+            if (!TierOptions.KnownAgentNames.Contains(agent, StringComparer.OrdinalIgnoreCase))
+            {
+                failures.Add(ConfigurationMessages.UnknownAgent(agentPath));
+            }
+            else if (string.IsNullOrWhiteSpace(modelId))
+            {
+                failures.Add($"{agentPath} must be set");
+            }
+        }
+    }
+
+    // Judge:Tier is matched exactly: the name goes into the results as written, and the tier names there are lowercase. It must be a section of Tiers
+    // once Tiers holds a section with a known name (an unknown name is reported on its own, so it does not count); with no tier configured at all
+    // there is nothing to name yet, which keeps an empty configuration valid.
+    private static void ValidateJudge(AgentJoulesOptions options, List<string> failures)
+    {
+        string? judgeTier = options.Judge.Tier;
+
+        if (!TierOptions.KnownNames.Contains(judgeTier, StringComparer.Ordinal))
+        {
+            failures.Add($"Judge:Tier must be {ConfigurationMessages.OrList(TierOptions.KnownNames)}; the value is not shown");
+        }
+        else if (options.Tiers.Keys.Any(IsKnownTierName) && !options.Tiers.ContainsKey(judgeTier))
+        {
+            failures.Add("Judge:Tier names a tier that Tiers does not hold");
+        }
+    }
+
+    private static bool IsKnownTierName(string name) => TierOptions.KnownNames.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsPlainHttpOrHttps(Uri uri) =>
+        (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+        && uri.UserInfo.Length == 0
+        && uri.Query.Length == 0
+        && uri.Fragment.Length == 0;
+
+    private static bool IsJsonObject(string json)
+    {
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch (Exception failure) when (failure is JsonException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    // An environment variable name as the committed file writes it: ^[A-Z_][A-Z0-9_]{0,63}$. An API key (nvapi-..., lowercase, with a hyphen) is not one.
+    private static bool IsVariableName(string value) =>
+        value.Length is > 0 and <= 64
+        && (char.IsAsciiLetterUpper(value[0]) || value[0] == '_')
+        && value.All(character => char.IsAsciiLetterUpper(character) || char.IsAsciiDigit(character) || character == '_');
 }

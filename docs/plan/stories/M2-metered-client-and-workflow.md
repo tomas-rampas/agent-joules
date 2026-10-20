@@ -271,9 +271,9 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Configuration/TierConfiguration.feature`; class `TierConfigurationTests` (trait `Spec=REQ-012`).
 Docs impact: `config/appsettings.json`; the README configuration table is written in M6 from these keys.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the URL grep in acceptance criterion 4 returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; battery 2,000 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: `config/appsettings.json` and the configuration keys paragraph of the AJ-043 entry in docs/build-log.md)
+- [x] the URL grep in acceptance criterion 4 returns no hit (2026-10-20: the grep printed nothing, exit 1)
 Demo relevance: no (the demo shows the effect: the same command runs on every tier).
 Conflict: C-05 (design 9.2) - the global config-path option and `validate --config` share a name; resolution: `--config <path>` is defined per command (here on `run`, `probe`, `report`, `calibrate`), and its zero-or-one arity form belongs to `validate` (delivered in M3 and M4).
 

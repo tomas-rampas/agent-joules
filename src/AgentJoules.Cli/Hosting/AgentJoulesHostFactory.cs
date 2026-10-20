@@ -18,7 +18,7 @@ namespace AgentJoules.Cli.Hosting;
 /// <summary>
 /// Builds the host of one command (ADR-18): <see cref="HostApplicationBuilder"/> with <c>DisableDefaults</c>, exactly the configuration sources
 /// the prompt names (the JSON file, optional user secrets, environment variables) plus the in-memory test override, options bound through
-/// <see cref="OptionsLoader.Bind"/> and validated on start, logging to stderr at every level, and a lifetime that turns SIGHUP into
+/// <see cref="OptionsLoader.Bind(IConfiguration, AgentJoulesOptions)"/> and validated on start, logging to stderr at every level, and a lifetime that turns SIGHUP into
 /// <c>ApplicationStopping</c> without installing a second Ctrl+C handler.
 /// </summary>
 /// <remarks>

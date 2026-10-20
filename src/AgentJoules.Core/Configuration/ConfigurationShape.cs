@@ -1,7 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
-
-using AgentJoules.Core.Labels;
 
 using Microsoft.Extensions.Configuration;
 
@@ -10,7 +9,7 @@ namespace AgentJoules.Core.Configuration;
 /// <summary>
 /// Checks what the configuration binder would accept silently or explain badly: keys the options do not have, values that are set but
 /// empty, a value where a section belongs, and values of the wrong type. No line ever contains a configured value; a key name comes from
-/// the configuration sources, so it is passed through <see cref="TextEcho.ForMessage"/>.
+/// the configuration sources, so it is passed through <see cref="ConfigurationMessages.Segment"/>, which bounds it at 32 characters.
 /// </summary>
 internal static class ConfigurationShape
 {
@@ -29,6 +28,15 @@ internal static class ConfigurationShape
         ("Meter:AllowBelowMinRate", Kind.Boolean),
         ("Baseline:Seconds", Kind.Number),
         ("Baseline:MaxCoefficientOfVariation", Kind.Number),
+        ("Workflow:Seed", Kind.Integer),
+    ];
+
+    // The scalar keys of one tier that can fail to convert, relative to Tiers:<tier>; checked for every tier the configuration holds.
+    private static readonly (string Key, Kind Kind)[] TierTypedKeys =
+    [
+        ("Enabled", Kind.Boolean),
+        ("SupportsSeed", Kind.Boolean),
+        ("TimeoutSeconds", Kind.Integer),
     ];
 
     /// <summary>Lists, one line each, every key under <paramref name="root"/> that is unknown, empty, or the wrong shape (a value for a section or a section for a value).</summary>
@@ -49,33 +57,53 @@ internal static class ConfigurationShape
     /// <summary>The keys, relative to the root section, whose values <see cref="TypeProblems"/> re-checks; every non-string scalar option must be listed.</summary>
     internal static IEnumerable<string> TypedKeyNames => TypedKeys.Select(typed => typed.Key);
 
-    /// <summary>Lists, one line each, every typed key under <paramref name="root"/> whose value the binder cannot convert; the value is not shown.</summary>
+    /// <summary>The keys, relative to <c>Tiers:&lt;tier&gt;</c>, whose values <see cref="TypeProblems"/> re-checks for every tier; every non-string scalar option of a tier must be listed.</summary>
+    internal static IEnumerable<string> TierTypedKeyNames => TierTypedKeys.Select(typed => typed.Key);
+
+    /// <summary>Lists, one line each, every typed key under <paramref name="root"/> (those of <c>Tiers:&lt;tier&gt;</c> included) whose value the binder cannot convert; the value is not shown.</summary>
     internal static List<string> TypeProblems(IConfigurationSection root)
     {
         List<string> problems = [];
         foreach ((string key, Kind kind) in TypedKeys)
         {
-            string? value = root[key];
-            if (!string.IsNullOrEmpty(value) && !Converts(value, kind))
+            CheckConverts(root, key, kind, key, problems);
+        }
+
+        foreach (IConfigurationSection tier in root.GetSection(nameof(AgentJoulesOptions.Tiers)).GetChildren())
+        {
+            foreach ((string key, Kind kind) in TierTypedKeys)
             {
-                problems.Add($"{key} must be {Describe(kind)}; the value is not shown");
+                CheckConverts(tier, key, kind, $"{nameof(AgentJoulesOptions.Tiers)}:{ConfigurationMessages.Segment(tier.Key)}:{key}", problems);
             }
         }
 
         return problems;
     }
 
+    private static void CheckConverts(IConfiguration node, string key, Kind kind, string path, List<string> problems)
+    {
+        string? value = node[key];
+        if (!string.IsNullOrEmpty(value) && !Converts(value, kind))
+        {
+            problems.Add($"{path} must be {Describe(kind)}; the value is not shown");
+        }
+    }
+
     private static void Walk(IConfiguration node, Type type, string prefix, List<string> problems)
     {
         foreach (IConfigurationSection child in node.GetChildren())
         {
-            string key = prefix + Segment(child.Key);
+            string key = prefix + ConfigurationMessages.Segment(child.Key);
             PropertyInfo? property = type.GetProperty(child.Key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
             bool hasChildren = child.GetChildren().Any();
 
             if (property is null)
             {
                 problems.Add($"{key} is not a known option; check the spelling");
+            }
+            else if (IsStringKeyedDictionary(property.PropertyType, out Type? valueType))
+            {
+                WalkDictionary(child, valueType, property.Name, key, problems);
             }
             else if (property.PropertyType.IsClass && property.PropertyType != typeof(string))
             {
@@ -99,14 +127,60 @@ internal static class ConfigurationShape
         }
     }
 
-    // The longest valid segment (Baseline:MaxCoefficientOfVariation's last part) is 25 characters. A longer segment is not echoed, so a
-    // misplaced value cannot ride into a message as a key name.
-    private const int MaxEchoedSegmentLength = 32;
+    private static bool IsStringKeyedDictionary(Type type, [NotNullWhen(true)] out Type? valueType)
+    {
+        bool match = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>) && type.GetGenericArguments()[0] == typeof(string);
+        valueType = match ? type.GetGenericArguments()[1] : null;
+        return match;
+    }
 
-    private static string Segment(string segment) =>
-        segment.Length == 0 ? "(empty key name)"
-        : segment.Length > MaxEchoedSegmentLength ? $"a key segment of {segment.Length.ToString(CultureInfo.InvariantCulture)} characters"
-        : TextEcho.ForMessage(segment);
+    // A dictionary section holds one entry per child. The children of Tiers are tier names and must be known, and each is a section of TierOptions
+    // keys; the children of an AgentModelIds section are agent names that hold one value each (an unknown agent name is reported here, before the validator).
+    private static void WalkDictionary(IConfigurationSection node, Type valueType, string propertyName, string key, List<string> problems)
+    {
+        bool sectionValues = valueType.IsClass && valueType != typeof(string);
+        bool any = false;
+
+        foreach (IConfigurationSection child in node.GetChildren())
+        {
+            any = true;
+            string childKey = key + ConfigurationPath.KeyDelimiter + ConfigurationMessages.Segment(child.Key);
+            bool hasChildren = child.GetChildren().Any();
+
+            if (valueType == typeof(TierOptions) && !TierOptions.KnownNames.Contains(child.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                problems.Add(ConfigurationMessages.UnknownTier(childKey));
+            }
+            else if (propertyName == nameof(TierOptions.AgentModelIds) && !TierOptions.KnownAgentNames.Contains(child.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                problems.Add(ConfigurationMessages.UnknownAgent(childKey));
+            }
+            else if (!sectionValues)
+            {
+                if (hasChildren)
+                {
+                    problems.Add($"{childKey} must be a single value, not a section");
+                }
+                else if (child.Value is { Length: 0 })
+                {
+                    problems.Add($"{childKey} is set but empty");
+                }
+            }
+            else if (hasChildren)
+            {
+                Walk(child, valueType, childKey + ConfigurationPath.KeyDelimiter, problems);
+            }
+            else if (child.Value is not null)
+            {
+                problems.Add($"{childKey} is a section and must hold keys, not a value; the value is not shown");
+            }
+        }
+
+        if (!any && node.Value is not null)
+        {
+            problems.Add($"{key} is a section and must hold keys, not a value; the value is not shown");
+        }
+    }
 
     private static bool Converts(string value, Kind kind) => kind switch
     {
