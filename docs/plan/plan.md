@@ -328,7 +328,7 @@ The demo is the CLI itself on the three committed tasks, from the repository roo
 | # | Decision | Default and recommendation | Needed by |
 |---|---|---|---|
 | D-1 | Package pins (design O-01, C-01): stay on Agent Framework 1.23.0, Microsoft.Extensions.AI 10.10.x, OpenTelemetry 1.18.0, or move to 1.25.0, 10.11.0, 1.20.0 | Stay. The prompt binds the pins; design verified every API at 1.23.0 and compiled it against 1.25.0 (C-12). Moving needs amendments to REQ-002 and section 4 plus an API re-check whose hours are not estimated | Oct 18, before AJ-005-T1 |
-| D-2 | Approve the cut order (3.4) and the re-planning rule (3.5); Level 1 pre-approved, Level 2 and 3 per event | Approve | Oct 19 |
+| D-2 | Approve the cut order (3.4) and the re-planning rule (3.5); Level 1 pre-approved, Level 2 and 3 per event | Approve; M1 gate decided early 2026-10-20: no cut, continue according to the original plan (Level 1 not applied, the rule is re-run at the M2 gate 2026-10-23 16:00 UTC) | Oct 19; M1 gate 2026-10-20 |
 | D-3 | Prompt amendments (seven, section 6, including DoD box 13 / P-1 and the REQ-016 wording) | Applied by the coordinator on 2026-10-18; no approval requested | done |
 | D-4 | GAP-1 (report flags and renderer without a task) | Resolved by AJ-144 (6.25 h, MUST), included in all totals | done |
 | D-5 | AJ-159 copies section 3.4 verbatim (done in AJ-159 criterion 1); AJ-159 stays COULD | done | done |
