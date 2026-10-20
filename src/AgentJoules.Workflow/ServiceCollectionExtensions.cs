@@ -1,7 +1,11 @@
+using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
+using AgentJoules.Workflow.Providers;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace AgentJoules.Workflow;
 
@@ -40,5 +44,47 @@ public static class ServiceCollectionExtensions
                 RunMode.Concurrent => services.AddSingleton<IMeterGate>(NoOpMeterGate.Instance),
                 _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "The run mode is not a defined value; use Serialized or Concurrent."),
             };
+    }
+
+    /// <summary>
+    /// Registers the provider clients of the tiers (REQ-012, design 3.4): one named <see cref="HttpClient"/> per tier name in
+    /// <see cref="TierOptions.KnownNames"/>, called <c>aj-tier-&lt;name&gt;</c>, and <see cref="ProviderClientFactory"/> as a singleton. Each named client has an
+    /// infinite <see cref="HttpClient.Timeout"/> (the only time limit of a call is the SDK network timeout of the tier) and a
+    /// <see cref="RequestBodyPatchHandler"/> built from the options of its tier when the client pipeline is first resolved.
+    /// </summary>
+    /// <remarks>
+    /// The default primary handler does not follow redirects: a redirect would send the request, and with it the key header and the prompt, to a host the tier
+    /// does not name. The registration uses the standard <see cref="IHttpClientBuilder"/> pipeline, so a test replaces the primary handler of a tier with
+    /// <c>services.AddHttpClient(ProviderClientFactory.HttpClientName("nvidia")).ConfigurePrimaryHttpMessageHandler(...)</c> and the isolated harness can do
+    /// the same for every name. The caller registers <see cref="IConfiguration"/> and <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host does); the extra
+    /// body of a tier that is not valid JSON fails when its client is first created, after the configuration validator rejected it at start.
+    /// </remarks>
+    /// <param name="services">The collection to add the clients to.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A <see cref="ProviderClientFactory"/> is already registered; a second registration would add a second patch handler to every client.</exception>
+    public static IServiceCollection AddAgentJoulesProviderClients(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        if (services.Any(static descriptor => !descriptor.IsKeyedService && descriptor.ServiceType == typeof(ProviderClientFactory)))
+        {
+            throw new InvalidOperationException("The provider clients are already registered; a second registration would patch every request body twice.");
+        }
+
+        foreach (string tierName in TierOptions.KnownNames)
+        {
+            services
+                .AddHttpClient(ProviderClientFactory.HttpClientName(tierName))
+                .ConfigureHttpClient(static client => client.Timeout = Timeout.InfiniteTimeSpan)
+                .ConfigurePrimaryHttpMessageHandler(static () => new SocketsHttpHandler { AllowAutoRedirect = false })
+                .AddHttpMessageHandler(provider =>
+                {
+                    AgentJoulesOptions options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
+                    return RequestBodyPatchHandler.For(options.Tiers.GetValueOrDefault(tierName), tierName);
+                });
+        }
+
+        return services.AddSingleton<ProviderClientFactory>();
     }
 }

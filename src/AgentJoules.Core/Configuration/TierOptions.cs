@@ -1,3 +1,6 @@
+using AgentJoules.Core.Cli;
+using AgentJoules.Core.Runs;
+
 namespace AgentJoules.Core.Configuration;
 
 /// <summary>One entry of <c>Tiers</c>: how a tier (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c> or <c>nebius</c>) is reached and described.</summary>
@@ -59,6 +62,46 @@ public sealed class TierOptions
 
     /// <summary>Key <c>Tiers:&lt;tier&gt;:MaxTokensField</c>, default <c>max_completion_tokens</c>: the request field that carries the output cap, <c>max_completion_tokens</c> or <c>max_tokens</c>.</summary>
     public string MaxTokensField { get; set; } = "max_completion_tokens";
+
+    /// <summary>The configuration name of <paramref name="tier"/>: the key under <c>Tiers</c> and the word of the results schema (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c>, <c>nebius</c>).</summary>
+    /// <param name="tier">A defined tier.</param>
+    /// <returns>The lowercase name.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined <see cref="Tier"/>.</exception>
+    public static string NameOf(Tier tier) => tier switch
+    {
+        Tier.Local => KnownNames[0],
+        Tier.CloudGpu => KnownNames[1],
+        Tier.Nvidia => KnownNames[2],
+        Tier.Nebius => KnownNames[3],
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), tier, "The tier is not a defined value."),
+    };
+
+    /// <summary>
+    /// The model ID a call of <paramref name="agent"/> goes to: the <see cref="AgentModelIds"/> entry of the agent (names match without regard to
+    /// case, AJ-043) when it holds a model ID, otherwise <see cref="ModelId"/>. The agent factory of the workflow and the model check of the
+    /// preflight both take the model from here, so the two cannot disagree.
+    /// </summary>
+    /// <param name="agent">The agent name, for example <c>Writer</c>.</param>
+    /// <returns>The model ID; never blank.</returns>
+    /// <exception cref="ArgumentException"><paramref name="agent"/> is null or blank.</exception>
+    /// <exception cref="ConfigurationException">The agent has no entry and the tier has no <see cref="ModelId"/>.</exception>
+    public string ResolveModelId(string agent)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent);
+
+        // A scan, not a lookup: a dictionary that replaced the default one may compare names with case.
+        foreach ((string name, string? modelId) in AgentModelIds)
+        {
+            if (string.Equals(name, agent, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(modelId))
+            {
+                return modelId;
+            }
+        }
+
+        return !string.IsNullOrWhiteSpace(ModelId)
+            ? ModelId
+            : throw new ConfigurationException("The tier has no ModelId and no AgentModelIds entry for the agent " + ConfigurationMessages.Segment(agent) + "; set Tiers:<tier>:ModelId");
+    }
 }
 
 /// <summary>The <c>Judge</c> section of <c>AgentJoules</c>: which tier and model score the answers.</summary>

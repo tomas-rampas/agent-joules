@@ -344,9 +344,9 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Workflow/ProviderClients.feature`; class `ProviderClientTests` (trait `Spec=REQ-012`).
 Docs impact: `docs/build-log.md`; the reasoning-off JSON per endpoint is verified and written to `docs/endpoints.md` in M4 (design default: `{"chat_template_kwargs":{"enable_thinking":false}}`, assumed).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the URL grep from AJ-043 still returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,090/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry, verified member and body names recorded)
+- [x] the URL grep from AJ-043 still returns no hit (2026-10-20: the grep printed nothing)
 Demo relevance: no.
 
 ### AJ-045: Retry HTTP 429 with backoff and keep the wait out of latency

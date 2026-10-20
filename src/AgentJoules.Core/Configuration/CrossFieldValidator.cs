@@ -1,4 +1,4 @@
-using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
@@ -85,13 +85,18 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         else if (hasBaseUrl)
         {
             // Plain http is for a loopback host only: a hosted tier must not send its key or its prompts in the clear.
-            if (!Uri.TryCreate(tier.BaseUrl, UriKind.Absolute, out Uri? baseUrl) || !IsPlainHttpOrHttps(baseUrl))
+            // The rule is shared with the provider client factory (EndpointRules), so what is refused here is refused again when a key would be sent.
+            Uri.TryCreate(tier.BaseUrl, UriKind.Absolute, out Uri? baseUrl);
+            switch (EndpointRules.Check(baseUrl, requireHttpsOffLoopback: true))
             {
-                failures.Add($"{path}:BaseUrl must be an absolute http or https URL without user info, query or fragment; the value is not shown");
-            }
-            else if (!string.Equals(baseUrl.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal) && !baseUrl.IsLoopback)
-            {
-                failures.Add($"{path}:BaseUrl must be https unless the host is loopback");
+                case EndpointProblem.Shape:
+                    failures.Add($"{path}:BaseUrl must be an absolute http or https URL without user info, query or fragment; the value is not shown");
+                    break;
+                case EndpointProblem.PlainHttpOffLoopback:
+                    failures.Add($"{path}:BaseUrl must be https unless the host is loopback");
+                    break;
+                default:
+                    break;
             }
         }
 
@@ -100,7 +105,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add($"{path}:ModelId must be set when the tier is enabled");
         }
 
-        if (tier.ApiKeyVariable is not null && !IsVariableName(tier.ApiKeyVariable))
+        if (tier.ApiKeyVariable is not null && !VariableNames.IsValid(tier.ApiKeyVariable))
         {
             failures.Add($"{path}:ApiKeyVariable must be the name of an environment variable (letters, digits and underscores), never a key; the value is not shown");
         }
@@ -110,9 +115,21 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add($"{path}:ReasoningMode must be {ConfigurationMessages.OrList(TierOptions.ReasoningModes)}; the value is not shown");
         }
 
-        if (tier.ExtraBodyJson is not null && !IsJsonObject(tier.ExtraBodyJson))
+        if (tier.ExtraBodyJson is not null)
         {
-            failures.Add($"{path}:ExtraBodyJson must be a JSON object; the value is not shown");
+            JsonObjectProblem problem = ConfigurationJson.Check(tier.ExtraBodyJson, out JsonObject? extraBody);
+            if (problem == JsonObjectProblem.RepeatedMember)
+            {
+                failures.Add($"{path}:ExtraBodyJson must not repeat a member name; the value is not shown");
+            }
+            else if (problem != JsonObjectProblem.None)
+            {
+                failures.Add($"{path}:ExtraBodyJson must be a JSON object; the value is not shown");
+            }
+            else if (ConfigurationJson.FirstReservedMember(extraBody!) is { } reserved)
+            {
+                failures.Add($"{path}:ExtraBodyJson must not set the member {reserved}; the call itself is not configurable here ({ConfigurationMessages.OrList(ConfigurationJson.ReservedBodyMembers)})");
+            }
         }
 
         if (!TierOptions.MaxTokensFields.Contains(tier.MaxTokensField, StringComparer.Ordinal))
@@ -157,29 +174,4 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
     }
 
     private static bool IsKnownTierName(string name) => TierOptions.KnownNames.Contains(name, StringComparer.OrdinalIgnoreCase);
-
-    private static bool IsPlainHttpOrHttps(Uri uri) =>
-        (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal) || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
-        && uri.UserInfo.Length == 0
-        && uri.Query.Length == 0
-        && uri.Fragment.Length == 0;
-
-    private static bool IsJsonObject(string json)
-    {
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(json);
-            return document.RootElement.ValueKind == JsonValueKind.Object;
-        }
-        catch (Exception failure) when (failure is JsonException or ArgumentException)
-        {
-            return false;
-        }
-    }
-
-    // An environment variable name as the committed file writes it: ^[A-Z_][A-Z0-9_]{0,63}$. An API key (nvapi-..., lowercase, with a hyphen) is not one.
-    private static bool IsVariableName(string value) =>
-        value.Length is > 0 and <= 64
-        && (char.IsAsciiLetterUpper(value[0]) || value[0] == '_')
-        && value.All(character => char.IsAsciiLetterUpper(character) || char.IsAsciiDigit(character) || character == '_');
 }
