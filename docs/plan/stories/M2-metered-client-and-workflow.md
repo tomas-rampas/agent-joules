@@ -911,7 +911,8 @@ Definition of done:
 Demo relevance: no.
 
 ### AJ-054: Add `run --dry-run` that validates everything and makes no completion call
-Covers: REQ-017
+Covers: REQ-017, EDGE-001
+Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
 User story: As a user, I want `AJ run --dry-run` to validate configuration, keys and model IDs and to show the endpoint and matched models per tier without spending a token, so that I find setup problems before a long measured run.
 Acceptance criteria:
 1. `AJ run --help` lists `--tier`, `--task`, `--mode`, `--out`, `--baseline-seconds`, `--repeat` and `--dry-run` (test `Help_lists_seven_options`).
@@ -964,7 +965,7 @@ Tasks:
 | AJ-054-T3 | Return exit 2 when `ParseResult.Errors` is non-empty before invoking any action | src/AgentJoules.Cli/CliApplication.cs | 0.75 | AJ-054-T2 |
 | AJ-054-T4 | Implement `DryRunService` with the per-tier output lines and the local probe | src/AgentJoules.Workflow/Runs/DryRunService.cs | 1.25 | AJ-054-T2, AJ-053-T4 |
 | AJ-054-T5 | Add the run options table and the dry-run example to the README | README.md | 0.5 | AJ-054-T4 |
-Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
+Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
 Docs impact: README section "Run" (options table and dry-run example).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
@@ -1182,7 +1183,8 @@ Definition of done:
 Demo relevance: no.
 
 ### AJ-058: Map every failure to the documented exit code
-Covers: REQ-017
+Covers: REQ-017, EDGE-001
+Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
 User story: As a script author, I want each failure class to end in a fixed exit code with one redacted error line, so that automation can react to missing keys, unknown models, unreachable endpoints and missing GPUs without parsing text.
 Acceptance criteria:
 1. `ExitCode` is the enum 0 success, 1 unexpected, 2 invalid arguments or configuration, 3 missing API key, 4 model not found, 5 unreachable or retries exhausted, 6 measurement precondition failed, 7 generated content differs.
@@ -1239,7 +1241,7 @@ Tasks:
 | AJ-058-T3 | Implement `ExitCodeMapper` and the one-line error output | src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.75 | AJ-058-T2 |
 | AJ-058-T4 | Wire the mapper into `CliApplication` and add the `Log.cs` partial methods | src/AgentJoules.Cli/CliApplication.cs, src/AgentJoules.Cli/Log.cs | 0.75 | AJ-058-T3 |
 | AJ-058-T5 | Verify the code-to-meaning mapping in code (`ExitCodeTests` asserts the meaning text per code) and add rows to the README exit-code table only if AJ-131-T4 has already created it | src/AgentJoules.Cli/ExitCodeMapper.cs, README.md | 0.25 | AJ-058-T4 |
-Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
+Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
 Docs impact: README section "Exit codes" is created by AJ-131-T4 in M6; this story only verifies the code-to-meaning mapping in code and adds rows if the table already exists (then the table exists exactly once).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings

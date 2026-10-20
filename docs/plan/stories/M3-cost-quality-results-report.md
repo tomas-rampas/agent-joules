@@ -838,7 +838,8 @@ Demo relevance: yes: every table and chart row in the demo is one aggregate row.
 Conflict: C-07 (design 9.2) - the page requirement of one row per step conflicts with the median over repeats; resolution: a row is the aggregate of one `(tier, task, agent)` over its repeats.
 
 ### AJ-083: Render the Markdown summary with honest labels
-Covers: REQ-016
+Covers: REQ-016, EDGE-003, EDGE-002
+Note (2026-10-20, M1 exit): EDGE-003 and EDGE-002 added per plan section 5 seam row 6 (report row and header reference EDGE-003 and EDGE-002) and the M1 spec full pass (the rendered-row half of EDGE-003 and the report-header half of EDGE-002 are carried here from M1).
 User story: As a reader of the report, I want `summary.md` to carry the measurement context and one table with every label and flag next to its value, so that no number appears without its evidence class.
 Acceptance criteria:
 1. The header lists GPU name, driver version, run date (UTC), local runtime, model IDs and precision per tier, reasoning mode per tier, power source, judge model ID and self-judging disclosure, followed by the sentence `Energy is GPU-board energy only.` (test `Header_and_honesty_sentence`).
@@ -900,7 +901,7 @@ Tasks:
 | AJ-083-T4 | Implement `SummaryMarkdownRenderer` table rows with labels and flags | src/AgentJoules.Reporting/Render/SummaryMarkdownRenderer.cs | 1.5 | AJ-083-T3, AJ-082-T4 |
 | AJ-083-T5 | Implement the header, the disclosures and the not-run rows | src/AgentJoules.Reporting/Render/SummaryMarkdownRenderer.cs | 1.25 | AJ-083-T4 |
 | AJ-083-T6 | Record the `Spec=REQ-016` Markdown results in the build log | docs/build-log.md | 0.25 | AJ-083-T5 |
-Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/SummaryMarkdown.feature`.
+Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`, with `Spec=EDGE-003` on the rendered low-resolution row and `Spec=EDGE-002` on the sampling header); feature file `tests/AgentJoules.Specs/Features/Reporting/SummaryMarkdown.feature`.
 Docs impact: `docs/build-log.md`; the sample table appears in the README results block (AJ-087) and in M6.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
@@ -1097,7 +1098,8 @@ Demo relevance: yes: step 7 of the demo is `AJ report`.
 Conflict: C-05 (design 9.2) - `--config` has per-command meaning; on `report` it is a plain path option.
 
 ### AJ-087: Render the README results block as a deterministic function
-Covers: REQ-016
+Covers: REQ-016, EDGE-002
+Note (2026-10-20, M1 exit): EDGE-002 added per plan section 5 seam row 6 (README and tier-row `sampling` disclosures reference EDGE-002).
 User story: As a reader of the README, I want a results table generated from the latest run file per tier with the same honesty labels, so that the README never carries a hand-typed number.
 Acceptance criteria:
 1. `ReadmeResultsBlock.Render(latestPerTier)` returns a table with one row per tier and GPU, including `cloudgpu | not run` when no cloudgpu file exists, and `local`, `nvidia`, `nebius` rows from fixtures (test `Block_has_a_row_per_tier`).
@@ -1146,7 +1148,7 @@ Tasks:
 | AJ-087-T3 | Add the judge, partial, sampling and baseline disclosures | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 0.75 | AJ-087-T2 |
 | AJ-087-T4 | Assert byte-identical output across two renders | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-087-T2 |
 | AJ-087-T5 | Note the pending marker wiring in the build log | docs/build-log.md | 0.25 | AJ-087-T3 |
-Test mapping: `ReadmeBlockTests` (design class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/ReadmeBlock.feature`.
+Test mapping: `ReadmeBlockTests` (design class, trait `Spec=REQ-016`, with `Spec=EDGE-002` on the `sampling` disclosure case); feature file `tests/AgentJoules.Specs/Features/Reporting/ReadmeBlock.feature`.
 Docs impact: `docs/build-log.md`; README markers and the generated block are written in M6.
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings

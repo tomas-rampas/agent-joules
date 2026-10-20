@@ -379,7 +379,8 @@ Definition of done:
 Demo relevance: yes: demo steps 7 and 8 run these flags.
 
 ### AJ-133: Generate and verify the README results block
-Covers: REQ-025
+Covers: REQ-025, EDGE-002
+Note (2026-10-20, M1 exit): EDGE-002 added per plan section 5 seam row 6 (README and tier-row `sampling` disclosures reference EDGE-002).
 User story: As a reader, I want a results table that the tool generated from the latest results files, so that no number in it was typed by hand and I can regenerate it.
 Acceptance criteria:
 1. After `AJ report --update-readme`, the text between `<!-- results:begin -->` and `<!-- results:end -->` has one row per tier and GPU for `local`, `cloudgpu`, `nvidia`, `nebius`, in that order; the cloudgpu row reads `cloudgpu | not run` when no completed or partial cloudgpu file exists.
@@ -431,7 +432,7 @@ Tasks:
 | AJ-133-T2 | Add the partial-row and not-run-row cases that AJ-144 does not cover | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-133-T1 |
 | AJ-133-T3 | Run `AJ report --in results/ --out docs/report/ --update-readme` on the final results and inspect the block | README.md, docs/report/summary.md, docs/report/joules-per-step.svg, docs/report/index.html | 0.5 | AJ-133-T2 |
 | AJ-133-T4 | Run verify, edit one number, confirm exit 7, restore, confirm exit 0, record the exit codes | docs/build-log.md | 0.25 | AJ-133-T3 |
-Test mapping: ReadmeBlockTests; tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature
+Test mapping: ReadmeBlockTests, with `Spec=EDGE-002` on the `sampling` disclosure case; tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature
 Docs impact: README.md results block (generated); docs/report/*; docs/build-log.md
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
