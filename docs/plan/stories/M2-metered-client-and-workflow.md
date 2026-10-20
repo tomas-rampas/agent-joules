@@ -471,9 +471,9 @@ Test mapping: `ExecutionModeTests` (design class; the 1 s branches use wide marg
 Docs impact: `docs/build-log.md`; the README "serialized by default" note is written in M6.
 Carried from AJ-032 (2026-10-19): `SerializedMeterGate` is not re-entrant, so no judge call and no second metered call may start while a flow holds the gate; a streaming `MeteredChatClient` holds the gate until its enumerator is disposed, so an abandoned enumerator hangs the run until the run token fires; the try/finally that disposes the releaser must begin immediately after `AcquireAsync` returns, before `ledger.Reset()` and `OpenWindow()`, or one failed call keeps the only slot for the process; the composition root disposes the gate only after every metered call has finished (a waiter queued at Dispose never completes); the shared-window overlap rule is strict (a.Start < b.Stop and b.Start < a.Stop).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-013"` shows at least one passed and no failed test for the serialized tests
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,893 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: in the AJ-046 entry of `docs/build-log.md`)
+- [x] `dotnet test --filter "Spec=REQ-013"` shows at least one passed and no failed test for the serialized tests (2026-10-20: Spec=REQ-013 23 passed, 0 failed)
 Demo relevance: yes: serialized default is why each demo step has an exclusive energy value.
 
 ### AJ-047: Flag shared windows and total concurrent runs over the union window
