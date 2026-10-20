@@ -647,9 +647,9 @@ Tasks:
 Test mapping: `AttributionBaselineTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Workflow/AgentFactory.feature`.
 Docs impact: `docs/build-log.md`; the agent role table is written in the README in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `grep -rnE "AsyncLocal" src` still returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,309/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `grep -rnE "AsyncLocal" src` still returns no hit (2026-10-20: `grep -rnIE "AsyncLocal" src --include=*.cs` 0 hits; the literal command matches third-party DLLs under bin/, as recorded for AJ-041)
 Demo relevance: yes: the four named agents are the rows of the demo table and chart.
 
 ### AJ-050: Run Planner, fan-out Researcher and Writer, fan-in Reviewer as a workflow

@@ -1,10 +1,12 @@
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
+using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace AgentJoules.Workflow;
@@ -12,6 +14,9 @@ namespace AgentJoules.Workflow;
 /// <summary>Registrations of the services that the workflow of a run shares process-wide.</summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>The key of the jitter <see cref="Random"/> registration.</summary>
+    public const string JitterKey = "agentjoules-jitter";
+
     /// <summary>
     /// Registers the one <see cref="IMeterGate"/> of the process, chosen by the run mode (REQ-013, design 3.3): a <see cref="SerializedMeterGate"/> for
     /// <see cref="RunMode.Serialized"/>, <see cref="NoOpMeterGate.Instance"/> for <see cref="RunMode.Concurrent"/>. Every <see cref="MeteredChatClient"/> of
@@ -85,6 +90,52 @@ public static class ServiceCollectionExtensions
                 });
         }
 
-        return services.AddSingleton<ProviderClientFactory>();
+        // The interface is what the agent factory depends on; it resolves to the one concrete singleton, so a test replaces the interface registration
+        // (RemoveAll<IProviderClientFactory>() then AddSingleton) without touching the named HTTP clients, and the concrete type stays resolvable.
+        return services
+            .AddSingleton<ProviderClientFactory>()
+            .AddSingleton<IProviderClientFactory>(static provider => provider.GetRequiredService<ProviderClientFactory>());
+    }
+
+    /// <summary>
+    /// Registers what the agent factory needs from the container (REQ-011, design 3.4): the default <see cref="RetryOptions"/> and <see cref="Random.Shared"/> (keyed by <see cref="JitterKey"/>) as
+    /// singletons, and a <c>Func&lt;MeteringServices, AgentFactory&gt;</c> that builds the factory of one tier run around the metering services of that run.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The <see cref="AgentFactory"/> itself is not a registration. Its <see cref="MeteringServices"/> belong to one tier run (the meter reads the GPU of that
+    /// tier, and the sink of the workflow is not the sink of the judge), so a singleton or scoped factory would hold the services of the wrong run. The
+    /// orchestrator builds the services of a run around the <see cref="IMeterGate"/> resolved from the container and passes them to the delegate; the
+    /// delegate takes the retry layer's clock from those services, so a run has one clock for its windows and its waits, and takes the provider clients, the
+    /// retry policy and the jitter source from the container. This is the per-run scope of the design, made by construction instead of by a container scope.
+    /// </para>
+    /// <para>
+    /// The jitter source is <see cref="Random.Shared"/>, which is thread-safe, registered under the key <see cref="JitterKey"/> so that another <see cref="Random"/> registered
+    /// in the container for another purpose cannot silently become the jitter source; a test registers a seeded <see cref="Random"/> under the same key first, and the
+    /// agent factory then draws one seed per pipeline from it (see <see cref="AgentFactory"/>). Every registration uses <c>TryAdd</c>, so one that is already there wins and a
+    /// second call changes nothing: a test or the isolated harness replaces an unkeyed one with <c>RemoveAll</c> and <c>AddSingleton</c>, and the jitter source with <c>RemoveAllKeyed&lt;Random&gt;(JitterKey)</c> and <c>AddKeyedSingleton(JitterKey, seeded)</c> (<c>RemoveAll&lt;Random&gt;()</c> removes only unkeyed descriptors and would leave the unseeded source in place). <see cref="IProviderClientFactory"/> is
+    /// registered by <see cref="AddAgentJoulesProviderClients(IServiceCollection)"/> and is resolved, with the retry policy and the jitter source, when the delegate
+    /// itself is first resolved from the container, not when it is registered and not when it is invoked.
+    /// </para>
+    /// </remarks>
+    /// <param name="services">The collection to add the registrations to.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    public static IServiceCollection AddAgentJoulesAgentFactory(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(RetryOptions.Default);
+        services.TryAddKeyedSingleton(JitterKey, Random.Shared);
+        services.TryAddSingleton<Func<MeteringServices, AgentFactory>>(static provider =>
+        {
+            IProviderClientFactory providerClients = provider.GetRequiredService<IProviderClientFactory>();
+            RetryOptions retryOptions = provider.GetRequiredService<RetryOptions>();
+            Random random = provider.GetRequiredKeyedService<Random>(JitterKey);
+
+            return runServices => new AgentFactory(providerClients, runServices ?? throw new ArgumentNullException(nameof(runServices)), retryOptions, runServices.Time, random);
+        });
+
+        return services;
     }
 }

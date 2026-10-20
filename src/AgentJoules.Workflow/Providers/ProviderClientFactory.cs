@@ -41,7 +41,7 @@ namespace AgentJoules.Workflow.Providers;
 /// <param name="httpClients">The factory of the named <see cref="HttpClient"/> of each tier.</param>
 /// <param name="options">The bound and validated options; the tiers are read when a client is created.</param>
 /// <param name="configuration">The configuration that holds the key variables (the process environment, user secrets or an in-memory override).</param>
-public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options, IConfiguration configuration)
+public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options, IConfiguration configuration) : IProviderClientFactory
 {
     /// <summary>The prefix of the name of the <see cref="HttpClient"/> of a tier; the full name is the prefix and the lowercase tier name.</summary>
     public const string HttpClientNamePrefix = "aj-tier-";

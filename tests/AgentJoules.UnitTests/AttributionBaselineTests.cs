@@ -19,7 +19,7 @@ using Xunit;
 namespace AgentJoules.UnitTests;
 
 [Trait("Spec", "REQ-005")]
-public sealed class AttributionBaselineTests
+public sealed partial class AttributionBaselineTests
 {
     private const double Tolerance = 1e-9;
     private const double Threshold = 0.10;
