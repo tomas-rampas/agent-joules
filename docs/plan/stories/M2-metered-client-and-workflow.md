@@ -592,9 +592,9 @@ Tasks:
 Test mapping: `TaskSetTests` (design class); feature file `tests/AgentJoules.Specs/Features/Configuration/TaskSet.feature`.
 Docs impact: `tasks/*.json`; the README task table is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `ls tasks/*.json | wc -l` prints 3 and the folder holds nothing else
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0, 0 warnings; full run 2,271/0/5 at 19:08Z)
+- [x] docs listed above updated (2026-10-20: task file shape in the build-log AJ-048 entry)
+- [x] `ls tasks/*.json | wc -l` prints 3 and the folder holds nothing else (2026-10-20: `ls tasks/*.json | wc -l` prints 3 and `ls -A tasks | wc -l` prints 3)
 Demo relevance: yes: the demo runs `--task energy-explainer`.
 
 ### AJ-049: Create one metered agent per name from a tier and model
