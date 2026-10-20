@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
+using AgentJoules.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml.Interop;
@@ -19,7 +21,7 @@ namespace AgentJoules.UnitTests;
 /// method and the rate come through the in-memory configuration. The no-GPU tests carry the EDGE-001 trait.
 /// </summary>
 [Trait("Spec", "REQ-006")]
-public sealed class ProbeCommandTests
+public sealed partial class ProbeCommandTests
 {
     private const string FallbackDisclosure = "Energy method: sampling (counter unsupported)";
     private const string MethodKey = "AgentJoules:Meter:Method";
@@ -55,6 +57,14 @@ public sealed class ProbeCommandTests
         "method",
         "sampleRateHz",
     ];
+
+    // AJ-037 criterion 5: the run-file pattern of design 3.6 (a probe file must never match it) and the shape a probe file name must have.
+    // A stand-in: M2's RunFileName replaces this copy of its pattern.
+    [GeneratedRegex(@"^\d{8}T\d{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$", RegexOptions.CultureInvariant)]
+    private static partial Regex RunFileName();
+
+    [GeneratedRegex(@"^probe-\d{8}T\d{6}Z(-[A-Za-z0-9]{1,20})?\.json$", RegexOptions.CultureInvariant)]
+    private static partial Regex ProbeFileName();
 
     // The scripted GPU of NewGpu with the default configuration (auto, 10 Hz).
     private static readonly string[] ScriptedLines =
@@ -731,6 +741,461 @@ public sealed class ProbeCommandTests
 
         // No capabilities means the counter was forced and is unsupported; a supported counter cannot come with it.
         Assert.Throws<ArgumentException>(() => ProbeResult.Create(identity, energyCounterSupported: true, capabilities: null, sampleRateHz: 10.0));
+    }
+
+    // AJ-037 (criteria 1, 3 to 6): --save and --suffix. Each test owns a TempWorkspace that is the content root, so results/ resolves under it,
+    // and a FakeTimeProvider at 2026-10-19T09:30:15Z as the host clock.
+    public static TheoryData<string> InvalidSuffixes =>
+    [
+        "../x",
+        "a/b",
+        "a\\b",
+        ".",
+        "..",
+        string.Empty,
+        new string('a', 21),
+        "cloud gpu",
+        "cloud-gpu",
+        "a.b",
+        "caf" + (char)0xE9,
+        "a" + (char)27 + "b",
+        new string('9', 100),
+    ];
+
+    private static Task<CliRunResult> RunSaveAsync(string arguments, TempWorkspace workspace, ScriptedNvmlApi? api = null, TimeProvider? clock = null) =>
+        CliHarness.RunAsync(arguments, ProbeSaveFixtures.Overrides(api ?? NewGpu(), workspace, clock ?? new FakeTimeProvider(ProbeSaveFixtures.FixedInstant)));
+
+    private static byte[] SavedBytes(TempWorkspace workspace, string name) => File.ReadAllBytes(ProbeSaveFixtures.FilePath(workspace, name));
+
+    // The one "saved: results/<name>" line of stderr.
+    private static string SavedLine(CliRunResult result) =>
+        Assert.Single(result.StderrLines, line => line.StartsWith("saved:", StringComparison.Ordinal));
+
+    // A refused save creates nothing: not the results folder, not a file beside it.
+    private static void AssertNothingWritten(TempWorkspace workspace)
+    {
+        Assert.False(Directory.Exists(ProbeSaveFixtures.ResultsPath(workspace)), "the results folder was created");
+        Assert.Equal(["config"], ProbeSaveFixtures.RootEntries(workspace));
+    }
+
+    [Fact]
+    public async Task Save_with_JSON_writes_the_timestamped_file_equal_to_stdout_and_reports_it_on_stderr()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+        Assert.Equal(Encoding.UTF8.GetBytes(result.Stdout), SavedBytes(workspace, "probe-20261019T093015Z.json"));
+        Assert.Equal("saved: results/probe-20261019T093015Z.json", SavedLine(result));
+        Assert.Empty(result.ErrorLines);
+    }
+
+    [Fact]
+    public async Task Save_without_JSON_writes_the_JSON_file_while_stdout_stays_the_text_form()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        CliRunResult plain = await RunAsync("probe --json", NewGpu());
+
+        CliRunResult result = await RunSaveAsync("probe --save", workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(ScriptedLines, Lines(result.Stdout));
+        Assert.DoesNotContain("saved:", result.Stdout, StringComparison.Ordinal);
+        Assert.Equal(Encoding.UTF8.GetBytes(plain.Stdout), SavedBytes(workspace, "probe-20261019T093015Z.json"));
+        Assert.Equal("saved: results/probe-20261019T093015Z.json", SavedLine(result));
+    }
+
+    [Theory]
+    [InlineData("cloudgpu")]
+    [InlineData("a")]
+    [InlineData("X9")]
+    [InlineData("A1b2C3d4E5f6G7h8I9j0")]
+    public async Task Suffix_is_appended_to_the_timestamped_file_name(string suffix)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string name = $"probe-20261019T093015Z-{suffix}.json";
+
+        CliRunResult result = await RunSaveAsync($"probe --json --save --suffix {suffix}", workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal([name], ProbeSaveFixtures.SavedNames(workspace));
+        Assert.Equal(Encoding.UTF8.GetBytes(result.Stdout), SavedBytes(workspace, name));
+        Assert.Equal("saved: results/" + name, SavedLine(result));
+    }
+
+    [Fact]
+    public async Task Saved_names_are_exact_for_the_fake_clock_and_never_match_the_run_file_pattern()
+    {
+        using TempWorkspace plain = TempWorkspace.Create();
+        using TempWorkspace suffixed = TempWorkspace.Create();
+
+        CliRunResult plainRun = await RunSaveAsync("probe --save", plain);
+        CliRunResult suffixedRun = await RunSaveAsync("probe --save --suffix cloudgpu", suffixed);
+
+        Assert.Equal(0, plainRun.ExitCode);
+        Assert.Equal(0, suffixedRun.ExitCode);
+        string[] plainNames = ProbeSaveFixtures.SavedNames(plain);
+        string[] suffixedNames = ProbeSaveFixtures.SavedNames(suffixed);
+        Assert.Equal(["probe-20261019T093015Z.json"], plainNames);
+        Assert.Equal(["probe-20261019T093015Z-cloudgpu.json"], suffixedNames);
+
+        // The pattern itself recognises a real run file of the same second, so the probe names escape it by their shape, not by a broken regex.
+        Assert.Matches(RunFileName(), "20261019T093015Z-cloudgpu.json");
+        foreach (string name in plainNames.Concat(suffixedNames))
+        {
+            Assert.DoesNotMatch(RunFileName(), name);
+            Assert.Matches(ProbeFileName(), name);
+        }
+    }
+
+    [Theory]
+    [InlineData("probe --suffix cloudgpu")]
+    [InlineData("probe --json --suffix cloudgpu")]
+    public async Task Suffix_without_save_exits_2_with_one_error_line_naming_both_options_and_writes_nothing(string arguments)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        ScriptedNvmlApi api = NewGpu();
+
+        CliRunResult result = await RunSaveAsync(arguments, workspace, api);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stdout);
+        string line = Assert.Single(result.ErrorLines);
+        Assert.Contains("--suffix", line, StringComparison.Ordinal);
+        Assert.Contains("--save", line, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
+        AssertNothingWritten(workspace);
+
+        // The usage error comes before the GPU is opened.
+        Assert.Equal(0, api.InitCallCount);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidSuffixes))]
+    public async Task A_suffix_outside_the_plain_name_rule_exits_2_names_the_option_and_writes_nothing(string suffix)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        ScriptedNvmlApi api = NewGpu();
+
+        CliRunResult result = await RunSaveAsync($"probe --json --save --suffix \"{suffix}\"", workspace, api);
+
+        AssertSuffixRefused(result, workspace, api, suffix);
+    }
+
+    [Theory]
+    [InlineData("abc\n")]
+    [InlineData("abc\r\n")]
+    [InlineData("abc\r")]
+    public async Task A_suffix_with_a_trailing_line_terminator_is_refused_because_the_rule_is_anchored_at_the_end_of_the_text(string suffix)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        ScriptedNvmlApi api = NewGpu();
+
+        // The harness splits a command line on whitespace, so the tokens go in as they are.
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["probe", "--json", "--save", "--suffix", suffix],
+            ProbeSaveFixtures.Overrides(api, workspace, new FakeTimeProvider(ProbeSaveFixtures.FixedInstant)));
+
+        AssertSuffixRefused(result, workspace, api, suffix);
+    }
+
+    // Exit 2, the option and the rule named, the echo capped at 16 characters without a control character or a path, nothing written, no GPU opened.
+    private static void AssertSuffixRefused(CliRunResult result, TempWorkspace workspace, ScriptedNvmlApi api, string suffix)
+    {
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stdout);
+        string line = Assert.Single(result.ErrorLines);
+        Assert.Contains("--suffix", line, StringComparison.Ordinal);
+        Assert.Contains("[A-Za-z0-9]{1,20}", line, StringComparison.Ordinal);
+        if (suffix.Length > 16)
+        {
+            Assert.DoesNotContain(suffix[..17], result.Stderr, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain((char)27, result.Stderr);
+        Assert.DoesNotContain("results", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, result.Stderr, StringComparison.Ordinal);
+        AssertNothingWritten(workspace);
+
+        // The usage error comes before the GPU is opened.
+        Assert.Equal(0, api.InitCallCount);
+    }
+
+    [Fact]
+    public async Task Save_creates_the_results_folder_when_it_is_missing_and_keeps_the_files_already_in_it()
+    {
+        using TempWorkspace missing = TempWorkspace.Create();
+        Assert.False(Directory.Exists(ProbeSaveFixtures.ResultsPath(missing)), "the workspace already has a results folder");
+        using TempWorkspace existing = TempWorkspace.Create();
+        existing.WriteFile(Path.Combine("results", "keep.txt"), "keep\n");
+
+        CliRunResult first = await RunSaveAsync("probe --save", missing);
+        CliRunResult second = await RunSaveAsync("probe --save", existing);
+
+        Assert.Equal(0, first.ExitCode);
+        Assert.True(Directory.Exists(ProbeSaveFixtures.ResultsPath(missing)), "the results folder was not created");
+        Assert.Equal(["probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(missing));
+        Assert.Equal(0, second.ExitCode);
+        Assert.Equal(["keep.txt", "probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(existing));
+        Assert.Equal("keep\n", File.ReadAllText(ProbeSaveFixtures.FilePath(existing, "keep.txt")));
+    }
+
+    [Theory]
+    [InlineData("probe --json --save", "probe-20261019T093015Z.json")]
+    [InlineData("probe --save", "probe-20261019T093015Z.json")]
+    [InlineData("probe --json --save --suffix cloudgpu", "probe-20261019T093015Z-cloudgpu.json")]
+    public async Task An_existing_file_is_never_overwritten_exit_1_with_file_exists_and_nothing_on_stdout(string arguments, string name)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        workspace.WriteFile(Path.Combine("results", name), "{\"preexisting\": true}\n");
+        byte[] before = SavedBytes(workspace, name);
+
+        CliRunResult result = await RunSaveAsync(arguments, workspace);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal($"error: file exists: results/{name} (InvalidOperationException)", Assert.Single(result.ErrorLines));
+
+        // The save happens before any stdout write, so a failed save leaves stdout empty, JSON or text.
+        Assert.Equal(string.Empty, result.Stdout);
+        Assert.DoesNotContain("saved:", result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(before, SavedBytes(workspace, name));
+        Assert.Equal([name], ProbeSaveFixtures.SavedNames(workspace));
+    }
+
+    [Fact]
+    public async Task A_second_save_in_the_same_second_exits_1_and_a_save_one_second_later_writes_a_second_file()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        var clock = new FakeTimeProvider(ProbeSaveFixtures.FixedInstant);
+
+        CliRunResult first = await RunSaveAsync("probe --json --save", workspace, clock: clock);
+        byte[] original = SavedBytes(workspace, "probe-20261019T093015Z.json");
+        CliRunResult sameSecond = await RunSaveAsync("probe --json --save", workspace, clock: clock);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        CliRunResult nextSecond = await RunSaveAsync("probe --json --save", workspace, clock: clock);
+
+        Assert.Equal(0, first.ExitCode);
+        Assert.Equal(1, sameSecond.ExitCode);
+        Assert.Contains("file exists", Assert.Single(sameSecond.ErrorLines), StringComparison.Ordinal);
+        Assert.Equal(0, nextSecond.ExitCode);
+        Assert.Equal(["probe-20261019T093015Z.json", "probe-20261019T093016Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+        Assert.Equal(original, SavedBytes(workspace, "probe-20261019T093015Z.json"));
+    }
+
+    [Theory]
+    [InlineData("missing-library")]
+    [InlineData("no-device")]
+    [InlineData("init-failed")]
+    [Trait("Spec", "EDGE-001")]
+    public async Task A_no_GPU_save_writes_gpuPresent_false_with_every_other_key_null_and_exits_0(string cause)
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace, NewNoGpu(cause));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+        byte[] saved = SavedBytes(workspace, "probe-20261019T093015Z.json");
+        Assert.Equal(Encoding.UTF8.GetBytes(result.Stdout), saved);
+        using JsonDocument document = ParseOneObject(Encoding.UTF8.GetString(saved));
+        Assert.Equal(JsonKeys, Keys(document));
+        foreach (JsonProperty property in document.RootElement.EnumerateObject())
+        {
+            Assert.Equal(property.Name == "gpuPresent" ? JsonValueKind.False : JsonValueKind.Null, property.Value.ValueKind);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-001")]
+    public async Task A_no_GPU_save_in_text_form_prints_no_GPU_and_still_saves_the_JSON_record()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+
+        CliRunResult result = await RunSaveAsync("probe --save", workspace, NewNoGpu("missing-library"));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("no GPU", Assert.Single(Lines(result.Stdout)));
+        using JsonDocument document = ParseOneObject(Encoding.UTF8.GetString(SavedBytes(workspace, "probe-20261019T093015Z.json")));
+        Assert.Equal(JsonValueKind.False, document.RootElement.GetProperty("gpuPresent").ValueKind);
+        Assert.Equal("saved: results/probe-20261019T093015Z.json", SavedLine(result));
+    }
+
+    [Fact]
+    public async Task Save_keeps_stdout_one_JSON_object_and_puts_the_saved_line_and_the_log_records_on_stderr_only()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        CliHostOverrides overrides = ProbeSaveFixtures.Overrides(
+            NewGpu(),
+            workspace,
+            new FakeTimeProvider(ProbeSaveFixtures.FixedInstant),
+            [("Logging:LogLevel:Default", "Debug")]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe --json --save", overrides);
+
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = ParseOneObject(result.Stdout);
+        Assert.Equal(JsonKeys, Keys(document));
+        Assert.DoesNotContain("saved:", result.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("Opening the GPU", result.Stdout, StringComparison.Ordinal);
+        Assert.Equal("saved: results/probe-20261019T093015Z.json", SavedLine(result));
+        Assert.Contains("Opening the GPU at index 0", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_saved_file_is_byte_identical_to_the_stdout_of_a_plain_probe_json_with_LF_and_one_trailing_newline()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        CliRunResult plain = await RunAsync("probe --json", NewGpu());
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace);
+
+        Assert.Equal(0, plain.ExitCode);
+        Assert.Equal(0, result.ExitCode);
+        byte[] saved = SavedBytes(workspace, "probe-20261019T093015Z.json");
+        Assert.Equal(Encoding.UTF8.GetBytes(plain.Stdout), saved);
+
+        // No byte order mark, no CR, exactly one newline at the end.
+        Assert.Equal((byte)'{', saved[0]);
+        Assert.DoesNotContain((byte)'\r', saved);
+        string text = Encoding.UTF8.GetString(saved);
+        Assert.EndsWith("\n}\n", text, StringComparison.Ordinal);
+        Assert.False(text.EndsWith("\n\n", StringComparison.Ordinal), "the saved JSON ends with more than one newline");
+    }
+
+    [Fact]
+    public async Task The_longest_valid_suffix_resolves_to_a_file_directly_inside_the_results_folder()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string suffix = new('Z', 20);
+        string name = $"probe-20261019T093015Z-{suffix}.json";
+
+        CliRunResult result = await RunSaveAsync($"probe --json --save --suffix {suffix}", workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal([name], ProbeSaveFixtures.SavedNames(workspace));
+        string resultsFolder = Path.GetFullPath(ProbeSaveFixtures.ResultsPath(workspace));
+        string file = Path.GetFullPath(ProbeSaveFixtures.FilePath(workspace, name));
+        Assert.Equal(resultsFolder, Path.GetDirectoryName(file));
+        Assert.Equal(["config", "results"], ProbeSaveFixtures.RootEntries(workspace));
+    }
+
+    [Fact]
+    public async Task The_timestamp_is_UTC_and_invariant_whatever_the_local_zone_and_the_machine_culture_are()
+    {
+        CultureInfo original = CultureInfo.CurrentCulture;
+        try
+        {
+            // The Thai culture formats years with the Buddhist calendar (2569), so a culture-bound format would not write 2026.
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("th-TH");
+            var clock = new FakeTimeProvider(ProbeSaveFixtures.FixedInstant);
+            clock.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("plus5", TimeSpan.FromHours(5), "plus5", "plus5"));
+            using TempWorkspace workspace = TempWorkspace.Create();
+
+            CliRunResult result = await RunSaveAsync("probe --save", workspace, clock: clock);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal(["probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    [Fact]
+    public async Task The_name_comes_from_the_UTC_value_of_the_clock_not_from_its_offset_clock_face()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+
+        // The clock returns 14:30:15 at +05:00; the file must say 093015Z, the UTC time of that instant.
+        CliRunResult result = await RunSaveAsync("probe --save", workspace, clock: OffsetClock.FivePlus);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+    }
+
+    [Fact]
+    public async Task A_results_path_that_is_a_file_exits_1_with_one_error_line_that_holds_no_absolute_path_and_leaves_the_file()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        workspace.WriteFile("results", "not a folder\n");
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stdout);
+        string line = Assert.Single(result.ErrorLines);
+        Assert.Equal("error: cannot write results/probe-20261019T093015Z.json: IOException (InvalidOperationException)", line);
+        AssertNoAbsolutePath(result, workspace);
+        Assert.Equal("not a folder\n", File.ReadAllText(ProbeSaveFixtures.ResultsPath(workspace)));
+    }
+
+    [Fact]
+    public async Task A_directory_at_the_target_name_exits_1_as_file_exists_and_leaves_it_with_no_temporary_file_behind()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string target = ProbeSaveFixtures.FilePath(workspace, "probe-20261019T093015Z.json");
+        Directory.CreateDirectory(target);
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stdout);
+        Assert.Equal("error: file exists: results/probe-20261019T093015Z.json (InvalidOperationException)", Assert.Single(result.ErrorLines));
+        AssertNoAbsolutePath(result, workspace);
+        Assert.True(Directory.Exists(target), "the directory at the target name is gone");
+
+        // The hidden temporary file is removed when the move did not happen. A dangling file symbolic link at the final name is not tested:
+        // creating one needs a privilege. Both reviewers measured it: the move never overwrites, so the save exits 1 with "file exists" and no link
+        // target is created; this test shows the same refusal path for a directory. The temporary name carries a fresh GUID, so there is no name
+        // for a create-new open to follow, and a results folder that is a junction is followed (harmless, nothing can be overwritten).
+        Assert.Empty(Directory.GetFiles(ProbeSaveFixtures.ResultsPath(workspace)));
+    }
+
+    [Fact]
+    public async Task A_foreign_temporary_file_in_results_does_not_block_the_save_and_is_left_intact()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        workspace.WriteFile(Path.Combine("results", ".probe-20261019T093015Z.tmp"), "stale");
+
+        CliRunResult result = await RunSaveAsync("probe --json --save", workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("saved: results/probe-20261019T093015Z.json", SavedLine(result));
+        Assert.Equal(Encoding.UTF8.GetBytes(result.Stdout), SavedBytes(workspace, "probe-20261019T093015Z.json"));
+        Assert.Equal("stale", File.ReadAllText(ProbeSaveFixtures.FilePath(workspace, ".probe-20261019T093015Z.tmp")));
+
+        // Nothing else is left: the foreign file and the probe, no temporary file of the save.
+        Assert.Equal([".probe-20261019T093015Z.tmp", "probe-20261019T093015Z.json"], ProbeSaveFixtures.SavedNames(workspace));
+    }
+
+    [Fact]
+    public async Task A_failed_save_keeps_the_absolute_path_off_stderr_even_when_the_debug_log_prints_the_exception_chain()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        workspace.WriteFile("results", "not a folder\n");
+        CliHostOverrides overrides = ProbeSaveFixtures.Overrides(NewGpu(), workspace, new FakeTimeProvider(ProbeSaveFixtures.FixedInstant), [("Logging:LogLevel:Default", "Debug")]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe --json --save", overrides);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("Command failed", result.Stderr, StringComparison.Ordinal);
+
+        // The Debug record prints the exception chain with its stack trace (source paths of the build), so only the workspace path is checked: a
+        // framework exception passed on as the inner exception would put it here ("Cannot create '<root>\results' because ...").
+        Assert.DoesNotContain(workspace.Root, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cannot create", result.Stderr, StringComparison.Ordinal);
+    }
+
+    // No drive path and no user folder: the framework messages of a failed save carry them, and Save must not pass them on.
+    private static void AssertNoAbsolutePath(CliRunResult result, TempWorkspace workspace)
+    {
+        Assert.DoesNotContain(":\\", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\Users", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("/Users", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, result.Stderr, StringComparison.Ordinal);
     }
 
     // Throws IOException on its first write and takes every later write: a failing stream that recovers for the error line.

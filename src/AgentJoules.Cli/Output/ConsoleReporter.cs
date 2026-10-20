@@ -40,6 +40,15 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         }
     }
 
+    /// <summary>Tells the user where <c>probe --save</c> wrote its file: one line <c>saved: &lt;path&gt;</c> to the error writer, so standard output stays the probe output.</summary>
+    /// <param name="relativePath">The path relative to the content root with forward slashes, for example <c>results/probe-20261019T093015Z.json</c>.</param>
+    /// <exception cref="ArgumentException"><paramref name="relativePath"/> is null or empty.</exception>
+    public void ReportSaved(string relativePath)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(relativePath);
+        _error.WriteLine("saved: " + relativePath);
+    }
+
     /// <summary>
     /// Warns about an unstable idle baseline: when <see cref="ReadingFlags.BaselineUnstable"/> is set, writes exactly one line to the
     /// error writer, <c>Warning: idle baseline unstable (CV 0.20 &gt; 0.10)</c>, with the coefficient of variation and the threshold

@@ -33,10 +33,16 @@ public sealed class CliHarnessRun
     private volatile IReadOnlyList<string> _providerNames = [];
 
     internal CliHarnessRun(string arguments, CliHostOverrides? overrides, TextWriter? stdout, TextWriter? stderr, CancellationToken cancellationToken)
+        : this(Split(arguments), overrides, stdout, stderr, cancellationToken)
+    {
+    }
+
+    // The tokens are handed to the application as they are: no splitting, no quote handling, so a token may hold whitespace or a line terminator.
+    internal CliHarnessRun(string[] tokens, CliHostOverrides? overrides, TextWriter? stdout, TextWriter? stderr, CancellationToken cancellationToken)
     {
         _stdout = stdout ?? overrides?.Stdout ?? new StringWriter(CultureInfo.InvariantCulture);
         _stderr = stderr ?? overrides?.Stderr ?? new StringWriter(CultureInfo.InvariantCulture);
-        Result = Task.Run(() => ExecuteAsync(arguments, overrides, cancellationToken), CancellationToken.None);
+        Result = Task.Run(() => ExecuteAsync(tokens, overrides, cancellationToken), CancellationToken.None);
     }
 
     /// <summary>Completes with the exit code and the captured output once <c>RunAsync</c> returned and the writers were drained.</summary>
@@ -107,7 +113,7 @@ public sealed class CliHarnessRun
         return [.. tokens];
     }
 
-    private async Task<CliRunResult> ExecuteAsync(string arguments, CliHostOverrides? overrides, CancellationToken cancellationToken)
+    private async Task<CliRunResult> ExecuteAsync(string[] tokens, CliHostOverrides? overrides, CancellationToken cancellationToken)
     {
         if (InExclusiveSection.Value)
         {
@@ -140,7 +146,7 @@ public sealed class CliHarnessRun
             TextWriter outBefore = Console.Out;
             TextWriter errorBefore = Console.Error;
 
-            int exitCode = await CliApplication.RunAsync(Split(arguments), cancellationToken, effective);
+            int exitCode = await CliApplication.RunAsync(tokens, cancellationToken, effective);
 
             return new CliRunResult(exitCode, _stdout.ToString() ?? string.Empty, _stderr.ToString() ?? string.Empty)
             {

@@ -55,8 +55,8 @@ Filled during the build: the commands `probe`, `run`, `report`, `validate` and `
 Prints the GPU, driver, power limit and energy method that will be measured; without NVML or a device it prints `no GPU` and still exits 0. Stdout holds only the probe output; log lines and the energy-method disclosure go to stderr.
 
 - `--json`: print the result as one JSON object instead of the ten `label: value` lines.
-- `--save`: write `results/probe-<timestamp>[-<suffix>].json` (arrives in AJ-037; accepted and ignored for now).
-- `--suffix <text>`: add a suffix such as `cloudgpu` to the saved file name (arrives in AJ-037; accepted and ignored for now).
+- `--save`: also write the JSON form (the same bytes `--json` prints) to `results/probe-<yyyyMMddTHHmmssZ>[-<suffix>].json` under the working directory, with the UTC time of the run, for example `results/probe-20261019T093015Z.json`; the `results` folder is created when missing and stderr gets one line `saved: results/<name>`. Stdout keeps the form you asked for. An existing file is never overwritten: the command exits 1 with `error: file exists: results/<name>` and prints nothing on stdout. Without a GPU the file records `gpuPresent: false`. The file name starts with `probe-`, so it is never mistaken for a run file. The file carries the full GPU UUID.
+- `--suffix <text>`: only with `--save`; adds `-<text>` to the file name, for example `--suffix cloudgpu` gives `results/probe-20261019T093015Z-cloudgpu.json`. The text must be 1 to 20 ASCII letters or digits (`^[A-Za-z0-9]{1,20}$`), so it cannot hold a path separator or `..`; anything else, or `--suffix` without `--save`, exits 2 and writes nothing.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
 
 ## Reproduce

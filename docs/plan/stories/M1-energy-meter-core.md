@@ -11,7 +11,7 @@ Exit criteria:
 - [ ] `dotnet test --filter "Spec=REQ-003"`, `"Spec=REQ-004"`, `"Spec=REQ-005"`, `"Spec=REQ-006"`, `"Spec=EDGE-001"`, `"Spec=EDGE-002"`, `"Spec=EDGE-003"`, `"Spec=EDGE-005"`, `"Spec=EDGE-013"` and `"Spec=EDGE-014"` each show at least 1 passed and 0 failed, results recorded under `## Per-ID filter results` in docs/build-log.md
 - [ ] On the laptop, `AGENTJOULES_INTEGRATION=1 dotnet test --filter "Spec=REQ-003"` passes (device name contains `3080`, power limit between 50 and 200 W)
 - [ ] 21 samples of 50 000 mW at 0.0 to 2.0 s integrate to 100 J within 1 percent; a 3 s window at 60 W against a 20 W baseline gives gross 180 J, net 120 J, average 60 W, peak 60 W (PowerIntegrationTests, AttributionBaselineTests)
-- [ ] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json`
+- [x] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json` Note (2026-10-19): ticked on the AJ-037 commit; the laptop run exited 0 at 20:53:44Z and the file is committed as results/probe-20261019T205344Z.json (driverVersion 616.92, equal to nvidia-smi).
 - [ ] The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`; the output of `AJ probe` inside WSL2 (or the reason it was not run) is recorded under `## Probe and WSL2 notes`
 - [ ] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1
 - [ ] `dotnet test --filter "Spec=REQ-006"` includes the exit-code value test (ExitCodeTests); the README exit-code table is created by AJ-131-T4 in M6
@@ -1183,12 +1183,12 @@ Covers: REQ-006
 User story: As a reviewer, I want `AJ probe --json --save` to write a timestamped probe file and the laptop's probe to be committed, so that every later measurement run can point at the machine facts it was taken on.
 Acceptance criteria:
 1. `--save` writes `results/probe-<yyyyMMddTHHmmssZ>.json` (UTC from the injected `TimeProvider`, invariant culture) with the same content as `--json`; `--suffix cloudgpu` gives `probe-<yyyyMMddTHHmmssZ>-cloudgpu.json`. The folder is created when missing.
-2. On the laptop, `AJ probe --json --save` exits 0 with `gpuPresent: true`; `driverVersion` equals the output of `nvidia-smi --query-gpu=driver_version --format=csv,noheader` (trimmed, string equality); `energyCounterSupported` is a boolean. The file is committed by the builder as `results/probe-<yyyyMMddTHHmmssZ>.json`.
-3. `--suffix` without `--save`, or a suffix not matching `^[A-Za-z0-9]{1,20}$` (for example `../x`), exits 2 (assumed constraint, protects the path).
-4. An existing target file is never overwritten: exit 1 with `error: file exists` (assumed, protects committed probes).
+2. On the laptop, `AJ probe --json --save` exits 0 with `gpuPresent: true`; `driverVersion` equals the output of `nvidia-smi --query-gpu=driver_version --format=csv,noheader` (trimmed, string equality); `energyCounterSupported` is a boolean. The file is committed by the builder as `results/probe-<yyyyMMddTHHmmssZ>.json`. Note (2026-10-19): the laptop file is results/probe-20261019T205344Z.json (run 20:53:44Z); its driverVersion 616.92 equals the nvidia-smi driver_version output at 20:53Z (measured, trimmed string equality); energyCounterSupported is a boolean (true).
+3. `--suffix` without `--save`, or a suffix not matching `^[A-Za-z0-9]{1,20}$` (for example `../x`), exits 2 (assumed constraint, protects the path). Note (2026-10-19): the suffix rule is applied with `\z` in code so a trailing line feed cannot pass; a rejected suffix echoes at most its first 16 characters with control characters replaced.
+4. An existing target file is never overwritten: exit 1 with `error: file exists` (assumed, protects committed probes). Note (2026-10-20): an existing file, directory or dangling link at the final name gives `file exists`; any other I/O failure gives `cannot write results/<name>: <ExceptionType>`; the write goes through a GUID-named temporary file and a non-overwriting move.
 5. The probe file name does not match the run-file pattern `^\d{8}T\d{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$` (test), so `validate` and `report` never mistake it for a run.
 6. With no GPU, `--save` still writes a file with `gpuPresent: false` (an honest record); CI does not commit it.
-7. docs/build-log.md records the laptop GPU name, driver, enforced power limit and counter support from the committed probe; if the limit differs from the 94.62 W that nvidia-smi printed on 2026-10-17, the note says the committed probe value is the authority (design C-11). If `energyCounterSupported` is false, the note records that the README must say `sampling` (M3, M6).
+7. docs/build-log.md records the laptop GPU name, driver, enforced power limit and counter support from the committed probe; if the limit differs from the 94.62 W that nvidia-smi printed on 2026-10-17, the note says the committed probe value is the authority (design C-11). If `energyCounterSupported` is false, the note records that the README must say `sampling` (M3, M6). Note (2026-10-19): the committed file's enforced power limit is 96.57 W; nvidia-smi printed 94.62 W on 2026-10-17 and the limit has moved between runs today, so the committed probe value is the authority (design C-11). Counter support is true, so no sampling note is needed.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S037 @REQ-006
@@ -1244,9 +1244,9 @@ Tasks:
 Test mapping: ProbeCommandTests; Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-037-probe-save.feature. Schema validation of the committed probe file belongs to SchemaValidationTests in M3.
 Docs impact: README.md `### probe` (the two new options); docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-006 commit by the builder with a message starting `AJ-037 REQ-006:` including the probe file (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-006 commit by the builder with a message starting `AJ-037 REQ-006:` including the probe file (nothing pushed) Note (2026-10-20): commit `AJ-037 REQ-006:` by the orchestrator on 2026-10-20 after three gate rounds (the builder role is the csharp-expert agent; the orchestrator commits).
 Demo relevance: yes: the committed probe file is the machine fact sheet quoted next to every published table.
 
 ### AJ-038: Add the GitHub Actions matrix for build, tests and the no-GPU probe

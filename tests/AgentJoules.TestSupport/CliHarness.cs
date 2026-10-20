@@ -27,6 +27,26 @@ public static class CliHarness
         CancellationToken cancellationToken = default) =>
         Start(arguments, overrides, stdout, stderr, cancellationToken).Result;
 
+    /// <summary>
+    /// Runs the command line made of exactly <paramref name="tokens"/>: nothing is split and no quote is interpreted, so a token can hold whitespace
+    /// or a line terminator, which <see cref="RunAsync"/> cannot express. The overrides, writers and token are as for <see cref="RunAsync"/>.
+    /// </summary>
+    /// <param name="tokens">The arguments without the program name, one array element each.</param>
+    /// <param name="overrides">Test overrides; null means the default isolated overrides, never the production null.</param>
+    /// <param name="stdout">The writer that receives standard output; a <see cref="StringWriter"/> when null.</param>
+    /// <param name="stderr">The writer that receives standard error; a <see cref="StringWriter"/> when null.</param>
+    /// <param name="cancellationToken">The token handed to <c>RunAsync</c>.</param>
+    public static Task<CliRunResult> RunTokensAsync(
+        string[] tokens,
+        CliHostOverrides? overrides = null,
+        TextWriter? stdout = null,
+        TextWriter? stderr = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(tokens);
+        return new CliHarnessRun(tokens, overrides, stdout, stderr, cancellationToken).Result;
+    }
+
     /// <summary>Starts a run without waiting for it, for the tests that interact with it (the shutdown test raises <c>ApplicationStopping</c> while <c>fake-wait</c> waits).</summary>
     public static CliHarnessRun Start(
         string arguments,
