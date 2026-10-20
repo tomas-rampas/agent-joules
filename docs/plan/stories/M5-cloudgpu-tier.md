@@ -766,6 +766,8 @@ Conflict: REQ-028 switches the tagline to A-local when the cloudgpu tier "produc
 | Judge rate-limit from the VM | 429 on the judge tier | judge failures never change the exit code; steps keep `quality` N/A with `not-scored` | builder |
 | Estimate exceeds two working days | task sum of 36.95 hours against about 12 hours of capacity | unit stories AJ-121 to AJ-124 and AJ-129 are independent of the VM and can be done in parallel; the VM box is wall-clock; the cloudgpu tier may end as `partial` by design | builder |
 
+Note (2026-10-20): Carry from the M1 exit (D-16): trim the sample buffer or cap the effective rate near 100 Hz before the VM runs.
+
 ## Estimate
 
 Note (2026-10-18): any deferral or descope candidates named in this section are informational; the drop order in docs/plan/plan.md section 3.4 is the single source and classifies stories as MUST, SHOULD or COULD.
