@@ -12,6 +12,7 @@ namespace AgentJoules.Reporting.Json;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     WriteIndented = true,
     NewLine = "\n",
-    DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+    AllowDuplicateProperties = false)]
 [JsonSerializable(typeof(ProbeResult))]
 public sealed partial class AgentJoulesJsonContext : JsonSerializerContext;

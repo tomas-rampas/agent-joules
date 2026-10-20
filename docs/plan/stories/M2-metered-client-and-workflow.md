@@ -33,6 +33,8 @@ Hands over to later milestones: `ICostCalculator` seam with a placeholder implem
 
 User actions from prompt section 12: steps 5 (`NEBIUS_API_KEY`) and 6 (`NVIDIA_API_KEY`) are needed only for the live dry-run criterion above. Step 4 (credits) should be done before step 5. Step 7 (`NGC_API_KEY`) is not needed in this milestone. No test in this milestone needs a key; tests build fake keys at run time.
 
+Note (2026-10-20, M2 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-0nn-<slug>.feature; the file names in the story tables (for example ReadingAndSink.feature) map to that form.
+
 ## Stories
 
 ### AJ-040: Define the per-call reading and publish it to a metrics sink
@@ -80,9 +82,9 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/ReadingAndSink.feature`.
 Docs impact: `docs/build-log.md` (test result line); README telemetry and results sections are written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,769/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test (2026-10-20: `dotnet test --filter "Spec=REQ-008"` 122 passed, 0 failed)
 Demo relevance: no (internal contract; every console step line and results row in the demo comes from this record).
 
 ### AJ-041: Meter buffered and streaming calls with exactly one reading per call

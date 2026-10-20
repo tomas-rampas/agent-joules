@@ -114,6 +114,12 @@ public static class ReadingCalculator
             throw Rejected(nameof(input), $"ReadingInput.Method {(int)input.Method} is not a defined energy method.");
         }
 
+        // A hosted tier has no samples to compute from; its readings come from UnmeteredEnergyMeter, never from this calculator.
+        if (input.Method == EnergyMethod.Unmetered)
+        {
+            throw Rejected(nameof(input), $"ReadingInput.Method must be counter or sampling, but it is {input.Method}.");
+        }
+
         if (input.IsSamplingFallback && input.Method != EnergyMethod.Sampling)
         {
             throw Rejected(nameof(input), $"ReadingInput.IsSamplingFallback requires the sampling method, but the method is {input.Method}.");

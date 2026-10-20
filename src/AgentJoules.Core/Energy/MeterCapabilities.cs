@@ -4,15 +4,20 @@ namespace AgentJoules.Core.Energy;
 /// <remarks>
 /// The constructor checks the invariants, and every property is get-only, so an instance cannot describe a combination
 /// that is impossible: a fallback is sampling on a GPU without the counter, the counter method needs the counter, and the
-/// unsupported reason is present exactly when the counter is unsupported.
+/// unsupported reason is present exactly when the counter is unsupported. The unmetered method (hosted tiers) is the one
+/// exception to the positive sampling rate: it has no sampling, so it accepts only counter unsupported with the reason
+/// <see cref="HostedTierReason"/>, rate 0 and no fallback.
 /// </remarks>
 public sealed record MeterCapabilities
 {
+    /// <summary>The reason a hosted tier carries as its counter-unsupported reason and on every N/A energy metric.</summary>
+    public const string HostedTierReason = "hosted-tier";
+
     /// <summary>Creates the capabilities after checking that the combination is consistent.</summary>
     /// <param name="method">The method that supplies the gross energy of every window; a defined value.</param>
     /// <param name="counterSupported">True when the GPU's energy counter answered the startup probe.</param>
-    /// <param name="counterUnsupportedReason">Why the counter is unsupported, for example <c>counter-not-supported: NVML_ERROR_NOT_SUPPORTED</c>; null exactly when it is supported.</param>
-    /// <param name="sampleRateHz">The configured sampling rate in hertz; positive and finite.</param>
+    /// <param name="counterUnsupportedReason">Why the counter is unsupported, for example <c>counter-not-supported: NVML_ERROR_NOT_SUPPORTED</c>; null exactly when it is supported; <see cref="HostedTierReason"/> for the unmetered method.</param>
+    /// <param name="sampleRateHz">The configured sampling rate in hertz; positive and finite, except that the unmetered method has no sampling and needs exactly 0.</param>
     /// <param name="isFallback">True only when automatic selection fell back to sampling because the counter is unsupported; every reading then carries the <c>sampling-fallback</c> flag.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="method"/> is not defined, or the rate is not positive and finite.</exception>
     /// <exception cref="ArgumentException">The combination of the other arguments is inconsistent.</exception>
@@ -23,7 +28,11 @@ public sealed record MeterCapabilities
             throw new ArgumentOutOfRangeException(nameof(method));
         }
 
-        if (!double.IsFinite(sampleRateHz) || sampleRateHz <= 0.0)
+        if (method == EnergyMethod.Unmetered)
+        {
+            RequireHostedTier(counterSupported, counterUnsupportedReason, sampleRateHz, isFallback);
+        }
+        else if (!double.IsFinite(sampleRateHz) || sampleRateHz <= 0.0)
         {
             throw new ArgumentOutOfRangeException(nameof(sampleRateHz), "The sample rate must be positive and finite.");
         }
@@ -71,6 +80,26 @@ public sealed record MeterCapabilities
         (EnergyMethod.Sampling, false) => "Energy method: sampling",
         (EnergyMethod.Sampling, true) => "Energy method: sampling (counter unsupported)",
         (EnergyMethod.Counter, false) => "Energy method: counter",
+        (EnergyMethod.Unmetered, false) => "Energy method: unmetered (hosted tier)",
         _ => throw new InvalidOperationException("The capabilities are inconsistent."),
     };
+
+    // The one combination that describes a hosted tier: no counter (the GPU is not ours), the hosted-tier reason, no sampling rate and no fallback.
+    private static void RequireHostedTier(bool counterSupported, string? counterUnsupportedReason, double sampleRateHz, bool isFallback)
+    {
+        if (sampleRateHz != 0.0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sampleRateHz), "The unmetered method has no sampling, so its sample rate must be 0.");
+        }
+
+        if (counterSupported || !string.Equals(counterUnsupportedReason, HostedTierReason, StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"The unmetered method needs an unsupported counter with the reason {HostedTierReason}.", nameof(counterUnsupportedReason));
+        }
+
+        if (isFallback)
+        {
+            throw new ArgumentException("The unmetered method is not a sampling fallback.", nameof(isFallback));
+        }
+    }
 }

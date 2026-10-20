@@ -454,7 +454,7 @@ public sealed class AttributionBaselineTests
 
     [Theory]
     [InlineData((EnergyMethod)0)]
-    [InlineData((EnergyMethod)3)]
+    [InlineData((EnergyMethod)4)]
     [InlineData((EnergyMethod)99)]
     public void AnUndefinedMethodIsRejected(EnergyMethod method)
     {
