@@ -13,7 +13,7 @@ Exit criteria:
 - [ ] 21 samples of 50 000 mW at 0.0 to 2.0 s integrate to 100 J within 1 percent; a 3 s window at 60 W against a 20 W baseline gives gross 180 J, net 120 J, average 60 W, peak 60 W (PowerIntegrationTests, AttributionBaselineTests)
 - [x] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json` Note (2026-10-19): ticked on the AJ-037 commit; the laptop run exited 0 at 20:53:44Z and the file is committed as results/probe-20261019T205344Z.json (driverVersion 616.92, equal to nvidia-smi).
 - [ ] The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`; the output of `AJ probe` inside WSL2 (or the reason it was not run) is recorded under `## Probe and WSL2 notes`
-- [ ] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1
+- [x] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1 Note (2026-10-20): ticked on the AJ-038 commit; grep exit 1 measured at 09:14Z; the ubuntu leg proven in the sdk:10.0 container; the first hosted run is the user's after the push.
 - [ ] `dotnet test --filter "Spec=REQ-006"` includes the exit-code value test (ExitCodeTests); the README exit-code table is created by AJ-131-T4 in M6
 - [ ] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered): `AJ-023 REQ-003:`, `AJ-027 REQ-004 EDGE-002:`, `AJ-031 REQ-005:`, `AJ-037 REQ-006:`, `AJ-038 REQ-024:`, `AJ-026 EDGE-003:`, `AJ-030 EDGE-005:`, `AJ-028 EDGE-013:` and `AJ-036 EDGE-001 EDGE-014:` exist (made by the builder, nothing pushed); `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
 
@@ -1255,11 +1255,11 @@ User story: As a contributor, I want a CI workflow on Windows and Linux runners 
 Acceptance criteria:
 1. `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1 (no secret reference) and it contains no `pull_request_target`.
 2. Steps in order: `actions/checkout@v4`; `actions/setup-dotnet@v6` with `global-json-file: global.json`; `dotnet restore`; `dotnet build -warnaserror -tl:off --no-incremental --no-restore`; `dotnet format --verify-no-changes --no-restore`; `dotnet test --no-build`; `dotnet run --project src/AgentJoules.Cli --no-build -- probe --json`; and `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" && exit 1 || exit 0`.
-3. The probe step runs under `shell: bash` on both runners, requires exit 0 and requires the output to contain `"gpuPresent": false` (hosted runners have no NVIDIA driver, inferred; this is the EDGE-001 path).
+3. The probe step runs under `shell: bash` on both runners, requires exit 0 and requires the output to contain `"gpuPresent": false` (hosted runners have no NVIDIA driver, inferred; this is the EDGE-001 path). Note (2026-10-20): `shell: bash` is the job default and is set on the probe step; GitHub's `bash -eo pipefail` propagates the dotnet exit code through the `tee` pipe.
 4. The workflow sets `permissions: contents: read` and triggers on push and pull_request.
 5. `CiWorkflowTests` reads the file (repository root found by walking up to global.json) and asserts every string of criterion 1 and 2.
-6. The same restore, build and test commands exit 0 locally; `AJ probe --json` on the laptop prints `gpuPresent: true`, which is expected because the false assertion applies to GPU-less runners only. If `actionlint` is installed, `actionlint .github/workflows/ci.yml` exits 0.
-7. The first GitHub run happens after the user pushes and is not a Definition of Done item; the user action is noted in docs/build-log.md (check: `grep -n "first CI run" docs/build-log.md` matches under `## User actions`).
+6. The same restore, build and test commands exit 0 locally; `AJ probe --json` on the laptop prints `gpuPresent: true`, which is expected because the false assertion applies to GPU-less runners only. If `actionlint` is installed, `actionlint .github/workflows/ci.yml` exits 0. Note (2026-10-20): the seven local commands exit 0 (restore, strict build with 0 warnings, format, test with the same totals, probe printing `"gpuPresent": true`, key scan, actionlint); the ubuntu-latest leg is proven in the sdk:10.0 container on a copy of the tree (exit 0, 98 s); the windows-latest GPU-less leg cannot be proven before the push.
+7. The first GitHub run happens after the user pushes and is not a Definition of Done item; the user action is noted in docs/build-log.md (check: `grep -n "first CI run" docs/build-log.md` matches under `## User actions`). Note (2026-10-20): recorded as the user action `first CI run` under `## User actions` in docs/build-log.md (line 460 at the time of writing).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S038 @REQ-024
@@ -1305,9 +1305,9 @@ Tasks:
 Test mapping: CiWorkflowTests (new class, file-content assertions); Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-038-ci-workflow.feature.
 Docs impact: docs/build-log.md (user action: first CI run after the push).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-024 commit by the builder with a message starting `AJ-038 REQ-024:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-024 commit by the builder with a message starting `AJ-038 REQ-024:` (nothing pushed) Note (2026-10-20): commit `AJ-038 REQ-024:` by the orchestrator on 2026-10-20 after two gate rounds (the builder role is the csharp-expert agent; the orchestrator commits).
 Demo relevance: no
 
 ## Risks
