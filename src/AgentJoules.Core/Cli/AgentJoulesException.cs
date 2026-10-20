@@ -87,3 +87,76 @@ public sealed class RetriesExhaustedException(int attempts, int statusCode) : Ag
         return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"HTTP {statusCode} after {attempts} {(attempts == 1 ? "attempt" : "attempts")}");
     }
 }
+
+/// <summary>
+/// A step of the workflow failed (REQ-011): an agent's call ended with an error (a provider status, an unreachable endpoint, retries that ran out). Exits with
+/// <see cref="Cli.ExitCode.Unreachable"/> (5).
+/// </summary>
+/// <remarks>
+/// <para>
+/// The message holds only the agent name, the type name of the failure and, when the failure had one, its HTTP status; none of the text of the failure travels in
+/// <see cref="Exception.Message"/>, because the message of a provider exception carries the response body and a rejected call can echo the credential. The
+/// failure itself may be attached as <see cref="Exception.InnerException"/>: the error line of the command line prints the message and the type of the outer
+/// exception only, and the chain reaches the log at Debug level only, where the text is masked by the redactor like every other line. The attached exception must never be
+/// printed outside Debug-level logging (not in an error line, a results file or a dashboard event): a test pins that the error line shows none of it. This differs from
+/// <see cref="RetriesExhaustedException"/>, which wraps nothing.
+/// </para>
+/// <para>The names are echoed through <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so a name that is long or holds a control character cannot break the error line.</para>
+/// </remarks>
+public sealed class StepFailedException : AgentJoulesException
+{
+    /// <summary>Creates the exception for the failure of <paramref name="agent"/> with no attached failure.</summary>
+    /// <param name="agent">The name of the agent whose step failed; not blank.</param>
+    /// <param name="failureType">The type name of the failure, for example <c>ClientResultException</c>; not blank.</param>
+    /// <param name="statusCode">The HTTP status the failure carried, or null.</param>
+    /// <exception cref="ArgumentException"><paramref name="agent"/> or <paramref name="failureType"/> is null, empty or white space.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
+    public StepFailedException(string agent, string failureType, int? statusCode = null)
+        : base(ExitCode.Unreachable, Describe(agent, failureType, statusCode))
+    {
+        Agent = agent;
+        FailureType = failureType;
+        StatusCode = statusCode;
+    }
+
+    /// <summary>Creates the exception for the failure of <paramref name="agent"/> and attaches the failure that ended the step.</summary>
+    /// <param name="agent">The name of the agent whose step failed; not blank.</param>
+    /// <param name="failureType">The type name of the failure, for example <c>ClientResultException</c>; not blank.</param>
+    /// <param name="statusCode">The HTTP status the failure carried, or null.</param>
+    /// <param name="inner">The failure; kept as <see cref="Exception.InnerException"/> and never copied into the message.</param>
+    /// <exception cref="ArgumentException"><paramref name="agent"/> or <paramref name="failureType"/> is null, empty or white space.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
+    public StepFailedException(string agent, string failureType, int? statusCode, Exception inner)
+        : base(ExitCode.Unreachable, Describe(agent, failureType, statusCode), inner)
+    {
+        Agent = agent;
+        FailureType = failureType;
+        StatusCode = statusCode;
+    }
+
+    /// <summary>The name of the agent whose step failed.</summary>
+    public string Agent { get; }
+
+    /// <summary>The type name of the failure; never its message.</summary>
+    public string FailureType { get; }
+
+    /// <summary>The HTTP status the failure carried, or null when it had none.</summary>
+    public int? StatusCode { get; }
+
+    private static string Describe(string agent, string failureType, int? statusCode)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(failureType);
+
+        string text = $"Step {Labels.TextEcho.ForMessage(agent)} failed with {Labels.TextEcho.ForMessage(failureType)}";
+        if (statusCode is not { } status)
+        {
+            return text;
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(status, 100);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(status, 599);
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{text} and HTTP status {status}");
+    }
+}

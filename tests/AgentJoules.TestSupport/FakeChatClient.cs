@@ -23,7 +23,7 @@ public sealed record FakeChatCall(IReadOnlyList<ChatMessage> Messages, ChatOptio
 /// <see cref="ResponseDelay"/>; a streaming call yields <see cref="Updates"/>, each after its own delay. Every delay is applied by moving the
 /// <see cref="FakeTimeProvider"/> forward before the answer or the update is handed back, so a time measured around the call is exact by
 /// construction and no test waits on the wall clock. A scripted failure is thrown after a chosen number of updates. The cancellation token is
-/// honoured between updates. Every call is recorded.
+/// honoured between updates. Every call is recorded. Several fakes may move one clock from several threads (the workflow runs two branches at once): FakeTimeProvider.Advance takes its own lock (Microsoft.Extensions.TimeProvider.Testing 10.11.0), so the fake adds none.
 /// </summary>
 public sealed class FakeChatClient(FakeTimeProvider time) : IChatClient
 {

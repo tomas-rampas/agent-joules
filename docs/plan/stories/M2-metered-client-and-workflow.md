@@ -709,10 +709,10 @@ Tasks:
 Test mapping: `AttributionBaselineTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Workflow/FanOutFanIn.feature`.
 Docs impact: `docs/build-log.md`; the workflow diagram for the README is produced in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-011"` shows at least one passed and no failed test
-- [ ] the three greps in criterion 1 each return at least one hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; battery 2,339 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: build log entry, test count, per-ID and secret scan rows; grep hits recorded)
+- [x] `dotnet test --filter "Spec=REQ-011"` shows at least one passed and no failed test (2026-10-20: 58 passed, 0 failed; full run 2,339 passed, 0 failed, 5 skipped)
+- [x] the three greps in criterion 1 each return at least one hit (2026-10-20: hits 1, 1 and 2 over src/*.cs)
 Demo relevance: yes: the demo shows Planner, then Researcher and Writer, then Reviewer, each with its own joules.
 
 ### AJ-051: Record OpenTelemetry instruments and the activity source

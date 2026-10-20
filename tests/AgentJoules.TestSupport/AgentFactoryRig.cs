@@ -12,7 +12,7 @@ using Microsoft.Agents.AI;
 namespace AgentJoules.TestSupport;
 
 /// <summary>
-/// An <see cref="AgentFactory"/> over a fake clock, an unmetered meter, a no-op gate and one in-memory sink (REQ-011, design 6.1), plus the fixtures the
+/// An <see cref="AgentFactory"/> over a fake clock, an unmetered meter, a no-op gate (or the gate the caller gives it) and one in-memory sink (REQ-011, design 6.1), plus the fixtures the
 /// agent factory tests share: a tier whose four agents have four model IDs and a task. The clock moves only when the code under test waits
 /// (<see cref="RunAsync"/>), so the retry waits of a pipeline cost no wall-clock time; the jitter is a seeded <see cref="Random"/>.
 /// </summary>
@@ -77,8 +77,9 @@ public sealed class AgentFactoryRig : IAsyncDisposable
     /// <summary>Builds a rig over the provider clients <paramref name="providers"/> makes from the rig clock.</summary>
     /// <param name="providers">Builds the provider factory from the clock of the rig, which the fake endpoints of the provider clients share.</param>
     /// <param name="retry">The retry policy, or null for the default.</param>
+    /// <param name="gate">The meter gate every agent of the rig shares, or null for <see cref="NoOpMeterGate.Instance"/> (concurrent mode). The caller owns a gate it passes and disposes it after the rig.</param>
     /// <returns>The rig; the caller disposes it.</returns>
-    public static async Task<AgentFactoryRig> CreateAsync(Func<TimerTrackingTimeProvider, IProviderClientFactory> providers, RetryOptions? retry = null)
+    public static async Task<AgentFactoryRig> CreateAsync(Func<TimerTrackingTimeProvider, IProviderClientFactory> providers, RetryOptions? retry = null, IMeterGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(providers);
 
@@ -87,7 +88,7 @@ public sealed class AgentFactoryRig : IAsyncDisposable
         await meter.StartAsync(CancellationToken.None).ConfigureAwait(false);
 
         var sink = new InMemoryMetricsSink();
-        var services = new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, time);
+        var services = new MeteringServices(meter, gate ?? NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, time);
         IProviderClientFactory clients = providers(time);
         var factory = new AgentFactory(clients, services, retry ?? RetryOptions.Default, time, new Random(RandomSeed));
 
