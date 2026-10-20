@@ -1037,9 +1037,9 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Reporting/RunCheckpoint.feature`; class `RunCheckpointTests` (trait `Spec=REQ-017`); `SchemaValidationTests` consumes the same records in M3.
 Docs impact: `.gitignore` (`results/*.partial`); `docs/build-log.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the checkpoint file survives a simulated write failure (scenario above)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,452/0/5)
+- [x] docs listed above updated (2026-10-20: `.gitignore` entry already present (line 501) and this build-log entry)
+- [x] the checkpoint file survives a simulated write failure (scenario above) (2026-10-20: scenario "failed write keeps the previous complete file" green and `Failed_write_keeps_previous_file` plus the `[WindowsFact]` real-conflict test green)
 Demo relevance: no.
 
 ### AJ-056: Orchestrate a tier run over tasks, repeats and modes

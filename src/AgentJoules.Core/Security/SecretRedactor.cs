@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace AgentJoules.Core.Security;
@@ -41,6 +42,8 @@ public sealed partial class SecretRedactor
     /// least five characters long (short placeholders such as <c>x</c> or <c>0</c> would rewrite unrelated output),
     /// does not contain <c>*</c> (redaction would stop being idempotent) and is not a part of the <c>nvapi-****</c>
     /// mask (it would corrupt the mask).
+    /// Every registered form is also registered in the form the JSON encoder writes when it differs (a key with <c>+</c>, <c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, an apostrophe
+    /// or a non-ASCII character appears escaped in a JSON text), under the same rules.
     /// </summary>
     /// <param name="value">The secret value to mask wherever it occurs; null is ignored.</param>
     /// <returns>True when at least one form of the value or of one of its lines is registrable.</returns>
@@ -57,6 +60,8 @@ public sealed partial class SecretRedactor
         {
             AddForms(forms, segment);
         }
+
+        AddJsonEncodedForms(forms);
 
         if (forms.Count == 0)
         {
@@ -139,6 +144,27 @@ public sealed partial class SecretRedactor
 
         builder.Append(text, copied, text.Length - copied);
         return builder.ToString();
+    }
+
+    // The JSON encoder writes + < > & ' and every non-ASCII character as \uXXXX, so a key with one of them never matches JSON text (a results file, probe --json)
+    // as it is. Each registered form is therefore registered in its encoded form too, under the same rules (length, no star, not a part of the mask).
+    private static void AddJsonEncodedForms(HashSet<string> forms)
+    {
+        foreach (string form in forms.ToArray())
+        {
+            try
+            {
+                string encoded = JsonEncodedText.Encode(form).ToString();
+                if (!string.Equals(encoded, form, StringComparison.Ordinal))
+                {
+                    AddIfRegistrable(forms, encoded);
+                }
+            }
+            catch (ArgumentException)
+            {
+                // A form with a lone surrogate (kept for the UTF-8 round trip of a malformed value) cannot be encoded; its other forms still are.
+            }
+        }
     }
 
     private static void AddForms(HashSet<string> forms, string text)

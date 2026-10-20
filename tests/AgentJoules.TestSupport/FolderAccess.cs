@@ -52,21 +52,39 @@ public static class FolderAccess
         return new Restore(() => Directory.Delete(link));
     }
 
-    private static void CreateJunction(string link, string target)
+    /// <summary>Creates a hard link at <paramref name="link"/> to the existing file <paramref name="target"/> (<c>mklink /H</c> on Windows, <c>ln</c> elsewhere); both names then share one file.</summary>
+    /// <param name="link">The path of the new name.</param>
+    /// <param name="target">The existing file.</param>
+    /// <exception cref="InvalidOperationException">The link could not be created.</exception>
+    public static void CreateHardLink(string link, string target)
     {
-        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        foreach (string argument in new[] { "/c", "mklink", "/J", link, target })
+        if (OperatingSystem.IsWindows())
+        {
+            RunTool("cmd.exe", "/c", "mklink", "/H", link, target);
+        }
+        else
+        {
+            RunTool("ln", target, link);
+        }
+    }
+
+    private static void CreateJunction(string link, string target) => RunTool("cmd.exe", "/c", "mklink", "/J", link, target);
+
+    private static void RunTool(string fileName, params string[] arguments)
+    {
+        var start = new ProcessStartInfo(fileName) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (string argument in arguments)
         {
             start.ArgumentList.Add(argument);
         }
 
-        using Process process = Process.Start(start) ?? throw new InvalidOperationException("cmd.exe did not start.");
+        using Process process = Process.Start(start) ?? throw new InvalidOperationException(fileName + " did not start.");
         _ = process.StandardOutput.ReadToEnd();
         _ = process.StandardError.ReadToEnd();
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException("mklink /J failed with exit code " + process.ExitCode);
+            throw new InvalidOperationException(fileName + " failed with exit code " + process.ExitCode);
         }
     }
 
@@ -94,6 +112,45 @@ public static class FolderAccess
     {
         var info = new DirectoryInfo(folder);
         var rule = new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.ListDirectory, AccessControlType.Deny);
+
+        DirectorySecurity security = info.GetAccessControl();
+        security.AddAccessRule(rule);
+        info.SetAccessControl(security);
+
+        return new Restore(() =>
+        {
+            DirectorySecurity current = info.GetAccessControl();
+            _ = current.RemoveAccessRule(rule);
+            info.SetAccessControl(current);
+        });
+    }
+
+    /// <summary>
+    /// Makes creating a file or a folder inside <paramref name="folder"/> fail with <see cref="UnauthorizedAccessException"/> for the current user (a deny
+    /// entry for file and folder creation on Windows, mode r-x elsewhere); listing and reading stay allowed. The same hosts skip as for
+    /// <see cref="DenyListing"/> (<see cref="DenyListingSkipReason"/>): a privileged Unix process writes whatever the mode. Dispose the result before the
+    /// folder is deleted: it restores the access.
+    /// </summary>
+    /// <param name="folder">An existing folder.</param>
+    /// <returns>The handle that restores the access.</returns>
+    public static IDisposable DenyWriting(string folder)
+    {
+        return OperatingSystem.IsWindows() ? DenyWritingOnWindows(folder) : DenyWritingOnUnix(folder);
+    }
+
+    [UnsupportedOSPlatform("windows")]
+    private static Restore DenyWritingOnUnix(string folder)
+    {
+        UnixFileMode original = File.GetUnixFileMode(folder);
+        File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        return new Restore(() => File.SetUnixFileMode(folder, original));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Restore DenyWritingOnWindows(string folder)
+    {
+        var info = new DirectoryInfo(folder);
+        var rule = new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!, FileSystemRights.CreateFiles | FileSystemRights.CreateDirectories, AccessControlType.Deny);
 
         DirectorySecurity security = info.GetAccessControl();
         security.AddAccessRule(rule);

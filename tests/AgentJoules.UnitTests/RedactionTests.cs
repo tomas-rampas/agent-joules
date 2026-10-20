@@ -31,6 +31,27 @@ public sealed class RedactionTests
 
     [Fact]
     [Trait("Spec", "REQ-029")]
+    public void Redact_JsonEscapedFormOfAKey_IsMasked()
+    {
+        // The JSON encoder writes + < > & ' and every non-ASCII character as \uXXXX, so the escaped text of such a key has to be registered with it.
+        string[] keys = [string.Concat("k7w", "+", "2qm9xv4t"), string.Concat("caf", ((char)0x00E9).ToString(), "-r8v2kd5m"), string.Concat("a<b>", "&c'", "-p7wshq3n")];
+        var redactor = new SecretRedactor();
+        foreach (string key in keys)
+        {
+            Assert.True(redactor.Register(key));
+        }
+
+        foreach (string key in keys)
+        {
+            string escaped = System.Text.Json.JsonSerializer.Serialize(key);
+            Assert.NotEqual("\"" + key + "\"", escaped);
+            Assert.Equal("\"****\"", redactor.Redact(escaped));
+            Assert.Equal("****", redactor.Redact(key));
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-029")]
     public void Redact_RuntimeBuiltNvidiaKey_ReturnsPrefixPlusStarsWithoutSuffix()
     {
         var redactor = new SecretRedactor();
