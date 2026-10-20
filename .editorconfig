@@ -400,3 +400,7 @@ dotnet_diagnostic.CA1848.severity = warning
 
 [*.{cs,json,md,svg,html}]
 end_of_line = lf
+
+# AJ-024: the type name ReadingFlags is fixed by design 3.2 and the story; CA1711 (identifier ends in Flags) is a false positive for this [Flags] enum
+[src/AgentJoules.Core/Labels/ReadingFlags.cs]
+dotnet_diagnostic.CA1711.severity = none

@@ -11,9 +11,9 @@ Exit criteria:
 - [ ] `dotnet test --filter "Spec=REQ-003"`, `"Spec=REQ-004"`, `"Spec=REQ-005"`, `"Spec=REQ-006"`, `"Spec=EDGE-001"`, `"Spec=EDGE-002"`, `"Spec=EDGE-003"`, `"Spec=EDGE-005"`, `"Spec=EDGE-013"` and `"Spec=EDGE-014"` each show at least 1 passed and 0 failed, results recorded under `## Per-ID filter results` in docs/build-log.md
 - [ ] On the laptop, `AGENTJOULES_INTEGRATION=1 dotnet test --filter "Spec=REQ-003"` passes (device name contains `3080`, power limit between 50 and 200 W)
 - [ ] 21 samples of 50 000 mW at 0.0 to 2.0 s integrate to 100 J within 1 percent; a 3 s window at 60 W against a 20 W baseline gives gross 180 J, net 120 J, average 60 W, peak 60 W (PowerIntegrationTests, AttributionBaselineTests)
-- [ ] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json`
+- [x] `AJ probe --json` on the laptop exits 0 with `gpuPresent: true`, `driverVersion` equal to the `nvidia-smi` driver version and a boolean `energyCounterSupported`; the output is committed as `results/probe-<yyyyMMddTHHmmssZ>.json` Note (2026-10-19): ticked on the AJ-037 commit; the laptop run exited 0 at 20:53:44Z and the file is committed as results/probe-20261019T205344Z.json (driverVersion 616.92, equal to nvidia-smi).
 - [ ] The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`; the output of `AJ probe` inside WSL2 (or the reason it was not run) is recorded under `## Probe and WSL2 notes`
-- [ ] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1
+- [x] `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1 Note (2026-10-20): ticked on the AJ-038 commit; grep exit 1 measured at 09:14Z; the ubuntu leg proven in the sdk:10.0 container; the first hosted run is the user's after the push.
 - [ ] `dotnet test --filter "Spec=REQ-006"` includes the exit-code value test (ExitCodeTests); the README exit-code table is created by AJ-131-T4 in M6
 - [ ] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered): `AJ-023 REQ-003:`, `AJ-027 REQ-004 EDGE-002:`, `AJ-031 REQ-005:`, `AJ-037 REQ-006:`, `AJ-038 REQ-024:`, `AJ-026 EDGE-003:`, `AJ-030 EDGE-005:`, `AJ-028 EDGE-013:` and `AJ-036 EDGE-001 EDGE-014:` exist (made by the builder, nothing pushed); `git log <build-start>..HEAD --format=%s | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0
 
@@ -38,7 +38,7 @@ Acceptance criteria:
 3. `ScriptedNvmlApi` (tests/AgentJoules.TestSupport) returns power in milliwatts as a pure function of `FakeTimeProvider` time, returns the energy counter as the matching millijoule integral, returns `NotSupported` for the counter when its switch is off, returns scripted clock-event bits, a scripted MIG return code, and in missing-library mode throws `DllNotFoundException` from `Init`.
 4. Calling any read member before `Init`, or after `Shutdown`, returns `Uninitialized` (the fake mimics NVML).
 5. `FakeTimeDriver.RunUntilCompleteAsync(task, fake, step)` advances fake time until the task completes: a test awaits `Task.Delay(TimeSpan.FromSeconds(1), fake)` and finishes in under 200 ms of real time.
-6. `tests/AgentJoules.Specs/Support/ScenarioWorld.cs` and `Hooks.cs` create a `FakeTimeProvider` per scenario and dispose it afterwards; `dotnet test --filter "Spec=REQ-003"` runs the first feature of this story.
+6. `tests/AgentJoules.Specs/Support/ScenarioWorld.cs` and `Hooks.cs` create a `FakeTimeProvider` per scenario and dispose it afterwards; `dotnet test --filter "Spec=REQ-003"` runs the first feature of this story. Note (2026-10-19, spec gate): `Category=AJ-S020` runs the feature and `Spec=REQ-003` runs ScriptedNvmlApiTests (design 6.2: Reqnroll tags become Category traits); FakeTimeProvider 10.11.0 is not IDisposable, so 'dispose' means release per scenario.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S020 @REQ-003 @REQ-004
@@ -80,9 +80,9 @@ Tasks:
 Test mapping: ScriptedNvmlApiTests (new class, tests the fake itself); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-020-nvml-test-doubles.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `INvmlApi` lives in its own file INvmlApi.cs (the design names only NvmlApi.cs for the real implementation); this small addition is noted in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `INvmlApi` lives in its own file INvmlApi.cs (the design names only NvmlApi.cs for the real implementation); this small addition is noted in docs/build-log.md
 Demo relevance: no
 
 ### AJ-021: Bind NVML through LibraryImport with a DllImport resolver
@@ -92,11 +92,11 @@ Acceptance criteria:
 1. `src/AgentJoules.Nvml/AssemblyAttributes.cs` contains `[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` and `[assembly: DisableRuntimeMarshalling]`; the build reports no CA5392 and no CA5393.
 2. `NvmlNative.cs` declares one `[LibraryImport("nvml", EntryPoint = "...")]` per function of the design 3.1 table (nvmlInit_v2, nvmlShutdown, nvmlSystemGetDriverVersion, nvmlDeviceGetCount_v2, nvmlDeviceGetHandleByIndex_v2, nvmlDeviceGetName, nvmlDeviceGetUUID, nvmlDeviceGetVbiosVersion, nvmlDeviceGetCudaComputeCapability, nvmlDeviceGetEnforcedPowerLimit, nvmlDeviceGetPowerUsage, nvmlDeviceGetTotalEnergyConsumption, nvmlDeviceGetMigMode, nvmlDeviceGetCurrentClocksEventReasons), `int` return, `nint` device handle, `Span<byte>` buffers decoded as UTF-8 up to the first NUL, no `StringMarshalling` (no SYSLIB1051). `grep -c "docs.nvidia.com/deploy/nvml-api" src/AgentJoules.Nvml/Interop/NvmlNative.cs` equals `grep -c "LibraryImport" src/AgentJoules.Nvml/Interop/NvmlNative.cs` (each declaration cites the NVML API reference).
 3. The builder re-checks each signature and unit (milliwatts, millijoules) against the NVML API reference and records the check in docs/build-log.md; a mismatch is fixed in code, not in the test.
-4. `NvmlLibraryCandidates.For(OSPlatform.Windows, programW6432)` returns `nvml.dll` then `<programW6432>\NVIDIA Corporation\NVSMI\nvml.dll`; the second entry is omitted when `programW6432` is null or empty.
+4. `NvmlLibraryCandidates.For(OSPlatform.Windows, programW6432)` returns `nvml.dll` then `<programW6432>\NVIDIA Corporation\NVSMI\nvml.dll`; the second entry is omitted when `programW6432` is null or empty. Note (2026-10-19, security gate): the second entry is also omitted when `programW6432` is whitespace or not a fully qualified path (`C:foo`, `\foo`, `relative`), so no relative path can be produced.
 4a. `NvmlLibraryCandidates.For(OSPlatform.Linux, ...)` returns `libnvidia-ml.so.1` then `libnvidia-ml.so`, in that order (test `Linux_candidates_are_ordered` in NvmlBindingTests); this serves REQ-003 on the Linux cloudgpu VM and EDGE-014.
-5. `NvmlLibraryResolver` registers once through a static `Lazy<bool>` and `NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, ...)` for the logical name `nvml`; the first candidate is tried with `NativeLibrary.TryLoad(name, assembly, DllImportSearchPath.System32, out h)`, the absolute path with `TryLoad(path, out h)`.
+5. `NvmlLibraryResolver` registers once through a static `Lazy<bool>` and `NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, ...)` for the logical name `nvml`; the first candidate is tried with `NativeLibrary.TryLoad(name, assembly, DllImportSearchPath.System32, out h)`, the absolute path with `TryLoad(path, out h)`. Note (2026-10-19, security gate, measured): superseded in the load mechanism by design 3.1 as amended: the bare name is loaded through its full `Environment.SystemDirectory` path with `TryLoad(path, out h)`, the Linux soname with `TryLoad(name, out h)`, a failed resolution throws `DllNotFoundException`, and the handle is cached; the registration and candidate order are unchanged.
 6. An injected-loader overload `TryLoadFirst(candidates, loader, out handle)` returns the first successful handle, returns false when every candidate fails, and never throws for a missing file.
-7. `NvmlApi` (the real `INvmlApi`) maps native return codes to `NvmlReturn`; a missing driver makes the first native call throw `DllNotFoundException` (caught by the factory in AJ-022), nothing else.
+7. `NvmlApi` (the real `INvmlApi`) maps native return codes to `NvmlReturn`; a missing driver makes the first native call throw `DllNotFoundException` (caught by the factory in AJ-022), nothing else. Note (2026-10-19, code-review gate): the clock-event fallback is `ClocksEventReader` behind injected delegates, unit-tested for all paths; a missing export surfaces as `NotSupported`.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S021 @REQ-003
@@ -143,9 +143,9 @@ Tasks:
 Test mapping: NvmlBindingTests (Windows and Linux candidate lists and loader tests); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-021-nvml-binding.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results` and the signature check note.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every NVML signature carries a URL comment (REQ-003)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every NVML signature carries a URL comment (REQ-003)
 Demo relevance: no
 
 ### AJ-022: Open, read and dispose an NVML device with a typed result
@@ -210,9 +210,9 @@ Tasks:
 Test mapping: NvmlBindingTests (missing library yields typed Unavailable, MIG rc 3, lifecycle); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-022-open-dispose-device.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no device handle is wrapped in a SafeHandle (handles are borrowed, design 3.1); the owned resource is the init and shutdown pair
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no device handle is wrapped in a SafeHandle (handles are borrowed, design 3.1); the owned resource is the init and shutdown pair
 Demo relevance: no
 
 ### AJ-023: Gate the NVML integration tests on AGENTJOULES_INTEGRATION
@@ -272,10 +272,10 @@ Tasks:
 Test mapping: IntegrationGateTests (unit); NvmlIntegrationTests (gated, trait Spec=REQ-003); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-023-integration-gate.feature.
 Docs impact: docs/build-log.md `## Test counts` and `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the gated run output on the laptop is quoted in docs/build-log.md with the UTC date
-- [ ] REQ-003 commit made by the builder with a message starting `AJ-023 REQ-003:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the gated run output on the laptop is quoted in docs/build-log.md with the UTC date
+- [x] REQ-003 commit made by the builder with a message starting `AJ-023 REQ-003:` (nothing pushed)
 Demo relevance: no
 
 ### AJ-024: Define the Metric label object and the reading flags
@@ -342,9 +342,9 @@ Tasks:
 Test mapping: MetricTests (new class); the schema-level rule "no N/A or not-reported metric has a numeric value" is added to SchemaValidationTests by M3. Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-024-metric-labels.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] Metric is the only representation of a metric value in M1 code (design 3.2)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] Metric is the only representation of a metric value in M1 code (design 3.2)
 Demo relevance: no
 
 ### AJ-025: Integrate power samples into joules
@@ -405,9 +405,9 @@ Tasks:
 Test mapping: PowerIntegrationTests; Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-025-integrate-power.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] timestamps are seconds since meter start derived from `TimeProvider.GetTimestamp()`, never a nominal interval
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] timestamps are seconds since meter start derived from `TimeProvider.GetTimestamp()`, never a nominal interval. Note (2026-10-19): the integrator uses the actual timestamps it is given and has no nominal-interval input; the derivation from `TimeProvider.GetTimestamp()` is implemented by the meter in AJ-029.
 Demo relevance: no
 
 ### AJ-026: Compute gross, net, average and peak energy per window
@@ -419,7 +419,7 @@ Acceptance criteria:
 3. Test: method `counter` with a counter delta of 170 000 mJ gives gross 170 J while average, peak, `sampleCount` and `sampleRateHz` still come from the samples (REQ-005).
 4. Test (EDGE-003): a 150 ms window at 10 Hz carries flag `low-resolution`; exactly 200 ms and 250 ms do not (strict "shorter than 2 / rate", compared in integer ticks).
 5. Test: no baseline supplied gives net `not-reported` with reason `no-baseline` while gross stays measured.
-6. Test: a negative counter delta gives gross and net `not-reported` with reason `counter-went-backwards`, never 0. The design is silent on counter resets; this default is recorded in docs/build-log.md for owner confirmation.
+6. Test: a negative counter delta gives gross and net `not-reported` with reason `counter-went-backwards`, never 0. The design is silent on counter resets; this default is recorded in docs/build-log.md for owner confirmation. Note (2026-10-19, gates): design 5.2 does cover it (an extra row: gross from sampling plus a `counter-reset` flag); the story's not-reported default is the fail-closed interim for M1 and the choice is open decision D-12 in plan.md section 9.
 7. Test: fewer than two samples gives sampling gross, average and peak `not-reported` with reason `insufficient-samples`; with method `counter` only average and peak are not-reported.
 8. `EnergyReading` holds gross, net, average and peak as `Metric`, duration, method (`counter` or `sampling`), `sampleCount`, `sampleRateHz`, flags and `throttleReasons`.
 BDD scenarios:
@@ -477,9 +477,9 @@ Tasks:
 Test mapping: AttributionBaselineTests (traits Spec=REQ-005 and Spec=EDGE-003); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-026-compute-reading.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`, plus the counter-reset default.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-003 commit by the builder with a message starting `AJ-026 EDGE-003:` once the flag test passes
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-003 commit by the builder with a message starting `AJ-026 EDGE-003:` once the flag test passes
 Demo relevance: no
 Conflict: EDGE-003 acceptance also requires "the rendered summary row for that reading contains `low-resolution`", which needs the summary renderer (REQ-016, M3). Proposed resolution: M1 delivers the flag in `EnergyReading` and its test; the M3 report story must assert that the rendered row contains `low-resolution` and reference EDGE-003 in its trait.
 
@@ -487,12 +487,12 @@ Conflict: EDGE-003 acceptance also requires "the rendered summary row for that r
 Covers: REQ-004, EDGE-002
 User story: As a user, I want the meter to use the energy counter when the GPU supports it and to fall back to power sampling with a visible disclosure when it does not, so that the method behind every joule value is known.
 Acceptance criteria:
-1. The selector performs one `nvmlDeviceGetTotalEnergyConsumption` read at startup; return code 0 means supported, any non-zero code means unsupported with the reason text `counter-not-supported: NVML_ERROR_NOT_SUPPORTED` (or the numeric code when the name is unknown). The fake records exactly 1 counter read for the probe.
+1. The selector performs one `nvmlDeviceGetTotalEnergyConsumption` read at startup; return code 0 means supported, any non-zero code means unsupported with the reason text `counter-not-supported: NVML_ERROR_NOT_SUPPORTED` (or the numeric code when the name is unknown). The fake records exactly 1 counter read for the probe. Note (2026-10-19): the single startup read is the factory's at Open (AJ-022) and the selector consumes its result; every non-zero code other than 3 gives `counter-not-supported: <code>` with the numeric code even when NvmlReturn names it (design 3.2 as amended by AJ-022).
 2. `Meter:Method=auto` with the counter supported gives method `counter`, `IsFallback` false.
 3. `auto` with the counter unsupported gives method `sampling`, `IsFallback` true, and every reading from that meter carries flag `sampling-fallback` (test with `ScriptedNvmlApi` returning NotSupported).
 4. `sampling` forced while the counter is supported gives method `sampling`, `IsFallback` false and no `sampling-fallback` flag.
 5. `counter` forced while unsupported throws `MeasurementPreconditionException` (exit code 6) whose message names `Meter:Method=counter` and the reason; an unknown method string throws `ConfigurationException` (exit code 2).
-6. `MeterCapabilities.Describe()` returns `Energy method: sampling (counter unsupported)` for the fallback and `Energy method: counter` otherwise; this is the startup console disclosure used by AJ-035.
+6. `MeterCapabilities.Describe()` returns `Energy method: sampling (counter unsupported)` for the fallback and `Energy method: counter` otherwise; this is the startup console disclosure used by AJ-035. Note (2026-10-19, spec gate): forced `sampling` returns `Energy method: sampling` (a third sentence; printing `counter` for a sampling method would be wrong), so the three sentences are: fallback, forced sampling, counter.
 7. `ExitCode` (0 Success, 1 Unexpected, 2 InvalidArguments, 3 MissingKey, 4 ModelNotFound, 5 Unreachable, 6 PreconditionFailed, 7 ContentDiffers), `AgentJoulesException(ExitCode, string)`, `ConfigurationException` and `MeasurementPreconditionException` exist in Core; the remaining subclasses of design 3.2 are added by the story that first throws them.
 BDD scenarios:
 ```gherkin
@@ -539,9 +539,9 @@ Tasks:
 Test mapping: PowerIntegrationTests (design 6.1: auto fallback and NOT_SUPPORTED); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-027-method-selection.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-004 and EDGE-002 are delivered in one commit by the builder with a message starting `AJ-027 REQ-004 EDGE-002:` once their tests pass
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-004 and EDGE-002 are delivered in one commit by the builder with a message starting `AJ-027 REQ-004 EDGE-002:` once their tests pass
 Demo relevance: no
 Conflict: EDGE-002 requires the fallback to be disclosed "in the report header and in the README" and, if the committed laptop probe shows `energyCounterSupported: false`, the README results block to contain the word `sampling`. Those surfaces are produced by REQ-016 and REQ-025 (M3, M6). Proposed resolution: M1 delivers the method, the per-reading flag, the console line and the probe output; the M3 report story and the M6 README story carry the header and README assertions and reference EDGE-002.
 
@@ -553,7 +553,7 @@ Acceptance criteria:
 2. The mapping is `SwPowerCap` 0x4, `HwSlowdown` 0x8, `SwThermalSlowdown` 0x20, `HwThermalSlowdown` 0x40, `HwPowerBrakeSlowdown` 0x80, each setting `throttled`; the builder copies the values from nvml.h and records the check (values inferred from macro names in the design).
 3. Test: only `GpuIdle` (0x1), applications-clocks (0x2) or sync-boost (0x10) bits give no `throttled` flag and an empty reason list.
 4. Test: a reason present in only one sample of the window (an edge sample included) still flags the reading; reasons are the distinct union ordered by bit value.
-5. `nvmlDeviceGetCurrentClocksEventReasons` is called first; on `EntryPointNotFoundException` the deprecated `nvmlDeviceGetCurrentClocksThrottleReasons` is used (test with a scripted missing-export switch); when both are missing the source reports throttling as unsupported.
+5. `nvmlDeviceGetCurrentClocksEventReasons` is called first; on `EntryPointNotFoundException` the deprecated `nvmlDeviceGetCurrentClocksThrottleReasons` is used (test with a scripted missing-export switch); when both are missing the source reports throttling as unsupported. Note (2026-10-19): delivered in AJ-021 as `ClocksEventReader` with delegate-level tests for the new export, the deprecated export and both missing; AJ-028-T3 wires the reader into `NvmlGpuTelemetrySource` and the `ScriptedNvmlApi` models the unsupported case through `ClockEventReturn = NotSupported`; the deprecated-export path is proven at the reader level, not through the fake.
 6. When throttling is unsupported, `throttleReasons` is null (not an empty list), no flag is set, and no `throttled: false` is claimed; an empty list means "supported and nothing active".
 7. On the laptop (`@integration`), whether the API is supported is recorded under `## Probe and WSL2 notes`; if unsupported, the note hands the sentence "throttle reasons are unavailable on this GPU" to the M4 methodology story.
 BDD scenarios:
@@ -602,9 +602,9 @@ Tasks:
 Test mapping: PowerIntegrationTests (design 6.1: power-cap bit gives `throttled` plus reason); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-028-throttle-detection.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results` and `## Probe and WSL2 notes`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-013 commit by the builder with a message starting `AJ-028 EDGE-013:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-013 commit by the builder with a message starting `AJ-028 EDGE-013:` (nothing pushed)
 Demo relevance: no
 Conflict: EDGE-013 acceptance says that if the API is unsupported on the laptop, `docs/methodology.md` says so. That file is owned by REQ-022 (M4). Proposed resolution: M1 records the laptop result in docs/build-log.md and the M4 methodology story copies the sentence when the result is "unsupported".
 
@@ -612,14 +612,14 @@ Conflict: EDGE-013 acceptance says that if the API is unsupported on the laptop,
 Covers: REQ-004, REQ-005
 User story: As a developer, I want one process-wide meter that samples power in the background and hands out windows with exact edge samples, so that every window's energy is computed from the same buffer, with or without the counter.
 Acceptance criteria:
-1. `IEnergyMeter` exposes `Capabilities`, `StartAsync`, `MeasureBaselineAsync` (implemented by AJ-030) and `OpenWindow`; `IMeterWindow` exposes `Span` and `Close`; `WindowSpan` is a record of start and stop in seconds. `ComputeUnion` is not declared in M1; REQ-013 (M2) adds it, so no stub that throws exists.
+1. `IEnergyMeter` exposes `Capabilities`, `StartAsync`, `MeasureBaselineAsync` (implemented by AJ-030) and `OpenWindow`; `IMeterWindow` exposes `Span` and `Close`; `WindowSpan` is a record of start and stop in seconds. `ComputeUnion` is not declared in M1; REQ-013 (M2) adds it, so no stub that throws exists. Note (2026-10-19): `MeasureBaselineAsync` is not in the AJ-029 build; AJ-030 adds it with its result type, because a throwing stub is what this criterion forbids.
 2. `StartAsync` starts one background loop over `PeriodicTimer(TimeSpan.FromSeconds(1 / SampleRateHz), timeProvider)`; with `FakeTimeProvider` advanced by 2.0 s at 10 Hz, the fake NVML records exactly 21 power reads (one at start plus 20 ticks).
 3. Sample timestamps are seconds since meter start from `TimeProvider.GetTimestamp()`; advancing fake time in irregular steps stores those actual times.
 4. `OpenWindow` and `Close` each take an immediate sample and, when the method is `counter`, an immediate counter read, so a 150 ms window with no timer tick still has at least 2 samples.
 5. A 3 s window at a scripted constant 60 W returns gross 180 J within 1 percent (sampling) and exactly 180 J (counter); average, peak, `sampleCount` and `sampleRateHz` always come from the samples.
 6. Two overlapping windows opened at 0 s and 1 s on one meter each report their own energy (buffer slices), not a shared total (test `Overlapping_windows_report_own_energy`: 180 J and 120 J at 60 W).
 7. `OpenWindow` before `StartAsync` throws `InvalidOperationException`; a second `Close` on the same window throws `InvalidOperationException`.
-8. A power read that fails (the source throws) skips that sample, never records 0, and the loop continues; a window ending with fewer than two samples reports average and peak `not-reported` with reason `insufficient-samples` (AJ-026).
+8. A power read that fails (the source throws) skips that sample, never records 0, and the loop continues; a window ending with fewer than two samples reports average and peak `not-reported` with reason `insufficient-samples` (AJ-026). Note (2026-10-19): a zero-duration window (Close at the open instant) throws InvalidOperationException and produces no reading; fewer than two samples arises when an edge read fails, and that case is tested.
 9. `DisposeAsync` cancels the timer wait and awaits the loop; after it, advancing fake time causes no further NVML reads; disposing twice is safe.
 BDD scenarios:
 ```gherkin
@@ -678,9 +678,9 @@ Tasks:
 Test mapping: SampledEnergyMeterTests (new class); PowerIntegrationTests for the integral; Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-029-sampled-meter.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no `Task.Run` for I/O and no wall-clock wait in the tests (fake time only)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no `Task.Run` for I/O and no wall-clock wait in the tests (fake time only)
 Demo relevance: yes: the per-window joules and watts that the demo prints per agent step come from this meter.
 
 ### AJ-030: Measure the idle baseline and flag an unstable one
@@ -692,8 +692,8 @@ Acceptance criteria:
 3. The console warning is exactly `Warning: idle baseline unstable (CV 0.20 > 0.10)`; it contains the words `baseline` and `unstable`.
 4. A coefficient of variation exactly equal to the threshold does not set the flag (comparison is strictly greater) (test `Cv_equal_to_threshold_is_not_flagged` asserts empty flags).
 5. The standard deviation is the population one: samples 10 and 20 give 5, not 7.07 (test `Population_standard_deviation` asserts 5).
-6. A mean of 0 W or less gives `meanW` `not-reported` with reason `baseline-mean-nonpositive`, no flag and a net value of `not-reported` downstream; fewer than two samples gives `not-reported` with reason `insufficient-samples`.
-7. `SampledEnergyMeter.MeasureBaselineAsync(duration)` waits the duration on the injected `TimeProvider` (fake time in tests) while the sampler collects, then calls the calculator.
+6. A mean of 0 W or less gives `meanW` `not-reported` with reason `baseline-mean-nonpositive`, no flag and a net value of `not-reported` downstream; fewer than two samples gives `not-reported` with reason `insufficient-samples`. Note (2026-10-19): `StdDevW` stays measured for a non-positive mean (this criterion names only `meanW`); `CoefficientOfVariation` is null in both cases (0.0 only for a zero deviation with a positive mean).
+7. `SampledEnergyMeter.MeasureBaselineAsync(duration)` waits the duration on the injected `TimeProvider` (fake time in tests) while the sampler collects, then calls the calculator. Note (2026-10-19): the threshold is a parameter of MeasureBaselineAsync (`MeasureBaselineAsync(duration, maxCoefficientOfVariation, cancellationToken)`), because capabilities describe the device and the CLI passes `Baseline:MaxCoefficientOfVariation` from options (AJ-033, AJ-034).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S030 @REQ-005 @EDGE-005
@@ -745,20 +745,20 @@ Tasks:
 Test mapping: AttributionBaselineTests (design 6.1: alternating 20 W and 30 W baseline gives `baseline-unstable` and the console line); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-030-baseline.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] EDGE-005 commit by the builder with a message starting `AJ-030 EDGE-005:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] EDGE-005 commit by the builder with a message starting `AJ-030 EDGE-005:` (nothing pushed). Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-030 REQ-005 EDGE-005: ...` (the milestone convention `AJ-NNN REQ-xxx [EDGE-yyy]:`), nothing pushed.
 Demo relevance: yes: the demo shows the measured idle baseline before the first agent step.
 
 ### AJ-031: Provide the deterministic fake meter
 Covers: REQ-005
 User story: As a developer, I want a deterministic `IEnergyMeter` that computes readings from a power function without any background thread, so that middleware and report tests in later milestones get exact joules with no timing noise.
 Acceptance criteria:
-1. `DeterministicEnergyMeter` (namespace `AgentJoules.Core.Energy.Testing`) takes a `TimeProvider`, a `Func<double, double>` watts-at-time function, a sample rate and a counter-support switch plus a method setting, and uses the same `ReadingCalculator` and `MeterMethodSelector` as the real meter.
+1. `DeterministicEnergyMeter` (namespace `AgentJoules.Core.Energy.Testing`) takes a `TimeProvider`, a `Func<double, double>` watts-at-time function, a sample rate and a counter-support switch plus a method setting, and uses the same `ReadingCalculator` and `MeterMethodSelector` as the real meter. Note (2026-10-19): the file is in `Energy/Testing` (the folder of the fake; the namespace matches), and the constructor takes the method setting and an optional baseline mean (`baselineMeanWatts`), so a scenario can state a 20 W baseline without measuring.
 2. Test (REQ-005): a 3 s window at constant 60 W with a 20 W baseline gives gross 180 J, net 120 J, average 60 W, peak 60 W and `sampleCount` equal to `LastWindowSampleCount` (31 at 10 Hz).
 3. Test: a window at 15 W against a 20 W baseline gives a negative net value with flag `below-baseline`.
 4. Synthesized samples sit on the nominal grid inside the window plus both edges, with no duplicate when the stop lies on the grid: a 150 ms window at 10 Hz has 3 samples (0, 0.1, 0.15 s) and the flag `low-resolution`.
-5. `MeasureBaselineAsync(30 s)` completes immediately (no fake or real wait); a watts function alternating 20 W and 30 W on the grid yields CV 0.20 and `baseline-unstable`.
+5. `MeasureBaselineAsync(30 s)` completes immediately (no fake or real wait); a watts function alternating 20 W and 30 W on the grid yields CV 0.20 and `baseline-unstable`. Note (2026-10-19): the grid gives 301 samples over [0, 30 s] (151 at 20 W, 150 at 30 W), so CV is about 0.20014 and the mean about 24.98 W; the test asserts CV within 1e-3 of 0.20 and the flag.
 6. Counter switch off with method `auto` gives method `sampling` and flag `sampling-fallback`; method `counter` with the switch off throws `MeasurementPreconditionException`.
 7. `Close` twice throws `InvalidOperationException`, like the real meter.
 BDD scenarios:
@@ -805,16 +805,16 @@ Tasks:
 Test mapping: AttributionBaselineTests (exact REQ-005 acceptance: gross 180, net 120, 60 W, 60 W, sample count equals the fake's count; 15 W against 20 W); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-031-deterministic-meter.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-005 commit by the builder with a message starting `AJ-031 REQ-005:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-005 commit by the builder with a message starting `AJ-031 REQ-005:` (nothing pushed). Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-031 REQ-005: ...`, nothing pushed.
 Demo relevance: no
 
 ### AJ-032: Share one meter gate per process
 Covers: REQ-005
 User story: As a developer, I want one process-wide gate that serializes measurement windows or lets them overlap, so that "one agent at a time" is enforced in one place and concurrent mode is a configuration choice, not a code path.
 Acceptance criteria:
-1. `IMeterGate.AcquireAsync(CancellationToken)` returns a `ValueTask<IAsyncDisposable>`; `SerializedMeterGate` wraps one `SemaphoreSlim(1, 1)`, `NoOpMeterGate` returns a cached completed releaser.
+1. `IMeterGate.AcquireAsync(CancellationToken)` returns a `ValueTask<IAsyncDisposable>`; `SerializedMeterGate` wraps one `SemaphoreSlim(1, 1)`, `NoOpMeterGate` returns a cached completed releaser. Note (2026-10-19): `SerializedMeterGate` also implements `IDisposable` and exposes `CurrentCount`, and `NoOpMeterGate` has a static `Instance`; the design names neither (design 3.3 amended 2026-10-19, AJ-032).
 2. Test: with the serialized gate, the second `AcquireAsync` stays incomplete until the first releaser is disposed, then completes.
 3. Test: cancelling a waiting `AcquireAsync` throws `OperationCanceledException` and leaves the gate usable (the next acquire after the holder releases succeeds, count not leaked).
 4. Test: disposing a releaser twice releases once (a third waiter is not admitted early).
@@ -861,9 +861,9 @@ Tasks:
 Test mapping: MeterGateTests (new class; ExecutionModeTests for `--mode` belongs to M2); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-032-meter-gate.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the M2 story for REQ-013 reuses these types and adds the mode wiring, `shared-window` flags and union totals
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] the M2 story for REQ-013 reuses these types and adds the mode wiring, `shared-window` flags and union totals. Forward reference to the M2 REQ-013 story (dated 2026-10-19): left unticked in M1.
 Demo relevance: no
 Conflict: the gate is specified by REQ-013 (serialized and concurrent modes), which the milestone table assigns to M2, while this milestone's brief asks for "the meter abstraction and the process-wide meter gate". Proposed resolution: M1 delivers `IMeterGate`, `SerializedMeterGate`, `NoOpMeterGate` and their tests under REQ-005 (readings from serialized windows never overlap); M2 keeps REQ-013 and its acceptance (`--mode`, `shared-window`, union totals, ExecutionModeTests).
 
@@ -873,11 +873,11 @@ User story: As a user, I want the GPU index, meter method, sample rate and basel
 Acceptance criteria:
 1. `config/appsettings.json` has the root section `AgentJoules` with `Gpu:Index` 0, `Meter:Method` "auto", `Meter:SampleRateHz` 10, `Meter:AllowBelowMinRate` false, `Baseline:Seconds` 30, `Baseline:MaxCoefficientOfVariation` 0.10; it parses as JSON in a unit test, and `config/.gitkeep` is deleted in the same change.
 2. Options are mutable `sealed class` types (`GpuOptions`, `MeterOptions`, `BaselineOptions`, `AgentJoulesOptions`) with `{ get; set; }` properties, no `required`, no `init` and no positional record (with the binding generator `required` fails CS9035 and `init` is never bound, design 3.2); the generator binds them; absent keys give the same defaults as the file. Proof: `grep -rnE "required|init;|record " src/AgentJoules.Core/Configuration` exits 1.
-3. A test passes `AGENTJOULES__Gpu__Index=7` through the isolated in-memory `IConfiguration` of the CLI harness (the keys are normalised the way the environment provider does) and asserts `Gpu:Index` is 7 (`ConfigValidationTests.EnvironmentOverrideBinds`); no test sets a process environment variable (design 6.2).
-4. A sample rate below 10 Hz without `Meter:AllowBelowMinRate` fails validation with a message naming both keys (exit code 2 through `OptionsValidationException`); with `AllowBelowMinRate` true, 5 Hz is valid; a rate of 0 or less is invalid even with the override.
-5. `Meter:Method` outside `auto|counter|sampling` (case-insensitive) fails validation; `Gpu:Index` below 0, `Baseline:Seconds` of 0 or less and `Baseline:MaxCoefficientOfVariation` of 0 or less fail validation. These ranges are assumed (the prompt gives only the 10 Hz minimum) and recorded in docs/build-log.md.
+3. A test passes `AGENTJOULES__Gpu__Index=7` through the isolated in-memory `IConfiguration` of the CLI harness (the keys are normalised the way the environment provider does) and asserts `Gpu:Index` is 7 (`ConfigValidationTests.EnvironmentOverrideBinds`); no test sets a process environment variable (design 6.2). Note (2026-10-19): served by `ConfigurationFixtures.InMemory` with the normalised `AGENTJOULES:Gpu:Index` key until AJ-034's CliHarness exists; AJ-034 re-proves it through the harness's isolated configuration.
+4. A sample rate below 10 Hz without `Meter:AllowBelowMinRate` fails validation with a message naming both keys (exit code 2 through `OptionsValidationException`); with `AllowBelowMinRate` true, 5 Hz is valid; a rate of 0 or less is invalid even with the override. Note (2026-10-19): criterion 4 is served by `OptionsLoader.Load` and `ConfigurationException.ExitCode` 2 over the in-memory configuration until AJ-034 registers the validators in the host (ValidateOnStart, `OptionsValidationException` mapped to exit 2).
+5. `Meter:Method` outside `auto|counter|sampling` (case-insensitive) fails validation; `Gpu:Index` below 0, `Baseline:Seconds` of 0 or less and `Baseline:MaxCoefficientOfVariation` of 0 or less fail validation. These ranges are assumed (the prompt gives only the 10 Hz minimum) and recorded in docs/build-log.md. Note (2026-10-19): the ranges are recorded in docs/build-log.md and as D-16 in docs/plan/plan.md section 9.
 6. `Directory.Packages.props` gains the Options packages the design does not list (Microsoft.Extensions.Options and Microsoft.Extensions.Configuration.Binder at 10.0.12, the Hosting 10.0.12 family; the builder confirms each version exists on NuGet) and each addition is recorded under `## Version deviations and additions` as an addition, not a deviation.
-7. The validator is `FlatSectionsValidator : IValidateOptions<AgentJoulesOptions>` (design name), a source-generated `[OptionsValidator]` partial, plus a hand-written `CrossFieldValidator` for the rate rule; `grep -rn "class FlatSectionsValidator" src` prints 1 hit.
+7. The validator is `FlatSectionsValidator : IValidateOptions<AgentJoulesOptions>` (design name), a source-generated `[OptionsValidator]` partial, plus a hand-written `CrossFieldValidator` for the rate rule; `grep -rn "class FlatSectionsValidator" src` prints 1 hit. Note (2026-10-19): `MinimumValueAttribute` (Core) sits beside the validator because the generator drops `RangeAttribute`'s `ErrorMessage` (measured).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S033 @REQ-004
@@ -935,9 +935,9 @@ Tasks:
 Test mapping: ConfigValidationTests (design 6.1: sample rate 5 Hz without override gives exit 2); Specs feature tests/AgentJoules.Specs/Features/Configuration/AJ-033-meter-options.feature.
 Docs impact: config/appsettings.json (sample and default file); docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no model ID, base URL or key appears in config/appsettings.json (those arrive in M2)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no model ID, base URL or key appears in config/appsettings.json (those arrive in M2). Measured 2026-10-19: grep for model, URL and key in config/appsettings.json exits 1 (0 hits).
 Demo relevance: no
 
 ### AJ-034: Build the CLI foundation with exit codes and redacted output
@@ -947,18 +947,21 @@ Acceptance criteria:
 1. `src/AgentJoules.Cli/Program.cs` is the single statement `return await CliApplication.RunAsync(args, CancellationToken.None);` (the M0 placeholder is replaced).
 2. A parse error prints the errors and returns 2: `AJ probe --bogus` exits 2 (System.CommandLine returns 1 by default, design C-04). Running with no command is a parse error with usage on stderr, exit 2 (assumed, the design is silent).
 3. `AgentJoulesException` subclasses return their own code (`MeasurementPreconditionException` returns 6, `ConfigurationException` 2); `OptionsValidationException` returns 2; any other exception prints `error: <message> (<exception type>)` on stderr and returns 1, with the stack trace only at Debug level.
-4. Console.SetOut and Console.SetError are replaced by `RedactingTextWriter` (M0 AJ-010) before the host is built; a test throws an exception whose message contains a runtime-built `"nvapi-" + "abcdef1234567890"` and asserts stderr shows `nvapi-****` and not the suffix.
+4. Console.SetOut and Console.SetError are replaced by `RedactingTextWriter` (M0 AJ-010) before the host is built; a test throws an exception whose message contains a runtime-built `"nvapi-" + "abcdef1234567890"` and asserts stderr shows `nvapi-****` and not the suffix. Note (2026-10-19): the Console statics are swapped under the harness too and restored in the finally of `CliApplication.RunAsync` (criterion 4, promoted from the M0 review; this supersedes design 3.6 point (c)).
 5. The redactor registers the values of NVIDIA_API_KEY, NEBIUS_API_KEY and NGC_API_KEY found in configuration (environment or user-secrets) when present (test `Registered_configuration_keys_are_redacted` builds the values at runtime and asserts the masked output).
-6. The host is built with `HostApplicationBuilder` and `DisableDefaults`; configuration sources are exactly: the JSON file (`--config` or `config/appsettings.json`), optional user-secrets, environment variables; options use `BindConfiguration("AgentJoules")` and `ValidateOnStart()`, triggered by `StartAsync`.
-7. With `CliHostOverrides` (`IncludeProcessEnvironment` false, `IncludeUserSecrets` false) neither environment variables nor user-secrets are sources: a test with `NVIDIA_API_KEY` set in the process still sees an empty key through the harness.
+6. The host is built with `HostApplicationBuilder` and `DisableDefaults`; configuration sources are exactly: the JSON file (`--config` or `config/appsettings.json`), optional user-secrets, environment variables; options use `BindConfiguration("AgentJoules")` and `ValidateOnStart()`, triggered by `StartAsync`. Note (2026-10-19): options are bound through `OptionsLoader.Bind` in an `IConfigureOptions` (the AJ-033 carry-forward, so the shape and typo checks reach the CLI) rather than `BindConfiguration("AgentJoules")`; `ValidateOnStart` and both validators as written; validation runs through `IStartupValidator.Validate()` immediately before `StartAsync` inside the same try, so a failing configuration surfaces before the hosting logger can print its fail record and the CLI prints exactly one stderr line (criterion 3).
+7. With `CliHostOverrides` (`IncludeProcessEnvironment` false, `IncludeUserSecrets` false) neither environment variables nor user-secrets are sources: a test with `NVIDIA_API_KEY` set in the process still sees an empty key through the harness. Note (2026-10-19): the harness test cannot set a process variable, so isolation is proven by two tests: PATH (present on every machine) is absent from the host configuration and the host's configuration provider names contain no environment or user-secrets provider under the default overrides; the positive control is `Environment_variables_are_a_configuration_source_on_the_production_path`, a child process on the production path with an environment built from scratch (PATH, DOTNET_*, system variables and the witness AGENTJOULES__Meter__SampleRateHz=5) asserting exit 2 naming both keys; no test sets IncludeProcessEnvironment true in-process on this laptop because its environment holds real keys.
 8. Logging goes to stderr at every level (`LogToStandardErrorThreshold = Trace`); stdout carries only command output; `AJ --help` and `AJ probe --help` exit 0.
-9. Host shutdown (Ctrl+C, SIGTERM, SIGHUP) arrives through `IHostApplicationLifetime.ApplicationStopping` and cancels the token handed to the command action; the host registers a no-op `IHostLifetime` (so the console lifetime does not race System.CommandLine) and `InvocationConfiguration.ProcessTerminationTimeout` is 15 s (design 3.6). `ExitCodeMapper` maps an `OperationCanceledException` caused by that shutdown to exit 5 (design 3.4 step 3 and 5.2 EDGE-016). AJ-034 delivers the signal path, the no-op lifetime, the 15 s timeout and the exit 5 mapping, tested with a fake long-running command; marking in-flight steps `incomplete`, setting `run.status` `incomplete` and writing the checkpoint within the 15 s timeout is owned by M2 task AJ-056-T6a, not by this story. An `OperationCanceledException` not caused by shutdown still maps to 1. Proof: `ExitCodeTests` cases `Shutdown_cancels_command_and_exits_5` and `Unrelated_cancellation_exits_1`; a test reads `ProcessTerminationTimeout` and asserts 15 s.
-   Notes from the M0 post-exit review (2026-10-18, measured on the M0 classes):
-   - Drain at exit: `RedactingTextWriter.Flush` forwards complete lines only; `CliApplication.RunAsync` disposes the stdout and stderr wrappers in its `finally` (and a `ProcessExit` fallback drains them), otherwise newline-less output such as a JSON document written with `Write` is lost at exit.
-   - Escaped exceptions: an exception that escapes a thread, timer, ThreadPool item or async void is printed by the runtime below `System.Console` and bypasses the wrapper; an `AppDomain.CurrentDomain.UnhandledException` handler writes the redacted `error: <message> (<type>)` line, flushes and calls `Environment.Exit(1)`; a child-process test with a worker-thread throw proves it.
-   - Producers write whole lines per call (`TextWriter.Synchronized` serialises calls, not lines); the wrappers are created with `leaveOpen: true` for Console.Out and Console.Error.
-   - Carry-overs: async overloads, `\r` progress lines, the `char[]` fast path guarded by the per-character test, and the Register validation rules listed in AJ-010.
-   - Register validation: when `SecretRedactor.Register` returns false for a non-empty configured key, the host writes a warning to stderr naming the variable (never the value) or exits 3. Register registers the whole value and each of its lines (split on CR, LF, VT, FF, U+0085, U+2028 and U+2029) in up to three forms each (ends-trimmed with the original code units; cleaned of format, control, line-separator and invalid UTF-16 sequences, then trimmed; rune-normalised with U+FFFD), and returns false only when nothing is registrable: every form shorter than five characters, containing `*`, or part of the `nvapi-****` mask; a lone surrogate is kept in the ends-trimmed form so a raw echo is still masked (2026-10-19 review). A value containing a variation selector (Unicode category Mn) is not stripped and is masked only in the form it was configured in.
+9. Host shutdown (Ctrl+C, SIGTERM, SIGHUP) arrives through `IHostApplicationLifetime.ApplicationStopping` and cancels the token handed to the command action; the host registers a no-op `IHostLifetime` (so the console lifetime does not race System.CommandLine) and `InvocationConfiguration.ProcessTerminationTimeout` is 15 s (design 3.6). `ExitCodeMapper` maps an `OperationCanceledException` caused by that shutdown to exit 5 (design 3.4 step 3 and 5.2 EDGE-016). AJ-034 delivers the signal path, the no-op lifetime, the 15 s timeout and the exit 5 mapping, tested with a fake long-running command; marking in-flight steps `incomplete`, setting `run.status` `incomplete` and writing the checkpoint within the 15 s timeout is owned by M2 task AJ-056-T6a, not by this story. An `OperationCanceledException` not caused by shutdown still maps to 1. Proof: `ExitCodeTests` cases `Shutdown_cancels_command_and_exits_5` and `Unrelated_cancellation_exits_1`; a test reads `ProcessTerminationTimeout` and asserts 15 s. Note (2026-10-19): the host registers `SignalHostLifetime` instead of a no-op lifetime: it registers SIGHUP to StopApplication (registration measured to succeed on Windows 11, delivery not measured) and still registers no SIGINT or SIGTERM handler, so it does not race System.CommandLine, whose token path is tested by cancelling the caller token (exit 5); the shutdown line reads `error: interrupted by shutdown (OperationCanceledException)`.
+10. Drain at exit: `CliApplication.RunAsync` wraps the stdout and stderr writers in `RedactingTextWriter` created with `leaveOpen: true`, and disposes both wrappers in its `finally` so held-back text (a JSON document written with `Write` and no trailing newline) reaches the console; a `ProcessExit` fallback drains them too. `RedactingTextWriter.Flush` forwards complete lines only, which is why the drain is needed. Named test: `ExitCodeTests.Output_without_trailing_newline_is_drained_at_exit` (harness: a fake command writes JSON with `Write`, no newline; stdout holds the complete text after `RunAsync` returns).
+11. Escaped exceptions: `CliApplication` registers an `AppDomain.CurrentDomain.UnhandledException` handler that writes the redacted line `error: <message> (<type>)` to stderr, flushes and drains the wrappers, and calls `Environment.Exit(1)` (an exception that escapes a thread, timer, ThreadPool item or async void is printed by the runtime below `System.Console` and would otherwise bypass the wrapper). Named test: `ExitCodeTests.Unhandled_worker_thread_exception_is_redacted_and_exits_1`, a child-process test: it starts `dotnet <path to the built AgentJoules.Cli.dll>` (or the test project's own built Cli dll) with an argument or environment switch that makes a worker thread throw an exception whose message contains a runtime-built `"nvapi-" + "abcdef1234567890"`, and asserts exit code 1, stderr contains `nvapi-****` and `error:`, and stderr does not contain the suffix. The throw switch is a hidden diagnostic (for example the environment variable `AGENTJOULES_SELFTEST_THROW=worker`, read only by the Cli when present); the production parse surface does not list it. Note (2026-10-19): the hidden root option is named `--debug-throw-on-worker <message>` (criterion 11); it is a production root option that the parse surface does not list.
+12. Whole-line producers: every producer in the Cli writes whole lines per call (`TextWriter.Synchronized` serialises calls, not lines); the console logger formatter and `ConsoleReporter` emit one `WriteLine` per logical line. Named test: `RedactionTests.Cli_producers_write_whole_lines` (the harness captures stdout and stderr through a spy writer that records call boundaries; every call ends with a newline except the final drain). Note (2026-10-19): two tests: `Cli_producers_write_whole_lines` drives the console logger (OneLineConsoleFormatter), ErrorLine and ConsoleReporter directly with the spy writer in front of the redaction and asserts one WriteLine per logical line; `Redacting_writer_forwards_only_whole_lines_of_every_cli_producer` is the harness-level theory described here, which proves the wrapper's forwarding (every call ends with a newline except the final drain).
+13. leaveOpen wrappers: the Console.Out and Console.Error wrappers are created with `leaveOpen: true` so disposing a wrapper never closes the underlying console stream; the harness-supplied writers are wrapped the same way. Named test: `RedactionTests.Console_wrappers_leave_the_inner_writer_open` (after `RunAsync` the harness StringWriter is still writable).
+14. Register validation: when `SecretRedactor.Register` returns false for a non-empty configured key value (every registrable form shorter than five characters, containing `*`, or part of the `nvapi-****` mask), the host writes one warning line to stderr naming the variable and never the value: `warning: <VARIABLE> is set but could not be registered for redaction`; the command continues (exit code unchanged). Named test: `RedactionTests.Unregistrable_key_warns_by_variable_name` (in-memory configuration sets `NVIDIA_API_KEY` to a four-character value; stderr contains the variable name and the word `warning`, and does not contain the value).
+   Note on the Register contract (rules from AJ-010): Register registers the whole value and each of its lines (split on CR, LF, VT, FF, U+0085, U+2028 and U+2029) in up to three forms each (ends-trimmed with the original code units; cleaned of format, control, line-separator and invalid UTF-16 sequences, then trimmed; rune-normalised with U+FFFD), and returns false only when nothing is registrable: every form shorter than five characters, containing `*`, or part of the `nvapi-****` mask; a lone surrogate is kept in the ends-trimmed form so a raw echo is still masked (2026-10-19 review). A value containing a variation selector (Unicode category Mn) is not stripped and is masked only in the form it was configured in.
+   Promoted 2026-10-19 from the M0 post-exit review notes at the start of the M1 session (M0 peer review finding); estimates unchanged, the work folds into tasks AJ-034-T2 and AJ-034-T4.
+   Carry-overs, not criteria (2026-10-19): the async `TextWriter` overloads, `\r` progress lines and the `char[]` fast path guarded by the per-character test stay notes until a story needs them.
+   Carried from AJ-030 (2026-10-19): print the baseline warning through ConsoleReporter on the redacting stderr writer and record baseline-unstable on the run; test trait Spec=EDGE-005. Note (2026-10-19): moved to AJ-056 (M2 run command); M1 has no run command and no run document, so the warning print and the baseline-unstable record cannot be exercised through the CLI here; ConsoleReporter is registered over the redacting stderr writer by AJ-034.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S034 @REQ-006
@@ -1008,34 +1011,49 @@ Feature: Build the CLI foundation with exit codes and redacted output
     Given a command that throws OperationCanceledException with no shutdown requested
     When I run it through the harness
     Then the exit code is 1 and stderr has one "error:" line
+  @positive
+  Scenario: AJ-034 Output without a trailing newline is drained at exit
+    Given a fake command that writes a JSON document with Write and no newline
+    When I run it through the harness
+    Then stdout holds the complete JSON after RunAsync returns
+  @negative
+  Scenario: AJ-034 An exception escaping a worker thread is redacted and exits 1
+    Given the Cli started as a child process with the hidden worker-throw switch and a runtime-built nvapi key in the message
+    When the worker thread throws
+    Then the process exits 1, stderr contains "error:" and "nvapi-****" and does not contain the key suffix
+  @negative
+  Scenario: AJ-034 An unregistrable key value warns by variable name only
+    Given the in-memory configuration sets NVIDIA_API_KEY to a four-character value
+    When I run "probe"
+    Then stderr contains "warning" and "NVIDIA_API_KEY" and does not contain the value
 ```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-034-T1 | Write the failing feature, ExitCodeTests (codes 1, 2, 6) and the CliHarness and TempWorkspace | tests/AgentJoules.Specs/Features/Cli/AJ-034-cli-foundation.feature, tests/AgentJoules.UnitTests/ExitCodeTests.cs, tests/AgentJoules.TestSupport/CliHarness.cs, tests/AgentJoules.TestSupport/TempWorkspace.cs | 0.75 | AJ-033-T6 |
-| AJ-034-T2 | Implement CliApplication with parse-error handling and CliHostOverrides | src/AgentJoules.Cli/CliApplication.cs | 1.0 | AJ-034-T1 |
+| AJ-034-T2 | Implement CliApplication with parse-error handling, CliHostOverrides, the drain of the leaveOpen wrappers at exit and the UnhandledException handler | src/AgentJoules.Cli/CliApplication.cs | 1.0 | AJ-034-T1 |
 | AJ-034-T3 | Implement the host factory with sources, options binding and ValidateOnStart | src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 1.0 | AJ-034-T2 |
-| AJ-034-T4 | Implement ExitCodeMapper, redacting writers, stderr logging and Log.cs | src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Log.cs | 0.75 | AJ-034-T3 |
+| AJ-034-T4 | Implement ExitCodeMapper, redacting writers (whole-line producers, leaveOpen wrappers), the Register-failure warning, stderr logging and Log.cs | src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Log.cs | 0.75 | AJ-034-T3 |
 | AJ-034-T4a | Wire ApplicationStopping to the command token, the no-op IHostLifetime, the 15 s ProcessTerminationTimeout and the exit 5 mapping | src/AgentJoules.Cli/CliApplication.cs, src/AgentJoules.Cli/ExitCodeMapper.cs, src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 0.75 | AJ-034-T4 |
 | AJ-034-T5 | Replace the placeholder Program.cs and record the Spec filter result | src/AgentJoules.Cli/Program.cs, docs/build-log.md | 0.25 | AJ-034-T4a |
-Test mapping: ExitCodeTests (design 6.1, exit codes 1, 2 and 6 here; 3, 4, 5, 7 follow in M2); RedactionTests for the CLI path; Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-034-cli-foundation.feature.
+Test mapping: ExitCodeTests (design 6.1, exit codes 1, 2 and 6 here; 3, 4, 5, 7 follow in M2), including `Output_without_trailing_newline_is_drained_at_exit` and `Unhandled_worker_thread_exception_is_redacted_and_exits_1`; RedactionTests for the CLI path, including `Cli_producers_write_whole_lines`, `Console_wrappers_leave_the_inner_writer_open` and `Unregistrable_key_warns_by_variable_name`; Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-034-cli-foundation.feature.
 Docs impact: docs/build-log.md `## Per-ID filter results`; the README exit-code table is created by AJ-131-T4 in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the M0 placeholder behaviour (exit 1 with "no commands implemented yet") is gone: `grep -rn "no commands implemented" src` exits 1
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the M0 placeholder behaviour (exit 1 with "no commands implemented yet") is gone: `grep -rn "no commands implemented" src` exits 1 (measured 2026-10-19, exit 1)
 Demo relevance: no
 
 ### AJ-035: Print the probe result as text and JSON, including the no-GPU path
 Covers: REQ-006, EDGE-001
 User story: As a user, I want `AJ probe` to tell me what GPU, driver, power limit and energy method will be measured, and `AJ probe --json` to say the same as one JSON object, with a clean "no GPU" answer on machines without NVML, so that I can check my machine before any run.
 Acceptance criteria:
-1. Text output has one `label: value` line each, in this order: `GPU name`, `GPU UUID`, `Driver version`, `Compute capability`, `VBIOS version`, `Power limit W`, `MIG mode`, `Energy counter supported`, `Method`, `Sample rate Hz`; an unavailable compute capability or VBIOS prints `N/A`. The exact label text is chosen here (the design leaves it open).
+1. Text output has one `label: value` line each, in this order: `GPU name`, `GPU UUID`, `Driver version`, `Compute capability`, `VBIOS version`, `Power limit W`, `MIG mode`, `Energy counter supported`, `Method`, `Sample rate Hz`; an unavailable compute capability or VBIOS prints `N/A`. The exact label text is chosen here (the design leaves it open). Note (2026-10-19): the labels are fixed in `ProbeFormatter` as the ten listed above, in that order; the choice is recorded in docs/build-log.md (AJ-035).
 2. `--json` prints one JSON object with the keys `gpuPresent`, `name`, `driverVersion`, `computeCapability`, `vbiosVersion`, `powerLimitW`, `energyCounterSupported`, `method`, `sampleRateHz` plus `gpuUuid` and `migMode`; unavailable values are `null`, never an empty string or 0. Serialization uses the source-generated `AgentJoulesJsonContext` (camelCase, indented, LF).
 3. Without NVML or a device (EDGE-001): text prints the single line `no GPU`; JSON has `gpuPresent: false` and every other field null; the exit code is 0 in both forms.
 4. stdout holds only the probe output; log lines and the method disclosure go to stderr; `AJ probe --json > out.json` parses with System.Text.Json in a test.
 5. The method comes from the AJ-027 selector with `Meter:Method`; `sampleRateHz` equals `Meter:SampleRateHz`; with the counter unsupported under `auto`, the text shows `Method: sampling (sampling-fallback)` and stderr shows `Energy method: sampling (counter unsupported)`.
-6. With `Meter:Method=counter` on an unsupported GPU, probe still prints its facts, with `method` null in JSON and `Method: N/A (counter forced but unsupported)` in text, exit 0. The design is silent here: probe is diagnostic, `run` fails with exit 6 later (M2). The default is recorded in docs/build-log.md.
+6. With `Meter:Method=counter` on an unsupported GPU, probe still prints its facts, with `method` null in JSON and `Method: N/A (counter forced but unsupported)` in text, exit 0. The design is silent here: probe is diagnostic, `run` fails with exit 6 later (M2). The default is recorded in docs/build-log.md. Note (2026-10-19): probe is diagnostic, so a forced counter on an unsupported GPU prints the facts with method null and exit 0; `run` fails with exit 6 in M2 (AJ-035 Decisions).
 7. The code-level exit-code mapping is tested: `ExitCodeTests.ExitCode_values_match_the_documented_list` asserts `Success` 0, `Unexpected` 1, `InvalidArguments` 2, `MissingKey` 3, `ModelNotFound` 4, `Unreachable` 5, `PreconditionFailed` 6, `ContentDiffers` 7 (`dotnet test --filter "Spec=REQ-006"` passes). The README exit-code table does not exist yet: it is created by AJ-131-T4 in M6; AJ-035 adds the probe subsection and the ExitCodeTests. This story adds only a `### probe` subsection under `## CLI reference` listing `--json`, `--save`, `--suffix` and `--config`; the existing placeholder paragraph is left untouched (`git diff --numstat README.md` shows 0 removed lines).
 BDD scenarios:
 ```gherkin
@@ -1093,9 +1111,9 @@ Tasks:
 Test mapping: ProbeCommandTests (design 6.1: probe JSON keys and the `no GPU` path); Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-035-probe-command.feature.
 Docs impact: README.md `## CLI reference` (probe subsection only); docs/build-log.md for the forced-counter default.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] AJ-035 is committed with a message starting `AJ-035 REQ-006:`; EDGE-001 is claimed in the `AJ-036 EDGE-001 EDGE-014:` commit once the container path is proven
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] AJ-035 is committed with a message starting `AJ-035 REQ-006:`; EDGE-001 is claimed in the `AJ-036 EDGE-001 EDGE-014:` commit once the container path is proven. Note (2026-10-19): to be committed by the orchestrator under the session rules with the subject `AJ-035 REQ-006: ...`, nothing pushed; EDGE-001 claimed by AJ-036.
 Demo relevance: yes: the demo opens with `AJ probe` showing the laptop GPU, driver and energy method.
 Conflict: EDGE-001 acceptance also requires "a unit test with the NVML loader faked as missing asserts `run --tier local` returns 6". The `run` command is built in M2 (REQ-017). Proposed resolution: M1 proves the 6 mapping at its source (`MeasurementPreconditionException` maps to exit 6 in AJ-034, and the meter selection path raises it when NVML is unavailable); the M2 `run` story must add the CLI-level test `run --tier local` with the missing-NVML fake and reference EDGE-001 in its trait.
 
@@ -1104,11 +1122,11 @@ Covers: EDGE-014, EDGE-001
 User story: As a user on Linux or WSL2, I want the meter to look for `libnvidia-ml.so.1` and to report "no GPU" instead of crashing when it is absent, so that the same CLI runs in a container, in CI and on the cloud VM.
 Acceptance criteria:
 1. The Linux candidate list (`libnvidia-ml.so.1` then `libnvidia-ml.so`) and its unit test are delivered by AJ-021-T3 (MUST); this story only adds the absent-library test `Linux_absent_library_is_unavailable` on top of it (`dotnet test --filter "Spec=EDGE-014"` passes).
-2. With the Linux fake missing the library, `Open` returns Unavailable with a reason naming `libnvidia-ml.so.1`; no exception escapes (test).
+2. With the Linux fake missing the library, `Open` returns Unavailable with a reason naming `libnvidia-ml.so.1`; no exception escapes (test). Note (2026-10-19): the Windows host can prove the Linux candidate list, the Unavailable reason and the no-escape rule through the injected fake loader and the Linux factory (`OSPlatform.Linux`); the real dlopen path is proven only by the container run, because the resolver picks the platform from the running OS.
 3. `docker manifest inspect mcr.microsoft.com/dotnet/sdk:10.0` exits 0 (the tag was inferred); otherwise the verified tag is recorded and used.
-4. The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`: `MSYS_NO_PATHCONV=1 docker run --rm -e DOTNET_NOLOGO=1 -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -v "$(pwd -W)":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; the path form and the two environment variables avoid Git Bash path rewriting and SDK banner text on stdout; builder confirms and records the exact command used).
+4. The EDGE-001 container command exits 0 and prints JSON with `gpuPresent: false`: `MSYS_NO_PATHCONV=1 docker run --rm -e DOTNET_NOLOGO=1 -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -v "$(pwd -W)":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 dotnet run --project src/AgentJoules.Cli -- probe --json` (no `--gpus` flag; the path form and the two environment variables avoid Git Bash path rewriting and SDK banner text on stdout; builder confirms and records the exact command used). Note (2026-10-19): the exact command and its 32 s exit 0 run are recorded in docs/build-log.md (Probe and WSL2 notes and the AJ-036 entry).
 5. After the container run, the Linux restore artifacts in `obj/` are repaired by `dotnet restore` on the host and `dotnet build -warnaserror -tl:off` exits 0 (design R-10).
-6. Inside WSL2 on the laptop, `AJ probe` is run if a .NET SDK exists in the distro; its output (or `not run: <reason>`) is recorded under `## Probe and WSL2 notes`. If WSL2 reports no GPU although `nvidia-smi` sees it there, the note records it and proposes adding `/usr/lib/wsl/lib/libnvidia-ml.so.1` as a third candidate (a design amendment, not applied by this story).
+6. Inside WSL2 on the laptop, `AJ probe` is run if a .NET SDK exists in the distro; its output (or `not run: <reason>`) is recorded under `## Probe and WSL2 notes`. If WSL2 reports no GPU although `nvidia-smi` sees it there, the note records it and proposes adding `/usr/lib/wsl/lib/libnvidia-ml.so.1` as a third candidate (a design amendment, not applied by this story). Note (2026-10-19): the WSL2 probe is `not run` because no WSL2 distro carries a 10.0.4xx SDK (the default distro has 8.0.414 and 9.0.203); `nvidia-smi` sees the GPU inside WSL2, so the third candidate stays a proposal and is not applied.
 7. If Docker is not running (M0 AJ-002 recorded it), the container check is marked blocked in docs/build-log.md with the date and is retried before M7; it is never silently skipped Check: `grep -n "blocked: Docker daemon not running" docs/build-log.md` matches when `docker info` exits non-zero.
 BDD scenarios:
 ```gherkin
@@ -1155,9 +1173,9 @@ Tasks:
 Test mapping: NvmlBindingTests (design 6.1: missing library gives typed Unavailable); Specs feature tests/AgentJoules.Specs/Features/Metering/AJ-036-linux-wsl2-path.feature.
 Docs impact: docs/build-log.md `## Probe and WSL2 notes`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] commit by the builder with a message starting `AJ-036 EDGE-001 EDGE-014:` (the first GitHub Actions run is a user action after the push and is not a done item)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] commit by the builder with a message starting `AJ-036 EDGE-001 EDGE-014:` (the first GitHub Actions run is a user action after the push and is not a done item). Note (2026-10-19): committed by the orchestrator under the session rules with the subject `AJ-036 EDGE-001 EDGE-014: ...`, nothing pushed; the first GitHub Actions run stays a user action after the push.
 Demo relevance: no
 
 ### AJ-037: Save the probe result and commit the laptop probe file
@@ -1165,12 +1183,12 @@ Covers: REQ-006
 User story: As a reviewer, I want `AJ probe --json --save` to write a timestamped probe file and the laptop's probe to be committed, so that every later measurement run can point at the machine facts it was taken on.
 Acceptance criteria:
 1. `--save` writes `results/probe-<yyyyMMddTHHmmssZ>.json` (UTC from the injected `TimeProvider`, invariant culture) with the same content as `--json`; `--suffix cloudgpu` gives `probe-<yyyyMMddTHHmmssZ>-cloudgpu.json`. The folder is created when missing.
-2. On the laptop, `AJ probe --json --save` exits 0 with `gpuPresent: true`; `driverVersion` equals the output of `nvidia-smi --query-gpu=driver_version --format=csv,noheader` (trimmed, string equality); `energyCounterSupported` is a boolean. The file is committed by the builder as `results/probe-<yyyyMMddTHHmmssZ>.json`.
-3. `--suffix` without `--save`, or a suffix not matching `^[A-Za-z0-9]{1,20}$` (for example `../x`), exits 2 (assumed constraint, protects the path).
-4. An existing target file is never overwritten: exit 1 with `error: file exists` (assumed, protects committed probes).
+2. On the laptop, `AJ probe --json --save` exits 0 with `gpuPresent: true`; `driverVersion` equals the output of `nvidia-smi --query-gpu=driver_version --format=csv,noheader` (trimmed, string equality); `energyCounterSupported` is a boolean. The file is committed by the builder as `results/probe-<yyyyMMddTHHmmssZ>.json`. Note (2026-10-19): the laptop file is results/probe-20261019T205344Z.json (run 20:53:44Z); its driverVersion 616.92 equals the nvidia-smi driver_version output at 20:53Z (measured, trimmed string equality); energyCounterSupported is a boolean (true).
+3. `--suffix` without `--save`, or a suffix not matching `^[A-Za-z0-9]{1,20}$` (for example `../x`), exits 2 (assumed constraint, protects the path). Note (2026-10-19): the suffix rule is applied with `\z` in code so a trailing line feed cannot pass; a rejected suffix echoes at most its first 16 characters with control characters replaced.
+4. An existing target file is never overwritten: exit 1 with `error: file exists` (assumed, protects committed probes). Note (2026-10-20): an existing file, directory or dangling link at the final name gives `file exists`; any other I/O failure gives `cannot write results/<name>: <ExceptionType>`; the write goes through a GUID-named temporary file and a non-overwriting move.
 5. The probe file name does not match the run-file pattern `^\d{8}T\d{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$` (test), so `validate` and `report` never mistake it for a run.
 6. With no GPU, `--save` still writes a file with `gpuPresent: false` (an honest record); CI does not commit it.
-7. docs/build-log.md records the laptop GPU name, driver, enforced power limit and counter support from the committed probe; if the limit differs from the 94.62 W that nvidia-smi printed on 2026-10-17, the note says the committed probe value is the authority (design C-11). If `energyCounterSupported` is false, the note records that the README must say `sampling` (M3, M6).
+7. docs/build-log.md records the laptop GPU name, driver, enforced power limit and counter support from the committed probe; if the limit differs from the 94.62 W that nvidia-smi printed on 2026-10-17, the note says the committed probe value is the authority (design C-11). If `energyCounterSupported` is false, the note records that the README must say `sampling` (M3, M6). Note (2026-10-19): the committed file's enforced power limit is 96.57 W; nvidia-smi printed 94.62 W on 2026-10-17 and the limit has moved between runs today, so the committed probe value is the authority (design C-11). Counter support is true, so no sampling note is needed.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S037 @REQ-006
@@ -1226,9 +1244,9 @@ Tasks:
 Test mapping: ProbeCommandTests; Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-037-probe-save.feature. Schema validation of the committed probe file belongs to SchemaValidationTests in M3.
 Docs impact: README.md `### probe` (the two new options); docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-006 commit by the builder with a message starting `AJ-037 REQ-006:` including the probe file (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-006 commit by the builder with a message starting `AJ-037 REQ-006:` including the probe file (nothing pushed) Note (2026-10-20): commit `AJ-037 REQ-006:` by the orchestrator on 2026-10-20 after three gate rounds (the builder role is the csharp-expert agent; the orchestrator commits).
 Demo relevance: yes: the committed probe file is the machine fact sheet quoted next to every published table.
 
 ### AJ-038: Add the GitHub Actions matrix for build, tests and the no-GPU probe
@@ -1237,11 +1255,11 @@ User story: As a contributor, I want a CI workflow on Windows and Linux runners 
 Acceptance criteria:
 1. `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet test` and a probe step; `grep -n "secrets\." .github/workflows/ci.yml` exits 1 (no secret reference) and it contains no `pull_request_target`.
 2. Steps in order: `actions/checkout@v4`; `actions/setup-dotnet@v6` with `global-json-file: global.json`; `dotnet restore`; `dotnet build -warnaserror -tl:off --no-incremental --no-restore`; `dotnet format --verify-no-changes --no-restore`; `dotnet test --no-build`; `dotnet run --project src/AgentJoules.Cli --no-build -- probe --json`; and `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" && exit 1 || exit 0`.
-3. The probe step runs under `shell: bash` on both runners, requires exit 0 and requires the output to contain `"gpuPresent": false` (hosted runners have no NVIDIA driver, inferred; this is the EDGE-001 path).
+3. The probe step runs under `shell: bash` on both runners, requires exit 0 and requires the output to contain `"gpuPresent": false` (hosted runners have no NVIDIA driver, inferred; this is the EDGE-001 path). Note (2026-10-20): `shell: bash` is the job default and is set on the probe step; GitHub's `bash -eo pipefail` propagates the dotnet exit code through the `tee` pipe.
 4. The workflow sets `permissions: contents: read` and triggers on push and pull_request.
 5. `CiWorkflowTests` reads the file (repository root found by walking up to global.json) and asserts every string of criterion 1 and 2.
-6. The same restore, build and test commands exit 0 locally; `AJ probe --json` on the laptop prints `gpuPresent: true`, which is expected because the false assertion applies to GPU-less runners only. If `actionlint` is installed, `actionlint .github/workflows/ci.yml` exits 0.
-7. The first GitHub run happens after the user pushes and is not a Definition of Done item; the user action is noted in docs/build-log.md (check: `grep -n "first CI run" docs/build-log.md` matches under `## User actions`).
+6. The same restore, build and test commands exit 0 locally; `AJ probe --json` on the laptop prints `gpuPresent: true`, which is expected because the false assertion applies to GPU-less runners only. If `actionlint` is installed, `actionlint .github/workflows/ci.yml` exits 0. Note (2026-10-20): the seven local commands exit 0 (restore, strict build with 0 warnings, format, test with the same totals, probe printing `"gpuPresent": true`, key scan, actionlint); the ubuntu-latest leg is proven in the sdk:10.0 container on a copy of the tree (exit 0, 98 s); the windows-latest GPU-less leg cannot be proven before the push.
+7. The first GitHub run happens after the user pushes and is not a Definition of Done item; the user action is noted in docs/build-log.md (check: `grep -n "first CI run" docs/build-log.md` matches under `## User actions`). Note (2026-10-20): recorded as the user action `first CI run` under `## User actions` in docs/build-log.md (line 460 at the time of writing).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S038 @REQ-024
@@ -1287,9 +1305,9 @@ Tasks:
 Test mapping: CiWorkflowTests (new class, file-content assertions); Specs feature tests/AgentJoules.Specs/Features/Cli/AJ-038-ci-workflow.feature.
 Docs impact: docs/build-log.md (user action: first CI run after the push).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] REQ-024 commit by the builder with a message starting `AJ-038 REQ-024:` (nothing pushed)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] REQ-024 commit by the builder with a message starting `AJ-038 REQ-024:` (nothing pushed) Note (2026-10-20): commit `AJ-038 REQ-024:` by the orchestrator on 2026-10-20 after two gate rounds (the builder role is the csharp-expert agent; the orchestrator commits).
 Demo relevance: no
 
 ## Risks

@@ -1,0 +1,13 @@
+{
+  "gpuPresent": true,
+  "name": "NVIDIA GeForce RTX 3080 Ti Laptop GPU",
+  "gpuUuid": "GPU-7687512b-9999-734c-1b71-1858e6882913",
+  "driverVersion": "616.92",
+  "computeCapability": "8.6",
+  "vbiosVersion": "94.03.1b.00.3a",
+  "powerLimitW": 96.57,
+  "migMode": "not-supported",
+  "energyCounterSupported": true,
+  "method": "counter",
+  "sampleRateHz": 10
+}

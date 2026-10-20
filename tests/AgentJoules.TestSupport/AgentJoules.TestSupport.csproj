@@ -5,7 +5,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/AgentJoules.Core/AgentJoules.Core.csproj" />
+    <ProjectReference Include="../../src/AgentJoules.Nvml/AgentJoules.Nvml.csproj" />
+    <ProjectReference Include="../../src/AgentJoules.Cli/AgentJoules.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="xunit" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
   </ItemGroup>
 
 </Project>

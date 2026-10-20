@@ -467,6 +467,7 @@ Tasks:
 | AJ-046-T5 | Record the `Spec=REQ-013` gate results in the build log | docs/build-log.md | 0.25 | AJ-046-T3 |
 Test mapping: `ExecutionModeTests` (design class; the 1 s branches use wide margins and assert overlap only, never exact durations); feature file `tests/AgentJoules.Specs/Features/Metering/SerializedGate.feature`.
 Docs impact: `docs/build-log.md`; the README "serialized by default" note is written in M6.
+Carried from AJ-032 (2026-10-19): `SerializedMeterGate` is not re-entrant, so no judge call and no second metered call may start while a flow holds the gate; a streaming `MeteredChatClient` holds the gate until its enumerator is disposed, so an abandoned enumerator hangs the run until the run token fires; the try/finally that disposes the releaser must begin immediately after `AcquireAsync` returns, before `ledger.Reset()` and `OpenWindow()`, or one failed call keeps the only slot for the process; the composition root disposes the gate only after every metered call has finished (a waiter queued at Dispose never completes); the shared-window overlap rule is strict (a.Start < b.Stop and b.Start < a.Stop).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
@@ -1038,7 +1039,7 @@ Definition of done:
 Demo relevance: no.
 
 ### AJ-056: Orchestrate a tier run over tasks, repeats and modes
-Covers: REQ-017, REQ-013
+Covers: REQ-017, REQ-013, EDGE-005
 User story: As a user, I want `AJ run --tier <t>` to run every selected task for the requested number of repeats in the requested mode and write one results file per tier, so that one command produces the evidence behind the report.
 Acceptance criteria:
 1. `AJ run` accepts `--tier`, `--task` (default all), `--mode serialized|concurrent` (default serialized), `--out` (default `results/`), `--baseline-seconds` (default 30, local only) and `--repeat` (default 3); a fake run with 3 tasks, `--repeat 2` and 4 agents yields 24 step readings (test `Run_produces_tasks_x_repeats_x_agents`).
@@ -1049,6 +1050,7 @@ Acceptance criteria:
 6. The console prints one line per finished step: `<task> r<repeat> <agent> <outcome> netJ=<v|N/A> avgW=<v|N/A> in=<v|not-reported> out=<v|not-reported> latency=<ms>`, then the results file path and the totals; a missing value is never printed as 0.
 7. The run ends with `run.status: "completed"` and exit 0; the judge seam is a no-op (M3 fills it); `--task bogus` exits 2.
 8. On host shutdown (`ApplicationStopping`, Ctrl+C, SIGTERM) the orchestrator marks every in-flight step `outcome: "incomplete"`, sets `run.status: "incomplete"`, writes the checkpoint by atomic temp-file move (ADR-17) within the 15 s termination timeout and exits 5 (task AJ-056-T6a; test `Shutdown_marks_in_flight_steps_incomplete`: the file parses, `run.status` is `incomplete`, the in-flight step is `incomplete`, exit code 5). A run that completes normally never carries `incomplete` (test `Completed_run_has_no_incomplete`).
+9. Carried from AJ-030 and AJ-034 (2026-10-19): the run prints the EDGE-005 warning through ConsoleReporter on the redacting stderr writer when the baseline is unstable and records `baseline-unstable` in the run document; test trait `Spec=EDGE-005`.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S056 @REQ-017 @REQ-013

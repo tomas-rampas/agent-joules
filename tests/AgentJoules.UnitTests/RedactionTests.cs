@@ -1,5 +1,11 @@
+using AgentJoules.Cli;
 using AgentJoules.Cli.Output;
+using AgentJoules.Core.Energy;
+using AgentJoules.Core.Labels;
 using AgentJoules.Core.Security;
+using AgentJoules.TestSupport;
+
+using Microsoft.Extensions.Logging;
 
 using Xunit;
 
@@ -730,5 +736,250 @@ public sealed class RedactionTests
         Assert.True(registered);
         Assert.Equal("k=****", redactor.Redact("k=" + raw));
         Assert.Equal("k=****", redactor.Redact("k=" + key));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-006")]
+    [InlineData("probe --bogus")]
+    [InlineData("probe --help")]
+    [InlineData("--help")]
+    [InlineData("")]
+    [InlineData("fake-throw InvalidOperationException boom")]
+    [InlineData("fake-console-error one-line")]
+    public async Task Redacting_writer_forwards_only_whole_lines_of_every_cli_producer(string arguments)
+    {
+        var stdout = new SpyTextWriter();
+        var stderr = new SpyTextWriter();
+
+        // Debug level makes the logger and the stack trace produce their multi-line output as well.
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("Logging:LogLevel:Default", "Debug")]);
+
+        _ = await CliHarness.RunAsync(arguments, overrides, stdout, stderr);
+
+        Assert.True(stdout.Calls.Count + stderr.Calls.Count > 0, "the run wrote nothing, so no call boundary was observed");
+        foreach (string call in stdout.Calls.Concat(stderr.Calls))
+        {
+            Assert.True(call.EndsWith('\n'), "a write call did not end with a newline: " + call);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Cli_only_the_final_drain_may_end_without_a_newline()
+    {
+        var stdout = new SpyTextWriter();
+        var stderr = new SpyTextWriter();
+
+        _ = await CliHarness.RunAsync("fake-write", stdout: stdout, stderr: stderr);
+
+        Assert.Equal(FakeCommands.JsonDocument, Assert.Single(stdout.Calls));
+        Assert.All(stderr.Calls, call => Assert.True(call.EndsWith('\n'), "a write call did not end with a newline: " + call));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Console_wrappers_leave_the_inner_writer_open()
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        CliRunResult result = await CliHarness.RunAsync("fake-write", stdout: stdout, stderr: stderr);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Null(Record.Exception(() => stdout.Write("after")));
+        Assert.Null(Record.Exception(() => stderr.Write("after")));
+        Assert.Equal(FakeCommands.JsonDocument + "after", stdout.ToString());
+        Assert.Equal("after", stderr.ToString());
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Console_statics_are_restored_after_RunAsync()
+    {
+        CliRunResult result = await CliHarness.RunAsync("fake-write");
+
+        Assert.True(result.ConsoleRestored);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Console_error_written_directly_by_a_command_is_masked_by_the_installed_wrapper()
+    {
+        CliRunResult result = await CliHarness.RunAsync("fake-console-error leaked-" + BuildNvidiaKey());
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("leaked-nvapi-****", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(Suffix, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(Suffix, result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-006")]
+    [InlineData("NVIDIA_API_KEY")]
+    [InlineData("NEBIUS_API_KEY")]
+    [InlineData("NGC_API_KEY")]
+    public async Task Unregistrable_key_warns_by_variable_name(string variable)
+    {
+        // Four characters: every registrable form of the value is shorter than five characters.
+        string value = string.Concat("k#", "9Q");
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [(variable, value)]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe", overrides);
+
+        Assert.Equal(0, result.ExitCode);
+        string warning = Assert.Single(result.StderrLines, line => line.StartsWith("warning", StringComparison.Ordinal));
+        Assert.Equal($"warning: {variable} is set but could not be registered for redaction", warning);
+        Assert.DoesNotContain(value, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(value, result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Registrable_and_empty_key_values_do_not_warn()
+    {
+        CliHostOverrides overrides = CliHarness.Overrides(
+            configuration: [("NVIDIA_API_KEY", BuildOpaqueKey()), ("NEBIUS_API_KEY", string.Empty)]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe", overrides);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain(result.StderrLines, line => line.StartsWith("warning", StringComparison.Ordinal));
+    }
+
+    // The producers write to the spy directly, with no redacting writer in front of it: this is what proves whole lines. Behind the wrapper
+    // (the theory above) the spy only sees what the wrapper forwards.
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Cli_producers_write_whole_lines()
+    {
+        string escape = ((char)0x1B).ToString();
+        string coloured = escape + "[31m" + "red";
+        var spy = new SpyTextWriter();
+
+        // The console logger: Console.Error is process-wide, so the harness gate is held while the spy replaces it.
+        await CliHarness.RunExclusiveAsync(() =>
+        {
+            TextWriter before = Console.Error;
+            Console.SetError(spy);
+            try
+            {
+                using ILoggerFactory factory = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.Trace).AddAgentJoulesConsole());
+                ILogger logger = factory.CreateLogger("Test");
+                TestLog.Plain(logger, "one");
+                TestLog.Coloured(logger, coloured);
+                try
+                {
+                    throw new InvalidOperationException("with a stack trace");
+                }
+                catch (InvalidOperationException failure)
+                {
+                    TestLog.Failed(logger, failure, "two");
+                }
+            }
+            finally
+            {
+                Console.SetError(before);
+            }
+
+            return Task.FromResult(0);
+        });
+
+        // One call per record, each ending with a newline, and no escape sequence in any of them.
+        Assert.Equal(3, spy.Calls.Count);
+        Assert.All(spy.Calls, call => Assert.EndsWith(Environment.NewLine, call, StringComparison.Ordinal));
+        Assert.All(spy.Calls, call => Assert.DoesNotContain(escape, call, StringComparison.Ordinal));
+        Assert.Contains("coloured ?[31mred record", spy.Calls[1], StringComparison.Ordinal);
+        Assert.Contains("   at ", spy.Calls[2], StringComparison.Ordinal);
+
+        // ErrorLine: one WriteLine, folded to one line, control characters scrubbed.
+        var errors = new SpyTextWriter();
+        ErrorLine.Write(errors, new InvalidOperationException("first" + escape + "[0m\r\nsecond\tthird"));
+        Assert.Equal("error: first?[0m second?third (InvalidOperationException)" + Environment.NewLine, Assert.Single(errors.Calls));
+
+        // ConsoleReporter: one WriteLine per logical line.
+        var reportOut = new SpyTextWriter();
+        var reportError = new SpyTextWriter();
+        var unstable = new BaselineResult(Metric.Measured(25.0, "W"), Metric.Measured(5.0, "W"), 30.0, 300, 0.20, 0.10, ReadingFlags.BaselineUnstable);
+        new ConsoleReporter(reportOut, reportError).ReportBaseline(unstable);
+        Assert.Empty(reportOut.Calls);
+        Assert.EndsWith(Environment.NewLine, Assert.Single(reportError.Calls), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public void ErrorLine_masks_a_registered_key_before_scrubbing_so_a_control_character_inside_it_cannot_leak_it()
+    {
+        string key = BuildOpaqueKey();
+        string decorated = key[..10] + char.ConvertFromUtf32(0x200B) + key[10..];
+        var redactor = new SecretRedactor();
+        redactor.Register(decorated);
+
+        string line = ErrorLine.Format(new InvalidOperationException("echo " + decorated), redactor);
+
+        Assert.Equal("error: echo **** (InvalidOperationException)", line);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Registered_key_in_a_parse_error_is_masked_before_the_host_exists()
+    {
+        string key = BuildOpaqueKey();
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NEBIUS_API_KEY", key)]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe --bogus " + key, overrides);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--bogus", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Registered_key_in_a_config_path_is_masked_in_the_not_found_message()
+    {
+        string key = BuildOpaqueKey();
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NVIDIA_API_KEY", key)]);
+
+        CliRunResult result = await CliHarness.RunAsync("probe --config " + key + ".json", overrides);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("****", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+        Assert.DoesNotContain(key, result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-006")]
+    [InlineData("probe @{0}")]
+    [InlineData("probe --suffix @{0}")]
+    public async Task Response_file_contents_are_never_echoed(string template)
+    {
+        string secret = "FILE-" + BuildOpaqueKey();
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string path = workspace.WriteFile("keys.env", secret);
+
+        CliRunResult result = await CliHarness.RunAsync(
+            string.Format(System.Globalization.CultureInfo.InvariantCulture, template, "\"" + path + "\""),
+            new CliHostOverrides(WorkingDirectory: workspace.Root));
+
+        Assert.DoesNotContain(secret, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-006")]
+    public async Task Key_inside_an_exception_logged_at_Debug_is_masked_in_the_log_record()
+    {
+        string opaque = BuildOpaqueKey();
+        CliHostOverrides overrides = CliHarness.Overrides(
+            configuration: [("Logging:LogLevel:Default", "Debug"), ("NEBIUS_API_KEY", opaque)]);
+
+        CliRunResult result = await CliHarness.RunAsync($"fake-throw InvalidOperationException failed-{BuildNvidiaKey()},{opaque}", overrides);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(result.StderrLines, line => line.StartsWith("dbug:", StringComparison.Ordinal));
+        Assert.Contains("System.InvalidOperationException: failed-nvapi-****,****", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(Suffix, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(opaque, result.Stderr, StringComparison.Ordinal);
     }
 }

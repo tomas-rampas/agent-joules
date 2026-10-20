@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -warnaserror -tl:off --no-incremental --no-restore
+
+      - name: Format
+        run: dotnet format --verify-no-changes --no-restore
+
+      - name: Test
+        run: dotnet test --no-build
+
+      # A hosted runner has no NVIDIA driver, so the probe must report no GPU and exit 0 (the no-GPU path). The bash shell runs with
+      # -eo pipefail, so a failing probe fails the step even though its output goes through tee.
+      - name: Probe without a GPU
+        shell: bash
+        run: |
+          dotnet run --project src/AgentJoules.Cli --no-build -- probe --json | tee probe.json
+          grep -q '"gpuPresent": *false' probe.json
+
+      - name: Key pattern scan
+        run: git grep -nE "nvapi-[A-Za-z0-9_-]{8,}" && exit 1 || exit 0
