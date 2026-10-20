@@ -59,3 +59,31 @@ public sealed class MeasurementPreconditionException : AgentJoulesException
     {
     }
 }
+
+/// <summary>
+/// A call was answered with HTTP 429 on every one of its attempts (EDGE-006); exits with <see cref="Cli.ExitCode.Unreachable"/> (5).
+/// </summary>
+/// <remarks>
+/// The message holds only the attempt count and the status code, and the exception wraps nothing: the response of a rejected call can echo the credential
+/// (the message of the provider's own exception carries the response body), so none of its text, headers or request URI may travel in this exception.
+/// </remarks>
+/// <param name="attempts">The HTTP attempts made, from 1.</param>
+/// <param name="statusCode">The status of the last attempt.</param>
+/// <exception cref="ArgumentOutOfRangeException"><paramref name="attempts"/> is below 1 or <paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
+public sealed class RetriesExhaustedException(int attempts, int statusCode) : AgentJoulesException(ExitCode.Unreachable, Describe(attempts, statusCode))
+{
+    /// <summary>The HTTP attempts the call made.</summary>
+    public int Attempts { get; } = attempts;
+
+    /// <summary>The HTTP status of the last attempt.</summary>
+    public int StatusCode { get; } = statusCode;
+
+    private static string Describe(int attempts, int statusCode)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(attempts, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(statusCode, 100);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(statusCode, 599);
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"HTTP {statusCode} after {attempts} {(attempts == 1 ? "attempt" : "attempts")}");
+    }
+}

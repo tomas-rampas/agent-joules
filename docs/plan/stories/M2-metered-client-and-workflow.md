@@ -413,10 +413,10 @@ Tasks:
 Test mapping: `RetryPolicyTests` (design class); feature file `tests/AgentJoules.Specs/Features/Metering/RateLimitRetry.feature`.
 Docs impact: `docs/build-log.md`; the retry rule (5 attempts, base 1 s, factor 2, cap 30 s) is quoted in the README rate-limit note in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test
-- [ ] the retry tests complete without sleeping on the wall clock (injected `TimeProvider`)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; full run 2,173 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-006 77 passed, 0 failed)
+- [x] the retry tests complete without sleeping on the wall clock (injected `TimeProvider`) (2026-10-20: every wait goes through the injected TimeProvider and the exact-time driver, no `Task.Delay` without a provider and no `TimeProvider.System` in the retry tests)
 Demo relevance: no (a 429 during the recorded run would show as `retries` in the step line).
 
 ### AJ-046: Serialize metered windows with the process-wide meter gate

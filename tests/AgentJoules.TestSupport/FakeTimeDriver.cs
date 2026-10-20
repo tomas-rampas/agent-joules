@@ -30,6 +30,46 @@ public static class FakeTimeDriver
         return DriveAsync(task, fake, step, maxSteps);
     }
 
+    /// <summary>
+    /// Runs <paramref name="task"/> to completion on a clock that moves only when the task waits: whenever a timer is created on <paramref name="fake"/> the clock
+    /// advances by exactly its due time, so the fake time that passes is the sum of the waits and of whatever the code under test advances itself, and never
+    /// a step more. The real-time guard only ends a task that stops without waiting and without finishing.
+    /// Only timer creation is tracked (<c>ITimer.Change</c> on an existing timer is not), and the driver assumes one outstanding timer at a time: a task that
+    /// waits on several timers at once is not driven correctly.
+    /// </summary>
+    /// <param name="task">The task to run to completion.</param>
+    /// <param name="fake">The clock the task waits on.</param>
+    /// <param name="guard">The real time after which a task that neither finishes nor waits is a failure; 30 seconds when null.</param>
+    /// <returns>A task that completes when <paramref name="task"/> did; a fault of it propagates.</returns>
+    /// <exception cref="TimeoutException">The task neither finished nor started a wait within the guard.</exception>
+    public static Task RunWaitsToCompletionAsync(Task task, TimerTrackingTimeProvider fake, TimeSpan? guard = null)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(fake);
+
+        return DriveWaitsAsync(task, fake, guard ?? TimeSpan.FromSeconds(30));
+    }
+
+    private static async Task DriveWaitsAsync(Task task, TimerTrackingTimeProvider fake, TimeSpan guard)
+    {
+        while (!task.IsCompleted)
+        {
+            Task next = fake.DueTimes.WaitToReadAsync().AsTask();
+            Task first = await Task.WhenAny(task, next).WaitAsync(guard);
+            if (first == task)
+            {
+                break;
+            }
+
+            if (fake.DueTimes.TryRead(out TimeSpan due))
+            {
+                fake.Advance(due);
+            }
+        }
+
+        await task;
+    }
+
     private static async Task DriveAsync(Task task, FakeTimeProvider fake, TimeSpan step, int maxSteps)
     {
         DateTimeOffset start = fake.GetUtcNow();

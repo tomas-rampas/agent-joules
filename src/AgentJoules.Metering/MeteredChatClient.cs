@@ -44,8 +44,14 @@ namespace AgentJoules.Metering;
 /// content of a stream (the last replaces the earlier ones, because a server may repeat cumulative usage on every chunk); counts the provider
 /// omitted are not-reported with the reason <c>provider-omitted-usage</c>, never 0. The cost comes only from the <see cref="ICostCalculator"/> of the
 /// services. Completion tokens above the <see cref="ChatOptions.MaxOutputTokens"/> of the call add the <see cref="ReadingFlags.MaxTokensExceeded"/>
-/// flag to the reading; the flag is absent when the call has no limit or the completion tokens are not reported. The retry count and the retry wait
-/// are 0 until the retry layer reports them.
+/// flag to the reading; the flag is absent when the call has no limit or the completion tokens are not reported.
+/// </para>
+/// <para>
+/// The retry layer below this client (<see cref="RateLimitRetryChatClient"/>, EDGE-006) reports through the <see cref="RetryLedger"/> both share: the
+/// client resets the ledger when a call starts (right after the gate was taken), and the reading carries its <see cref="StepReading.Retries"/> and
+/// <see cref="StepReading.WaitMs"/>. The wait is out of the measurements it would distort: <c>latencyMs</c> is the elapsed time minus the wait and the time to
+/// the first token is the first text update's time minus the start minus the wait, while the window of the energy meter, <c>startUtc</c> and <c>endUtc</c> span the
+/// whole call. The wall seconds given to the <see cref="ICostCalculator"/> are the whole elapsed time, the wait included, because a rented GPU is billed for it.
 /// </para>
 /// <para>
 /// A failure of the meter itself (the window cannot be opened or closed) is not swallowed when the call itself succeeded: it leaves the call as an
@@ -57,11 +63,6 @@ namespace AgentJoules.Metering;
 /// </remarks>
 public sealed class MeteredChatClient : DelegatingChatClient
 {
-    // The retry layer (AJ-045) reports how many retries a call needed and how long they waited; until it exists both are 0, so the latency and
-    // the time to the first token are the elapsed times unchanged.
-    private const int Retries = 0;
-    private const long WaitMs = 0;
-
     private const string MillisecondUnit = "ms";
     private const string BufferedReason = "buffered-call";
     private const string NoContentReason = "no-content-update";
@@ -77,15 +78,18 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
     private readonly StepIdentity _identity;
     private readonly MeteringServices _services;
+    private readonly RetryLedger _ledger;
 
     private int _inFlight;
 
-    /// <summary>Creates a client that meters the calls of one agent.</summary>
-    /// <param name="inner">The client whose calls are metered.</param>
+    /// <summary>Creates a client that meters the calls of one agent and reads the retries of its calls from <paramref name="ledger"/>.</summary>
+    /// <param name="inner">The client whose calls are metered; in an agent's pipeline it holds the <see cref="RateLimitRetryChatClient"/> that writes <paramref name="ledger"/>.</param>
     /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
     /// <param name="services">The shared meter, gate, sink, cost calculator and clock.</param>
+    /// <param name="ledger">The ledger the retry layer below this client records its retries and waits in. It must be the same instance as the retry layer's, which offers it through <c>GetService(typeof(RetryLedger))</c>: the client resets it when a call starts and copies <see cref="RetryLedger.Retries"/> and <see cref="RetryLedger.WaitMs"/> into the reading. A ledger belongs to exactly one pipeline.</param>
     /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
-    public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services)
+    /// <exception cref="ArgumentException"><paramref name="inner"/> holds a retry layer whose ledger is not <paramref name="ledger"/>: such a pipeline would report 0 retries and a latency that includes the waits.</exception>
+    public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services, RetryLedger ledger)
         : base(inner)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -95,9 +99,29 @@ public sealed class MeteredChatClient : DelegatingChatClient
         ArgumentNullException.ThrowIfNull(services.Sink);
         ArgumentNullException.ThrowIfNull(services.Cost);
         ArgumentNullException.ThrowIfNull(services.Time);
+        ArgumentNullException.ThrowIfNull(ledger);
+
+        if (inner.GetService(typeof(RetryLedger)) is RetryLedger found && !ReferenceEquals(found, ledger))
+        {
+            throw new ArgumentException("The retry layer of this pipeline writes a different ledger than the one given; a ledger belongs to exactly one pipeline, and the metered client and its retry layer must share it.", nameof(ledger));
+        }
 
         _identity = identity;
         _services = services;
+        _ledger = ledger;
+    }
+
+    /// <summary>
+    /// Creates a client that adopts the ledger of the <see cref="RateLimitRetryChatClient"/> inside <paramref name="inner"/> (found through <c>GetService(typeof(RetryLedger))</c>), or, for a
+    /// pipeline that has no retry layer, a ledger of its own that nothing writes, so every reading has 0 retries and a wait of 0. A ledger belongs to exactly one pipeline.
+    /// </summary>
+    /// <param name="inner">The client whose calls are metered.</param>
+    /// <param name="identity">Who the readings are attributed to; copied into every reading.</param>
+    /// <param name="services">The shared meter, gate, sink, cost calculator and clock.</param>
+    /// <exception cref="ArgumentNullException">An argument, or a member of <paramref name="services"/>, is null.</exception>
+    public MeteredChatClient(IChatClient inner, StepIdentity identity, MeteringServices services)
+        : this(inner, identity, services, LedgerOf(inner))
+    {
     }
 
     /// <inheritdoc />
@@ -235,6 +259,14 @@ public sealed class MeteredChatClient : DelegatingChatClient
         }
     }
 
+    // The ledger of the retry layer inside the pipeline, or a fresh one when there is none.
+    private static RetryLedger LedgerOf(IChatClient inner)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+
+        return inner.GetService(typeof(RetryLedger)) as RetryLedger ?? new RetryLedger();
+    }
+
     private void EnterCall()
     {
         if (Interlocked.CompareExchange(ref _inFlight, 1, 0) != 0)
@@ -270,6 +302,10 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
         public void Open()
         {
+            // The ledger belongs to one call at a time: whatever the previous call left in it is not this call's, and the retry layer below starts
+            // writing only after this method returned.
+            owner._ledger.Reset();
+
             TimeProvider time = owner._services.Time;
             _window = owner._services.Meter.OpenWindow();
             _startTimestamp = time.GetTimestamp();
@@ -316,7 +352,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
             if (hasText && _timeToFirstToken is null)
             {
-                _timeToFirstToken = Metric.Measured(ElapsedMilliseconds(), MillisecondUnit);
+                _timeToFirstToken = Metric.Measured(Math.Max(0.0, ElapsedMilliseconds() - owner._ledger.WaitMs), MillisecondUnit);
             }
         }
 
@@ -325,12 +361,16 @@ public sealed class MeteredChatClient : DelegatingChatClient
         {
             EnergyReading? energy = null;
             double elapsedMs = 0.0;
+            long waitMs = 0;
+            int retries = 0;
             DateTimeOffset endUtc = _startUtc;
             try
             {
                 if (_window is not null)
                 {
                     elapsedMs = ElapsedMilliseconds();
+                    waitMs = owner._ledger.WaitMs;
+                    retries = owner._ledger.Retries;
                     endUtc = owner._services.Time.GetUtcNow();
                     energy = _window.Close();
                 }
@@ -351,7 +391,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
             {
                 try
                 {
-                    owner._services.Sink.Publish(BuildReading(energy, elapsedMs, endUtc));
+                    owner._services.Sink.Publish(BuildReading(energy, elapsedMs, retries, waitMs, endUtc));
                 }
                 catch (Exception readingFailure) when (Error is not null)
                 {
@@ -363,10 +403,10 @@ public sealed class MeteredChatClient : DelegatingChatClient
             }
         }
 
-        private double ElapsedMilliseconds() =>
-            Math.Max(0.0, owner._services.Time.GetElapsedTime(_startTimestamp).TotalMilliseconds - WaitMs);
+        // The whole time since the start, the retry waits included.
+        private double ElapsedMilliseconds() => owner._services.Time.GetElapsedTime(_startTimestamp).TotalMilliseconds;
 
-        private StepReading BuildReading(EnergyReading energy, double elapsedMs, DateTimeOffset endUtc)
+        private StepReading BuildReading(EnergyReading energy, double elapsedMs, int retries, long waitMs, DateTimeOffset endUtc)
         {
             StepIdentity identity = owner._identity;
 
@@ -384,7 +424,9 @@ public sealed class MeteredChatClient : DelegatingChatClient
             // samples and no rate to state (the reading refuses the unmetered method and requires them absent on a hosted tier).
             bool metered = energy.Method != EnergyMethod.Unmetered;
 
-            // The only source of the cost is the calculator of the services; the decorator holds no price. The wall time is the latency of the reading.
+            // The only source of the cost is the calculator of the services; the decorator holds no price. The wall time it is given is the whole elapsed
+            // time, the retry waits included (a rented GPU is billed for them), while the latency of the reading leaves them out.
+            double latencyMs = Math.Max(0.0, elapsedMs - waitMs);
             TokenCounts tokens = Tokens;
             Metric cost = owner._services.Cost.Compute(identity, tokens, energy, elapsedMs / 1000.0);
 
@@ -397,7 +439,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
                 startUtc: _startUtc,
                 endUtc: endUtc < _startUtc ? _startUtc : endUtc,
                 outcome: outcome,
-                latencyMs: Metric.Measured(elapsedMs, MillisecondUnit),
+                latencyMs: Metric.Measured(latencyMs, MillisecondUnit),
                 ttftMs: ttft,
                 inputTokens: tokens.InputTokens,
                 outputTokens: tokens.OutputTokens,
@@ -406,8 +448,8 @@ public sealed class MeteredChatClient : DelegatingChatClient
                 avgW: energy.AverageWatts,
                 peakW: energy.PeakWatts,
                 cost: cost,
-                retries: Retries,
-                waitMs: WaitMs,
+                retries: retries,
+                waitMs: waitMs,
                 flags: energy.Flags | (tokens.ExceedsOutputLimit(maxOutputTokens) ? ReadingFlags.MaxTokensExceeded : ReadingFlags.None),
                 method: metered ? energy.Method : null,
                 sampleCount: metered ? energy.SampleCount : null,
