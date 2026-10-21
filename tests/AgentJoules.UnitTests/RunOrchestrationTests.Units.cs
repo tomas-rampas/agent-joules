@@ -14,8 +14,10 @@ using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Local;
 using AgentJoules.Workflow.Runs;
 
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 
 using Xunit;
 
@@ -148,14 +150,121 @@ public sealed partial class RunOrchestrationTests
 
         [Fact]
         [Trait("Spec", "REQ-013")]
-        public void A_concurrent_measured_run_reports_energy_as_not_computed_and_sums_the_tokens()
+        public void A_concurrent_measured_run_whose_union_cannot_be_computed_reports_union_not_computed_and_sums_the_tokens()
         {
-            Totals totals = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, [Metered, Metered], [], wallClockMs: 10);
+            // The guard of the union branch (AJ-047): no union function was given, or a step carries no window (a reading read back from a file); never a sum of overlapping energies.
+            StepReading windowed = StepReadingFixtures.Metered("Writer", window: new WindowSpan(0.0, 2.0));
+            int asked = 0;
+            UnionEnergy Union(IReadOnlyList<WindowSpan> spans)
+            {
+                asked++;
+                return new UnionEnergy(Metric.Measured(1.0, "J"), Metric.Measured(1.0, "J"), 1.0, 1);
+            }
 
-            Assert.Equal((MetricLabel.NotReported, (double?)null, RunAssembler.UnionNotComputedReason), Of(totals.GrossJoules));
-            Assert.Equal((MetricLabel.NotReported, (double?)null, "union-not-computed"), Of(totals.NetJoules));
-            Assert.Equal((MetricLabel.Measured, 240.0, (string?)null), Of(totals.InputTokens));
-            Assert.Equal((MetricLabel.Measured, 160.0, (string?)null), Of(totals.OutputTokens));
+            Totals withoutWindows = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, [Metered, Metered], [], wallClockMs: 10, Union);
+            Totals oneWithout = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, [windowed, Metered], [], wallClockMs: 10, Union);
+            Totals withoutFunction = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, [windowed, windowed], [], wallClockMs: 10);
+
+            Assert.Equal(0, asked);
+            foreach (Totals totals in new[] { withoutWindows, oneWithout, withoutFunction })
+            {
+                Assert.Equal((MetricLabel.NotReported, (double?)null, RunAssembler.UnionNotComputedReason), Of(totals.GrossJoules));
+                Assert.Equal((MetricLabel.NotReported, (double?)null, "union-not-computed"), Of(totals.NetJoules));
+                Assert.Equal((MetricLabel.Measured, 240.0, (string?)null), Of(totals.InputTokens));
+                Assert.Equal((MetricLabel.Measured, 160.0, (string?)null), Of(totals.OutputTokens));
+            }
+        }
+
+        [Fact]
+        [Trait("Spec", "REQ-013")]
+        [Trait("Spec", "EDGE-004")]
+        public void A_concurrent_measured_run_takes_its_energy_totals_from_the_union_of_the_step_windows()
+        {
+            StepReading[] steps =
+            [
+                StepReadingFixtures.Metered("Planner", window: new WindowSpan(0.0, 1.0)),
+                StepReadingFixtures.Metered("Researcher", window: new WindowSpan(1.0, 2.0)),
+                StepReadingFixtures.Metered("Writer", window: new WindowSpan(1.0, 2.0)),
+            ];
+            List<WindowSpan[]> asked = [];
+            UnionEnergy Union(IReadOnlyList<WindowSpan> spans)
+            {
+                asked.Add([.. spans]);
+                return new UnionEnergy(Metric.Measured(123.5, "J"), Metric.Measured(-4.25, "J"), unionSeconds: 2.0, segmentCount: 2);
+            }
+
+            Totals totals = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, steps, [], wallClockMs: 10, Union);
+            Totals serialized = RunAssembler.ComputeTotals(Tier.Local, RunMode.Serialized, steps, [], wallClockMs: 10, Union);
+            Totals empty = RunAssembler.ComputeTotals(Tier.Local, RunMode.Concurrent, [], [], wallClockMs: null, Union);
+
+            // The union function sees every step window once, in run order; its gross and net are the totals, a negative net kept as measured.
+            Assert.Equal(steps.Select(static step => step.Window!.Value), Assert.Single(asked));
+            Assert.Equal((MetricLabel.Measured, 123.5, (string?)null), Of(totals.GrossJoules));
+            Assert.Equal((MetricLabel.Measured, -4.25, (string?)null), Of(totals.NetJoules));
+            Assert.Equal((MetricLabel.Measured, 360.0, (string?)null), Of(totals.InputTokens));
+
+            // Serialized mode sums the steps whatever is given; a run without steps is no-steps, and the union of nothing is never asked.
+            Assert.Equal((MetricLabel.Measured, 540.0, (string?)null), Of(serialized.GrossJoules));
+            Assert.Equal((MetricLabel.NotReported, (double?)null, RunAssembler.NoStepsReason), Of(empty.GrossJoules));
+            Assert.Equal((MetricLabel.NotReported, (double?)null, RunAssembler.NoStepsReason), Of(empty.NetJoules));
+            _ = Assert.Single(asked);
+        }
+
+        [Fact]
+        [Trait("Spec", "REQ-013")]
+        [Trait("Spec", "EDGE-004")]
+        public void Assembling_flags_every_measured_step_whose_window_overlaps_another_and_never_a_hosted_or_windowless_one()
+        {
+            StepReading[] steps =
+            [
+                StepReadingFixtures.Metered("Planner", window: new WindowSpan(0.0, 1.0)),
+                StepReadingFixtures.Metered("Researcher", window: new WindowSpan(1.0, 2.0)),
+                StepReadingFixtures.Metered("Writer", window: new WindowSpan(1.5, 2.5)),
+                StepReadingFixtures.Metered("Reviewer"),
+            ];
+
+            StepReading[] flagged = RunAssembler.MarkSharedWindows(Tier.Local, steps);
+            StepReading[] again = RunAssembler.MarkSharedWindows(Tier.Local, flagged);
+
+            Assert.Equal([false, true, true, false], flagged.Select(static step => step.Flags.HasFlag(ReadingFlags.SharedWindow)));
+            Assert.Equal(flagged, again);
+            Assert.All(steps, static step => Assert.False(step.Flags.HasFlag(ReadingFlags.SharedWindow)));
+
+            // The copy keeps every other member, the window included.
+            Assert.Equal(steps[1].Window, flagged[1].Window);
+            Assert.Equal(steps[1].GrossJoules, flagged[1].GrossJoules);
+            Assert.Equal(ReadingFlags.SharedWindow, flagged[1].Flags);
+            Assert.Same(steps[0], flagged[0]);
+        }
+
+        [Fact]
+        [Trait("Spec", "REQ-013")]
+        public async Task Hosted_steps_are_never_flagged_shared()
+        {
+            // Two hosted calls in flight at once: their unmetered windows overlap, and still no hosted step is flagged, because nothing of ours was measured.
+            var time = new FakeTimeProvider();
+            await using var meter = new UnmeteredEnergyMeter(time);
+            await meter.StartAsync(CancellationToken.None);
+            var sink = new InMemoryMetricsSink();
+            var services = new MeteringServices(meter, NoOpMeterGate.Instance, sink, NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time);
+            ChatMessage[] prompt = [new(ChatRole.User, "Summarise the report.")];
+            Task<ChatResponse> Call(string agent) => new MeteredChatClient(
+                new FakeChatClient(time) { Hold = Task.Delay(TimeSpan.FromSeconds(1), time), ResponseDelay = TimeSpan.Zero },
+                new StepIdentity(agent, "model-h", Tier.Nvidia, "summarise", 1, false),
+                services).GetResponseAsync(prompt);
+            Task<ChatResponse> researcher = Call("Researcher");
+            Task<ChatResponse> writer = Call("Writer");
+            time.Advance(TimeSpan.FromSeconds(1));
+            _ = await Task.WhenAll(researcher, writer).WaitAsync(HangGuard);
+            IReadOnlyList<StepReading> hosted = sink.Snapshot();
+            Assert.True(hosted.All(static step => step.Window is not null));
+            Assert.True(UnionWindowCalculator.Overlaps(hosted[0].Window!.Value, hosted[1].Window!.Value));
+
+            StepReading[] flagged = RunAssembler.MarkSharedWindows(Tier.Nvidia, hosted);
+
+            Assert.All(flagged, static step => Assert.False(step.Flags.HasFlag(ReadingFlags.SharedWindow)));
+            Assert.Equal("tier", Assert.Throws<ArgumentOutOfRangeException>(() => RunAssembler.MarkSharedWindows((Tier)99, [])).ParamName);
+            Assert.Equal("steps", Assert.Throws<ArgumentNullException>(() => RunAssembler.MarkSharedWindows(Tier.Local, null!)).ParamName);
         }
 
         [Fact]
@@ -250,9 +359,12 @@ public sealed partial class RunOrchestrationTests
         [Fact]
         public void A_copy_with_another_outcome_keeps_every_other_value()
         {
-            StepReading original = Reading(Metered, cost: Metric.Estimated(0.5, "EUR"));
+            StepReading original = StepReadingFixtures.Metered(window: new WindowSpan(1.25, 3.5), cost: Metric.Estimated(0.5, "EUR"));
 
             StepReading copy = RunAssembler.WithOutcome(original, StepOutcomes.Incomplete);
+
+            // The in-memory window is not printed, so it is compared on its own: the shutdown copy keeps it for the union and the flags (AJ-047).
+            Assert.Equal(new WindowSpan(1.25, 3.5), copy.Window);
 
             Assert.Equal(StepOutcomes.Incomplete, copy.Outcome);
             Assert.Equal(original.ToString().Replace("Outcome = ok", "Outcome = incomplete", StringComparison.Ordinal), copy.ToString());

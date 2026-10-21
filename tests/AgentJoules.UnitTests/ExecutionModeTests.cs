@@ -24,7 +24,7 @@ namespace AgentJoules.UnitTests;
 /// given back after a failure or a cancellation, and that concurrent mode registers the gate that admits everyone. Every wait on a task is bounded by
 /// <see cref="HangGuard"/>, which is the system clock and only ends a run that already failed; no test uses the system clock for anything else.
 /// </summary>
-public sealed class ExecutionModeTests
+public sealed partial class ExecutionModeTests
 {
     private static readonly IReadOnlyList<ChatMessage> Prompt = [new ChatMessage(ChatRole.User, "Summarise the report.")];
 

@@ -107,6 +107,28 @@ public sealed class UnmeteredEnergyMeter : IEnergyMeter
         }
     }
 
+    /// <summary>
+    /// A hosted tier measures nothing, so the union of its windows has no energy either: the gross and the net are N/A with the reason <c>hosted-tier</c>,
+    /// never a number, and the length and the segment count are those of the merged windows. It reads no state and never throws for a valid list, also
+    /// before start and after disposal.
+    /// </summary>
+    /// <param name="windows">The spans of closed windows, in any order; at least one.</param>
+    /// <returns>The N/A energy of the union.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="windows"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="windows"/> is empty or holds a window that is not finite or does not stop after it starts.</exception>
+    public UnionEnergy ComputeUnion(IReadOnlyList<WindowSpan> windows)
+    {
+        WindowSpan[] segments = UnionWindowCalculator.Merge(windows);
+        double unionSeconds = 0.0;
+        foreach (WindowSpan segment in segments)
+        {
+            unionSeconds += segment.DurationSeconds;
+        }
+
+        Metric notApplicable = Metric.NotApplicable(MeterCapabilities.HostedTierReason);
+        return new UnionEnergy(notApplicable, notApplicable, unionSeconds, segments.Length);
+    }
+
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {

@@ -235,6 +235,36 @@ public sealed partial class RunOrchestrationTests
         Assert.Equal("running", Text(RunOf(document), "status"));
     }
 
+    // AJ-047: the windows the judge is given come back unchanged, so the completed write keeps the union totals and the shared-window flags.
+    [Theory]
+    [Trait("Spec", "REQ-013")]
+    [InlineData("keep", null)]
+    [InlineData("drop", "The judge must return each step with its window unchanged.")]
+    [InlineData("null", "The judge must return one step for every step it was given, in the same order.")]
+    public async Task A_judge_must_return_every_step_with_its_window_unchanged(string judged, string? error)
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        RunCommandSetup setup = NvidiaRun(workspace, RunOrchestrationFixtures.Endpoint());
+        var judge = new ScriptedJudge(steps => [.. steps.Select((step, index) => judged == "null" && index == 0 ? null! : WithQuality(step, index + 1, keepWindow: judged == "keep"))]);
+        UseJudge(setup, judge);
+
+        CliRunResult result = await RunAsync($"run --tier nvidia --task {TaskNames[0]} --repeat 1", setup);
+
+        using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
+        if (error is null)
+        {
+            AssertExit(0, result);
+            Assert.Equal("completed", Text(RunOf(document), "status"));
+        }
+        else
+        {
+            // The judge dropped the windows or returned no step for one: the tier fails before the completed write, and the message names the rule, never a reading.
+            AssertExit(1, result);
+            Assert.Equal($"error: {error} (InvalidOperationException)", Assert.Single(result.ErrorLines));
+            Assert.Equal("running", Text(RunOf(document), "status"));
+        }
+    }
+
     // ---- fix round 1, item 12: the key, the prompt and the answer never reach the console or the file ----
 
     [Fact]
@@ -298,8 +328,8 @@ public sealed partial class RunOrchestrationTests
             _ = services.AddSingleton(judge);
         });
 
-    // A copy of the reading with a model-judged quality.
-    private static StepReading WithQuality(StepReading reading, double quality) =>
+    // A copy of the reading with a model-judged quality; keepWindow false is a judge that rebuilt the reading and dropped its in-memory window (AJ-047).
+    private static StepReading WithQuality(StepReading reading, double quality, bool keepWindow = true) =>
         new(
             reading.Task,
             reading.Repeat,
@@ -329,7 +359,8 @@ public sealed partial class RunOrchestrationTests
             qualityReason: null,
             outputSha256: reading.OutputSha256,
             outputChars: reading.OutputChars,
-            outputText: reading.OutputText);
+            outputText: reading.OutputText,
+            window: keepWindow ? reading.Window : null);
 
     // A judge double: counts its calls, records the steps it was given and returns what the script makes of them.
     private sealed class ScriptedJudge(Func<IReadOnlyList<StepReading>, IReadOnlyList<StepReading>> score) : IJudgeService

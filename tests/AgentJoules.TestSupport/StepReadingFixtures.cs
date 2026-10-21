@@ -14,7 +14,13 @@ public static class StepReadingFixtures
     public static readonly DateTimeOffset StartUtc = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>A reading of a metered tier (local by default) with measured energy, tokens and latency.</summary>
-    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local) =>
+    /// <param name="agent">The agent name.</param>
+    /// <param name="tier">The tier; a measured one.</param>
+    /// <param name="window">The in-memory meter window the run assembler reads (AJ-047), or null for none.</param>
+    /// <param name="cost">The cost, or null for not-reported <c>not-priced</c>.</param>
+    /// <param name="inputTokens">The prompt tokens, or null for a measured 120.</param>
+    /// <returns>The reading.</returns>
+    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null) =>
         new(
             task: "summarise",
             repeat: 1,
@@ -26,19 +32,20 @@ public static class StepReadingFixtures
             outcome: StepOutcomes.Ok,
             latencyMs: Metric.Measured(2000, "ms"),
             ttftMs: Metric.Measured(250, "ms"),
-            inputTokens: Metric.Measured(120, "tokens"),
+            inputTokens: inputTokens ?? Metric.Measured(120, "tokens"),
             outputTokens: Metric.Measured(80, "tokens"),
             grossJoules: Metric.Measured(180, "J"),
             netJoules: Metric.Measured(60, "J"),
             avgW: Metric.Measured(90, "W"),
             peakW: Metric.Measured(110, "W"),
-            cost: Metric.NotReported("not-priced"),
+            cost: cost ?? Metric.NotReported("not-priced"),
             retries: 0,
             waitMs: 0,
             flags: ReadingFlags.None,
             method: EnergyMethod.Sampling,
             sampleCount: 21,
-            sampleRateHz: 10.0);
+            sampleRateHz: 10.0,
+            window: window);
 
     /// <summary>
     /// The no-usage reading (AJ-042, EDGE-007): a metered step whose provider sent no usage, so both token metrics are not-reported with the reason

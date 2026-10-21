@@ -462,7 +462,11 @@ public sealed class MeteredChatClient : DelegatingChatClient
                 throttleReasons: energy.ThrottleReasons,
                 outputSha256: hasOutput ? Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text))) : null,
                 outputChars: hasOutput ? text.Length : null,
-                outputText: hasOutput ? text : null);
+                outputText: hasOutput ? text : null,
+
+                // The window has closed (there is energy only after Close returned), so its span is final; the run assembler reads it for the shared-window
+                // flag and the union of a concurrent run (AJ-047). A hosted window has a span too.
+                window: _window?.Span);
         }
     }
 }

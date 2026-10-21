@@ -32,7 +32,8 @@ namespace AgentJoules.Core.Results;
 /// </para>
 /// <para>
 /// <see cref="OutputText"/> lives in memory only, for the judge; it is never serialized and never printed by <see cref="object.ToString"/>, and the
-/// file keeps <see cref="OutputSha256"/> and <see cref="OutputChars"/> instead.
+/// file keeps <see cref="OutputSha256"/> and <see cref="OutputChars"/> instead. <see cref="Window"/> lives in memory only too, for the run assembler (the
+/// <c>shared-window</c> flag and the union of the windows of a concurrent run, REQ-013); it is never serialized and never printed either.
 /// </para>
 /// </remarks>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -73,6 +74,7 @@ public sealed record StepReading
     /// <param name="outputSha256">The lowercase hexadecimal SHA-256 of the output text; null when there is none.</param>
     /// <param name="outputChars">The length of the output text in characters; null when there is none; not negative.</param>
     /// <param name="outputText">The output text, kept in memory for the judge and never serialized.</param>
+    /// <param name="window">The meter's window of this step, kept in memory for the run assembler and never serialized; null when it is not known (a reading read back from a file); when set, both bounds are finite and the stop is after the start.</param>
     /// <exception cref="ArgumentNullException">A metric is null.</exception>
     /// <exception cref="ArgumentException">Another argument violates the rule named above.</exception>
     [JsonConstructor]
@@ -107,7 +109,8 @@ public sealed record StepReading
         Metric? costPerQualityPoint = null,
         string? outputSha256 = null,
         int? outputChars = null,
-        string? outputText = null)
+        string? outputText = null,
+        WindowSpan? window = null)
     {
         RequireText(nameof(task), task);
         RequireText(nameof(agent), agent);
@@ -217,6 +220,10 @@ public sealed record StepReading
         }
 
         ValidateOutputFingerprint(outputSha256, outputChars);
+        if (window is { } span && !(double.IsFinite(span.StartSeconds) && double.IsFinite(span.StopSeconds) && span.StopSeconds > span.StartSeconds))
+        {
+            throw Rejected(nameof(window), $"The window must have finite bounds and stop after it starts, but it is {span.StartSeconds} to {span.StopSeconds} s.");
+        }
 
         Task = task;
         Repeat = repeat;
@@ -249,6 +256,7 @@ public sealed record StepReading
         OutputChars = outputChars;
         ThrottleReasons = reasons;
         OutputText = outputText;
+        Window = window;
     }
 
     /// <summary>The task the workflow ran.</summary>
@@ -348,8 +356,12 @@ public sealed record StepReading
     [JsonIgnore]
     public string? OutputText { get; }
 
+    /// <summary>The meter's window of this step, in memory only, for the run assembler; never serialized and never printed.</summary>
+    [JsonIgnore]
+    public WindowSpan? Window { get; }
+
     // The record-generated printer would include OutputText, so a log line or an exception message that formats a reading would leak the model
-    // output. This one prints every member except the text (its length is OutputChars).
+    // output. This one prints every member except the text (its length is OutputChars) and the in-memory window, which is not part of the file.
     private bool PrintMembers(StringBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);

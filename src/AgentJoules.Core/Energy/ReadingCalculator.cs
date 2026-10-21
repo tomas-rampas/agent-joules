@@ -14,10 +14,10 @@ public static class ReadingCalculator
 {
     private const string JouleUnit = "J";
     private const string WattUnit = "W";
-    private const string InsufficientSamples = "insufficient-samples";
-    private const string CounterNotRead = "counter-not-read";
-    private const string CounterWentBackwards = "counter-went-backwards";
-    private const string NoBaseline = "no-baseline";
+    private const string InsufficientSamples = EnergyReasons.InsufficientSamples;
+    private const string CounterNotRead = EnergyReasons.CounterNotRead;
+    private const string CounterWentBackwards = EnergyReasons.CounterWentBackwards;
+    private const string NoBaseline = EnergyReasons.NoBaseline;
 
     /// <summary>Computes the reading of one window.</summary>
     /// <param name="input">The samples, window, method, counter delta, baseline and rate.</param>

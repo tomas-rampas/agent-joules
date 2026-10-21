@@ -146,6 +146,9 @@ public sealed class RunOrchestrator(
                 progress.Probe = ProbeResult.Create(source.Identity, source.EnergyCounterSupported, capabilities, options.Meter.SampleRateHz);
 
                 meter = new SampledEnergyMeter(source, capabilities, _time);
+
+                // The union of the step windows for the energy totals of a concurrent run; the meter is alive for every write of the tier (it is disposed in the finally below).
+                progress.Union = meter.ComputeUnion;
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
                 progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
                 progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
@@ -249,6 +252,21 @@ public sealed class RunOrchestrator(
         if (scored is null || scored.Count != ok.Length)
         {
             throw new InvalidOperationException("The judge must return one step for every step it was given, in the same order.");
+        }
+
+        // The in-memory windows carry the union totals and the shared-window flags of the completed write (AJ-047): a judge that rebuilt a reading without its window
+        // would turn a concurrent run's energy into union-not-computed. The message names the rule, never a reading.
+        for (int i = 0; i < ok.Length; i++)
+        {
+            if (scored[i] is null)
+            {
+                throw new InvalidOperationException("The judge must return one step for every step it was given, in the same order.");
+            }
+
+            if (scored[i].Window != ok[i].Window)
+            {
+                throw new InvalidOperationException("The judge must return each step with its window unchanged.");
+            }
         }
 
         var judged = new List<StepReading>(steps.Count);
@@ -358,11 +376,14 @@ public sealed class RunOrchestrator(
         // The (task, repeat) whose workflow is running, or null between them.
         public (string Task, int Repeat)? Current { get; set; }
 
+        // The meter's union of the step windows on a measured tier (AJ-047), or null for a hosted tier, whose energy totals are N/A anyway.
+        public Func<IReadOnlyList<WindowSpan>, UnionEnergy>? Union { get; set; }
+
         public RunDocument Document(IReadOnlyList<StepReading> steps, RunStatus status)
         {
             RunInfo run = RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status);
             EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad);
-            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, [], WallClockMs);
+            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, [], WallClockMs, Union);
         }
     }
 }

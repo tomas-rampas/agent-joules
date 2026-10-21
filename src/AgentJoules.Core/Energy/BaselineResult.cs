@@ -14,7 +14,7 @@ namespace AgentJoules.Core.Energy;
 public sealed record BaselineResult
 {
     private const string WattUnit = "W";
-    private const string InsufficientSamples = "insufficient-samples";
+    private const string InsufficientSamples = EnergyReasons.InsufficientSamples;
     private const string MeanNonPositive = "baseline-mean-nonpositive";
 
     /// <summary>Creates a result after checking every invariant.</summary>

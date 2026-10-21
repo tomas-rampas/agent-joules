@@ -22,11 +22,17 @@ namespace AgentJoules.Workflow.Runs;
 /// <para>
 /// The totals follow one rule for every sum: a sum exists only when every step carries the value as <c>measured</c>; otherwise the total takes the label and the reason of the first step
 /// that lacks it, and it is never 0. On a hosted tier the energy totals are N/A <c>hosted-tier</c>. In concurrent mode on a measured tier the windows of parallel steps overlap, so their
-/// energies do not add up (<see cref="ReportSentences.ConcurrentOverlap"/>) and the energy totals are not-reported <c>union-not-computed</c> until AJ-047 computes the union of the windows;
-/// serialized mode sums. Tokens sum in both modes. The cost follows the same all-steps rule per currency: when every step carries a cost <c>estimated</c> in a currency, the sums per currency;
+/// energies do not add up (<see cref="ReportSentences.ConcurrentOverlap"/>): the energy totals are the union of the step windows, computed by the meter of the tier
+/// (<see cref="IEnergyMeter.ComputeUnion"/>, REQ-013, EDGE-004), and not-reported <c>union-not-computed</c> when no meter was given or a step has no window; serialized mode sums. Tokens
+/// sum in both modes. The cost follows the same all-steps rule per currency: when every step carries a cost <c>estimated</c> in a currency, the sums per currency;
 /// when at least one step lacks one, every currency seen is N/A <c>missing-step-costs</c>; when no step carries one, an empty map (M2, where every cost is N/A). <c>wallClockMs</c> is the measured
 /// sum of the workflow wall times of the (task, repeat) runs, and not-reported <c>no-steps</c> when none started. The judge readings are never part of these and are summed into <c>totals.judge</c>
 /// (N/A <c>not-scored</c> while there are none). The emission (<c>gco2e</c>) is N/A <c>not-configured</c>.
+/// </para>
+/// <para>
+/// The <c>shared-window</c> flag is derived when a document is assembled (<see cref="MarkSharedWindows"/>): on a measured tier, in both modes, every step whose in-memory window strictly
+/// overlaps another step's window is copied with the flag; the judge readings, a step without a window and a hosted step are never flagged. The readings the caller holds are not changed,
+/// so every checkpoint, the completed write and the incomplete write derive the same flags.
 /// </para>
 /// <para>
 /// <c>run.toolVersion</c> and <c>run.gitCommit</c> come from the <see cref="AssemblyInformationalVersionAttribute"/> of this assembly: the SDK appends <c>+&lt;commit&gt;</c> when it builds
@@ -35,7 +41,10 @@ namespace AgentJoules.Workflow.Runs;
 /// </remarks>
 public static class RunAssembler
 {
-    /// <summary>The reason of the energy totals of a concurrent run on a measured tier until the union of the windows is computed (AJ-047).</summary>
+    /// <summary>
+    /// The reason of the energy totals of a concurrent run on a measured tier whose union could not be computed: no meter was given, or a step has no window (a reading read back
+    /// from a file). A guard, never a sum of overlapping energies.
+    /// </summary>
     public const string UnionNotComputedReason = "union-not-computed";
 
     /// <summary>The reason of a judge total while no judge reading exists (M2: the judge seam is a no-op).</summary>
@@ -69,14 +78,18 @@ public static class RunAssembler
 
     /// <summary>Computes the totals of a tier run over <paramref name="steps"/> (see the remarks of the type for the rules).</summary>
     /// <param name="tier">The tier of the run; a hosted tier has N/A energy totals.</param>
-    /// <param name="mode">The mode of the run; concurrent mode on a measured tier leaves the energy totals not-reported.</param>
+    /// <param name="mode">The mode of the run; concurrent mode on a measured tier takes the energy totals from the union of the step windows.</param>
     /// <param name="steps">The workflow steps of the run so far, in run order.</param>
     /// <param name="judge">The judge readings of the run; never part of the step totals.</param>
     /// <param name="wallClockMs">The sum of the workflow wall times of the (task, repeat) runs so far, in milliseconds, finite and not negative; null when no (task, repeat) started.</param>
+    /// <param name="computeUnion">
+    /// The union of the step windows (<see cref="IEnergyMeter.ComputeUnion"/> of the tier's meter), asked once for a concurrent run on a measured tier whose steps all carry a window;
+    /// null when there is none, which leaves those energy totals not-reported <see cref="UnionNotComputedReason"/>.
+    /// </param>
     /// <returns>The totals.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="steps"/> or <paramref name="judge"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined, or <paramref name="wallClockMs"/> is negative or not finite.</exception>
-    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs)
+    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
     {
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
@@ -88,8 +101,8 @@ public static class RunAssembler
 
         (Metric gross, Metric net) = TierKinds.IsHosted(tier)
             ? (Metric.NotApplicable(MeterCapabilities.HostedTierReason), Metric.NotApplicable(MeterCapabilities.HostedTierReason))
-            : mode == RunMode.Concurrent
-                ? (Metric.NotReported(UnionNotComputedReason), Metric.NotReported(UnionNotComputedReason))
+            : mode == RunMode.Concurrent && steps.Count > 0
+                ? UnionTotals(steps, computeUnion)
                 : (Sum(steps, static step => step.GrossJoules, JouleUnit), Sum(steps, static step => step.NetJoules, JouleUnit));
 
         return new Totals(
@@ -193,6 +206,7 @@ public static class RunAssembler
     /// <param name="steps">The workflow steps so far, in run order.</param>
     /// <param name="judge">The judge readings.</param>
     /// <param name="wallClockMs">The sum of the workflow wall times so far, in milliseconds; null when no (task, repeat) started.</param>
+    /// <param name="computeUnion">The union of the step windows for the energy totals of a concurrent measured run (see <see cref="ComputeTotals"/>), or null.</param>
     /// <returns>The document.</returns>
     /// <exception cref="ArgumentNullException">A member, the steps or the judge readings are null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="wallClockMs"/> is negative or not finite.</exception>
@@ -203,14 +217,15 @@ public static class RunAssembler
         BaselineResult? baseline,
         IReadOnlyList<StepReading> steps,
         IReadOnlyList<StepReading> judge,
-        double? wallClockMs)
+        double? wallClockMs,
+        Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
 
-        StepReading[] stepCopy = [.. steps];
+        StepReading[] stepCopy = MarkSharedWindows(run.Tier, steps);
         StepReading[] judgeCopy = [.. judge];
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
@@ -220,12 +235,67 @@ public static class RunAssembler
             baseline,
             stepCopy,
             judgeCopy,
-            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs));
+            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion));
     }
 
     /// <summary>
-    /// Copies <paramref name="reading"/> with another outcome and every other member unchanged (the reading has no init setters, so the copy goes through the constructor and its checks); the
-    /// shutdown path of the orchestrator marks an in-flight step <c>incomplete</c> with it.
+    /// Flags shared windows (REQ-013, EDGE-004): on a measured tier, in both modes, every step whose in-memory <see cref="StepReading.Window"/> strictly overlaps the window of another
+    /// step (<see cref="UnionWindowCalculator.Overlaps"/>; windows that only touch do not) is copied with <see cref="ReadingFlags.SharedWindow"/> added. A step without a window is never
+    /// flagged and never counted as an overlap, and on a hosted tier nothing is flagged, because nothing of ours was measured. Pass the workflow steps only: the judge readings are never
+    /// part of it. The flag changes no sum, and the input is not changed, so assembling again gives the same flags.
+    /// </summary>
+    /// <param name="tier">The tier of the run.</param>
+    /// <param name="steps">The workflow steps, in run order.</param>
+    /// <returns>The steps in the same order: a flagged copy where a window is shared, the same reading otherwise.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="steps"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The tier is not defined.</exception>
+    public static StepReading[] MarkSharedWindows(Tier tier, IReadOnlyList<StepReading> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+        if (!Enum.IsDefined(tier))
+        {
+            throw new ArgumentOutOfRangeException(nameof(tier), (int)tier, "The tier is not a defined tier.");
+        }
+
+        StepReading[] marked = [.. steps];
+        if (!TierKinds.IsMeasured(tier))
+        {
+            return marked;
+        }
+
+        List<int> windowed = [];
+        List<WindowSpan> spans = [];
+        for (int i = 0; i < marked.Length; i++)
+        {
+            ArgumentNullException.ThrowIfNull(marked[i], nameof(steps));
+            if (marked[i].Window is { } span)
+            {
+                windowed.Add(i);
+                spans.Add(span);
+            }
+        }
+
+        if (spans.Count == 0)
+        {
+            return marked;
+        }
+
+        bool[] shared = UnionWindowCalculator.OverlapsAnother(spans);
+        for (int k = 0; k < shared.Length; k++)
+        {
+            StepReading step = marked[windowed[k]];
+            if (shared[k] && !step.Flags.HasFlag(ReadingFlags.SharedWindow))
+            {
+                marked[windowed[k]] = Copy(step, step.Outcome, step.Flags | ReadingFlags.SharedWindow);
+            }
+        }
+
+        return marked;
+    }
+
+    /// <summary>
+    /// Copies <paramref name="reading"/> with another outcome and every other member unchanged, the in-memory window included (the reading has no init setters, so the copy goes through
+    /// the constructor and its checks); the shutdown path of the orchestrator marks an in-flight step <c>incomplete</c> with it.
     /// </summary>
     /// <param name="reading">The reading to copy.</param>
     /// <param name="outcome">The outcome of the copy, one of <see cref="StepOutcomes"/>.</param>
@@ -236,38 +306,7 @@ public static class RunAssembler
     {
         ArgumentNullException.ThrowIfNull(reading);
 
-        return new StepReading(
-            reading.Task,
-            reading.Repeat,
-            reading.Agent,
-            reading.ModelId,
-            reading.Tier,
-            reading.StartUtc,
-            reading.EndUtc,
-            outcome,
-            reading.LatencyMs,
-            reading.TtftMs,
-            reading.InputTokens,
-            reading.OutputTokens,
-            reading.GrossJoules,
-            reading.NetJoules,
-            reading.AvgW,
-            reading.PeakW,
-            reading.Cost,
-            reading.Retries,
-            reading.WaitMs,
-            reading.Flags,
-            reading.Method,
-            reading.SampleCount,
-            reading.SampleRateHz,
-            reading.ThrottleReasons,
-            reading.Quality,
-            reading.QualityReason,
-            reading.JoulesPerQualityPoint,
-            reading.CostPerQualityPoint,
-            reading.OutputSha256,
-            reading.OutputChars,
-            reading.OutputText);
+        return Copy(reading, outcome, reading.Flags);
     }
 
     /// <summary>The <c>environment.provider</c> of a tier: <c>laptop</c>, <c>nebius-ai-cloud</c>, <c>build.nvidia.com</c> or <c>nebius-token-factory</c>.</summary>
@@ -339,6 +378,67 @@ public static class RunAssembler
             throw new ArgumentOutOfRangeException(nameof(mode), (int)mode, "The run mode is not a defined value.");
         }
     }
+
+    // The energy totals of a concurrent run on a measured tier: the union of the step windows, asked once, when the meter's union function was given and every step carries a window;
+    // union-not-computed otherwise, never a sum of overlapping energies. The caller passes at least one step, so the union of nothing is never asked.
+    private static (Metric Gross, Metric Net) UnionTotals(IReadOnlyList<StepReading> steps, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion)
+    {
+        (Metric, Metric) notComputed = (Metric.NotReported(UnionNotComputedReason), Metric.NotReported(UnionNotComputedReason));
+        if (computeUnion is null)
+        {
+            return notComputed;
+        }
+
+        var spans = new WindowSpan[steps.Count];
+        for (int i = 0; i < spans.Length; i++)
+        {
+            if (steps[i].Window is not { } span)
+            {
+                return notComputed;
+            }
+
+            spans[i] = span;
+        }
+
+        UnionEnergy union = computeUnion(spans) ?? throw new InvalidOperationException("The union function returned no energy.");
+        return (union.GrossJoules, union.NetJoules);
+    }
+
+    // The copy of a reading through its constructor with another outcome and flags; every other member, the in-memory output text and window included, is kept.
+    private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags) =>
+        new(
+            reading.Task,
+            reading.Repeat,
+            reading.Agent,
+            reading.ModelId,
+            reading.Tier,
+            reading.StartUtc,
+            reading.EndUtc,
+            outcome,
+            reading.LatencyMs,
+            reading.TtftMs,
+            reading.InputTokens,
+            reading.OutputTokens,
+            reading.GrossJoules,
+            reading.NetJoules,
+            reading.AvgW,
+            reading.PeakW,
+            reading.Cost,
+            reading.Retries,
+            reading.WaitMs,
+            flags,
+            reading.Method,
+            reading.SampleCount,
+            reading.SampleRateHz,
+            reading.ThrottleReasons,
+            reading.Quality,
+            reading.QualityReason,
+            reading.JoulesPerQualityPoint,
+            reading.CostPerQualityPoint,
+            reading.OutputSha256,
+            reading.OutputChars,
+            reading.OutputText,
+            reading.Window);
 
     // The sum of a measured value over the steps; the label and the reason of the first step that lacks it otherwise; not-reported no-steps without a step.
     private static Metric Sum(IReadOnlyList<StepReading> steps, Func<StepReading, Metric> select, string unit)
