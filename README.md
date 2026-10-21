@@ -79,10 +79,10 @@ Dry-run example (the three endpoints and model IDs of `config/appsettings.json`)
 dotnet run --project src/AgentJoules.Cli -- run --tier all --dry-run
 local http://localhost:11434/v1 nemotron-3-nano:30b OK
 nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-nano-3-30b-a3b OK
-nebius https://api.tokenfactory.nebius.com/v1 nvidia/nemotron-3-nano-30b-a3b OK
+nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B OK
 ```
 
-A wrong option value exits 2 before anything runs; the exit-code table is written in M6. Of the three model IDs in the example, only the nvidia one has been verified against its live endpoint so far (2026-10-21); the local and nebius checks are still open.
+A wrong option value exits 2 before anything runs; the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
 
 ## Keys
 
@@ -104,6 +104,8 @@ Portable, into the user-secrets store of the CLI project:
 ```bash
 dotnet user-secrets set "NVIDIA_API_KEY" "<value>" --project src/AgentJoules.Cli
 ```
+
+An environment variable of the same name overrides the user-secrets value (the host reads the JSON file, then user secrets, then environment variables), and on Windows a User-scope variable overrides a Machine-scope one. When a key that you know is valid is refused with HTTP 401, check which copy the process sees before replacing it.
 
 Values are never printed. Every output line masks a registered key to `****`: the full value, its JSON-encoded form, its first 64 characters and every cut the 64-character echo limit can produce. Up to 7 characters can remain when a key starts after more than 56 characters of other text, and a URL-encoded or base64 copy of a key is not masked. Note that `setx` leaves the value in the shell history (PSReadLine) and that the user-secrets store is unencrypted JSON under your profile; clear the history line after setting a key.
 
