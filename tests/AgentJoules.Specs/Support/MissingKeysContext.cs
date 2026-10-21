@@ -1,11 +1,6 @@
-using AgentJoules.Cli;
+using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
 using AgentJoules.TestSupport;
-using AgentJoules.Workflow;
-using AgentJoules.Workflow.Providers;
-
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Time.Testing;
 
 namespace AgentJoules.Specs.Support;
 
@@ -30,8 +25,8 @@ public sealed class MissingKeysContext
         [NebiusBaseUrlKey] = ProviderClientFixtures.BaseUrl(Tier.Nebius),
     };
 
-    /// <summary>The recording fake endpoint of the scenarios that count requests; it answers like a provider.</summary>
-    public FakeHttpMessageHandler Handler { get; } = new();
+    /// <summary>The recording fake endpoint of the scenarios that count requests; it answers like a provider. Its models route lists every model ID the shipped configuration names, so the model check of the preflight (AJ-053) finds each configured ID.</summary>
+    public FakeHttpMessageHandler Handler { get; } = new() { ModelIds = ConfigurationFixtures.ShippedModelIds() };
 
     /// <summary>The endpoint that refuses the connection and echoes the credential it saw, or null when the scenario has none.</summary>
     public CredentialEchoingRefusalHandler? Refusal { get; private set; }
@@ -50,18 +45,29 @@ public sealed class MissingKeysContext
     /// <param name="variable">The key variable name, for example <c>NVIDIA_API_KEY</c>.</param>
     public void SetKey(string variable) => Settings[variable] = FakeKey();
 
-    /// <summary>Puts a runtime-built <c>nvapi-</c> key under <c>NVIDIA_API_KEY</c> and keeps it in <see cref="NvidiaKey"/>; the nvidia endpoint becomes a refusing one that echoes it.</summary>
+    /// <summary>Puts a runtime-built <c>nvapi-</c> key under <c>NVIDIA_API_KEY</c> and keeps it in <see cref="NvidiaKey"/>; the nvidia endpoint lists the models and refuses the completion request, echoing the key.</summary>
     public void UseLeakingNvidiaKey()
     {
         NvidiaKey = string.Concat("nvapi-", FakeKey(), "_Qd5R8hC1");
         Settings["NVIDIA_API_KEY"] = NvidiaKey;
-        Refusal = new CredentialEchoingRefusalHandler();
+
+        // The models route is answered (the preflight of AJ-053 asks it first) and the completion request is refused with the echoed key, so the chat path and its failure text are exercised.
+        Refusal = new CredentialEchoingRefusalHandler(ConfigurationFixtures.ShippedModelIds());
         _endpoints["nvidia"] = Refusal;
     }
 
     /// <summary>Routes the named client of <paramref name="tierName"/> to the recording fake endpoint <see cref="Handler"/>.</summary>
     /// <param name="tierName">The lowercase tier name.</param>
     public void RouteToFake(string tierName) => _endpoints[tierName] = Handler;
+
+    /// <summary>Routes every tier that has no endpoint yet to the recording fake endpoint <see cref="Handler"/>, so the model check of the preflight (AJ-053) never reaches the deny-all handler.</summary>
+    public void RouteUnroutedToFake()
+    {
+        foreach (string tierName in TierOptions.KnownNames.Where(tierName => !_endpoints.ContainsKey(tierName)))
+        {
+            RouteToFake(tierName);
+        }
+    }
 
     /// <summary>True when the named client of <paramref name="tierName"/> has a registered endpoint.</summary>
     /// <param name="tierName">The lowercase tier name.</param>
@@ -77,23 +83,6 @@ public sealed class MissingKeysContext
     /// <exception cref="Xunit.Sdk.XunitException">The application lists a <c>run</c> command of its own (AJ-054 must rewire these scenarios).</exception>
     public async Task RunAsync(string arguments)
     {
-        await RunCommandStandIn.EnsureNoRealRunCommandAsync("AJ-052 scenarios 1 to 8");
-
-        var standIn = new RunCommandStandIn(Handler, new FakeTimeProvider());
-        KeyValuePair<string, HttpMessageHandler>[] endpoints = [.. _endpoints];
-        var overrides = new CliHostOverrides(
-            Services: services =>
-            {
-                _ = services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
-                foreach ((string tierName, HttpMessageHandler endpoint) in endpoints)
-                {
-                    _ = services.AddHttpClient(ProviderClientFactory.HttpClientName(tierName)).ConfigurePrimaryHttpMessageHandler(() => endpoint);
-                }
-            },
-            Configuration: Settings,
-            AdditionalCommands: [standIn.Create()],
-            OnHostStarted: standIn.Attach);
-
-        Result = await CliHarness.RunAsync(arguments, overrides);
+        Result = await StandInRunner.RunAsync(arguments, "AJ-052 scenarios 1 to 8", Handler, Settings, _endpoints);
     }
 }

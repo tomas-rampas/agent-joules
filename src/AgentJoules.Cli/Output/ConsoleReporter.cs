@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
@@ -69,6 +70,34 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"Warning: idle baseline unstable (CV {coefficient:F2} > {baseline.MaxCoefficientOfVariation:F2})"));
+    }
+
+    /// <summary>
+    /// Shows the user what the models endpoint lists when a configured model ID is not among it (EDGE-008): a header line, <c>available models of nvidia (first 20 of 30):</c> (or
+    /// <c>available models of nvidia (12):</c> when nothing was cut), and then one ID per line, indented by two spaces, all to the error writer; for an empty list the one line
+    /// <c>no models listed</c>. The error line of the command (<see cref="ErrorLine"/>) is one folded line, so the list of IDs is printed here, before the exception is rethrown and mapped.
+    /// Each ID is cut and scrubbed again, so a caller that did not echo it cannot put a control character on the terminal.
+    /// </summary>
+    /// <param name="failure">The failure; its <see cref="ModelNotFoundException.AvailableIds"/> are printed in their order.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="failure"/> is null.</exception>
+    public void ReportModelNotFound(ModelNotFoundException failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        if (failure.AvailableCount == 0)
+        {
+            _error.WriteLine("no models listed");
+            return;
+        }
+
+        string scope = failure.AvailableCount > failure.AvailableIds.Count
+            ? string.Create(CultureInfo.InvariantCulture, $"first {failure.AvailableIds.Count} of {failure.AvailableCount}")
+            : failure.AvailableCount.ToString(CultureInfo.InvariantCulture);
+        _error.WriteLine($"available models of {TextEcho.ForMessage(failure.TierName)} ({scope}):");
+        foreach (string id in failure.AvailableIds)
+        {
+            _error.WriteLine("  " + TextEcho.ForMessage(id));
+        }
     }
 
     /// <summary>

@@ -1,6 +1,8 @@
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
+using AgentJoules.Core.Security;
+using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -8,13 +10,15 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Workflow.Runs;
 
 /// <summary>
-/// The checks that run before any call (design 3.7, REQ-017, EDGE-011). This story adds the key check; the model check (AJ-053) and the measured-tier checks (AJ-054) join it
-/// later. The check reads the key variables from <see cref="IConfiguration"/> and never from the process environment, so a test that replaces the configuration controls every
+/// The checks that run before any call (design 3.7, REQ-017, EDGE-011, EDGE-008): the key check (AJ-052) and the model check (AJ-053); the measured-tier checks (AJ-054) join them
+/// later. The key check reads the key variables from <see cref="IConfiguration"/> and never from the process environment, so a test that replaces the configuration controls every
 /// key, and it reads only whether a value is present: no value is copied into a message, a field or a result.
 /// </summary>
 /// <param name="configuration">The configuration that holds the key variables (the process environment, user secrets or an in-memory override, as the host composed it).</param>
 /// <param name="options">The bound and validated options.</param>
-public sealed class PreflightService(IConfiguration configuration, IOptions<AgentJoulesOptions> options)
+/// <param name="catalog">The model catalog client that asks the models route of a tier.</param>
+/// <param name="redactor">The redactor that masks key values in the model IDs the check compares and reports.</param>
+public sealed class PreflightService(IConfiguration configuration, IOptions<AgentJoulesOptions> options, ModelCatalogClient catalog, SecretRedactor redactor)
 {
     /// <summary>The variable that names the SSH host of the <c>cloudgpu</c> VM; required on the laptop (<c>CloudGpu:RequireSshVariables</c> true).</summary>
     public const string SshHostVariable = "CLOUDGPU_SSH_HOST";
@@ -26,6 +30,8 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
 
     private readonly IConfiguration _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     private readonly IOptions<AgentJoulesOptions> _options = options ?? throw new ArgumentNullException(nameof(options));
+    private readonly ModelCatalogClient _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+    private readonly SecretRedactor _redactor = redactor ?? throw new ArgumentNullException(nameof(redactor));
 
     /// <summary>
     /// Resolves the <c>--tier</c> value: <c>all</c> is every enabled tier in the fixed order of a run (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c>, <c>nebius</c>); a tier name is that
@@ -97,6 +103,137 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
         return missing.Count > 0
             ? throw new MissingKeyException(MissingKeyMessage.Format(missing), missing)
             : new KeyCheckResult(judgeMissing && !dryRun ? judgeVariable : null);
+    }
+
+    /// <summary>
+    /// Checks that every model ID a run would call is listed by its endpoint, before any completion call (EDGE-008): for each selected tier, in order, the models route is asked once and
+    /// the <c>ModelId</c> and every <c>AgentModelIds</c> value of the tier (each once) must be in the answer; then the <c>Judge:ModelId</c> must be in the list of the <c>Judge:Tier</c> tier
+    /// (the list of a tier that was already asked is reused, so no tier is asked twice). The judge check is skipped when <paramref name="keys"/> says the judge key is missing outside a dry
+    /// run, because that case already warns and the request would only produce a 401 that hides the cause, and when <c>Judge:ModelId</c> is not set.
+    /// </summary>
+    /// <remarks>
+    /// A configured ID matches only when the endpoint listed exactly that text (<see cref="ModelCatalog.Lists(string)"/>, ordinal, as both were written), so IDs that merely look alike after the
+    /// 64-character cut or the scrubbing of control characters are different IDs. Only the text that is reported (the missing IDs, the matched IDs, the available IDs) is echoed
+    /// (<see cref="ModelIdListFormatter.Echo(SecretRedactor, string)"/>: masked, cut at 64 characters, control characters replaced). The check
+    /// stops at the first tier with a missing ID or an empty list; the exception names every missing ID of that tier.
+    /// </remarks>
+    /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
+    /// <param name="keys">The result of <see cref="CheckKeys(IReadOnlyList{Tier}, bool)"/>: a caller that holds one has run the key check, and it says whether the judge key is missing.</param>
+    /// <param name="cancellationToken">Cancels the requests.</param>
+    /// <returns>The tiers that were asked (the selected ones in order, then the judge tier when it was not selected) with their endpoints and the configured IDs that were listed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="keys"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="tiers"/> is empty.</exception>
+    /// <exception cref="ConfigurationException">A tier is not configured, has neither a <c>ModelId</c> nor an <c>AgentModelIds</c> value, or <c>Judge:Tier</c> is not a tier name; exit code 2.</exception>
+    /// <exception cref="ModelNotFoundException">A configured ID is not listed, or a list is empty (exit code 4).</exception>
+    /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable, answers a status other than success or answers something that is not a model list (exit code 5).</exception>
+    /// <exception cref="MissingKeyException">A tier names a key variable that has no value (exit code 3); the key check normally found it first.</exception>
+    public async Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tiers);
+        ArgumentNullException.ThrowIfNull(keys);
+        if (tiers.Count == 0)
+        {
+            throw new ArgumentException("At least one tier is needed: a result names the tiers that were asked.", nameof(tiers));
+        }
+
+        AgentJoulesOptions current = _options.Value;
+        List<ListedTier> asked = [];
+
+        foreach (Tier tier in tiers)
+        {
+            if (asked.Any(listed => listed.Tier == tier))
+            {
+                continue;
+            }
+
+            string name = TierOptions.NameOf(tier);
+            string[] configured = ConfiguredIds(TierFor(current, name), name);
+            asked.Add(await AskAndVerifyAsync(tier, name, configured, existing: null, cancellationToken).ConfigureAwait(false));
+        }
+
+        if (keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
+        {
+            Tier judgeTier = TierNamed(current.Judge.Tier);
+            ListedTier? existing = asked.Find(listed => listed.Tier == judgeTier);
+            ListedTier verified = await AskAndVerifyAsync(judgeTier, TierOptions.NameOf(judgeTier), [judgeModel], existing, cancellationToken).ConfigureAwait(false);
+            if (existing is null)
+            {
+                asked.Add(verified);
+            }
+        }
+
+        return new ModelCheckResult([.. asked.Select(static listed => new ModelCheckEntry(listed.Name, listed.Endpoint, [.. listed.Matched]))]);
+    }
+
+    // Asks the models route of the tier (or reuses the list of a tier already asked), checks the configured IDs against it and records the matched ones; throws for the missing ones.
+    private async Task<ListedTier> AskAndVerifyAsync(Tier tier, string name, string[] configured, ListedTier? existing, CancellationToken cancellationToken)
+    {
+        ListedTier listed = existing ?? new ListedTier(tier, name, _catalog.EndpointOf(tier), await _catalog.ListAsync(tier, cancellationToken).ConfigureAwait(false));
+
+        // The configured ID is compared with the listed IDs exactly as both were written; only the text that is reported (matched, missing) is masked, cut and scrubbed.
+        List<string> missing = [];
+        foreach (string id in configured)
+        {
+            string shown = ModelIdListFormatter.Echo(_redactor, id);
+            if (listed.Catalog.Lists(id))
+            {
+                if (!listed.Matched.Contains(shown, StringComparer.Ordinal))
+                {
+                    listed.Matched.Add(shown);
+                }
+            }
+            else if (!missing.Contains(shown, StringComparer.Ordinal))
+            {
+                missing.Add(shown);
+            }
+        }
+
+        return missing.Count > 0
+            ? throw new ModelNotFoundException(name, missing, ModelIdListFormatter.Format(listed.Catalog.DisplayIds).Listed, listed.Catalog.Count)
+            : listed;
+    }
+
+    // The model IDs a run of the tier calls: the tier model and every per-agent model, each once, blank entries ignored like TierOptions.ResolveModelId ignores them.
+    private static string[] ConfiguredIds(TierOptions tier, string name)
+    {
+        string[] ids = [.. new[] { tier.ModelId }.Concat(tier.AgentModelIds.Values).OfType<string>().Where(static id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)];
+
+        return ids.Length > 0
+            ? ids
+            : throw new ConfigurationException("Tiers:" + name + ":ModelId is not set and Tiers:" + name + ":AgentModelIds holds no model ID; set one of them");
+    }
+
+    private static TierOptions TierFor(AgentJoulesOptions current, string name) =>
+        current.Tiers.TryGetValue(name, out TierOptions? tier) && tier is not null
+            ? tier
+            : throw new ConfigurationException("Tiers:" + name + " is not configured");
+
+    private static Tier TierNamed(string name)
+    {
+        // Exact, like the configuration validator: Judge:Tier is a tier name as written in the configuration.
+        foreach (Tier tier in Enum.GetValues<Tier>())
+        {
+            if (string.Equals(name, TierOptions.NameOf(tier), StringComparison.Ordinal))
+            {
+                return tier;
+            }
+        }
+
+        throw new ConfigurationException("Judge:Tier must be one of " + string.Join(", ", TierOptions.KnownNames) + "; the value is not shown");
+    }
+
+    // One tier that was asked: what the endpoint listed, and the configured IDs found in them so far.
+    private sealed class ListedTier(Tier tier, string name, Uri endpoint, ModelCatalog catalog)
+    {
+        public Tier Tier { get; } = tier;
+
+        public string Name { get; } = name;
+
+        public Uri Endpoint { get; } = endpoint;
+
+        public ModelCatalog Catalog { get; } = catalog;
+
+        public List<string> Matched { get; } = [];
     }
 
     // The name of the variable the tier reads its key from, or null for a tier that is not configured or names none.

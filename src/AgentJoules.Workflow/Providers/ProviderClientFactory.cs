@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.ClientModel.Primitives;
+using System.Net.Http.Headers;
 
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
@@ -91,9 +92,19 @@ public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptio
         string? key = ReadKey(name);
         OpenAIClientOptions clientOptions = BuildOptions(name, _httpClients.CreateClient(HttpClientName(name)));
 
-        return key is not null && EndpointRules.Check(clientOptions.Endpoint, requireHttpsOffLoopback: true) != EndpointProblem.None
-            ? throw new ConfigurationException("Tiers:" + name + ":BaseUrl must be https unless the host is loopback when the tier has an API key")
-            : new OpenAIClient(new ApiKeyCredential(key ?? NoKey), clientOptions).GetChatClient(modelId).AsIChatClient();
+        RequireSecureEndpoint(name, key, clientOptions.Endpoint);
+
+        return new OpenAIClient(new ApiKeyCredential(key ?? NoKey), clientOptions).GetChatClient(modelId).AsIChatClient();
+    }
+
+    // A tier that has a key is refused unless its base URL is https or its host is loopback: the key would travel in clear text to a host the user did not name. The chat client and the
+    // models request of the preflight both send the key, so both call this one rule.
+    private static void RequireSecureEndpoint(string name, string? key, Uri? endpoint)
+    {
+        if (key is not null && EndpointRules.Check(endpoint, requireHttpsOffLoopback: true) != EndpointProblem.None)
+        {
+            throw new ConfigurationException("Tiers:" + name + ":BaseUrl must be https unless the host is loopback when the tier has an API key");
+        }
     }
 
     // The one place the SDK options of a tier are built: Create passes the transport, SettingsFor leaves it out and reads the rest back.
@@ -132,6 +143,33 @@ public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptio
             ? tierOptions
             : throw new ConfigurationException("Tiers:" + name + " is not configured");
 
+    /// <summary>
+    /// Builds the request of the preflight model check (EDGE-008) for <paramref name="tier"/>: <c>GET {BaseUrl}/models</c> with the key of the tier as a bearer token, or without an
+    /// <c>Authorization</c> header for a tier that has no <c>ApiKeyVariable</c>. The base URL, the timeout and the rule that a key travels only over https (or to a loopback host) are those of
+    /// <see cref="Create"/>; the key is read here and put in the header of this one request, so it never leaves this class as a value.
+    /// </summary>
+    /// <param name="tier">A defined tier.</param>
+    /// <returns>The request; the caller disposes it.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
+    /// <exception cref="ConfigurationException">The tier is not configured, its base URL or timeout is not usable, or it has a key and its base URL is plain http on a host that is not loopback.</exception>
+    /// <exception cref="MissingKeyException">The tier names a key variable that has no value (exit code 3).</exception>
+    internal HttpRequestMessage CreateModelsRequest(Tier tier)
+    {
+        string name = TierOptions.NameOf(tier);
+        string? key = ReadKey(name);
+        ProviderClientSettings settings = SettingsFor(tier);
+        RequireSecureEndpoint(name, key, settings.Endpoint);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(settings.Endpoint.AbsoluteUri.TrimEnd('/') + "/models"));
+        if (key is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+        }
+
+        return request;
+    }
+
+    // The value of the key variable of the tier, or null for a tier without one. Read at the moment of use and never stored; it is handed to the SDK credential or to one request header and nowhere else.
     private string? ReadKey(string name)
     {
         string? variable = TierFor(name).ApiKeyVariable;

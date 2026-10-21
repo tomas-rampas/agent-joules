@@ -186,3 +186,84 @@ public sealed class MissingKeyException : AgentJoulesException
     /// <summary>The names of the missing variables, in the order the check found them.</summary>
     public IReadOnlyList<string> Variables { get; }
 }
+
+/// <summary>
+/// A configured model ID is not listed by the models endpoint of its tier (EDGE-008): <c>GET {BaseUrl}/models</c> answered a list that lacks
+/// the <c>ModelId</c> or an <c>AgentModelIds</c> value of a selected tier, or the <c>Judge:ModelId</c> of the judge tier, or answered an empty list. Exits with
+/// <see cref="Cli.ExitCode.ModelNotFound"/> (4).
+/// </summary>
+/// <remarks>
+/// <para>
+/// The message is one line that names the tier and the missing IDs (for an empty list it also says <c>no models listed</c>). The available IDs do not travel in the message
+/// but in <see cref="AvailableIds"/>, because the error line of the command line folds a message into one line; the command prints them under a header before it rethrows.
+/// </para>
+/// <para>
+/// Every ID is provider or configuration text: the creator passes IDs that are already masked by the redactor (a provider can echo a key), and the message cuts and scrubs each ID with
+/// <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so an ID that is long or holds a control character cannot break the error line.
+/// </para>
+/// </remarks>
+/// <param name="tierName">The lowercase name of the tier whose list lacks the IDs (for the judge model, the judge tier); not blank.</param>
+/// <param name="missingIds">The configured IDs the list lacks, at least one, in the order the check met them.</param>
+/// <param name="availableIds">The IDs to show the user: at most the first 20 of the list, Nemotron and Qwen entries first; empty when the list is empty.</param>
+/// <param name="availableCount">The number of distinct IDs the endpoint listed before the cap; 0 for an empty list, never below the number of <paramref name="availableIds"/>.</param>
+/// <exception cref="ArgumentException"><paramref name="tierName"/> is blank or <paramref name="missingIds"/> is empty.</exception>
+/// <exception cref="ArgumentNullException"><paramref name="missingIds"/> or <paramref name="availableIds"/> is null.</exception>
+/// <exception cref="ArgumentOutOfRangeException"><paramref name="availableCount"/> is negative or below the number of <paramref name="availableIds"/>.</exception>
+public sealed class ModelNotFoundException(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
+    : AgentJoulesException(ExitCode.ModelNotFound, Describe(tierName, missingIds, availableIds, availableCount))
+{
+    /// <summary>The lowercase name of the tier whose list lacks the IDs.</summary>
+    public string TierName { get; } = tierName;
+
+    /// <summary>The configured IDs the list lacks, at least one, in the order the check met them.</summary>
+    public IReadOnlyList<string> MissingIds { get; } = [.. missingIds];
+
+    /// <summary>The IDs to show the user (at most 20, Nemotron and Qwen entries first); empty when the endpoint listed none.</summary>
+    public IReadOnlyList<string> AvailableIds { get; } = [.. availableIds];
+
+    /// <summary>The number of distinct IDs the endpoint listed before the cap; 0 when it listed none.</summary>
+    public int AvailableCount { get; } = availableCount;
+
+    private static string Describe(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tierName);
+        ArgumentNullException.ThrowIfNull(missingIds);
+        ArgumentNullException.ThrowIfNull(availableIds);
+        ArgumentOutOfRangeException.ThrowIfNegative(availableCount);
+        ArgumentOutOfRangeException.ThrowIfLessThan(availableCount, availableIds.Count);
+        if (missingIds.Count == 0)
+        {
+            throw new ArgumentException("At least one missing ID is needed.", nameof(missingIds));
+        }
+
+        string tier = Labels.TextEcho.ForMessage(tierName);
+        string missing = $"model {(missingIds.Count == 1 ? "ID" : "IDs")} not listed: {string.Join(", ", missingIds.Select(static id => Labels.TextEcho.ForMessage(id)))}";
+        return availableCount == 0 ? $"tier {tier}: no models listed; {missing}" : $"tier {tier}: {missing}";
+    }
+}
+
+/// <summary>
+/// An endpoint cannot be used: it refused the connection, did not answer in time, answered a status other than success, or answered something that is not what the command asked for. Exits
+/// with <see cref="Cli.ExitCode.Unreachable"/> (5). The model check of the preflight throws it for the models route (EDGE-008); the local runtime check reuses it (M4).
+/// </summary>
+/// <remarks>
+/// The message holds the tier and the route, a status number or a fixed phrase, and never a word of the response: the response of a rejected call can echo the credential. The failure that
+/// caused it may be attached as <see cref="Exception.InnerException"/>; like the one of <see cref="StepFailedException"/> it is for Debug-level logging only and is never printed in an error line.
+/// </remarks>
+public sealed class EndpointUnreachableException : AgentJoulesException
+{
+    /// <summary>Creates the exception with <paramref name="message"/>.</summary>
+    /// <param name="message">One line that names the tier and the route; no response text.</param>
+    public EndpointUnreachableException(string message)
+        : base(ExitCode.Unreachable, message)
+    {
+    }
+
+    /// <summary>Creates the exception with <paramref name="message"/> wrapping <paramref name="inner"/>.</summary>
+    /// <param name="message">One line that names the tier and the route; no response text.</param>
+    /// <param name="inner">The failure that made the endpoint unusable; for Debug-level logging only.</param>
+    public EndpointUnreachableException(string message, Exception inner)
+        : base(ExitCode.Unreachable, message, inner)
+    {
+    }
+}

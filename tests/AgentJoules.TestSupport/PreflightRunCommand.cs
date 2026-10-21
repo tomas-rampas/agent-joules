@@ -1,6 +1,7 @@
 using System.CommandLine;
 
 using AgentJoules.Cli.Output;
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
 using AgentJoules.Workflow.Providers;
@@ -15,7 +16,7 @@ namespace AgentJoules.TestSupport;
 
 /// <summary>
 /// The test-only part of a <c>run</c> command that exists before the real one (AJ-054 and AJ-056 build it later in the milestone): it parses <c>--tier</c> and
-/// <c>--dry-run</c>, runs the real <see cref="PreflightService"/> key check from the started host, prints the judge warning through the real
+/// <c>--dry-run</c>, runs the real <see cref="PreflightService"/> key check and model check from the started host (the models route of every checked tier is asked, in a dry run too), prints the judge warning through the real
 /// <see cref="ConsoleReporter"/>, and then, outside a dry run, makes exactly one chat request to the first selected tier through the real provider pipeline
 /// (<see cref="IProviderClientFactory"/> and the named <see cref="HttpClient"/> of the tier), so "the endpoint refused the connection" and "0 requests were recorded" are
 /// measured. It is not the run command: nothing here measures, retries or writes a file. The host that runs the command is handed over through <see cref="Attach"/>, which
@@ -24,7 +25,7 @@ namespace AgentJoules.TestSupport;
 public sealed class PreflightRunCommand
 {
     private readonly Option<string> _tier = new("--tier") { Description = "A tier name or all.", Required = true };
-    private readonly Option<bool> _dryRun = new("--dry-run") { Description = "Check the keys and make no request." };
+    private readonly Option<bool> _dryRun = new("--dry-run") { Description = "Check the keys and the model IDs and make no completion request." };
 
     private IHost? _host;
 
@@ -39,7 +40,7 @@ public sealed class PreflightRunCommand
     /// <returns>The command to hand to <c>CliHostOverrides.AdditionalCommands</c>.</returns>
     public Command Create()
     {
-        var command = new Command("run", "Stand-in for the run command: the key check, then one request.") { _tier, _dryRun };
+        var command = new Command("run", "Stand-in for the run command: the key check, the model check, then one request.") { _tier, _dryRun };
         command.SetAction(async (parseResult, cancellationToken) =>
             await ExecuteAsync(parseResult.GetRequiredValue(_tier), parseResult.GetValue(_dryRun), beforeRequest: null, cancellationToken) ?? 0);
         return command;
@@ -63,6 +64,17 @@ public sealed class PreflightRunCommand
         if (keys.MissingJudgeVariable is { } judge)
         {
             services.GetRequiredService<ConsoleReporter>().ReportMissingJudgeKey(judge);
+        }
+
+        // Dry run included: a dry run validates everything the run would need and makes no completion call. The failure prints the available IDs, then the mapped error line.
+        try
+        {
+            _ = await preflight.CheckModelsAsync(tiers, keys, cancellationToken);
+        }
+        catch (ModelNotFoundException failure)
+        {
+            services.GetRequiredService<ConsoleReporter>().ReportModelNotFound(failure);
+            throw;
         }
 
         if (dryRun)

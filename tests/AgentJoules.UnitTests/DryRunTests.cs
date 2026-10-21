@@ -13,21 +13,20 @@ using AgentJoules.Workflow.Runs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 using Xunit;
 
 namespace AgentJoules.UnitTests;
 
 /// <summary>
-/// AJ-052 (EDGE-011): the key check before any call, the one message that names every missing variable, the judge key (a warning outside <c>--dry-run</c>, part of the message
-/// inside it), the SSH variables of the <c>cloudgpu</c> tier, and the deny-by-default harness. AJ-053 and AJ-054 add the model check and the dry-run output to this class. The
+/// AJ-052 (EDGE-011) and AJ-053 (EDGE-008): the key check and the model check before any call, the one message that names every missing variable, the judge key (a warning outside <c>--dry-run</c>, part of the message
+/// inside it), the SSH variables of the <c>cloudgpu</c> tier, and the deny-by-default harness. AJ-054 adds the dry-run output to this class. The EDGE-008 tests are the nested class <c>ModelCheck</c> (file DryRunTests.ModelCheck.cs), which carries <c>Spec=EDGE-008</c> and not the EDGE-011 trait of this class. The
 /// <c>run</c> command does not exist yet (AJ-054 builds it), so the command line tests use <see cref="PreflightRunCommand"/>: the real <see cref="PreflightService"/>, the real
 /// console reporter and the real provider pipeline behind a command that only parses <c>--tier</c> and <c>--dry-run</c>. Keys are runtime-built fakes in an in-memory configuration;
 /// no test reads or sets a process variable.
 /// </summary>
 [Trait("Spec", "EDGE-011")]
-public sealed class DryRunTests
+public sealed partial class DryRunTests
 {
     // A command that hangs must fail the test, not the run (system clock; it only ends a run that already failed).
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
@@ -79,7 +78,7 @@ public sealed class DryRunTests
     private static PreflightService ServiceFor(params (string Key, string Value)[] overrides)
     {
         IConfiguration configuration = ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath(), overrides);
-        return new PreflightService(configuration, Options.Create(OptionsLoader.Load(configuration)));
+        return PreflightFixtures.Build(configuration).Preflight;
     }
 
     private static string SingleStderrLine(CliRunResult result) => Assert.Single(result.StderrLines, line => line.Length > 0);
@@ -148,18 +147,24 @@ public sealed class DryRunTests
     // ---- criterion 3: no character of the key beyond the public prefix ----
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(true, true)]
-    public async Task Key_suffix_is_never_printed(bool debugLogging, bool opaqueKey)
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public async Task Key_suffix_is_never_printed(bool debugLogging, bool opaqueKey, bool listsModels)
     {
         // The endpoint refuses the connection and echoes the bearer token it saw in the failure text; the key must still not reach stdout or stderr, with or without the Debug records.
+        // Without a model list the refusal hits the models route of the preflight (AJ-053), whose failure carries no provider text; with one (listsModels) the models route is answered and the
+        // completion request is refused, so the failure text of the completion path, which does echo the key, is what the masking has to cover.
         // The opaque key (letters and digits, 120 characters, no nvapi- prefix) is masked only by its registration, which the nvapi- pattern would otherwise hide.
         string key = opaqueKey
             ? string.Concat(Key(), Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"), Guid.NewGuid().ToString("N"))[..120]
             : string.Concat("nvapi-", Key(), "_Qd5R8hC1");
-        var refusal = new CredentialEchoingRefusalHandler();
+        var refusal = listsModels ? new CredentialEchoingRefusalHandler(ConfigurationFixtures.ShippedModelIds()) : new CredentialEchoingRefusalHandler();
         Dictionary<string, string?> settings = Settings(("NVIDIA_API_KEY", key));
         if (debugLogging)
         {
@@ -171,6 +176,8 @@ public sealed class DryRunTests
         string output = result.Stdout + "\n" + result.Stderr;
         string suffix = opaqueKey ? key : key["nvapi-".Length..];
         Assert.Equal(key, refusal.LastBearerToken);
+        Assert.Equal(listsModels ? 1 : 0, refusal.ModelsRequests);
+        Assert.Equal(1, refusal.Attempts);
         Assert.NotEqual(0, result.ExitCode);
         Assert.EndsWith("Exception)", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
         Assert.DoesNotContain(key, output, StringComparison.Ordinal);
@@ -183,7 +190,17 @@ public sealed class DryRunTests
         if (!opaqueKey)
         {
             Assert.DoesNotMatch(new Regex(@"nvapi-(?!\*{4})", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5)), output);
-            Assert.Contains("nvapi-****", output, StringComparison.Ordinal);
+
+            // The failure of the models route holds no provider text (AJ-053), so the masked prefix shows there only where the Debug records print the failure chain; the failure of the
+            // completion path echoes the key into the error line, masked, with Debug logging on or off.
+            if (listsModels || debugLogging)
+            {
+                Assert.Contains("nvapi-****", output, StringComparison.Ordinal);
+            }
+        }
+        else if (listsModels)
+        {
+            Assert.Contains("****", output, StringComparison.Ordinal);
         }
 
         if (debugLogging)
@@ -227,7 +244,7 @@ public sealed class DryRunTests
     [Fact]
     public async Task Missing_judge_key_outside_dry_run_only_warns_and_the_command_continues()
     {
-        var nebius = new FakeHttpMessageHandler();
+        var nebius = Lists(ModelOf("nebius"));
 
         // The judge tier is nvidia (the default), whose key is absent; the selected tier is nebius, whose key is present.
         CliRunResult result = await RunAsync(
@@ -239,7 +256,10 @@ public sealed class DryRunTests
         string warning = SingleStderrLine(result);
         Assert.StartsWith("Warning: judge key NVIDIA_API_KEY is not set", warning, StringComparison.Ordinal);
         Assert.Empty(result.ErrorLines);
-        Assert.Equal(1, nebius.RequestCount);
+
+        // The models route was asked once (not for the judge, whose key is missing) and the one completion request went out.
+        Assert.Equal(1, nebius.Count(FakeRoute.Models));
+        Assert.Equal(1, nebius.Count(FakeRoute.ChatCompletions));
     }
 
     [Fact]
@@ -268,7 +288,7 @@ public sealed class DryRunTests
     public void Judge_tier_without_a_key_variable_has_no_judge_key_to_check()
     {
         IConfiguration configuration = ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath(), ("AgentJoules:Judge:Tier", "local"), ("NEBIUS_API_KEY", Key()));
-        var service = new PreflightService(configuration, Options.Create(OptionsLoader.Load(configuration)));
+        PreflightService service = PreflightFixtures.Build(configuration).Preflight;
 
         KeyCheckResult dryRun = service.CheckKeys([Tier.Nebius], dryRun: true);
         KeyCheckResult run = service.CheckKeys([Tier.Nebius], dryRun: false);
@@ -323,9 +343,12 @@ public sealed class DryRunTests
     [Fact]
     public async Task Missing_ssh_variables_do_not_matter_on_the_VM_where_RequireSshVariables_is_false()
     {
+        // The dry run also checks the models (AJ-053): the cloudgpu tier and the judge tier (nvidia) each answer their model.
+        var endpoints = new Dictionary<string, HttpMessageHandler> { ["cloudgpu"] = Lists(ModelOf("cloudgpu")), ["nvidia"] = Lists(JudgeModel) };
         CliRunResult result = await RunAsync(
             "run --tier cloudgpu --dry-run",
-            Settings(("AgentJoules:Tiers:cloudgpu:Enabled", "true"), ("AgentJoules:CloudGpu:RequireSshVariables", "false"), ("NVIDIA_API_KEY", Key())));
+            Settings(("AgentJoules:Tiers:cloudgpu:Enabled", "true"), ("AgentJoules:CloudGpu:RequireSshVariables", "false"), ("NVIDIA_API_KEY", Key())),
+            endpoints);
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(result.StderrLines, line => line.Length > 0);
@@ -566,4 +589,50 @@ public sealed class DryRunTests
         Assert.Equal(2, handler.Attempts);
         Assert.Equal(["https://nebius.fake.test/v1/models", "https://nvidia.fake.test/v1/chat/completions"], handler.RequestedUrls);
     }
+
+    // AJ-053 (EDGE-008): the helpers of the model check tests, which live in the nested class ModelCheck (DryRunTests.ModelCheck.cs); a few AJ-052 tests use them too.
+
+    private const string BodyMarker = "body-marker-7f3a91";
+
+    private static AgentJoulesOptions Shipped => ConfigurationFixtures.ShippedOptions();
+
+    // The model ID the shipped configuration gives a tier, and the judge model ID (the same ID as the nvidia tier model).
+    private static string ModelOf(string tierName) => Shipped.Tiers[tierName].ModelId!;
+
+    private static string JudgeModel => Shipped.Judge.ModelId!;
+
+    private static FakeHttpMessageHandler Lists(params string[] ids) => new() { ModelIds = ids };
+
+    // A command line run where both hosted tiers have a key and the given fake endpoints; the extra pairs change the configuration.
+    private static Task<CliRunResult> RunModelsAsync(
+        string arguments,
+        FakeHttpMessageHandler nvidia,
+        FakeHttpMessageHandler? nebius = null,
+        params (string Key, string? Value)[] extra)
+    {
+        Dictionary<string, string?> settings = Settings([("NVIDIA_API_KEY", Key()), ("NEBIUS_API_KEY", Key()), .. extra]);
+        var endpoints = new Dictionary<string, HttpMessageHandler> { ["nvidia"] = nvidia };
+        if (nebius is not null)
+        {
+            endpoints["nebius"] = nebius;
+        }
+
+        return RunAsync(arguments, settings, endpoints);
+    }
+
+    // The preflight, the catalog and a fake endpoint per tier over the shipped configuration with both hosted keys; the extra pairs change the configuration.
+    private static PreflightHost HostFor(IReadOnlyDictionary<string, FakeHttpMessageHandler>? endpoints = null, params (string Key, string Value)[] extra)
+    {
+        IConfiguration configuration = ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath(), [("NVIDIA_API_KEY", Key()), ("NEBIUS_API_KEY", Key()), .. extra]);
+        return PreflightFixtures.Build(configuration, endpoints);
+    }
+
+    // The IDs the failure printed under its header: the indented lines of stderr.
+    private static string[] PrintedIds(CliRunResult result) =>
+        [.. result.StderrLines.Where(static line => line.StartsWith("  ", StringComparison.Ordinal)).Select(static line => line.Trim())];
+
+    private static string Output(CliRunResult result) => result.Stdout + "\n" + result.Stderr;
+
+    private static bool IsPreferred(string id) =>
+        id.Contains("nemotron", StringComparison.OrdinalIgnoreCase) || id.Contains("qwen", StringComparison.OrdinalIgnoreCase);
 }

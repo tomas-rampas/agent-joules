@@ -36,6 +36,10 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
     {
         _context.SetKey("NVIDIA_API_KEY");
         _context.SetKey("NEBIUS_API_KEY");
+
+        // `--tier all` checks the models route of local, nvidia and nebius (AJ-053); the recording fake answers each of them. Only this scenario routes every tier, so the scenarios that
+        // route one tier on purpose can still see a request that goes somewhere else.
+        _context.RouteUnroutedToFake();
     }
 
     [Given(@"^NEBIUS_API_KEY is present and the judge key is absent$")]
@@ -122,7 +126,10 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         string warning = Assert.Single(Result.StderrLines, line => line.Length > 0);
         Assert.StartsWith("Warning:", warning, StringComparison.Ordinal);
         Assert.Contains("NVIDIA_API_KEY", warning, StringComparison.Ordinal);
-        Assert.Equal(1, _context.Handler.RequestCount);
+
+        // The one completion request went out; the models route was asked once for the tier, and not for the judge whose key is missing.
+        Assert.Equal(1, _context.Handler.Count(FakeRoute.ChatCompletions));
+        Assert.Equal(1, _context.Handler.Count(FakeRoute.Models));
     }
 
     [Then(@"^the exit code is (\d+)$")]
@@ -169,8 +176,9 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         string suffix = key["nvapi-".Length..];
         string output = Result.Stdout + "\n" + Result.Stderr;
 
-        // The key was sent and the endpoint echoed it, so the failure text had it to leak; the run failed on the refused connection.
+        // The key was sent and the endpoint echoed it, so the failure text had it to leak; the models route was answered and the run failed on the refused completion request.
         Assert.Equal(key, refusal.LastBearerToken);
+        Assert.Equal(1, refusal.ModelsRequests);
         Assert.Equal(1, refusal.Attempts);
         Assert.NotEqual(0, Result.ExitCode);
         Assert.NotEmpty(Result.ErrorLines);
@@ -201,15 +209,18 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         Assert.Equal(0, Result.ExitCode);
         Assert.Equal(expected, Result.DeniedRequests.Count);
 
-        // A dry run sends nothing at all, to a fake or to the network.
-        Assert.Equal(0, _context.Handler.RequestCount);
+        // A dry run asks the models route (AJ-053) once, for the tier and the judge (both nvidia), at the nvidia base URL, and makes no completion call; nothing else was sent anywhere.
+        string baseUrl = _context.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] ?? throw new XunitException("The scenario set no base URL for nvidia.");
+        RecordedRequest request = Assert.Single(_context.Handler.Requests);
+        Assert.Equal(FakeRoute.Models, request.Route);
+        Assert.Equal(baseUrl + "/models", request.Uri.AbsoluteUri);
     }
 
     [Then(@"^the deny-all handler throws and the message names the URL$")]
     public void ThenTheDenyAllHandlerThrowsAndNamesTheUrl()
     {
         string baseUrl = _context.Settings[MissingKeysContext.NebiusBaseUrlKey] ?? throw new XunitException("The scenario set no base URL for nebius.");
-        string url = baseUrl + "/chat/completions";
+        string url = baseUrl + "/models";
 
         Assert.Equal([url], Result.DeniedRequests);
         Assert.Equal(1, Result.ExitCode);

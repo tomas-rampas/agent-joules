@@ -907,9 +907,9 @@ Tasks:
 Test mapping: `DryRunTests` (design class, trait `Spec=EDGE-008`); feature file `tests/AgentJoules.Specs/Features/Cli/ModelNotFound.feature`.
 Docs impact: `docs/build-log.md`; the exit-code table in the README is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-008"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21: build 0 warnings exit 0 and 2,567/0/5)
+- [x] docs listed above updated (2026-10-21: this build-log entry)
+- [x] `dotnet test --filter "Spec=EDGE-008"` shows at least one passed and no failed test (2026-10-21: Spec=EDGE-008 36 passed, 0 failed)
 Demo relevance: no.
 
 ### AJ-054: Add `run --dry-run` that validates everything and makes no completion call
