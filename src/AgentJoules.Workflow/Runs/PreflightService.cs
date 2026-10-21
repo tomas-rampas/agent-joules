@@ -1,5 +1,8 @@
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Energy;
+using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Labels;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
 using AgentJoules.Workflow.Providers;
@@ -10,8 +13,8 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Workflow.Runs;
 
 /// <summary>
-/// The checks that run before any call (design 3.7, REQ-017, EDGE-011, EDGE-008): the key check (AJ-052) and the model check (AJ-053); the measured-tier checks (AJ-054) join them
-/// later. The key check reads the key variables from <see cref="IConfiguration"/> and never from the process environment, so a test that replaces the configuration controls every
+/// The checks that run before any call (design 3.7, REQ-017, EDGE-011, EDGE-008, EDGE-001): the key check (AJ-052), the model check (AJ-053) and the measured-tier check (AJ-054,
+/// <see cref="CheckMeasuredTiers"/>). The key check reads the key variables from <see cref="IConfiguration"/> and never from the process environment, so a test that replaces the configuration controls every
 /// key, and it reads only whether a value is present: no value is copied into a message, a field or a result.
 /// </summary>
 /// <param name="configuration">The configuration that holds the key variables (the process environment, user secrets or an in-memory override, as the host composed it).</param>
@@ -27,6 +30,12 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
     public const string SshUserVariable = "CLOUDGPU_SSH_USER";
 
     private const string AllTiers = "all";
+
+    // The MIG mode of GpuIdentity when MIG is on (the other values are disabled and not-supported).
+    private const string MigEnabled = "enabled";
+
+    // The GPU port's reason names the library and the exception type (for example NVML library not found: libnvidia-ml.so.1 (EntryPointNotFoundException)); both must survive.
+    private const int MaxReasonLength = 128;
 
     private readonly IConfiguration _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     private readonly IOptions<AgentJoulesOptions> _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -163,6 +172,49 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
         }
 
         return new ModelCheckResult([.. asked.Select(static listed => new ModelCheckEntry(listed.Name, listed.Endpoint, [.. listed.Matched]))]);
+    }
+
+    /// <summary>
+    /// Checks that every selected measured tier (<c>local</c>, <c>cloudgpu</c>) can be measured, before any completion call (design 3.7 point 4, EDGE-001): the GPU at <c>Gpu:Index</c> is
+    /// opened through <paramref name="gpus"/>, the <c>Meter:Method</c> is applied to it, and for <c>cloudgpu</c> MIG must be off. Each source is disposed before the next tier is checked;
+    /// hosted tiers are skipped and never open the GPU.
+    /// </summary>
+    /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
+    /// <param name="gpus">The GPU port; production opens NVML, tests a scripted session.</param>
+    /// <returns>The meter capabilities of each measured tier that was checked, in the order of <paramref name="tiers"/>; empty when no measured tier is selected.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="gpus"/> is null.</exception>
+    /// <exception cref="MeasurementPreconditionException">
+    /// The GPU cannot be opened (the message carries the reason of the port, which names the missing library when NVML is not installed), <c>Meter:Method</c> is <c>counter</c> on a GPU
+    /// without the energy counter, or MIG is enabled on the GPU of <c>cloudgpu</c> (exit code 6).
+    /// </exception>
+    /// <exception cref="ConfigurationException"><c>Meter:Method</c> or <c>Meter:SampleRateHz</c> is invalid (exit code 2); the options validation normally found it first.</exception>
+    public IReadOnlyList<KeyValuePair<Tier, MeterCapabilities>> CheckMeasuredTiers(IReadOnlyList<Tier> tiers, IGpuTelemetrySourceFactory gpus)
+    {
+        ArgumentNullException.ThrowIfNull(tiers);
+        ArgumentNullException.ThrowIfNull(gpus);
+
+        AgentJoulesOptions current = _options.Value;
+        List<KeyValuePair<Tier, MeterCapabilities>> checkedTiers = [];
+        foreach (Tier tier in tiers.Where(static tier => tier is Tier.Local or Tier.CloudGpu))
+        {
+            string name = TierOptions.NameOf(tier);
+            GpuOpenResult opened = gpus.Open(current.Gpu.Index);
+            if (!opened.IsAvailable)
+            {
+                throw new MeasurementPreconditionException($"tier {name} measures the GPU, but the GPU cannot be opened: {TextEcho.ForMessage(opened.Reason, MaxReasonLength)}");
+            }
+
+            using IGpuTelemetrySource source = opened.Source;
+            MeterCapabilities capabilities = MeterMethodSelector.Select(current.Meter.Method, source, current.Meter.SampleRateHz);
+            if (tier == Tier.CloudGpu && string.Equals(source.Identity.MigMode, MigEnabled, StringComparison.Ordinal))
+            {
+                throw new MeasurementPreconditionException("tier cloudgpu cannot be measured while MIG is enabled on the GPU: NVML reads the energy of the whole GPU, not of one instance; disable MIG on the VM");
+            }
+
+            checkedTiers.Add(KeyValuePair.Create(tier, capabilities));
+        }
+
+        return checkedTiers;
     }
 
     // Asks the models route of the tier (or reuses the list of a tier already asked), checks the configured IDs against it and records the matched ones; throws for the missing ones.

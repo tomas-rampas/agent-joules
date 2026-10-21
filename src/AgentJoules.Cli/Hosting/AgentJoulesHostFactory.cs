@@ -3,6 +3,8 @@ using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml;
+using AgentJoules.Workflow;
+using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,12 +34,22 @@ internal static class AgentJoulesHostFactory
 
     /// <summary>Builds the host; the caller validates and starts it.</summary>
     /// <param name="configPath">The <c>--config</c> value, or null for <c>config/appsettings.json</c>; relative paths resolve against the content root.</param>
+    /// <param name="configure">The services of the command (for <c>run</c>, its telemetry), applied after the composition root and before the test overrides; null for none.</param>
     /// <param name="overrides">Null in production.</param>
     /// <param name="keys">The registry the configured key values are registered with.</param>
     /// <param name="output">The standard-output writer (the redacting wrapper).</param>
     /// <param name="error">The standard-error writer (the redacting wrapper).</param>
-    /// <exception cref="ConfigurationException">A configuration file is missing or unreadable, or a log level is invalid; the message names the path or key and never a value.</exception>
-    internal static IHost Build(string? configPath, CliHostOverrides? overrides, KeyRegistry keys, TextWriter output, TextWriter error)
+    /// <exception cref="ConfigurationException">
+    /// A configuration file is missing or unreadable, a log level is invalid, or the command's services refuse the configuration (an OTLP endpoint of the wrong shape); the message names
+    /// the path or key and never a value.
+    /// </exception>
+    internal static IHost Build(
+        string? configPath,
+        Action<IServiceCollection, IConfiguration>? configure,
+        CliHostOverrides? overrides,
+        KeyRegistry keys,
+        TextWriter output,
+        TextWriter error)
     {
         string contentRoot = overrides?.WorkingDirectory ?? Directory.GetCurrentDirectory();
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
@@ -50,7 +62,13 @@ internal static class AgentJoulesHostFactory
         keys.Register(builder.Configuration, error);
         ConfigureLogging(builder);
         ConfigureOptions(builder.Services);
-        ConfigureServices(builder.Services, overrides, keys, output, error);
+        ConfigureServices(builder.Services, keys, output, error);
+
+        // The services of this command only (run registers its telemetry); before the overrides, so a test can still replace them.
+        configure?.Invoke(builder.Services, builder.Configuration);
+
+        // Under overrides the deny-by-default services are applied after the command's services, so a command can never re-open what the isolation closes.
+        ApplyIsolation(builder.Services, overrides);
 
         // Last, so a test replaces any default above.
         overrides?.Services?.Invoke(builder.Services);
@@ -184,7 +202,7 @@ internal static class AgentJoulesHostFactory
         services.AddOptions<AgentJoulesOptions>().ValidateOnStart();
     }
 
-    private static void ConfigureServices(IServiceCollection services, CliHostOverrides? overrides, KeyRegistry keys, TextWriter output, TextWriter error)
+    private static void ConfigureServices(IServiceCollection services, KeyRegistry keys, TextWriter output, TextWriter error)
     {
         services.RemoveAll<IHostLifetime>();
         services.AddSingleton<IHostLifetime, SignalHostLifetime>();
@@ -192,12 +210,21 @@ internal static class AgentJoulesHostFactory
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(new ConsoleReporter(output, error));
 
-        if (overrides is null)
+        // The composition root of every command (AJ-054): the provider clients of the tiers (registered once; a second call throws), the preflight with the dry run, and the
+        // orchestrator of a measured run (the AJ-056 placeholder until then). Nothing here is resolved unless a command asks for it.
+        services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
+        services.AddSingleton<IRunOrchestrator, RunOrchestrator>();
+
+        services.AddSingleton<IGpuTelemetrySourceFactory>(static _ => new NvmlGpuTelemetrySourceFactory(new NvmlApi()));
+    }
+
+    // The deny-by-default services of design 3.6 (b) under test overrides: no GPU is reachable unless the test overrides register one. Applied after the command's services
+    // and before the test overrides; the deny-all HTTP handler is the harness's own, installed through the test overrides.
+    private static void ApplyIsolation(IServiceCollection services, CliHostOverrides? overrides)
+    {
+        if (overrides is not null)
         {
-            services.AddSingleton<IGpuTelemetrySourceFactory>(static _ => new NvmlGpuTelemetrySourceFactory(new NvmlApi()));
-        }
-        else
-        {
+            services.RemoveAll<IGpuTelemetrySourceFactory>();
             services.AddSingleton<IGpuTelemetrySourceFactory, UnavailableGpuTelemetrySourceFactory>();
         }
     }

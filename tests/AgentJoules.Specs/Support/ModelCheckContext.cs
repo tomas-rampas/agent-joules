@@ -6,13 +6,11 @@ namespace AgentJoules.Specs.Support;
 /// <summary>
 /// The state of one AJ-053 scenario (exit 4 before any completion call when a model ID is not listed), handed to the step class by Reqnroll context injection. It holds the
 /// configuration override of the run (fake keys for both hosted tiers and fake base URLs, never a process variable), the recording fake endpoint of each hosted tier with the model IDs
-/// its models route lists, and the result. The commands run through <see cref="StandInRunner"/>, so the real preflight (key check, then the real model check from the started host),
-/// the real provider pipeline and the real redacting writers are measured; only the <c>run</c> command around them is the stand-in until AJ-054.
+/// its models route lists, and the result. The commands run the real <c>run</c> command through <see cref="RunCommandHarness"/>, so the real preflight (key check, then the real model
+/// check from the started host), the real provider pipeline and the real redacting writers are measured.
 /// </summary>
 public sealed class ModelCheckContext
 {
-    private const string Rewire = "AJ-053 scenarios 1 to 5";
-
     private readonly Dictionary<string, FakeHttpMessageHandler> _endpoints = new(StringComparer.Ordinal);
 
     /// <summary>The configuration override of the run: both fake keys (so a key check never decides a scenario) and the fake base URLs of the hosted tiers.</summary>
@@ -65,14 +63,14 @@ public sealed class ModelCheckContext
             ? handler
             : throw new InvalidOperationException("No endpoint was scripted for the scenario.");
 
-    /// <summary>Runs <paramref name="arguments"/> through the stand-in <c>run</c> command with the scripted endpoints.</summary>
+    /// <summary>
+    /// Runs <paramref name="arguments"/> through the real <c>run</c> command (<see cref="RunCommandHarness"/>, AJ-054) with the scripted endpoints; outside a dry run the
+    /// <see cref="FakeRunOrchestrator"/> stands where the measured run will stand, so a run that passes the check sends its one completion request to the scripted endpoint.
+    /// </summary>
     /// <param name="arguments">The command line, for example <c>run --tier nvidia --dry-run</c>.</param>
     /// <returns>A task that completes when the command ended and <see cref="Result"/> is set.</returns>
     public async Task RunAsync(string arguments) =>
-        Result = await StandInRunner.RunAsync(
+        Result = await RunCommandHarness.RunAsync(
             arguments,
-            Rewire,
-            Endpoint(),
-            Settings,
-            _endpoints.Select(static pair => KeyValuePair.Create(pair.Key, (HttpMessageHandler)pair.Value)));
+            RunCommandSetup.Create(Settings, _endpoints.Select(static pair => KeyValuePair.Create(pair.Key, (HttpMessageHandler)pair.Value))));
 }

@@ -141,13 +141,14 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the <see cref="PreflightService"/> (design 3.7) and the <see cref="ModelCatalogClient"/> it asks the models route with, as singletons. The service reads the key variables from the
-    /// registered <see cref="IConfiguration"/> and the tiers from <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host registers both) and never from the process environment, so a test that
-    /// replaces the configuration controls every key.
+    /// Registers the <see cref="PreflightService"/> (design 3.7), the <see cref="ModelCatalogClient"/> it asks the models route with and the <see cref="DryRunService"/> of <c>run --dry-run</c>,
+    /// as singletons. The service reads the key variables from the registered <see cref="IConfiguration"/> and the tiers from <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host registers both)
+    /// and never from the process environment, so a test that replaces the configuration controls every key.
     /// </summary>
     /// <remarks>
     /// Prerequisites, resolved when the service is first used and not checked here: the provider clients (<see cref="AddAgentJoulesProviderClients(IServiceCollection)"/>, which register the
-    /// <see cref="ProviderClientFactory"/> and the named HTTP client of each tier) and a registered <see cref="Core.Security.SecretRedactor"/> (the host registers the one every writer masks with).
+    /// <see cref="ProviderClientFactory"/> and the named HTTP client of each tier), a registered <see cref="Core.Security.SecretRedactor"/> (the host registers the one every writer masks with)
+    /// and, for the dry run, an <see cref="Core.Gpu.IGpuTelemetrySourceFactory"/> (the host registers the NVML one, the harness one that reports no GPU).
     /// The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes nothing.
     /// </remarks>
     /// <param name="services">The collection to add the service to.</param>
@@ -159,6 +160,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<ModelCatalogClient>();
         services.TryAddSingleton<PreflightService>();
+        services.TryAddSingleton<DryRunService>();
         return services;
     }
 }

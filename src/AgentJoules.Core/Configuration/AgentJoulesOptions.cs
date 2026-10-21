@@ -38,4 +38,7 @@ public sealed class AgentJoulesOptions
 
     /// <summary>Section <c>CloudGpu</c>: how the rented-GPU tier is reached; <c>RequireSshVariables</c> is false on the VM.</summary>
     public CloudGpuOptions CloudGpu { get; set; } = new();
+
+    /// <summary>Section <c>Paths</c>: the files a run reads, relative to the content root; every key has a default.</summary>
+    public PathsOptions Paths { get; set; } = new();
 }

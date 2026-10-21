@@ -20,7 +20,8 @@ namespace AgentJoules.Cli.Hosting;
 /// <remarks>
 /// <para>
 /// The console exporter is on by default for <c>run</c> and <c>calibrate</c> and off for every other command, so <c>probe --json</c> stays machine-readable: the caller of <see cref="Add"/>
-/// decides and passes the flag (<c>!parseResult.GetValue(</c><see cref="TelemetryOptions.CreateNoConsoleTelemetry"/><c>)</c> for the two commands that print metrics, <c>false</c> for the others).
+/// decides and passes the flag (<c>!parseResult.GetValue(</c><see cref="TelemetryOptions.CreateNoConsoleTelemetry"/><c>)</c> for the two commands that print metrics, <c>false</c> for the others;
+/// <c>run --dry-run</c> records no metric and passes <c>false</c>, so its standard output stays the tier lines).
 /// The console exporter writes to the console, not to the output writer of the command host.
 /// </para>
 /// <para>

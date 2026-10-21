@@ -14,7 +14,7 @@ public static class RunCheckpointFixtures
     public static readonly DateTimeOffset RunStartUtc = new(2026, 10, 22, 9, 15, 30, TimeSpan.Zero);
 
     /// <summary>The model ID of a Nemotron agent in the fixtures.</summary>
-    public const string NemotronModel = "nvidia/nemotron-3-nano-30b-a3b";
+    public const string NemotronModel = "nvidia/nemotron-nano-3-30b-a3b";
 
     /// <summary>A reading of a hosted-tier (nvidia) step whose cost is <paramref name="cost"/>.</summary>
     /// <param name="cost">The cost metric of the step.</param>

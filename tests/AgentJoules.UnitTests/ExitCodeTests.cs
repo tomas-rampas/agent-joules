@@ -551,6 +551,56 @@ public sealed class ExitCodeTests
         Assert.Equal(7, (int)ExitCode.ContentDiffers);
         Assert.Equal(8, Enum.GetValues<ExitCode>().Length);
     }
+
+    /// <summary>
+    /// AJ-054 (REQ-017): the exit codes the <c>run</c> command reaches in M2, one row each, through the real command under the harness with the orchestrator double: 1 for an output
+    /// directory that cannot be written, 2 for a value outside the allowed ones, 3 for a missing key, 4 for a model ID that is not listed, 5 for a failed step and 6 for a measured tier
+    /// without a GPU. Code 7 belongs to <c>report --verify-readme</c> (M3). A nested class, so the <c>Spec=REQ-006</c> trait of the probe tests does not tag these rows.
+    /// </summary>
+    [Trait("Spec", "REQ-017")]
+    public sealed class RunCommandCodes
+    {
+        [Theory]
+        [InlineData(1, "run --tier nvidia --out occupied", "(AgentJoulesException)")]
+        [InlineData(2, "run --tier bogus", null)]
+        [InlineData(3, "run --tier nebius --dry-run", "(MissingKeyException)")]
+        [InlineData(4, "run --tier nvidia --dry-run", "(ModelNotFoundException)")]
+        [InlineData(5, "run --tier nvidia", "(StepFailedException)")]
+        [InlineData(6, "run --tier local --dry-run", "(MeasurementPreconditionException)")]
+        public async Task The_run_command_maps_each_failure_to_its_exit_code(int expected, string arguments, string? errorType)
+        {
+            using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+            _ = workspace.WriteFile("occupied", "this path is a file");
+            var nvidia = new FakeHttpMessageHandler { ModelIds = expected == 4 ? ["acme/other"] : ConfigurationFixtures.ShippedModelIds() };
+            if (expected == 5)
+            {
+                nvidia.SetStatuses(FakeRoute.ChatCompletions, 500);
+            }
+
+            var setup = new RunCommandSetup { WorkingDirectory = workspace.Root };
+            setup.Settings["NVIDIA_API_KEY"] = ProviderClientFixtures.FakeKey();
+            setup.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nvidia);
+            setup.Endpoints["nvidia"] = nvidia;
+            setup.Endpoints["local"] = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+
+            CliRunResult result = await RunCommandHarness.RunAsync(arguments, setup).WaitAsync(HangGuard);
+
+            Assert.True(expected == result.ExitCode, $"Expected exit code {expected} but got {result.ExitCode}; stderr: {result.Stderr}");
+            if (errorType is not null)
+            {
+                Assert.EndsWith(errorType, Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+            }
+            else
+            {
+                // The parse error of the tier rule, not an unrecognized command.
+                Assert.Contains("Must be one of", result.Stderr, StringComparison.Ordinal);
+                Assert.DoesNotContain("Unrecognized command", result.Stderr, StringComparison.Ordinal);
+            }
+
+            Assert.DoesNotContain(StackFramePrefix, result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(expected == 5 ? 1 : 0, setup.Orchestrator.Runs);
+        }
+    }
 }
 
 internal sealed class ThrowOnStopService : IHostedService

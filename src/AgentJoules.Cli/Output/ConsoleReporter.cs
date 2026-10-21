@@ -75,7 +75,7 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     /// <summary>
     /// Shows the user what the models endpoint lists when a configured model ID is not among it (EDGE-008): a header line, <c>available models of nvidia (first 20 of 30):</c> (or
     /// <c>available models of nvidia (12):</c> when nothing was cut), and then one ID per line, indented by two spaces, all to the error writer; for an empty list the one line
-    /// <c>no models listed</c>. The error line of the command (<see cref="ErrorLine"/>) is one folded line, so the list of IDs is printed here, before the exception is rethrown and mapped.
+    /// <c>no models listed</c>. The error line of the command (<see cref="ErrorLine"/>) is one folded line, so the command host prints the list of IDs here, right after that line.
     /// Each ID is cut and scrubbed again, so a caller that did not echo it cannot put a control character on the terminal.
     /// </summary>
     /// <param name="failure">The failure; its <see cref="ModelNotFoundException.AvailableIds"/> are printed in their order.</param>

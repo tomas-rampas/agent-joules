@@ -92,7 +92,7 @@ public sealed class TelemetryTests
     }
 
     // The provider builders the SDK registers are internal types, so the registrations are counted by interface name: each exporter adds exactly one.
-    private static int Registrations(IServiceCollection services, string interfaceName) => services.Count(descriptor => descriptor.ServiceType.Name == interfaceName);
+    private static int Registrations(IServiceCollection services, string interfaceName) => ServiceRegistrations.Count(services, interfaceName);
 
     private static bool HasOtlpOptions(IServiceCollection services) => services.Any(descriptor => descriptor.ServiceType == typeof(IOptionsFactory<OtlpExporterOptions>));
 

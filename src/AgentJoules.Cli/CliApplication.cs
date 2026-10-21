@@ -146,6 +146,7 @@ public static class CliApplication
         };
         root.Add(throwOnWorker);
         root.Add(ProbeCommand.Create(host));
+        root.Add(RunCommand.Create(host));
 
         // A command only a test adds runs inside a host exactly like probe does.
         if (overrides?.AdditionalCommands is { } additional)

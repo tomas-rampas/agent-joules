@@ -47,10 +47,14 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
     /// <param name="directory">The output directory; created when it does not exist.</param>
     /// <param name="fileName">The run file name, <see cref="RunFileName.IsValid(string?)"/>.</param>
     /// <param name="redactor">Masks keys in the serialised text before it is written, or null for no masking.</param>
+    /// <param name="displayDirectory">
+    /// How the failure line names the directory, for example the <c>--out</c> value as the user gave it; null names the absolute path. The <c>run</c> command passes its
+    /// <c>--out</c> value, so the line never carries the absolute path of a working directory.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="directory"/> is empty or <paramref name="fileName"/> is not a run file name.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="directory"/> or <paramref name="fileName"/> is null.</exception>
     /// <exception cref="AgentJoulesException">The directory cannot be created or written (exit code 1); the one-line message names the directory.</exception>
-    public ResultsFileWriter(string directory, string fileName, SecretRedactor? redactor = null)
+    public ResultsFileWriter(string directory, string fileName, SecretRedactor? redactor = null, string? displayDirectory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         ArgumentNullException.ThrowIfNull(fileName);
@@ -60,7 +64,7 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
         }
 
         _redactor = redactor;
-        string fullDirectory = ProbeWritable(directory, redactor);
+        string fullDirectory = ProbeWritable(directory, redactor, displayDirectory);
         FilePath = Path.Combine(fullDirectory, fileName);
     }
 
@@ -167,7 +171,7 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
     }
 
     // Creates the directory, then a probe file and deletes it; returns the full path of the directory.
-    private static string ProbeWritable(string directory, SecretRedactor? redactor)
+    private static string ProbeWritable(string directory, SecretRedactor? redactor, string? displayDirectory)
     {
         string full = directory;
         try
@@ -193,7 +197,8 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
         {
             // The exception text is not used: it can echo a path or provider text. The type name says why, the directory says where. The path is masked
             // before it is cut, because a key that straddles the cut would otherwise be left unmasked in part.
-            string echoed = TextEcho.ForMessage(redactor is null ? full : redactor.Redact(full), MaxDirectoryEchoLength);
+            string shown = displayDirectory ?? full;
+            string echoed = TextEcho.ForMessage(redactor is null ? shown : redactor.Redact(shown), MaxDirectoryEchoLength);
             throw new AgentJoulesException(ExitCode.Unexpected, $"The output directory \"{echoed}\" cannot be written ({failure.GetType().Name}).", failure);
         }
     }

@@ -923,7 +923,7 @@ Acceptance criteria:
 4. `AJ run --tier bogus` exits 2; `--mode bogus`, `--repeat 0` and `--baseline-seconds -1` exit 2.
 5. For `local` the dry-run runs the probe through the GPU port; with no GPU it exits 6.
 6. Live check on the laptop (keys required): `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` exit 0; the `local` dry-run is completed in M4.
-7. Added 2026-10-20 (AJ-051 spec review): the run command offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given; `probe` never enables it (tests `Run_registers_console_exporter_by_default` and `No_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`, using the AJ-051 registration-count helpers). `AgentJoulesInstruments` is registered by AJ-056 with the composition root.
+7. Added 2026-10-20 (AJ-051 spec review): the run command offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given; `probe` never enables it (tests `Run_registers_console_exporter_by_default` and `No_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`, using the AJ-051 registration-count helpers). `AgentJoulesInstruments` is registered by AJ-056 with the composition root. (Note 2026-10-21, AJ-054: in a dry run the console metrics exporter is not registered, because the OpenTelemetry console exporter prints a resource block on stdout at host disposal even when no metric was recorded, which would break the per-tier output of criterion 2; outside a dry run the exporter is on unless the flag is given; the OTLP checks run in both cases.)
 BDD scenarios:
 ```gherkin
 @unit @AJ-S054 @REQ-017
@@ -971,9 +971,9 @@ Tasks:
 Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6) and `Spec=REQ-014` on the two console-exporter tests); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
 Docs impact: README section "Run" (options table and dry-run example).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet run --project src/AgentJoules.Cli -- run --tier bogus; echo $?` prints 2
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21: build 0 warnings exit 0 and 2,647/0/5)
+- [x] docs listed above updated (2026-10-21: README `### run` subsection and this build-log entry)
+- [x] `dotnet run --project src/AgentJoules.Cli -- run --tier bogus; echo $?` prints 2 (2026-10-21: dotnet run --project src/AgentJoules.Cli --no-build -- run --tier bogus exit 2, measured by the orchestrator)
 Demo relevance: yes: step 2 of the demo is `AJ run --tier all --dry-run`.
 Conflict: C-04 (design 9.2) - REQ-017 requires `AJ run --tier bogus` to exit 2 but System.CommandLine returns 1 on parse errors; resolution: `CliApplication` inspects `ParseResult.Errors`, prints them and returns 2 before any action runs.
 Conflict: C-05 (design 9.2) - `--config` is defined per command (zero-or-one arity only on `validate`), so `run --config <path>` is a plain path option.
@@ -1044,6 +1044,7 @@ Demo relevance: no.
 
 ### AJ-056: Orchestrate a tier run over tasks, repeats and modes
 Covers: REQ-017, REQ-013, EDGE-005
+Note (2026-10-21, AJ-054): the `run` command, its options, the dry run, the preflight order (keys, one results writer per tier, models, GPU) and the `IRunOrchestrator` seam with `RunPlan` exist; AJ-056 replaces the `RunOrchestrator` placeholder (exit 1 until then, pinned by `The_production_orchestrator_is_a_placeholder_that_exits_1`), registers `AddAgentJoulesMeterGate(mode)` and `AgentJoulesInstruments` through the run command's service hook, keeps `StepFailedException` free of provider text (the AJ-052 leak proof relies on it), re-points the exit-5 row of `ExitCodeTests.RunCommandCodes` at the production orchestrator, takes the run-file timestamp once at command start, prints the sampling-fallback line once, and decides whether the console exporter's resource block on stdout at the end of a measured run is acceptable.
 User story: As a user, I want `AJ run --tier <t>` to run every selected task for the requested number of repeats in the requested mode and write one results file per tier, so that one command produces the evidence behind the report.
 Acceptance criteria:
 1. `AJ run` accepts `--tier`, `--task` (default all), `--mode serialized|concurrent` (default serialized), `--out` (default `results/`), `--baseline-seconds` (default 30, local only) and `--repeat` (default 3); a fake run with 3 tasks, `--repeat 2` and 4 agents yields 24 step readings (test `Run_produces_tasks_x_repeats_x_agents`).

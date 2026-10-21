@@ -21,8 +21,7 @@ namespace AgentJoules.Specs.Steps;
 /// handler recorded 0 requests" are reused by other stories with other meanings. The state lives in <see cref="RunCheckpointContext"/>. The writer,
 /// the file name and the serialiser run for real; the failing write is made by the <c>BeforeMove</c> hook of the writer, which throws after the partial
 /// file was written, which is the moment the scenario names. The last scenario runs <c>run --tier nvidia --out &lt;dir&gt; --repeat 1</c> through the
-/// command line harness through the stand-in of
-/// <see cref="RunCommandStandIn"/>; the scenario fails once the application has a <c>run</c> command of its own (AJ-054 and AJ-056 build it and rewire the scenario).
+/// command line harness with the real <c>run</c> command (AJ-054, <see cref="RunCommandHarness"/>), whose writers probe the output directory before any request.
 /// </summary>
 [Binding]
 [Scope(Feature = "AJ-055 Write run files atomically after every task and repeat")]
@@ -175,5 +174,10 @@ public sealed class RunCheckpointSteps(RunCheckpointContext context)
     }
 
     [Then(@"^the fake handler recorded (\d+) requests$")]
-    public void ThenTheFakeHandlerRecordedRequests(int expected) => Assert.Equal(expected, _context.RequestCount);
+    public void ThenTheFakeHandlerRecordedRequests(int expected)
+    {
+        // The models route and the completions route together, and the orchestrator was never reached.
+        Assert.Equal(expected, _context.RequestCount);
+        Assert.Equal(0, _context.OrchestratorRuns);
+    }
 }

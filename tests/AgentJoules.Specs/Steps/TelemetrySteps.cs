@@ -79,7 +79,7 @@ public sealed class TelemetrySteps(TelemetryContext context)
     [Given(@"^the run command with --no-console-telemetry$")]
     public void GivenTheRunCommandWithTheOptOutFlag()
     {
-        // The real run command is a later story's; a stand-in command with the shared option shows what the flag decides.
+        // The shared option on its own command shows what the flag decides; the run command (AJ-054) offers the same option and DryRunTests.Run measures its registrations.
         Option<bool> option = TelemetryOptions.CreateNoConsoleTelemetry();
         var run = new Command("run") { option };
         ParseResult parsed = run.Parse(["--no-console-telemetry"]);

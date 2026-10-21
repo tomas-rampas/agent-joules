@@ -10,7 +10,7 @@ namespace AgentJoules.Specs.Steps;
 
 /// <summary>
 /// AJ-053: exit 4 before any completion call when a model ID is not listed. Scoped to the feature because sentences such as "the exit code is 4" are reused by other stories with
-/// other meanings. The state lives in <see cref="ModelCheckContext"/>. Every scenario runs the stand-in <c>run</c> command of <see cref="RunCommandStandIn"/> through the real command
+/// other meanings. The state lives in <see cref="ModelCheckContext"/>. Every scenario runs the real <c>run</c> command (AJ-054, <see cref="RunCommandHarness"/>) through the real command
 /// line harness, so the model check, the provider pipeline and the redacting writers are the real ones and the fake models route records what was asked.
 /// </summary>
 [Binding]

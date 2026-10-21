@@ -59,6 +59,31 @@ Prints the GPU, driver, power limit and energy method that will be measured; wit
 - `--suffix <text>`: only with `--save`; adds `-<text>` to the file name, for example `--suffix cloudgpu` gives `results/probe-20261019T093015Z-cloudgpu.json`. The text must be 1 to 20 ASCII letters or digits (`^[A-Za-z0-9]{1,20}$`), so it cannot hold a path separator or `..`; anything else, or `--suffix` without `--save`, exits 2 and writes nothing.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
 
+### run
+
+`run` validates the configuration, the keys and the model IDs of the selected tiers and, outside `--dry-run`, runs the measured workflow. The measured run arrives with the next story; until then the command stops after the checks with exit 1.
+
+- `--tier <local|cloudgpu|nvidia|nebius|all>` (required): the tier to run. `all` expands to the tiers enabled in the configuration, in the fixed order local, cloudgpu, nvidia, nebius. `cloudgpu` is disabled in the committed configuration and is enabled on the VM with `AGENTJOULES__Tiers__cloudgpu__Enabled=true`.
+- `--task <name>`: run one task of the `tasks/` folder; by default every task runs, in file-name order. An unknown name exits 2 and lists the available names. The folder comes from `Paths:Tasks` (default `tasks`, relative to the working directory, never absolute and never containing `..`).
+- `--mode <serialized|concurrent>` (default `serialized`): how the agents' calls share the GPU. Any other value exits 2.
+- `--out <dir>` (default `results`): where the run files go, relative to the working directory unless absolute. A directory that cannot be written exits 1 before any request. A blank value exits 2; a drive-relative value such as `C:results` joins the working directory on that drive.
+- `--baseline-seconds <n>` (default `Baseline:Seconds` (30); a whole number greater than 0 and at most 4294967; the configuration key accepts fractions down to 0.001, the flag whole seconds only): the length of the idle baseline for the measured tiers.
+- `--repeat <n>` (default 3): how often each task runs; 1 or more.
+- `--dry-run`: validate everything and make no completion call. The keys of every selected tier and the judge key are checked in one message (exit 3). `GET /v1/models` runs on each selected endpoint (exit 5 when it cannot be reached, exit 4 when a configured model ID is not listed, with up to 20 listed IDs printed, Nemotron and Qwen first). The GPU of the measured tiers is checked (exit 6 without a GPU or NVML, naming the missing library), and the task folder is checked. The command prints one line per tier, `<tier> <endpoint> <matched model ids> OK`, and exits 0. Nothing is written.
+- `--no-console-telemetry`: do not print the OpenTelemetry metrics to the console at the end of a run (see Telemetry). A dry run prints none in any case.
+- `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
+
+Dry-run example (the three endpoints and model IDs of `config/appsettings.json`):
+
+```text
+dotnet run --project src/AgentJoules.Cli -- run --tier all --dry-run
+local http://localhost:11434/v1 nemotron-3-nano:30b OK
+nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-nano-3-30b-a3b OK
+nebius https://api.tokenfactory.nebius.com/v1 nvidia/nemotron-3-nano-30b-a3b OK
+```
+
+A wrong option value exits 2 before anything runs; the exit-code table is written in M6. Of the three model IDs in the example, only the nvidia one has been verified against its live endpoint so far (2026-10-21); the local and nebius checks are still open.
+
 ## Keys
 
 The hosted tiers read their API key from the environment variable named by `Tiers:<tier>:ApiKeyVariable` in `config/appsettings.json`: `NVIDIA_API_KEY` for `nvidia` and `NEBIUS_API_KEY` for `nebius`. The judge uses its tier's variable. `NGC_API_KEY` is the NIM container pull key of the local tier setup (M4), not a hosted-tier key.

@@ -31,6 +31,7 @@ internal sealed class HostedAction : AsynchronousCommandLineAction
     public override Task<int> InvokeAsync(ParseResult parseResult, CancellationToken cancellationToken = default) =>
         _host.RunAsync(
             configPath: null,
+            configure: null,
             (_, token) => _inner switch
             {
                 AsynchronousCommandLineAction asynchronous => asynchronous.InvokeAsync(parseResult, token),

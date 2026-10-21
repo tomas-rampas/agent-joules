@@ -14,8 +14,8 @@ namespace AgentJoules.Specs.Steps;
 
 /// <summary>
 /// AJ-052: exit 3 before any call when an API key is missing. Scoped to the feature because sentences such as "the exit code is 3" and "the fake handler recorded 0 requests" are
-/// reused by other stories with other meanings. The state lives in <see cref="MissingKeysContext"/>. Every scenario runs the stand-in <c>run</c> command of
-/// <see cref="RunCommandStandIn"/> through the real command line harness (AJ-054 and AJ-056 build the real command later in the milestone and rewire the scenarios); the key
+/// reused by other stories with other meanings. The state lives in <see cref="MissingKeysContext"/>. Every scenario runs the real <c>run</c> command (AJ-054) through the real
+/// command line harness, with the <see cref="FakeRunOrchestrator"/> making the one request of a run outside <c>--dry-run</c> until AJ-056 builds the measured run; the key
 /// check, the provider pipeline, the redacting writers and the deny-all handler are the real ones.
 /// </summary>
 [Binding]
@@ -38,8 +38,9 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         _context.SetKey("NEBIUS_API_KEY");
 
         // `--tier all` checks the models route of local, nvidia and nebius (AJ-053); the recording fake answers each of them. Only this scenario routes every tier, so the scenarios that
-        // route one tier on purpose can still see a request that goes somewhere else.
+        // route one tier on purpose can still see a request that goes somewhere else. The dry run also opens the GPU of the measured tier local (AJ-054), which the scripted GPU serves.
         _context.RouteUnroutedToFake();
+        _context.UseScriptedGpu();
     }
 
     [Given(@"^NEBIUS_API_KEY is present and the judge key is absent$")]
@@ -127,7 +128,8 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         Assert.StartsWith("Warning:", warning, StringComparison.Ordinal);
         Assert.Contains("NVIDIA_API_KEY", warning, StringComparison.Ordinal);
 
-        // The one completion request went out; the models route was asked once for the tier, and not for the judge whose key is missing.
+        // The run reached the orchestrator, whose one completion request went out; the models route was asked once for the tier, and not for the judge whose key is missing.
+        Assert.Equal(1, _context.Setup?.Orchestrator.Runs);
         Assert.Equal(1, _context.Handler.Count(FakeRoute.ChatCompletions));
         Assert.Equal(1, _context.Handler.Count(FakeRoute.Models));
     }
@@ -176,12 +178,16 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         string suffix = key["nvapi-".Length..];
         string output = Result.Stdout + "\n" + Result.Stderr;
 
-        // The key was sent and the endpoint echoed it, so the failure text had it to leak; the models route was answered and the run failed on the refused completion request.
+        // The key was sent and the endpoint echoed it, so the failure text had it to leak; the models route was answered and the run failed on the refused completion request, which
+        // the orchestrator reports as a failed step (exit 5) whose error line holds no provider text, while the Debug records print the failure chain with the echoed key.
         Assert.Equal(key, refusal.LastBearerToken);
         Assert.Equal(1, refusal.ModelsRequests);
         Assert.Equal(1, refusal.Attempts);
-        Assert.NotEqual(0, Result.ExitCode);
-        Assert.NotEmpty(Result.ErrorLines);
+        Assert.Equal(5, Result.ExitCode);
+        string error = Assert.Single(Result.ErrorLines);
+        Assert.EndsWith("(StepFailedException)", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bearer", error, StringComparison.Ordinal);
+        Assert.Contains(Result.StderrLines, static line => line.StartsWith("dbug:", StringComparison.Ordinal));
 
         Assert.DoesNotContain(key, output, StringComparison.Ordinal);
         Assert.DoesNotContain(suffix, output, StringComparison.Ordinal);
@@ -201,6 +207,7 @@ public sealed class MissingKeysSteps(MissingKeysContext context)
         Assert.True(_context.HasRoute("nebius"), "The scenario registered no recording endpoint.");
         Assert.Equal(expected, _context.Handler.RequestCount);
         Assert.Empty(Result.DeniedRequests);
+        Assert.Equal(0, _context.Setup?.Orchestrator.Runs);
     }
 
     [Then(@"^the deny-all handler recorded (\d+) real requests$")]

@@ -7,12 +7,12 @@ using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
 using AgentJoules.TestSupport;
 using AgentJoules.Workflow;
-using AgentJoules.Workflow.Providers;
 using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Time.Testing;
 
 using Xunit;
 
@@ -20,10 +20,11 @@ namespace AgentJoules.UnitTests;
 
 /// <summary>
 /// AJ-052 (EDGE-011) and AJ-053 (EDGE-008): the key check and the model check before any call, the one message that names every missing variable, the judge key (a warning outside <c>--dry-run</c>, part of the message
-/// inside it), the SSH variables of the <c>cloudgpu</c> tier, and the deny-by-default harness. AJ-054 adds the dry-run output to this class. The EDGE-008 tests are the nested class <c>ModelCheck</c> (file DryRunTests.ModelCheck.cs), which carries <c>Spec=EDGE-008</c> and not the EDGE-011 trait of this class. The
-/// <c>run</c> command does not exist yet (AJ-054 builds it), so the command line tests use <see cref="PreflightRunCommand"/>: the real <see cref="PreflightService"/>, the real
-/// console reporter and the real provider pipeline behind a command that only parses <c>--tier</c> and <c>--dry-run</c>. Keys are runtime-built fakes in an in-memory configuration;
-/// no test reads or sets a process variable.
+/// inside it), the SSH variables of the <c>cloudgpu</c> tier, and the deny-by-default harness. The EDGE-008 tests are the nested class <c>ModelCheck</c> (file DryRunTests.ModelCheck.cs), which carries <c>Spec=EDGE-008</c> and not the EDGE-011 trait of this class;
+/// the AJ-054 tests of the <c>run</c> command and its dry run are the nested class <c>Run</c> (file DryRunTests.Run.cs, <c>Spec=REQ-017</c>). The command line tests run the real <c>run</c>
+/// command through <see cref="RunCommandHarness"/>: the real <see cref="PreflightService"/>, the real console reporter and the real provider pipeline, with the
+/// <see cref="FakeRunOrchestrator"/> in place of the measured run (AJ-056), which sends the one completion request a run outside <c>--dry-run</c> makes. Keys are runtime-built fakes in an
+/// in-memory configuration; no test reads or sets a process variable.
 /// </summary>
 [Trait("Spec", "EDGE-011")]
 public sealed partial class DryRunTests
@@ -53,27 +54,22 @@ public sealed partial class DryRunTests
         return settings;
     }
 
+    // The real run command with the settings, the fake endpoints, the orchestrator double and, for a measured tier, the scripted GPU.
     private static async Task<CliRunResult> RunAsync(
         string arguments,
         Dictionary<string, string?> settings,
-        IReadOnlyDictionary<string, HttpMessageHandler>? endpoints = null)
+        IReadOnlyDictionary<string, HttpMessageHandler>? endpoints = null,
+        ScriptedNvmlApi? gpu = null)
     {
-        var command = new PreflightRunCommand();
-        var overrides = new CliHostOverrides(
-            Services: services =>
-            {
-                _ = services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
-                foreach ((string tierName, HttpMessageHandler endpoint) in endpoints ?? new Dictionary<string, HttpMessageHandler>())
-                {
-                    _ = services.AddHttpClient(ProviderClientFactory.HttpClientName(tierName)).ConfigurePrimaryHttpMessageHandler(() => endpoint);
-                }
-            },
-            Configuration: settings,
-            AdditionalCommands: [command.Create()],
-            OnHostStarted: command.Attach);
-
-        return await CliHarness.RunAsync(arguments, overrides).WaitAsync(HangGuard);
+        RunCommandSetup setup = Setup(settings, endpoints, gpu);
+        return await RunCommandHarness.RunAsync(arguments, setup).WaitAsync(HangGuard);
     }
+
+    private static RunCommandSetup Setup(Dictionary<string, string?> settings, IReadOnlyDictionary<string, HttpMessageHandler>? endpoints = null, ScriptedNvmlApi? gpu = null) =>
+        RunCommandSetup.Create(settings, endpoints, gpu);
+
+    // A scripted GPU with the energy counter and MIG disabled, for the measured tiers of a run.
+    private static ScriptedNvmlApi ScriptedGpu() => new(new FakeTimeProvider());
 
     private static PreflightService ServiceFor(params (string Key, string Value)[] overrides)
     {
@@ -179,7 +175,18 @@ public sealed partial class DryRunTests
         Assert.Equal(listsModels ? 1 : 0, refusal.ModelsRequests);
         Assert.Equal(1, refusal.Attempts);
         Assert.NotEqual(0, result.ExitCode);
-        Assert.EndsWith("Exception)", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+        string error = Assert.Single(result.ErrorLines);
+        Assert.EndsWith("Exception)", error, StringComparison.Ordinal);
+
+        // With a model list the completion request of the run (the orchestrator double) is the refused one, and its failure is the step failure, whose line holds no provider text.
+        if (listsModels)
+        {
+            Assert.Equal(5, result.ExitCode);
+            Assert.EndsWith("(StepFailedException)", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("Bearer", error, StringComparison.Ordinal);
+            Assert.DoesNotContain("nvapi-", error, StringComparison.Ordinal);
+        }
+
         Assert.DoesNotContain(key, output, StringComparison.Ordinal);
         Assert.DoesNotContain(suffix, output, StringComparison.Ordinal);
         for (int start = 0; start + 5 <= suffix.Length; start++)
@@ -191,14 +198,14 @@ public sealed partial class DryRunTests
         {
             Assert.DoesNotMatch(new Regex(@"nvapi-(?!\*{4})", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(5)), output);
 
-            // The failure of the models route holds no provider text (AJ-053), so the masked prefix shows there only where the Debug records print the failure chain; the failure of the
-            // completion path echoes the key into the error line, masked, with Debug logging on or off.
-            if (listsModels || debugLogging)
+            // Neither error line holds provider text (the models failure since AJ-053, the step failure since AJ-054), so the masked prefix shows only where the Debug records print the
+            // failure chain, whose inner exception echoes the key.
+            if (debugLogging)
             {
                 Assert.Contains("nvapi-****", output, StringComparison.Ordinal);
             }
         }
-        else if (listsModels)
+        else if (debugLogging && listsModels)
         {
             Assert.Contains("****", output, StringComparison.Ordinal);
         }
@@ -343,12 +350,13 @@ public sealed partial class DryRunTests
     [Fact]
     public async Task Missing_ssh_variables_do_not_matter_on_the_VM_where_RequireSshVariables_is_false()
     {
-        // The dry run also checks the models (AJ-053): the cloudgpu tier and the judge tier (nvidia) each answer their model.
+        // The dry run also checks the models (AJ-053), the cloudgpu tier and the judge tier (nvidia) each answer their model, and opens the GPU of the measured tier (AJ-054).
         var endpoints = new Dictionary<string, HttpMessageHandler> { ["cloudgpu"] = Lists(ModelOf("cloudgpu")), ["nvidia"] = Lists(JudgeModel) };
         CliRunResult result = await RunAsync(
             "run --tier cloudgpu --dry-run",
             Settings(("AgentJoules:Tiers:cloudgpu:Enabled", "true"), ("AgentJoules:CloudGpu:RequireSshVariables", "false"), ("NVIDIA_API_KEY", Key())),
-            endpoints);
+            endpoints,
+            ScriptedGpu());
 
         Assert.Equal(0, result.ExitCode);
         Assert.DoesNotContain(result.StderrLines, line => line.Length > 0);

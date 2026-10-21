@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-using AgentJoules.Cli;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Json;
@@ -17,8 +16,8 @@ namespace AgentJoules.Specs.Support;
 /// <summary>
 /// The state of one AJ-055 scenario (write run files atomically after every task and repeat), handed to the step class by Reqnroll context injection.
 /// It holds the inputs of the file name, the workspace and the writer of the checkpoint scenarios, the serialised document, and the pieces of the
-/// unwritable-directory scenario (the directory, the fake endpoint, the exit code). The unwritable-directory scenario runs the stand-in command
-/// <see cref="RunCommandStandIn"/> and fails once the application has a <c>run</c> command of its own (AJ-054, AJ-056).
+/// unwritable-directory scenario (the directory, the fake endpoint, the exit code). The unwritable-directory scenario runs the real <c>run</c> command through
+/// <see cref="RunCommandHarness"/> (AJ-054) with the recording fake endpoint as the nvidia client.
 /// </summary>
 public sealed class RunCheckpointContext : IDisposable
 {
@@ -56,7 +55,7 @@ public sealed class RunCheckpointContext : IDisposable
     public string? OutDirectory { get; private set; }
 
     /// <summary>The fake endpoint of the unwritable-directory scenario; it records every request it receives.</summary>
-    public FakeHttpMessageHandler Handler { get; } = new();
+    public FakeHttpMessageHandler Handler { get; } = new() { ModelIds = ConfigurationFixtures.ShippedModelIds() };
 
     /// <summary>The exit code of the command, or null before it ran.</summary>
     public int? ExitCode { get; set; }
@@ -106,32 +105,34 @@ public sealed class RunCheckpointContext : IDisposable
     }
 
     /// <summary>
-    /// Runs <c>run --tier nvidia --out &lt;OutDirectory&gt; --repeat 1</c> through the stand-in of <see cref="RunCommandStandIn"/>. When the application has a
-    /// <c>run</c> command of its own the scenario fails instead of running the stand-in beside it: the request count of this scenario sees only the fake
-    /// handler of the stand-in, so a real command would pass unchecked. AJ-054 and AJ-056 must rewire the scenario to the real command and a recording
-    /// handler.
+    /// Runs <c>run --tier nvidia --out &lt;OutDirectory&gt; --repeat 1</c> through the real <c>run</c> command (<see cref="RunCommandHarness"/>) with the nvidia key and the recording
+    /// endpoint <see cref="Handler"/> as the nvidia client, whose models route lists the shipped IDs: had the writer probe not stopped the command, the model check and the completion
+    /// request of the orchestrator double would have reached it.
     /// </summary>
     /// <returns>A task that completes when the command ended and <see cref="ExitCode"/> is set.</returns>
-    /// <exception cref="XunitException">The application lists a <c>run</c> command.</exception>
     public async Task RunCommandAsync()
     {
         string directory = OutDirectory ?? throw new InvalidOperationException("No output directory was chosen.");
         string arguments = $"run --tier nvidia --out \"{directory}\" --repeat 1";
 
-        await RunCommandStandIn.EnsureNoRealRunCommandAsync("AJ-055 scenario 6");
+        RunCommandSetup setup = RunCommandSetup.Create(
+            [
+                KeyValuePair.Create("NVIDIA_API_KEY", (string?)ProviderClientFixtures.FakeKey()),
+                KeyValuePair.Create("AgentJoules:Tiers:nvidia:BaseUrl", (string?)ProviderClientFixtures.BaseUrl(Tier.Nvidia)),
+            ],
+            [KeyValuePair.Create("nvidia", (HttpMessageHandler)Handler)]);
 
-        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NVIDIA_API_KEY", ProviderClientFixtures.FakeKey())]) with
-        {
-            AdditionalCommands = [new RunCommandStandIn(Handler, Time).Create()],
-        };
-
-        CliRunResult result = await CliHarness.RunAsync(arguments, overrides);
+        CliRunResult result = await RunCommandHarness.RunAsync(arguments, setup);
         ExitCode = result.ExitCode;
         Stderr = result.Stderr;
+        OrchestratorRuns = setup.Orchestrator.Runs;
     }
 
-    /// <summary>The requests that reached the fake endpoint.</summary>
+    /// <summary>The requests that reached the fake endpoint (the models route and the completions route together).</summary>
     public int RequestCount => Handler.RequestCount;
+
+    /// <summary>How many times the command reached the orchestrator double, or null before it ran.</summary>
+    public int? OrchestratorRuns { get; private set; }
 
     /// <inheritdoc />
     public void Dispose()

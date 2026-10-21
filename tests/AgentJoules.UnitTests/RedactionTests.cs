@@ -922,7 +922,7 @@ public sealed class RedactionTests
         // ErrorLine: one WriteLine, folded to one line, control characters scrubbed.
         var errors = new SpyTextWriter();
         ErrorLine.Write(errors, new InvalidOperationException("first" + escape + "[0m\r\nsecond\tthird"));
-        Assert.Equal("error: first?[0m second?third (InvalidOperationException)" + Environment.NewLine, Assert.Single(errors.Calls));
+        Assert.Equal("error: first?[0m second third (InvalidOperationException)" + Environment.NewLine, Assert.Single(errors.Calls));
 
         // ConsoleReporter: one WriteLine per logical line.
         var reportOut = new SpyTextWriter();
