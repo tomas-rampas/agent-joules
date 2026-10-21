@@ -838,7 +838,8 @@ Demo relevance: yes: every table and chart row in the demo is one aggregate row.
 Conflict: C-07 (design 9.2) - the page requirement of one row per step conflicts with the median over repeats; resolution: a row is the aggregate of one `(tier, task, agent)` over its repeats.
 
 ### AJ-083: Render the Markdown summary with honest labels
-Covers: REQ-016, EDGE-003, EDGE-002
+Covers: REQ-016, EDGE-003, EDGE-002, EDGE-004, EDGE-007
+Note (2026-10-21, M2 exit): EDGE-004 and EDGE-007 added because criteria 4 and 5 finish the EDGE-004 rendered overlap sentence and the EDGE-007 report cells (M2 full spec pass, remark 2), so the traits are not lost.
 Note (2026-10-20, M1 exit): EDGE-003 and EDGE-002 added per plan section 5 seam row 6 (report row and header reference EDGE-003 and EDGE-002) and the M1 spec full pass (the rendered-row half of EDGE-003 and the report-header half of EDGE-002 are carried here from M1).
 User story: As a reader of the report, I want `summary.md` to carry the measurement context and one table with every label and flag next to its value, so that no number appears without its evidence class.
 Acceptance criteria:
@@ -1494,7 +1495,8 @@ Demo relevance: yes: the live page is shown beside the terminal in the video.
 Conflict: C-15 (design 9.2) - the static report page may not contain `<script>` but the live page needs inline JavaScript; resolution: they are different pages; the dashboard page is served only by the CLI and never written to `docs/report/`.
 
 ### AJ-091: Serve the dashboard on loopback with SSE and a port fallback
-Covers: REQ-032, EDGE-018
+Covers: REQ-032, EDGE-018, REQ-017
+Note (2026-10-21, M2 exit): REQ-017 added because criterion 4 completes the nine-option `run --help` of REQ-017 (`--dashboard` and `--dashboard-port`; M2 full spec pass, remark 3), so the trait is not lost.
 User story: As a user, I want `AJ run --dashboard` to start a loopback-only server that streams events and picks the next free port when mine is taken, so that the live view starts without configuration and never blocks the run.
 Acceptance criteria:
 1. `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser (Specs scenario with the fake GPU factory).

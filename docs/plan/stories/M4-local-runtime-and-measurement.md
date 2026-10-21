@@ -530,7 +530,8 @@ Demo relevance: no.
 Resolved: the prompt defines the run flag `non-publishable` for a baseline below 30 s; the option stays free for tests, the warning and the flag come from criterion 4, the run file is never "latest", and publishability is double-checked where evidence is committed, by AJ-114 (`baseline.seconds >= 30` checked with jq) and AJ-115 (`CommittedEvidenceTests`).
 
 ### AJ-107: Select and record the local model in docs/endpoints.md
-Covers: REQ-018, REQ-020, EDGE-009
+Covers: REQ-018, REQ-020, EDGE-009, REQ-012
+Note (2026-10-21, M2 exit): REQ-012 added because criterion 5 is the live `run --tier local --dry-run` exit 0 that REQ-012 and the M2 exit carry to M4 (M2 full spec pass, remark 3), so the trait is not lost.
 User story: As a reader of the local numbers, I want the local model verified on this machine and recorded with its tag, size and processor split, so that the published local tier names a model that was actually served.
 Acceptance criteria:
 1. When the AJ-103 decision is `ollama`: `ollama pull nemotron-3-nano:30b` succeeds (or the failure is recorded), `ollama list`, `ollama show nemotron-3-nano:30b` and `ollama ps` after a warm-up are recorded in the `## local` section with the quantization, the size and the processor split written as `<measured>` copies; the Ollama library page is checked for smaller Nemotron tags and the result is recorded.
@@ -734,7 +735,8 @@ Definition of done:
 Demo relevance: yes: the calibration result backs the claim that the counter and sampling agree (or by how much they differ).
 
 ### AJ-110: Run the preflight for the laptop measurement campaign
-Covers: REQ-021
+Covers: REQ-021, REQ-017
+Note (2026-10-21, M2 exit): REQ-017 added because criterion 2 is the live `AJ run --tier all --dry-run` exit 0 on the laptop that the REQ-017 acceptance names and the M2 exit carries to M4 (M2 full spec pass, remark 3), so the trait is not lost.
 User story: As the author, I want a fixed preflight (probe, dry-run, power and load conditions) committed before any measurement run, so that every published number comes from a known machine state.
 Acceptance criteria:
 1. `AJ probe --json --save` exits 0 and writes `results/probe-<yyyyMMddTHHmmssZ>.json` with `gpuPresent` true, a `driverVersion` equal to the output of `nvidia-smi --query-gpu=driver_version --format=csv,noheader`, and a boolean `energyCounterSupported`; the file is committed (standing order 4).

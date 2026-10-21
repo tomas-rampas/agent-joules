@@ -2,6 +2,8 @@
 
 Generated 2026-10-18 from the eight story files in `docs/plan/stories/` (`Covers:` lines, scenario and task rows) and the Definition of Done in `docs/agent-joules.prompt.md`. Classes (MUST, SHOULD, COULD) come from `docs/plan/plan.md` section 3.2. The story files were not edited. Numbers below were computed with the commands listed under Counts.
 
+Hand-edited after generation, counts not regenerated: 2026-10-20 (M1 exit) added EDGE-001 to AJ-054 and AJ-058, EDGE-003 and EDGE-002 to AJ-083 and EDGE-002 to AJ-087 and AJ-133 in the story files; 2026-10-21 (M2 exit) set the REQ-014 class to MUST*, added EDGE-001 and EDGE-005 to the AJ-054, AJ-056 and AJ-058 rows and to Table B, and added AJ-083 to the EDGE-004 and EDGE-007 rows after the M2 full spec pass.
+
 Legend. Scenarios and Tasks in Tables A and B are summed over the covering stories; a story that covers two IDs counts once in each row, so the columns are not additive. Class: MUST when at least one covering story is MUST; `MUST*` when some other covering story is SHOULD or COULD (the part a cut removes, see plan.md 3.4); SHOULD or COULD when no covering story is MUST. M7 stories cover DoD boxes, not REQ or EDGE; the text `(REQ-032)` inside the AJ-150 Covers line is box wording and is not counted. REQ-016 appears in two milestones because AJ-144 (M6) lists it for the `report` flags and the content renderer.
 
 ## Table A: REQ-001 to REQ-032
@@ -20,7 +22,7 @@ Legend. Scenarios and Tasks in Tables A and B are summed over the covering stori
 | REQ-011 | M2 | AJ-049, AJ-050 | 10 | 13 | MUST |
 | REQ-012 | M2 | AJ-043, AJ-044, AJ-048 | 17 | 19 | MUST |
 | REQ-013 | M2 | AJ-046, AJ-047, AJ-056 | 19 | 20 | MUST* |
-| REQ-014 | M2 | AJ-051, AJ-054, AJ-109 | 19 | 18 | SHOULD |
+| REQ-014 | M2 | AJ-051, AJ-054, AJ-109 | 19 | 18 | MUST* |
 | REQ-015 | M3 | AJ-078, AJ-079, AJ-080 | 21 | 18 | MUST |
 | REQ-016 | M3/M6 | AJ-081, AJ-082, AJ-083, AJ-084, AJ-086, AJ-087, AJ-144 | 46 | 38 | MUST |
 | REQ-017 | M2 | AJ-054, AJ-055, AJ-056, AJ-057, AJ-058 | 30 | 31 | MUST* |
@@ -43,11 +45,11 @@ Legend. Scenarios and Tasks in Tables A and B are summed over the covering stori
 ## Table B: EDGE-001 to EDGE-019
 | EDGE | Milestone | Stories (Covers) | Scenarios | Tasks | Class |
 |---|---|---|---|---|---|
-| EDGE-001 | M1 | AJ-035, AJ-036 | 14 | 9 | MUST* |
+| EDGE-001 | M1 | AJ-035, AJ-036, AJ-054, AJ-058 | 14 | 9 | MUST* |
 | EDGE-002 | M1 | AJ-027 | 6 | 4 | MUST |
 | EDGE-003 | M1 | AJ-026 | 8 | 4 | MUST |
 | EDGE-004 | M2 | AJ-047 | 6 | 5 | SHOULD |
-| EDGE-005 | M1 | AJ-030 | 7 | 5 | MUST |
+| EDGE-005 | M1 | AJ-030, AJ-056 | 7 | 5 | MUST |
 | EDGE-006 | M2 | AJ-045, AJ-057 | 11 | 13 | MUST* |
 | EDGE-007 | M2 | AJ-042 | 6 | 5 | MUST |
 | EDGE-008 | M2 | AJ-053 | 5 | 5 | MUST |
@@ -141,11 +143,11 @@ M7 story and task are the `DoD:` mapping of the M7 file (checked: 24 rows, 24 di
 | AJ-051 | M2 | SHOULD | 4.25 | 5 | 6 | REQ-014 |
 | AJ-052 | M2 | MUST | 5.00 | 8 | 6 | EDGE-011 |
 | AJ-053 | M2 | MUST | 3.00 | 5 | 5 | EDGE-008 |
-| AJ-054 | M2 | MUST | 4.00 | 6 | 5 | REQ-017, REQ-014 |
+| AJ-054 | M2 | MUST | 4.00 | 6 | 5 | REQ-017, REQ-014, EDGE-001 |
 | AJ-055 | M2 | MUST | 4.75 | 6 | 5 | REQ-017 |
-| AJ-056 | M2 | MUST | 10.00 | 8 | 10 | REQ-013, REQ-017 |
+| AJ-056 | M2 | MUST | 10.00 | 8 | 10 | REQ-013, REQ-017, EDGE-005 |
 | AJ-057 | M2 | SHOULD | 3.50 | 5 | 6 | REQ-017, EDGE-006 |
-| AJ-058 | M2 | SHOULD | 3.25 | 5 | 5 | REQ-017 |
+| AJ-058 | M2 | SHOULD | 3.25 | 5 | 5 | REQ-017, EDGE-001 |
 | AJ-070 | M3 | MUST | 3.50 | 5 | 5 | REQ-009 |
 | AJ-071 | M3 | MUST | 2.75 | 5 | 5 | REQ-009 |
 | AJ-072 | M3 | MUST | 3.50 | 7 | 6 | REQ-009 |
