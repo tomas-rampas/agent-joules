@@ -53,6 +53,12 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         }
     }
 
+    /// <summary>
+    /// States the scope of every joule the measured <c>run</c> prints (prompt honesty rule 6): writes exactly <see cref="ReportSentences.GpuBoardOnly"/> as one line to the output writer. The command
+    /// calls it once, before the first tier starts, so the sentence precedes the first step line.
+    /// </summary>
+    public void ReportEnergyScope() => Output.WriteLine(ReportSentences.GpuBoardOnly);
+
     /// <summary>Tells the user where <c>probe --save</c> wrote its file: one line <c>saved: &lt;path&gt;</c> to the error writer, so standard output stays the probe output.</summary>
     /// <param name="relativePath">The path relative to the content root with forward slashes, for example <c>results/probe-20261019T093015Z.json</c>.</param>
     /// <exception cref="ArgumentException"><paramref name="relativePath"/> is null or empty.</exception>

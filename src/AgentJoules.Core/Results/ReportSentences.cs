@@ -11,4 +11,10 @@ public static class ReportSentences
     /// of the windows, not the sum of the step readings.
     /// </summary>
     public const string ConcurrentOverlap = "Per-step energy overlaps in concurrent mode and does not sum to the run total.";
+
+    /// <summary>
+    /// The scope of every joule the tool shows (prompt honesty rule 6): the readings are the energy of the GPU board only, not of the host, the network or a hosted tier's datacentre. The console prints it
+    /// once per <c>run</c> command, before the first step line.
+    /// </summary>
+    public const string GpuBoardOnly = "Energy is GPU-board energy only.";
 }

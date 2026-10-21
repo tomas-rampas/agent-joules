@@ -42,7 +42,8 @@ namespace AgentJoules.Cli.Commands;
 /// Outside a dry run the order is: the key check (a missing judge key only warns), one <see cref="ResultsFileWriter"/> per tier in <c>--out</c> (its constructor probes the directory,
 /// so an unwritable directory exits 1 before any request), the model check, the GPU check of a measured tier, and then the <see cref="IRunOrchestrator"/> with the <see cref="RunPlan"/>.
 /// The start of the command is taken once from the registered clock, before any check: every file name of the command and every <c>run.startUtc</c> carry it. The sampling-fallback line
-/// is printed once per command, not once per measured tier.
+/// is printed once per command, not once per measured tier, and so is the energy-scope sentence (<see cref="ConsoleReporter.ReportEnergyScope"/>, prompt honesty rule 6) on stdout, after the checks and
+/// before the first step line; a dry run prints no joules and so no such sentence.
 /// </para>
 /// </remarks>
 internal static class RunCommand
@@ -267,6 +268,9 @@ internal static class RunCommand
 
         ModelCheckResult models = await preflight.CheckModelsAsync(tiers, keys, cancellationToken);
         ReportFallbacks(reporter, preflight.CheckMeasuredTiers(tiers, services.GetRequiredService<IGpuTelemetrySourceFactory>()));
+
+        // Prompt honesty rule 6: the scope of the joules, once per command (the orchestrator loops the tiers), before the first step line. A dry run prints no joules and never reaches this.
+        reporter.ReportEnergyScope();
 
         double baselineSeconds = request.BaselineSeconds ?? options.Baseline.Seconds;
         var plan = new RunPlan(tiers, tasks, request.Mode, request.Repeat, baselineSeconds, writers, keys, models, startUtc, request.Out);

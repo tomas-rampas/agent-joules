@@ -171,6 +171,49 @@ public sealed partial class RunOrchestrationTests
         Assert.False(gpu.IsInitialised);
     }
 
+    // ---- prompt honesty rule 6: every surface that shows joules states the scope once ----
+
+    [Fact]
+    public async Task The_run_prints_the_energy_scope_sentence_once_per_command_before_the_first_step_line()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        TimerTrackingTimeProvider time = RunOrchestrationFixtures.Clock();
+        var gpu = new ScriptedNvmlApi(time) { ConstantPowerWatts = 30.0 };
+        var endpoints = new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal)
+        {
+            ["local"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromSeconds(1)),
+            ["nvidia"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromSeconds(1)),
+            ["nebius"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromSeconds(1)),
+        };
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, endpoints);
+        setup.Gpu = gpu;
+        RunOrchestrationFixtures.UseClock(setup, time);
+
+        CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync("run --tier all --repeat 1", setup, time).WaitAsync(HangGuard);
+
+        AssertExit(0, result);
+        string[] lines = RunOrchestrationFixtures.StdoutLines(result);
+        _ = Assert.Single(lines, static line => line == ReportSentences.GpuBoardOnly);
+        int scope = Array.IndexOf(lines, ReportSentences.GpuBoardOnly);
+        int firstStep = Array.FindIndex(lines, static line => line.Contains(" r1 ", StringComparison.Ordinal) && line.Contains("netJ=", StringComparison.Ordinal));
+        Assert.True(firstStep >= 0, "No step line on stdout.");
+        Assert.True(scope < firstStep, $"The scope sentence is at line {scope}, the first step line at {firstStep}.");
+        Assert.Equal(1, result.Stdout.Split(ReportSentences.GpuBoardOnly).Length - 1);
+    }
+
+    [Fact]
+    public async Task A_dry_run_prints_no_energy_scope_sentence()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        RunCommandSetup setup = NvidiaRun(workspace, RunOrchestrationFixtures.Endpoint());
+
+        CliRunResult result = await RunAsync("run --tier nvidia --dry-run", setup);
+
+        AssertExit(0, result);
+        Assert.Equal(0, result.Stdout.Split(ReportSentences.GpuBoardOnly).Length - 1);
+        Assert.NotEmpty(RunOrchestrationFixtures.StdoutLines(result));
+    }
+
     // ---- criterion 4: the keys of every selected tier before the first call ----
 
     [Fact]
