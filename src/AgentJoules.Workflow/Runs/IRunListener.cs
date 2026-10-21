@@ -1,5 +1,6 @@
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 
 namespace AgentJoules.Workflow.Runs;
 
@@ -17,10 +18,14 @@ public interface IRunListener
     /// <param name="reading">The reading of the step.</param>
     void StepFinished(StepReading reading);
 
-    /// <summary>The <c>incomplete</c> checkpoint of a shutdown could not be written; the command still exits as a shutdown.</summary>
+    /// <summary>
+    /// The checkpoint that ends a tier early could not be written: the <c>incomplete</c> checkpoint of a shutdown (the command still exits as a shutdown) or the <c>failed</c> checkpoint of a
+    /// step that failed (the command still exits with the code of the step failure, 5). The listener words the two cases differently.
+    /// </summary>
     /// <param name="exceptionTypeName">The type name of the failure, never its message.</param>
     /// <param name="previousCheckpointKept">True when a checkpoint of the tier was written before and stays on disk; false when the tier has no file.</param>
-    void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept);
+    /// <param name="kind">Which checkpoint could not be written.</param>
+    void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind);
 
     /// <summary>The idle baseline of a measured tier was measured, before its first step; an unstable baseline carries <c>baseline-unstable</c> (EDGE-005).</summary>
     /// <param name="baseline">The baseline.</param>
@@ -30,4 +35,13 @@ public interface IRunListener
     /// <param name="displayPath">The file as the user names it: the <c>--out</c> value as given, a forward slash and the file name.</param>
     /// <param name="totals">The totals of the final document.</param>
     void TierCompleted(string displayPath, Totals totals);
+
+    /// <summary>
+    /// A step failed and stopped the tier (EDGE-006), and the partial file was written: it holds every step published so far and carries <paramref name="status"/>. Called after the write succeeded
+    /// (when the write failed, <see cref="CheckpointFailed"/> is told instead) and before the failure leaves the orchestrator, so the lines it prints come before the error line of the command.
+    /// </summary>
+    /// <param name="displayPath">The partial file as the user names it: the <c>--out</c> value as given, a forward slash and the file name.</param>
+    /// <param name="agent">The name of the agent whose step failed.</param>
+    /// <param name="status">The status the partial file carries: <see cref="RunStatus.Failed"/>, or <see cref="RunStatus.Incomplete"/> when the connection dropped after the first update.</param>
+    void TierFailed(string displayPath, string agent, RunStatus status);
 }

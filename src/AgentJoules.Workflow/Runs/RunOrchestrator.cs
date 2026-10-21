@@ -34,7 +34,15 @@ namespace AgentJoules.Workflow.Runs;
 /// <para>
 /// Each tier run has its own <see cref="MeteringServices"/>: its meter, the one <see cref="IMeterGate"/> of the process (the mode), a new <see cref="InMemoryMetricsSink"/> whose readings are
 /// also handed to the listener when they are published (so a step line appears when its step finishes), the cost calculator, the instruments and the clock. A failing tier ends the command with
-/// the exit code of its exception (a failed step is <see cref="StepFailedException"/>, exit code 5); later tiers do not run.
+/// the exit code of its exception (a failed step is <see cref="StepFailedException"/>, exit code 5); later tiers do not run, and the files of earlier tiers stay.
+/// </para>
+/// <para>
+/// A failed step (EDGE-006; a <see cref="StepFailedException"/> out of the workflow, nothing else) stops the tier: the orchestrator writes the readings published so far through the tier's writer
+/// with status <c>failed</c> (or <c>incomplete</c> when the failing agent's latest reading is <c>incomplete</c>, a connection that dropped after the first update), so steps that finished earlier
+/// are the same readings as in the last checkpoint and steps that never ran are absent, never zero-filled; the judge is not called. The write has a token of its own, bounded like the shutdown write.
+/// When it succeeded, the listener is told (<see cref="IRunListener.TierFailed"/>) and the exception leaves as a copy that names the file (<see cref="StepFailedException.WithPartialFile"/>); when it
+/// failed, the failure is logged at Debug with its type only, told as <see cref="IRunListener.CheckpointFailed"/> with <see cref="CheckpointKind.StepFailure"/>, and the original exception leaves
+/// unchanged. The exit code is 5 either way. Engine faults, configuration and precondition failures write no partial file here.
 /// </para>
 /// <para>
 /// Shutdown (Ctrl+C, SIGTERM, <c>ApplicationStopping</c>; EDGE-016): when the run token is cancelled, the calls in flight end as <c>cancelled</c> readings; the orchestrator replaces each
@@ -57,7 +65,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="listener">Receives the step lines, the baseline and the closing lines of each tier.</param>
 /// <param name="judge">Scores the <c>ok</c> steps of a tier (M2: a no-op).</param>
 /// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
-/// <param name="logger">The logger of the Debug records of a failed listener call and a failed shutdown checkpoint (exception types only).</param>
+/// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
 /// <exception cref="ArgumentNullException">An argument is null.</exception>
 public sealed class RunOrchestrator(
     IOptions<AgentJoulesOptions> options,
@@ -101,7 +109,7 @@ public sealed class RunOrchestrator(
     /// <inheritdoc />
     /// <exception cref="ConfigurationException">A tier of the plan is not configured, or an agent of it has no model ID (exit code 2).</exception>
     /// <exception cref="MeasurementPreconditionException">The GPU of a measured tier cannot be opened, or <c>Meter:Method=counter</c> meets a GPU without the counter (exit code 6).</exception>
-    /// <exception cref="StepFailedException">A provider call of a step failed (exit code 5); the message carries no provider text, and later tiers do not run.</exception>
+    /// <exception cref="StepFailedException">A provider call of a step failed (exit code 5); the message carries no provider text, and later tiers do not run. The partial file of the tier was written first and is named by <see cref="StepFailedException.PartialFile"/>, unless that write failed (then it is null).</exception>
     /// <exception cref="OperationCanceledException">
     /// The run token was cancelled; the interrupted tier's file was written with status <c>incomplete</c> first (or the failure of that write was told), and no later tier started.
     /// </exception>
@@ -170,7 +178,23 @@ public sealed class RunOrchestrator(
             {
                 for (int repeat = 1; repeat <= plan.Repeat; repeat++)
                 {
-                    await RunRepeatAsync(factory, progress, task, repeat, options.Workflow.Seed, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await RunRepeatAsync(factory, progress, task, repeat, options.Workflow.Seed, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (StepFailedException failure)
+                    {
+                        // A failed step stops the tier (EDGE-006): the partial file is written first. The copy that names the file leaves; when the file could not be written the original
+                        // leaves unchanged, because a claim about a partial file would be false.
+                        StepFailedException? named = await WriteFailedAsync(plan, progress, sink, listening, shutdown, failure).ConfigureAwait(false);
+                        if (named is null)
+                        {
+                            throw;
+                        }
+
+                        throw named;
+                    }
+
                     await progress.Writer.WriteAsync(progress.Document(sink.Snapshot(), RunStatus.Running), cancellationToken).ConfigureAwait(false);
                     progress.CheckpointWritten = true;
                 }
@@ -279,6 +303,34 @@ public sealed class RunOrchestrator(
         return judged;
     }
 
+    // The partial file of a step failure (EDGE-006): the document of the readings published so far, which are the same instances the earlier checkpoints held, with the status failed, or incomplete
+    // when the failing agent's latest reading is incomplete (a drop after the first update, EDGE-016). No judge call: a stopped tier is not scored. The write has a token of its own, bounded like
+    // the shutdown write, and a failed write is logged and told with its type only. The token cancels the asynchronous part of the write only: the synchronous file operations of the writer (delete,
+    // create, flush, move) are not cancellable and finish once started, so the budget bounds the await, not the disk. Returns the failure carrying the display path of the file, or null when the file could not be written.
+    private async Task<StepFailedException?> WriteFailedAsync(RunPlan plan, TierProgress progress, InMemoryMetricsSink sink, RunListenerSink listening, ShutdownSignal shutdown, StepFailedException failure)
+    {
+        IReadOnlyList<StepReading> steps = sink.Snapshot();
+        StepReading? latest = steps.LastOrDefault(step => string.Equals(step.Agent, failure.Agent, StringComparison.Ordinal));
+        RunStatus status = latest?.Outcome == StepOutcomes.Incomplete ? RunStatus.Incomplete : RunStatus.Failed;
+        try
+        {
+            // The wall clock, like the shutdown write: a fake clock in a test must not cancel the write.
+            using var timeout = new CancellationTokenSource(shutdown.WriteBudget());
+            await progress.Writer.WriteAsync(progress.Document(steps, status), timeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception writeFailure)
+        {
+            string type = writeFailure.GetType().Name;
+            RunLog.StepFailureCheckpointFailed(_logger, type);
+            listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten, CheckpointKind.StepFailure));
+            return null;
+        }
+
+        string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
+        listening.Tell(listener => listener.TierFailed(displayPath, failure.Agent, status));
+        return failure.WithPartialFile(displayPath);
+    }
+
     // The shutdown checkpoint: the in-flight steps of the interrupted (task, repeat) become incomplete, the document is written with a token of its own, and then the listener is told.
     // A failed write is logged and told with its type only and is never thrown: the caller rethrows the run's OperationCanceledException whatever happens here.
     private async Task WriteIncompleteAsync(TierProgress progress, InMemoryMetricsSink sink, RunListenerSink listening, ShutdownSignal shutdown)
@@ -314,7 +366,7 @@ public sealed class RunOrchestrator(
         {
             string type = failure.GetType().Name;
             RunLog.ShutdownCheckpointFailed(_logger, type);
-            listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten));
+            listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten, CheckpointKind.Shutdown));
             return;
         }
 

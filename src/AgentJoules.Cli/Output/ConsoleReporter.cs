@@ -5,6 +5,7 @@ using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 
 namespace AgentJoules.Cli.Output;
 
@@ -14,7 +15,8 @@ namespace AgentJoules.Cli.Output;
 /// </summary>
 /// <remarks>
 /// AJ-030 added the idle-baseline warning; AJ-056 adds the per-step lines and the closing lines of a tier of <c>run</c> on the output writer
-/// (<see cref="ReportStep"/>, <see cref="ReportTierCompleted"/>), which the orchestrator reaches through <see cref="ConsoleRunListener"/>.
+/// (<see cref="ReportStep"/>, <see cref="ReportTierCompleted"/>), which the orchestrator reaches through <see cref="ConsoleRunListener"/>; AJ-057 adds the lines of a tier that a failed step
+/// stopped (<see cref="ReportTierFailed"/>) and the warning for a partial file that could not be written (<see cref="ReportCheckpointFailed"/>).
 /// Numbers are formatted with the invariant culture, never the culture of the machine.
 /// </remarks>
 /// <param name="output">The writer for results (standard output); not used by the baseline warning.</param>
@@ -26,8 +28,8 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     private const string MillisecondFormat = "F0";
     private const string CostFormat = "0.######";
 
-    // The --out value is the operator's own text; it is scrubbed, and cut only when it is far longer than a path.
-    private const int MaxPathLength = 1024;
+    // The --out value is the operator's own text; it is scrubbed, and cut only when it is far longer than a path. The same cut as the partial-file suffix of the step failure message.
+    private const int MaxPathLength = StepFailedException.MaxPartialFileLength;
 
     private readonly TextWriter _error = error ?? throw new ArgumentNullException(nameof(error));
 
@@ -151,18 +153,53 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     }
 
     /// <summary>
-    /// Warns that the <c>incomplete</c> checkpoint of a shutdown could not be written: exactly one line to the error writer, naming the exception type only (its message can quote a path):
-    /// <c>Warning: the run file could not be written after the shutdown (&lt;Type&gt;); the last complete checkpoint was kept</c> when a checkpoint of the tier is on disk, and
-    /// <c>Warning: the run file could not be written after the shutdown (&lt;Type&gt;); no checkpoint of this tier was written</c> when none is.
+    /// Warns that the checkpoint that ends a tier early could not be written: exactly one line to the error writer, naming the exception type only (its message can quote a path). The line is
+    /// <c>Warning: the run file could not be written after the shutdown (&lt;Type&gt;); ...</c> for <see cref="CheckpointKind.Shutdown"/> (the <c>incomplete</c> checkpoint) and
+    /// <c>Warning: the run file could not be written after the failed step (&lt;Type&gt;); ...</c> for <see cref="CheckpointKind.StepFailure"/> (the <c>failed</c> checkpoint); the ending is
+    /// <c>the last complete checkpoint was kept</c> when a checkpoint of the tier is on disk and <c>no checkpoint of this tier was written</c> when none is.
     /// </summary>
     /// <param name="exceptionTypeName">The type name of the failure.</param>
-    /// <param name="previousCheckpointKept">True when a checkpoint of the tier was written before the shutdown.</param>
+    /// <param name="previousCheckpointKept">True when a checkpoint of the tier was written before.</param>
+    /// <param name="kind">Which checkpoint could not be written.</param>
     /// <exception cref="ArgumentException"><paramref name="exceptionTypeName"/> is null or empty.</exception>
-    public void ReportCheckpointFailed(string exceptionTypeName, bool previousCheckpointKept)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="kind"/> is not a defined <see cref="CheckpointKind"/>.</exception>
+    public void ReportCheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind)
     {
         ArgumentException.ThrowIfNullOrEmpty(exceptionTypeName);
+        string after = kind switch
+        {
+            CheckpointKind.Shutdown => "the shutdown",
+            CheckpointKind.StepFailure => "the failed step",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+
         string kept = previousCheckpointKept ? "the last complete checkpoint was kept" : "no checkpoint of this tier was written";
-        _error.WriteLine($"Warning: the run file could not be written after the shutdown ({TextEcho.ForMessage(exceptionTypeName)}); {kept}");
+        _error.WriteLine($"Warning: the run file could not be written after {after} ({TextEcho.ForMessage(exceptionTypeName)}); {kept}");
+    }
+
+    /// <summary>
+    /// Tells the user that a failed step stopped the tier and where the partial results are (EDGE-006): two lines to the output writer, <c>results: &lt;displayPath&gt;</c> in the format of
+    /// <see cref="ReportTierCompleted"/> and <c>status: failed at &lt;agent&gt;</c> (or <c>status: incomplete at &lt;agent&gt;</c> when the connection dropped after the first update);
+    /// no <c>totals:</c> line, because the totals of a stopped tier are not a result. The path and the agent name are scrubbed of control characters and cut when far too long.
+    /// </summary>
+    /// <param name="displayPath">The partial file as the user names it (the <c>--out</c> value as given and the file name), never the absolute path.</param>
+    /// <param name="agent">The name of the agent whose step failed.</param>
+    /// <param name="status">The status of the partial file: <see cref="RunStatus.Failed"/> or <see cref="RunStatus.Incomplete"/>.</param>
+    /// <exception cref="ArgumentException"><paramref name="displayPath"/> or <paramref name="agent"/> is null or blank.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="status"/> is neither <see cref="RunStatus.Failed"/> nor <see cref="RunStatus.Incomplete"/>.</exception>
+    public void ReportTierFailed(string displayPath, string agent, RunStatus status)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(agent);
+        string word = status switch
+        {
+            RunStatus.Failed => "failed",
+            RunStatus.Incomplete => "incomplete",
+            _ => throw new ArgumentOutOfRangeException(nameof(status)),
+        };
+
+        Output.WriteLine("results: " + TextEcho.ForMessage(displayPath, MaxPathLength));
+        Output.WriteLine($"status: {word} at {TextEcho.ForMessage(agent)}");
     }
 
     // A value in the invariant culture, or the label text of a value that does not exist (never 0).

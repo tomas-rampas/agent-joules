@@ -102,9 +102,17 @@ public sealed class RetriesExhaustedException(int attempts, int statusCode) : Ag
 /// <see cref="RetriesExhaustedException"/>, which wraps nothing.
 /// </para>
 /// <para>The names are echoed through <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so a name that is long or holds a control character cannot break the error line.</para>
+/// <para>
+/// EDGE-006: when the orchestrator wrote the partial results file of the stopped tier, it rethrows a copy made by <see cref="WithPartialFile"/>, whose message ends with
+/// <c>; partial results in &lt;path&gt;</c>, so the last line of the command (the error line) names the file and, through the message, the failing agent. A failed write of the file
+/// rethrows the original exception, which makes no claim about a file.
+/// </para>
 /// </remarks>
 public sealed class StepFailedException : AgentJoulesException
 {
+    /// <summary>The most characters of <see cref="PartialFile"/> the message echoes: the cut the console uses for the <c>results:</c> line, far longer than a path.</summary>
+    public const int MaxPartialFileLength = 1024;
+
     /// <summary>Creates the exception for the failure of <paramref name="agent"/> with no attached failure.</summary>
     /// <param name="agent">The name of the agent whose step failed; not blank.</param>
     /// <param name="failureType">The type name of the failure, for example <c>ClientResultException</c>; not blank.</param>
@@ -134,6 +142,25 @@ public sealed class StepFailedException : AgentJoulesException
         StatusCode = statusCode;
     }
 
+    // The copy made by WithPartialFile: the same failure, and the partial file named in the message.
+    private StepFailedException(StepFailedException source, string partialFile)
+        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile))
+    {
+        Agent = source.Agent;
+        FailureType = source.FailureType;
+        StatusCode = source.StatusCode;
+        PartialFile = partialFile;
+    }
+
+    private StepFailedException(StepFailedException source, string partialFile, Exception inner)
+        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile), inner)
+    {
+        Agent = source.Agent;
+        FailureType = source.FailureType;
+        StatusCode = source.StatusCode;
+        PartialFile = partialFile;
+    }
+
     /// <summary>The name of the agent whose step failed.</summary>
     public string Agent { get; }
 
@@ -143,21 +170,47 @@ public sealed class StepFailedException : AgentJoulesException
     /// <summary>The HTTP status the failure carried, or null when it had none.</summary>
     public int? StatusCode { get; }
 
-    private static string Describe(string agent, string failureType, int? statusCode)
+    /// <summary>
+    /// The partial results file as the user names it (the <c>--out</c> value as given, a forward slash and the file name), or null when no partial file was written. It is kept whole here;
+    /// the message echoes at most <see cref="MaxPartialFileLength"/> characters of it.
+    /// </summary>
+    /// <remarks>
+    /// The value is the <c>--out</c> text of the operator, raw: it can be long or hold control characters. It must be echoed only through
+    /// <c>TextEcho.ForMessage(path, MaxPartialFileLength)</c> and never printed as it is.
+    /// </remarks>
+    public string? PartialFile { get; }
+
+    /// <summary>
+    /// A copy of this exception that names the partial results file: the same <see cref="Agent"/>, <see cref="FailureType"/>, <see cref="StatusCode"/>, exit code and
+    /// <see cref="Exception.InnerException"/>, and a message that ends with <c>; partial results in &lt;displayPath&gt;</c>. The path is echoed through
+    /// <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so a long or control-character path cannot break the error line; nothing else enters the message. This exception is unchanged.
+    /// </summary>
+    /// <param name="displayPath">The file as the user names it; not blank.</param>
+    /// <returns>The copy.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="displayPath"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="displayPath"/> is empty or white space.</exception>
+    public StepFailedException WithPartialFile(string displayPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayPath);
+
+        return InnerException is { } inner ? new StepFailedException(this, displayPath, inner) : new StepFailedException(this, displayPath);
+    }
+
+    private static string Describe(string agent, string failureType, int? statusCode, string? partialFile = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(failureType);
 
         string text = $"Step {Labels.TextEcho.ForMessage(agent)} failed with {Labels.TextEcho.ForMessage(failureType)}";
-        if (statusCode is not { } status)
+        if (statusCode is { } status)
         {
-            return text;
+            ArgumentOutOfRangeException.ThrowIfLessThan(status, 100);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(status, 599);
+
+            text = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{text} and HTTP status {status}");
         }
 
-        ArgumentOutOfRangeException.ThrowIfLessThan(status, 100);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(status, 599);
-
-        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{text} and HTTP status {status}");
+        return partialFile is null ? text : $"{text}; partial results in {Labels.TextEcho.ForMessage(partialFile, MaxPartialFileLength)}";
     }
 }
 

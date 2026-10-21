@@ -1,5 +1,6 @@
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 using AgentJoules.Workflow.Runs;
 
 namespace AgentJoules.Cli.Output;
@@ -23,5 +24,9 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     public void TierCompleted(string displayPath, Totals totals) => _reporter.ReportTierCompleted(displayPath, totals);
 
     /// <inheritdoc />
-    public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept) => _reporter.ReportCheckpointFailed(exceptionTypeName, previousCheckpointKept);
+    public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) =>
+        _reporter.ReportCheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
+
+    /// <inheritdoc />
+    public void TierFailed(string displayPath, string agent, RunStatus status) => _reporter.ReportTierFailed(displayPath, agent, status);
 }

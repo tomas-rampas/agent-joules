@@ -1130,6 +1130,7 @@ Conflict: C-06 (design 9.2) - `--tier all` versus `cloudgpu` running only on the
 
 ### AJ-057: Stop on a failed step, keep partial results and exit 5
 Covers: REQ-017, EDGE-006
+Note (2026-10-21, AJ-057): the feature file is `tests/AgentJoules.Specs/Features/Cli/AJ-057-step-failure.feature` (the M2 name mapping, instead of `StepFailure.feature`); its five scenarios are byte-identical to the story block (`cmp` exit 0 against lines 1142 to 1172). Criterion 1 counts its 5 HTTP requests on the chat-completions route. Criterion 2, reading: the file has `run.status` `failed`, or `incomplete` when the failing agent's latest reading has outcome `incomplete` (a connection that dropped after the first update, design 3.6 step 3). Criterion 4 was delivered by the AJ-056 tier loop (a `StepFailedException` propagated and earlier files stayed); AJ-057 adds the proofs (`Tier_all_stops_at_the_first_failing_tier_and_keeps_earlier_files`, `Tier_all_does_not_start_a_later_tier_after_a_failure`). Criterion 5, reading: the error line on stderr carries the partial file path and the failing agent (`Step <agent> failed ...; partial results in <path>`); the stdout `results:` and `status:` lines printed before it name the same path; in a default run the console exporter prints its end-of-run metrics block after the error line (the host is disposed after the line is printed), so the error line is the last line of the process only with `--no-console-telemetry`. Files changed beyond the task table: `IRunListener.cs`, `ConsoleRunListener.cs`, `RunLog.cs` and `CheckpointKind.cs` (needed by the listener seam, the log event and the checkpoint kind; T2 to T5 did not list them). The timeout test (`Tiers:nvidia:TimeoutSeconds=1`) runs on the system clock with a real timer of about 1 s, because on the fake clock a stalled call has a zero-length window: `Close()` throws "no duration", `MeteredChatClient` swallows it onto `Error.Data` and no reading is published (pre-existing behaviour, builder-reported).
 User story: As a user, I want a failed workflow step to stop the tier, keep the partial results file and exit 5, so that a rate-limit exhaustion or an unreachable endpoint never discards finished steps and never looks like success.
 Acceptance criteria:
 1. With an endpoint that answers 429 on every call the fake handler records exactly 5 HTTP requests, `AJ run` exits 5 and the results file contains the failed step with `outcome: "error"` (test `Exhausted_429_writes_partial_file_and_exits_5`).
@@ -1183,9 +1184,9 @@ Tasks:
 Test mapping: `RetryPolicyTests` (design class, trait `Spec=EDGE-006`); feature file `tests/AgentJoules.Specs/Features/Cli/StepFailure.feature`.
 Docs impact: `docs/build-log.md`; the README troubleshooting entry for exit 5 is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21, battery 2: scenarios `Category=AJ-S057` 5 passed and 0 failed, `RetryPolicyTests` green, build exit 0 with 0 warnings)
+- [x] docs listed above updated (2026-10-21: README run section, design 3.6 and the AJ-056 amendment line, this note, and the build-log entry)
+- [x] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test (2026-10-21, battery 2: 95 passed, 0 failed)
 Demo relevance: no.
 
 ### AJ-058: Map every failure to the documented exit code

@@ -3,6 +3,7 @@ using System.Text.Json;
 
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
 using AgentJoules.TestSupport;
 using AgentJoules.Workflow.Local;
@@ -568,7 +569,9 @@ public sealed partial class RunOrchestrationTests
                 inner.StepFinished(reading);
             }
 
-            public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept);
+            public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
+
+            public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
 
             public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 

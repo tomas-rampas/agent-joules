@@ -7,7 +7,6 @@ using AgentJoules.Core.Runs;
 using AgentJoules.TestSupport;
 using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Providers;
-using AgentJoules.Workflow.Runs;
 using AgentJoules.Workflow.Tasks;
 
 using Microsoft.Extensions.AI;
@@ -494,67 +493,6 @@ public sealed partial class RunOrchestrationTests
     }
 
     // ---- the doubles of this class ----
-
-    // Wraps the production orchestrator: counts the calls and records every write of every tier's writer (tier, status, step count) before handing it to the real writer.
-    // A failure rule, when given, makes the writer throw for the documents it selects (after recording them, before the real writer sees them).
-    private sealed class RecordingOrchestrator(Func<RunDocument, Exception?>? fail = null)
-    {
-        private readonly Func<RunDocument, Exception?>? _fail = fail;
-        private readonly Lock _gate = new();
-        private readonly List<(Tier Tier, RunStatus Status, int Steps)> _writes = [];
-        private int _calls;
-
-        public int Calls => Volatile.Read(ref _calls);
-
-        public IReadOnlyList<(Tier Tier, RunStatus Status, int Steps)> Writes
-        {
-            get
-            {
-                lock (_gate)
-                {
-                    return [.. _writes];
-                }
-            }
-        }
-
-        public void Register(IServiceCollection services)
-        {
-            _ = services.RemoveAll<IRunOrchestrator>();
-            _ = services.AddSingleton<IRunOrchestrator>(provider => new Bound(this, ActivatorUtilities.CreateInstance<RunOrchestrator>(provider)));
-        }
-
-        private void CountCall() => Interlocked.Increment(ref _calls);
-
-        private void Record(RunDocument document)
-        {
-            lock (_gate)
-            {
-                _writes.Add((document.Run.Tier, document.Run.Status, document.Steps.Count));
-            }
-        }
-
-        private sealed class Bound(RecordingOrchestrator owner, IRunOrchestrator inner) : IRunOrchestrator
-        {
-            public Task<int> RunAsync(RunPlan plan, CancellationToken cancellationToken)
-            {
-                owner.CountCall();
-                Dictionary<Tier, IRunCheckpointWriter> writers = plan.Writers.ToDictionary(static pair => pair.Key, pair => (IRunCheckpointWriter)new Writer(owner, pair.Value));
-                var recorded = new RunPlan(plan.Tiers, plan.Tasks, plan.Mode, plan.Repeat, plan.BaselineSeconds, writers, plan.Keys, plan.Models, plan.StartUtc, plan.OutputDisplay);
-                return inner.RunAsync(recorded, cancellationToken);
-            }
-        }
-
-        private sealed class Writer(RecordingOrchestrator owner, IRunCheckpointWriter inner) : IRunCheckpointWriter
-        {
-            public string FilePath => inner.FilePath;
-
-            public Task WriteAsync(RunDocument document, CancellationToken cancellationToken)
-            {
-                owner.Record(document);
-                return owner._fail?.Invoke(document) is { } failure ? Task.FromException(failure) : inner.WriteAsync(document, cancellationToken);
-            }
-        }
-    }
 
     // The real provider client factory, recording every client it makes.
     private sealed class CountingProviderClients(ProviderClientFactory inner, List<IChatClient> clients) : IProviderClientFactory

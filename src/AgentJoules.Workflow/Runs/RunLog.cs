@@ -10,4 +10,7 @@ internal static partial class RunLog
 
     [LoggerMessage(EventId = 102, Level = LogLevel.Debug, Message = "The incomplete checkpoint of the shutdown could not be written ({ExceptionType}); the last complete checkpoint was kept")]
     internal static partial void ShutdownCheckpointFailed(ILogger logger, string exceptionType);
+
+    [LoggerMessage(EventId = 103, Level = LogLevel.Debug, Message = "The partial file of the failed step could not be written ({ExceptionType}); the last complete checkpoint, if any, was kept")]
+    internal static partial void StepFailureCheckpointFailed(ILogger logger, string exceptionType);
 }

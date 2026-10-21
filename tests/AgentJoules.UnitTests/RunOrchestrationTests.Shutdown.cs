@@ -386,7 +386,9 @@ public sealed partial class RunOrchestrationTests
 
         public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 
-        public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept);
+        public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
+
+        public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
 
         public void TierCompleted(string displayPath, Totals totals)
         {

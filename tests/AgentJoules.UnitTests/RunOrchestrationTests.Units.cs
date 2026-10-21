@@ -616,10 +616,55 @@ public sealed partial class RunOrchestrationTests
         {
             (ConsoleReporter reporter, StringWriter output, StringWriter error) = Reporter();
 
-            new ConsoleRunListener(reporter).CheckpointFailed(nameof(IOException), previousCheckpointKept);
+            new ConsoleRunListener(reporter).CheckpointFailed(nameof(IOException), previousCheckpointKept, CheckpointKind.Shutdown);
 
             Assert.Equal($"Warning: the run file could not be written after the shutdown (IOException); {ending}\n", error.ToString());
             Assert.Empty(output.ToString());
+        }
+
+        [Theory]
+        [InlineData(true, "the last complete checkpoint was kept")]
+        [InlineData(false, "no checkpoint of this tier was written")]
+        public void A_failed_step_checkpoint_is_one_warning_line_on_stderr_naming_the_type(bool previousCheckpointKept, string ending)
+        {
+            (ConsoleReporter reporter, StringWriter output, StringWriter error) = Reporter();
+
+            new ConsoleRunListener(reporter).CheckpointFailed(nameof(IOException), previousCheckpointKept, CheckpointKind.StepFailure);
+
+            Assert.Equal($"Warning: the run file could not be written after the failed step (IOException); {ending}\n", error.ToString());
+            Assert.Empty(output.ToString());
+        }
+
+        [Theory]
+        [InlineData(RunStatus.Failed, "failed")]
+        [InlineData(RunStatus.Incomplete, "incomplete")]
+        public void A_failed_tier_prints_the_partial_file_and_the_status_with_the_failing_agent(RunStatus status, string word)
+        {
+            (ConsoleReporter reporter, StringWriter output, StringWriter error) = Reporter();
+
+            new ConsoleRunListener(reporter).TierFailed("custom/out/20261021T100000Z-nvidia.json", "Planner", status);
+
+            // The same results line as a completed tier, then the status line; no totals line, nothing on stderr.
+            Assert.Equal($"results: custom/out/20261021T100000Z-nvidia.json\nstatus: {word} at Planner\n", output.ToString());
+            Assert.Empty(error.ToString());
+        }
+
+        [Fact]
+        public void A_failed_tier_scrubs_and_bounds_the_path_and_the_agent_and_refuses_a_status_that_is_not_a_stop()
+        {
+            (ConsoleReporter reporter, StringWriter output, _) = Reporter();
+
+            reporter.ReportTierFailed("out/" + new string('a', 3000) + "\nx", "Plan" + (char)0x1B + "ner", RunStatus.Failed);
+
+            string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, lines.Length);
+            Assert.StartsWith("results: out/aaa", lines[0], StringComparison.Ordinal);
+            Assert.EndsWith("...", lines[0], StringComparison.Ordinal);
+            Assert.InRange(lines[0].Length, 1, "results: ".Length + 1024 + 3);
+            Assert.Equal("status: failed at Plan?ner", lines[1]);
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => reporter.ReportTierFailed("out/x.json", "Planner", RunStatus.Completed));
+            _ = Assert.Throws<ArgumentException>(() => reporter.ReportTierFailed(" ", "Planner", RunStatus.Failed));
+            _ = Assert.Throws<ArgumentException>(() => reporter.ReportTierFailed("out/x.json", "", RunStatus.Failed));
         }
 
         [Fact]
@@ -729,7 +774,9 @@ public sealed partial class RunOrchestrationTests
 
         public void TierCompleted(string displayPath, Totals totals) => ThrowIfFailing();
 
-        public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept) => ThrowIfFailing();
+        public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) => ThrowIfFailing();
+
+        public void TierFailed(string displayPath, string agent, RunStatus status) => ThrowIfFailing();
 
         private void ThrowIfFailing()
         {

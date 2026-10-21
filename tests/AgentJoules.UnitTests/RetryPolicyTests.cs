@@ -27,7 +27,7 @@ namespace AgentJoules.UnitTests;
 /// for the duration of a call, so the elapsed fake time is exact and nothing waits on the wall clock.
 /// </summary>
 [Trait("Spec", "EDGE-006")]
-public sealed class RetryPolicyTests
+public sealed partial class RetryPolicyTests
 {
     private const int Seed = 12345;
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
