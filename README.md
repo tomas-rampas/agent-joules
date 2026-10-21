@@ -82,7 +82,7 @@ nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-nano-3-30b-a3b OK
 nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B OK
 ```
 
-A wrong option value exits 2 before anything runs; the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
+A wrong option value exits 2 before anything runs and prints one stderr line `error: <message> (ParseError)` (several parse errors are joined with `; ` into that one line); the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
 
 ## Keys
 

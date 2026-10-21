@@ -1192,6 +1192,7 @@ Demo relevance: no.
 ### AJ-058: Map every failure to the documented exit code
 Covers: REQ-017, EDGE-001
 Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
+Note (2026-10-21, AJ-058): the feature file is `tests/AgentJoules.Specs/Features/Cli/AJ-058-exit-codes.feature` (the M2 name mapping, instead of `ExitCodes.feature`); it is byte-identical to the story block (`cmp` exit 0, builder-measured). Criterion 1 already held: `ExitCode` in `src/AgentJoules.Core/Cli/ExitCode.cs` defines 0 to 7 (`ContentDiffers = 7`), and AJ-058 changed nothing in it. Criterion 2: code 5 is proven by a refused connection through `run --tier nvidia --dry-run` (`FailureLines` in `ExitCodeTests`); code 7 is proven by a `ContentDiffersException` thrown from the `probe` GPU-factory override, not through `run`, because the run command's orchestrator double wraps an exception thrown inside a step into a step failure (builder-reported). The EDGE-001 fact `Run_tier_local_without_the_NVML_library_exits_6_naming_it_and_makes_no_completion_call` (`Spec=EDGE-001`) sits in `ExitCodeTests` next to the AJ-054 proof in `DryRunTests.Run.cs`, because the test mapping names `ExitCodeTests`. Criterion 3 is extended to parse errors, which print one line ending with the type in brackets: `run --tier bogus` prints `error: Argument 'bogus' not recognized. Must be one of: 'local' 'cloudgpu' 'nvidia' 'nebius' 'all' (ParseError)`; two parse errors at once are joined with `; ` into that one line; `run --tier nvidia --mode parallel` prints `error: Argument 'parallel' not recognized. Must be one of: 'serialized' 'concurrent' (ParseError)` (builder-measured lines). The no-command path is read as usage text, not as a failure line: it prints the usage on stderr and exits 2 with no error line. Task T4 needed no change, because AJ-034 and AJ-054 built the mapper wiring. T5 became `ExitCodeMapper.Describe`, with its eight meaning texts asserted in `DocumentedCodes`; no README rows were added (the table is AJ-131-T4, M6). The AJ-054 test `The_tier_rule_lists_the_allowed_values_with_spaces_and_no_replaced_tab` in `tests/AgentJoules.UnitTests/DryRunTests.Run.cs` was re-anchored to the new parse-line form (2 lines), its intent kept.
 User story: As a script author, I want each failure class to end in a fixed exit code with one redacted error line, so that automation can react to missing keys, unknown models, unreachable endpoints and missing GPUs without parsing text.
 Acceptance criteria:
 1. `ExitCode` is the enum 0 success, 1 unexpected, 2 invalid arguments or configuration, 3 missing API key, 4 model not found, 5 unreachable or retries exhausted, 6 measurement precondition failed, 7 generated content differs.
@@ -1251,9 +1252,9 @@ Tasks:
 Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
 Docs impact: README section "Exit codes" is created by AJ-131-T4 in M6; this story only verifies the code-to-meaning mapping in code and adds rows if the table already exists (then the table exists exactly once).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-017"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21, battery 2: `Category=AJ-S058` 11 passed and 0 failed, `ExitCodeTests` 87 passed, build exit 0 with 0 warnings)
+- [x] docs listed above updated (2026-10-21: README `### run` sentence, design 3.6 exit-mapping amendment, this note and the build-log entry; the README exit-code table stays with AJ-131-T4 in M6)
+- [x] `dotnet test --filter "Spec=REQ-017"` shows at least one passed and no failed test (2026-10-21, battery 2: 278 passed, 0 failed)
 Demo relevance: no.
 
 ## Risks

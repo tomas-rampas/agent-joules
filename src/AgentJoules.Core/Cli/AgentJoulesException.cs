@@ -1,7 +1,7 @@
 namespace AgentJoules.Core.Cli;
 
 /// <summary>An expected failure that ends the process with a specific <see cref="Cli.ExitCode"/>.</summary>
-/// <remarks>The other subclasses of design 3.2 are added by the story that first throws them.</remarks>
+/// <remarks>The subclasses of design 3.2 are added by the story that first needs them (<see cref="ContentDiffersException"/> by AJ-058, ahead of the M6 story that throws it).</remarks>
 public class AgentJoulesException : Exception
 {
     /// <summary>Creates an exception that maps to <paramref name="code"/>.</summary>
@@ -317,6 +317,25 @@ public sealed class EndpointUnreachableException : AgentJoulesException
     /// <param name="inner">The failure that made the endpoint unusable; for Debug-level logging only.</param>
     public EndpointUnreachableException(string message, Exception inner)
         : base(ExitCode.Unreachable, message, inner)
+    {
+    }
+}
+
+/// <summary>
+/// A verified result differs from the expected content: the generated block is not the one on disk. Exits with <see cref="Cli.ExitCode.ContentDiffers"/> (7).
+/// </summary>
+/// <remarks>Thrown by <c>report --verify-readme</c> (M6, AJ-144); nothing in M2 throws it. Like every other message it holds no response text and no key.</remarks>
+public sealed class ContentDiffersException : AgentJoulesException
+{
+    /// <summary>Creates the exception with <paramref name="message"/>.</summary>
+    public ContentDiffersException(string message)
+        : base(ExitCode.ContentDiffers, message)
+    {
+    }
+
+    /// <summary>Creates the exception with <paramref name="message"/> wrapping <paramref name="inner"/>.</summary>
+    public ContentDiffersException(string message, Exception inner)
+        : base(ExitCode.ContentDiffers, message, inner)
     {
     }
 }

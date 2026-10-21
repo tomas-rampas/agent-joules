@@ -211,7 +211,8 @@ public sealed partial class DryRunTests
 
             Assert.Equal(2, result.ExitCode);
             string line = Assert.Single(result.StderrLines, static line => line.Length > 0);
-            Assert.EndsWith("Must be one of: 'local' 'cloudgpu' 'nvidia' 'nebius' 'all'", line, StringComparison.Ordinal);
+            Assert.StartsWith("error: ", line, StringComparison.Ordinal);
+            Assert.EndsWith("Must be one of: 'local' 'cloudgpu' 'nvidia' 'nebius' 'all' (ParseError)", line, StringComparison.Ordinal);
             Assert.DoesNotContain('?', line);
         }
 

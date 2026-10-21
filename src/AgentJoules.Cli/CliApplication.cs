@@ -36,7 +36,10 @@ public static class CliApplication
     /// System.CommandLine hands to the command, and SIGHUP raises <c>ApplicationStopping</c>; all three end the command with exit code 5.
     /// </param>
     /// <param name="overrides">Null in production; tests pass deny-by-default overrides.</param>
-    /// <returns>0 on success, 2 for a parse error or no command, otherwise the code <see cref="ExitCodeMapper"/> assigns.</returns>
+    /// <returns>
+    /// 0 on success; 2 for a parse error, which prints one <c>error: &lt;messages&gt; (ParseError)</c> line on stderr (every parse message, joined with <c>; </c>), or for no command, which prints the usage
+    /// on stderr; otherwise the code <see cref="ExitCodeMapper"/> assigns.
+    /// </returns>
     public static async Task<int> RunAsync(string[] args, CancellationToken cancellationToken, CliHostOverrides? overrides = null)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -115,11 +118,10 @@ public static class CliApplication
         ParseResult parseResult = root.Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null });
         if (parseResult.Errors.Count > 0)
         {
-            // System.CommandLine returns 1 for a parse error by default (design C-04); the contract is 2.
-            foreach (ParseError parseError in parseResult.Errors)
-            {
-                error.WriteLine(ErrorLine.Sanitize(parseError.Message, keys.Redactor));
-            }
+            // System.CommandLine returns 1 for a parse error by default (design C-04); the contract is 2. Like every failure, the parse errors end as exactly one line
+            // "error: <message> (<type>)": the messages of all the errors joined with "; ", each masked and folded on its own, and the type name of the error objects.
+            string messages = string.Join("; ", parseResult.Errors.Select(parseError => ErrorLine.Sanitize(parseError.Message, keys.Redactor)).Where(static message => message.Length > 0));
+            error.WriteLine(ErrorLine.Format(messages, nameof(ParseError), keys.Redactor));
 
             return (int)ExitCode.InvalidArguments;
         }
@@ -165,7 +167,7 @@ public static class CliApplication
         return root;
     }
 
-    // No command is a parse error with usage on stderr (assumed, the design is silent): exit 2.
+    // No command: the usage is printed, exit 2, no error line (it is help text, not a failure; assumed, the design is silent).
     private static async Task<int> PrintUsageAsync(RootCommand root, TextWriter error)
     {
         var usage = new InvocationConfiguration { Output = error, Error = error, EnableDefaultExceptionHandler = false, ProcessTerminationTimeout = null };
