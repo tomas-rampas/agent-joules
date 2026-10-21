@@ -845,7 +845,7 @@ public sealed class ExitCodeTests
         [InlineData(ExitCode.InvalidArguments, "invalid arguments or configuration")]
         [InlineData(ExitCode.MissingKey, "missing API key")]
         [InlineData(ExitCode.ModelNotFound, "model not found")]
-        [InlineData(ExitCode.Unreachable, "unreachable or retries exhausted")]
+        [InlineData(ExitCode.Unreachable, "unreachable, retries exhausted, step failed or run interrupted")]
         [InlineData(ExitCode.PreconditionFailed, "measurement precondition failed")]
         [InlineData(ExitCode.ContentDiffers, "generated content differs")]
         public void Describe_returns_the_documented_meaning_of_each_code(ExitCode code, string meaning)
