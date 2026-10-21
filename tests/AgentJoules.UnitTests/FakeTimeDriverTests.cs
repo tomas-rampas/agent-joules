@@ -71,4 +71,29 @@ public sealed class FakeTimeDriverTests
         Assert.Equal(TimeSpan.FromSeconds(1), fake.GetUtcNow() - start);
         Assert.Contains("00:00:01", thrown.Message, StringComparison.Ordinal);
     }
+
+    // The sampling loop of a measured run is a periodic timer that nothing waits on: the driver used to advance its period at whatever instant it read the report,
+    // and when that came after the next wait had started, the wait ended one period early and the rest of its advance landed in the code after it.
+    [Fact]
+    public async Task RunWaitsToCompletionAsync_PeriodicTimer_IsRecordedButNeverAdvancedFor()
+    {
+        var fake = new TimerTrackingTimeProvider();
+        DateTimeOffset start = fake.GetUtcNow();
+        TimeSpan period = TimeSpan.FromMilliseconds(100);
+        using var sampling = new PeriodicTimer(period, fake);
+
+        Assert.Equal([period], fake.History);
+        Assert.False(fake.DueTimes.TryRead(out _));
+
+        // The wait is the only advance: 2 s in steps of one period, and no period of the sampling timer on top of it, whatever the interleaving.
+        Task wait = Task.Delay(TimeSpan.FromSeconds(2), fake);
+        await FakeTimeDriver.RunWaitsToCompletionAsync(wait, fake, maxStep: period);
+
+        Assert.Equal(TimeSpan.FromSeconds(2), fake.GetUtcNow() - start);
+        Assert.Equal([period, TimeSpan.FromSeconds(2)], fake.History);
+        Assert.False(fake.DueTimes.TryRead(out _));
+
+        // The ticks still fired as the wait moved the clock.
+        Assert.True(await sampling.WaitForNextTickAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+    }
 }

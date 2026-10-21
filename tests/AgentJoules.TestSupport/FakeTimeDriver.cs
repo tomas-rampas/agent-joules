@@ -31,9 +31,10 @@ public static class FakeTimeDriver
     }
 
     /// <summary>
-    /// Runs <paramref name="task"/> to completion on a clock that moves only when the task waits: whenever a timer is created on <paramref name="fake"/> the clock
+    /// Runs <paramref name="task"/> to completion on a clock that moves only when the task waits: whenever a one-shot timer is created on <paramref name="fake"/> the clock
     /// advances by exactly its due time, so the fake time that passes is the sum of the waits and of whatever the code under test advances itself, and never
-    /// a step more. The real-time guard only ends a task that stops without waiting and without finishing.
+    /// a step more. A periodic timer (a sampling loop) is not a wait and moves nothing by itself (<see cref="TimerTrackingTimeProvider"/>); its ticks fire as the
+    /// waits and the code under test move the clock. The real-time guard only ends a task that stops without waiting and without finishing.
     /// Only timer creation is tracked (<c>ITimer.Change</c> on an existing timer is not), and the driver assumes one outstanding timer at a time: a task that
     /// waits on several timers at once is not driven correctly.
     /// </summary>

@@ -92,7 +92,7 @@ public sealed class RunCheckpointContext : IDisposable
     /// </summary>
     public void UseUnwritableDirectory()
     {
-        if (FolderAccess.DenyListingSkipReason() is null)
+        if (FolderAccess.DenyWritingSkipReason() is null)
         {
             OutDirectory = Path.Combine(Workspace.Root, "denied");
             _ = Directory.CreateDirectory(OutDirectory);

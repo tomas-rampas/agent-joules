@@ -459,7 +459,7 @@ public sealed class RunCheckpointTests
         string occupied = workspace.WriteFile("occupied", "this path is a file");
         List<string> directories = [occupied, Path.Combine(occupied, "nested")];
         using var denial = new DisposableList();
-        if (FolderAccess.DenyListingSkipReason() is null)
+        if (FolderAccess.DenyWritingSkipReason() is null)
         {
             string denied = Path.Combine(workspace.Root, "denied");
             _ = Directory.CreateDirectory(denied);
@@ -489,7 +489,7 @@ public sealed class RunCheckpointTests
         Assert.Equal(1, handler.RequestCount);
     }
 
-    [DeniedFolderFact]
+    [DeniedWritingFact]
     public void Denied_out_dir_fails_the_probe_with_exit_1()
     {
         using TempWorkspace workspace = TempWorkspace.CreateEmpty();

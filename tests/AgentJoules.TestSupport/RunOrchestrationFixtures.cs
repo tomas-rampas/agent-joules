@@ -1,10 +1,14 @@
 using System.Text.Json;
 
+using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Results;
+using AgentJoules.Workflow.Agents;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+
+using Xunit;
 
 namespace AgentJoules.TestSupport;
 
@@ -180,6 +184,41 @@ public static class RunOrchestrationFixtures
     {
         ArgumentNullException.ThrowIfNull(document);
         return [.. document.RootElement.GetProperty("steps").EnumerateArray()];
+    }
+
+    /// <summary>
+    /// Asserts the steps of the file a shutdown wrote while the first fan-out of a one-repeat, serialized run of <paramref name="task"/> was under way, the request of
+    /// one branch held until the cancellation (<see cref="HoldingHttpMessageHandler"/> on chat completion 2): the Planner comes first and is ok; every other step is a
+    /// branch (Researcher or Writer) of the same task and repeat, each at most once, with <paramref name="inFlightOutcome"/>; there is at least one; and nothing else,
+    /// no Reviewer and no later task or repeat, is in the file.
+    /// </summary>
+    /// <remarks>
+    /// The count of branch steps is not fixed, so it is not asserted. The held branch keeps the serialized gate until the cancellation ends its call; the other branch
+    /// is then either cancelled while it still waits for the gate (no window, no step: two steps in the file) or is handed the gate the held call gives back on its way
+    /// out before the cancellation reaches its wait, opens its window, and its call fails at once on the cancelled token, so it is incomplete too (three steps). Which
+    /// happens depends on the order in which the cancellation reaches the two branches: measured 1 run in 40 with three steps on a Windows laptop, and a file of three
+    /// steps on the ubuntu-latest CI runner (run 39660315559). Neither branch can be ok, because neither can start its call before the token is cancelled.
+    /// </remarks>
+    /// <param name="steps">The steps of the file, in file order.</param>
+    /// <param name="task">The name of the one task of the run.</param>
+    /// <param name="inFlightOutcome">The outcome every branch step must carry: <c>incomplete</c>.</param>
+    /// <returns>The agent and outcome of every step, in file order, for the comparison with the console.</returns>
+    public static (string Agent, string Outcome)[] AssertShutdownDuringFirstFanOut(JsonElement[] steps, string task, string inFlightOutcome)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        (string Task, int Repeat, string Agent, string Outcome)[] read =
+            [.. steps.Select(static step => (step.GetProperty("task").GetString()!, step.GetProperty("repeat").GetInt32(), step.GetProperty("agent").GetString()!, step.GetProperty("outcome").GetString()!))];
+        Assert.InRange(read.Length, 2, 3);
+        Assert.All(read, step => Assert.Equal((task, 1), (step.Task, step.Repeat)));
+        Assert.Equal((AgentCatalog.Planner, StepOutcomes.Ok), (read[0].Agent, read[0].Outcome));
+
+        string[] branches = [.. read.Skip(1).Select(static step => step.Agent)];
+        Assert.Subset(new HashSet<string>(StringComparer.Ordinal) { AgentCatalog.Researcher, AgentCatalog.Writer }, new HashSet<string>(branches, StringComparer.Ordinal));
+        Assert.Equal(branches.Length, branches.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(read.Skip(1), step => Assert.Equal(inFlightOutcome, step.Outcome));
+
+        return [.. read.Select(static step => (step.Agent, step.Outcome))];
     }
 
     /// <summary>The lines of standard output without terminators and without empty lines.</summary>

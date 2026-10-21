@@ -28,9 +28,6 @@ public sealed class RunOrchestrationSteps(RunOrchestrationContext context)
 
     private static readonly string[] Separators = [", ", " and "];
 
-    // The two branches after the Planner: the in-flight step of the shutdown scenario is one of them.
-    private static readonly string[] Branches = ["Researcher", "Writer"];
-
     private readonly RunOrchestrationContext _context = context;
 
     private CliRunResult Result => _context.Result ?? throw new XunitException("The command has not run yet.");
@@ -209,11 +206,9 @@ public sealed class RunOrchestrationSteps(RunOrchestrationContext context)
 
         Assert.Equal(status, document.RootElement.GetProperty("run").GetProperty("status").GetString());
 
-        // The Planner finished before the hold; the in-flight step is the branch whose request was held, and nothing is left cancelled.
-        Assert.Equal(2, steps.Length);
-        Assert.Equal(("Planner", "ok"), (steps[0].GetProperty("agent").GetString(), steps[0].GetProperty("outcome").GetString()));
-        Assert.Contains(steps[1].GetProperty("agent").GetString(), Branches);
-        Assert.Equal(outcome, steps[1].GetProperty("outcome").GetString());
+        // The Planner finished before the hold and is ok; the in-flight step is the branch whose request was held, the other branch is in flight too when the gate
+        // reached it before the cancellation did, every branch step carries the outcome, and nothing else ran (RunOrchestrationFixtures.AssertShutdownDuringFirstFanOut).
+        _ = RunOrchestrationFixtures.AssertShutdownDuringFirstFanOut(steps, _context.Tasks[0].Name, outcome);
     }
 
     [Then(@"^the file was written before the termination timeout and the exit code is (\d+)$")]

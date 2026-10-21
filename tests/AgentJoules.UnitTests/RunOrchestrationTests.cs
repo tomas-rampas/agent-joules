@@ -37,8 +37,6 @@ public sealed partial class RunOrchestrationTests
 
     private static readonly int[] TwoRepeats = [1, 2];
 
-    private static readonly string[] Branches = [AgentCatalog.Researcher, AgentCatalog.Writer];
-
     private static string[] TaskNames => [.. TaskSetLoader.Load(Path.Combine(ConfigurationFixtures.RepositoryRoot(), RunCommandHarness.TasksFolder)).Select(static task => task.Name)];
 
     private static Task<CliRunResult> RunAsync(string arguments, RunCommandSetup setup) => RunCommandHarness.RunAsync(arguments, setup).WaitAsync(HangGuard);
@@ -348,7 +346,8 @@ public sealed partial class RunOrchestrationTests
         }
     }
 
-    // The file of an interrupted nvidia run of one task: the Planner finished, the branch whose request was held is incomplete, nothing else ran.
+    // The file of an interrupted nvidia run of one task: the Planner finished and is ok, the branch whose request was held is incomplete, the other branch is incomplete
+    // too when the gate reached it before the cancellation did (RunOrchestrationFixtures.AssertShutdownDuringFirstFanOut), and nothing else ran.
     private static void AssertIncomplete(CliRunResult result, TempWorkspace workspace, string task, TimeSpan shutdown)
     {
         AssertExit(5, result);
@@ -361,16 +360,12 @@ public sealed partial class RunOrchestrationTests
 
         using JsonDocument document = RunOrchestrationFixtures.Read(file);
         Assert.Equal("incomplete", Text(RunOf(document), "status"));
-        JsonElement[] steps = RunOrchestrationFixtures.Steps(document);
-        Assert.Equal(2, steps.Length);
-        Assert.Equal(($"{task}/1/Planner", StepOutcomes.Ok), (KeyOf(steps[0]), Text(steps[0], "outcome")));
-        Assert.Contains(Text(steps[1], "agent"), Branches);
-        Assert.Equal(StepOutcomes.Incomplete, Text(steps[1], "outcome"));
+        (string Agent, string Outcome)[] outcomes = RunOrchestrationFixtures.AssertShutdownDuringFirstFanOut(RunOrchestrationFixtures.Steps(document), task, StepOutcomes.Incomplete);
         Assert.DoesNotContain(StepOutcomes.Cancelled, File.ReadAllText(file), StringComparison.Ordinal);
 
-        // The console shows the same outcomes as the file.
+        // The console shows the same steps with the same outcomes as the file, in the same order.
         Assert.Equal(
-            [$"{task} r1 Planner ok", $"{task} r1 {Text(steps[1], "agent")} incomplete"],
+            outcomes.Select(step => $"{task} r1 {step.Agent} {step.Outcome}"),
             StepLines(result).Select(static line => string.Join(' ', line.Split(' ').Take(4))));
     }
 

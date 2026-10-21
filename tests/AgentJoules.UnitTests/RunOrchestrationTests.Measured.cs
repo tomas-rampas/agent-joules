@@ -394,7 +394,10 @@ public sealed partial class RunOrchestrationTests
             using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
             Dictionary<string, WindowSpan> windows = told.ToDictionary(static step => step.Agent, static step => step.Window ?? throw new InvalidOperationException("A reading carries no window."));
 
-            // Recorded: Planner [t, t+1], Researcher and Writer both [t+1, t+2] (held until both had arrived, then released by one advance), Reviewer [t+2, t+3].
+            // Recorded: Planner [t, t+1], Researcher and Writer both [t+1, t+2] (held until both had arrived, then released by one advance), Reviewer [t+2, t+3]. Only
+            // the handler moves the clock once the calls start: the driver advances for the baseline wait alone, never for the meter's periodic sampling timer, so no stray
+            // sampling period can land inside a window (TimerTrackingTimeProvider).
+            Assert.All(windows.Values, static span => Assert.Equal(1.0, span.StopSeconds - span.StartSeconds, precision: 9));
             Assert.Equal(windows["Researcher"], windows["Writer"]);
             Assert.Equal(windows["Planner"].StopSeconds, windows["Researcher"].StartSeconds);
             Assert.Equal(windows["Writer"].StopSeconds, windows["Reviewer"].StartSeconds);
