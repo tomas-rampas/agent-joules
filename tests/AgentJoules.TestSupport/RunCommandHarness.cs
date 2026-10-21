@@ -26,7 +26,7 @@ public sealed class RunCommandSetup
     /// <summary>The double that replaces the production orchestrator unless <see cref="UseProductionOrchestrator"/> is true.</summary>
     public FakeRunOrchestrator Orchestrator { get; } = new();
 
-    /// <summary>True to keep the production orchestrator (the AJ-054 placeholder) instead of <see cref="Orchestrator"/>.</summary>
+    /// <summary>True to keep the production orchestrator (the measured run of AJ-056) instead of <see cref="Orchestrator"/>.</summary>
     public bool UseProductionOrchestrator { get; set; }
 
     /// <summary>The scripted GPU the real <see cref="NvmlGpuTelemetrySourceFactory"/> opens, or null for the harness default (no GPU is reachable).</summary>

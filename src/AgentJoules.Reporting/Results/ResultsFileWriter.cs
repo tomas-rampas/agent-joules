@@ -77,6 +77,21 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
     /// </summary>
     internal Action<string>? BeforeMove { get; init; }
 
+    /// <summary>
+    /// Refuses a complete file that already exists under the name (two runs of one tier that start in the same second share a name), with the message of the first write; the <c>run</c>
+    /// command calls it when it builds its writers, so the collision ends the command before any completion call instead of after the first (task, repeat).
+    /// </summary>
+    /// <exception cref="AgentJoulesException">A file exists under the name (exit code 1): <c>The run file &lt;name&gt; exists already and is not replaced; wait a second and run again.</c></exception>
+    public void ThrowIfFileExists()
+    {
+        if (File.Exists(FilePath))
+        {
+            throw new AgentJoulesException(
+                ExitCode.Unexpected,
+                $"The run file {Path.GetFileName(FilePath)} exists already and is not replaced; wait a second and run again.");
+        }
+    }
+
     /// <inheritdoc />
     /// <exception cref="InvalidOperationException">Another write of this instance is in progress.</exception>
     /// <exception cref="AgentJoulesException">The first write found a complete file under the name, or masking left the text invalid JSON (exit code 1).</exception>
@@ -104,11 +119,9 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!_fileWritten && File.Exists(FilePath))
+        if (!_fileWritten)
         {
-            throw new AgentJoulesException(
-                ExitCode.Unexpected,
-                $"The run file {Path.GetFileName(FilePath)} exists already and is not replaced; wait a second and run again.");
+            ThrowIfFileExists();
         }
 
         string text = RedactedText(JsonSerializer.Serialize(document, AgentJoulesJsonContext.Default.RunDocument));

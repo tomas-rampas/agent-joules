@@ -195,7 +195,7 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
 
         AgentJoulesOptions current = _options.Value;
         List<KeyValuePair<Tier, MeterCapabilities>> checkedTiers = [];
-        foreach (Tier tier in tiers.Where(static tier => tier is Tier.Local or Tier.CloudGpu))
+        foreach (Tier tier in tiers.Where(TierKinds.IsMeasured))
         {
             string name = TierOptions.NameOf(tier);
             GpuOpenResult opened = gpus.Open(current.Gpu.Index);

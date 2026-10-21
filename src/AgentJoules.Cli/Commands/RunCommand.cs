@@ -12,11 +12,15 @@ using AgentJoules.Core.Labels;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
 using AgentJoules.Core.Tasks;
+using AgentJoules.Metering;
 using AgentJoules.Reporting.Results;
+using AgentJoules.Workflow;
 using AgentJoules.Workflow.Runs;
 using AgentJoules.Workflow.Tasks;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -26,7 +30,7 @@ namespace AgentJoules.Cli.Commands;
 /// <c>run</c> (REQ-017, design 3.6): runs the workflow on one tier or on every enabled tier and measures it; with <c>--dry-run</c> it checks everything a run needs and makes no
 /// completion call. Invalid option values (<c>--tier bogus</c>, <c>--mode bogus</c>, <c>--repeat 0</c>, <c>--baseline-seconds 0</c>, a blank <c>--out</c>) are parse errors, so the command line exits 2
 /// before any host is built. The host of <c>run</c> registers the telemetry of REQ-014 (the console metrics exporter unless <c>--no-console-telemetry</c> or <c>--dry-run</c> is given),
-/// which <c>probe</c> never does.
+/// which <c>probe</c> never does, and the services of a measured run: the meter gate of <c>--mode</c>, the agent factory and the instruments (AJ-056).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -37,6 +41,8 @@ namespace AgentJoules.Cli.Commands;
 /// <para>
 /// Outside a dry run the order is: the key check (a missing judge key only warns), one <see cref="ResultsFileWriter"/> per tier in <c>--out</c> (its constructor probes the directory,
 /// so an unwritable directory exits 1 before any request), the model check, the GPU check of a measured tier, and then the <see cref="IRunOrchestrator"/> with the <see cref="RunPlan"/>.
+/// The start of the command is taken once from the registered clock, before any check: every file name of the command and every <c>run.startUtc</c> carry it. The sampling-fallback line
+/// is printed once per command, not once per measured tier.
 /// </para>
 /// </remarks>
 internal static class RunCommand
@@ -100,11 +106,20 @@ internal static class RunCommand
 
             return host.RunAsync(
                 parseResult.GetValue(config),
-                (services, configuration) => _ = TelemetrySetup.Add(services, configuration, consoleEnabled),
+                (services, configuration) => AddRunServices(services, configuration, request.Mode, consoleEnabled),
                 (running, token) => ExecuteAsync(running, host.Output, request, token),
                 cancellationToken);
         });
         return command;
+    }
+
+    // The services of run only (AJ-054, AJ-056): the telemetry of REQ-014, the one meter gate of the process chosen by --mode (REQ-013), the agent factory of a tier run and the
+    // OpenTelemetry instruments every reading is recorded on (over the meter factory the host registers). Applied after the composition root and before the test overrides.
+    private static void AddRunServices(IServiceCollection services, IConfiguration configuration, RunMode mode, bool consoleEnabled)
+    {
+        _ = TelemetrySetup.Add(services, configuration, consoleEnabled);
+        _ = services.AddAgentJoulesMeterGate(mode).AddAgentJoulesAgentFactory();
+        services.TryAddSingleton<AgentJoulesInstruments>();
     }
 
     // A validator runs only when the option was given. The token is read here rather than the converted value, because reading the value of a token that does not convert throws;
@@ -162,6 +177,9 @@ internal static class RunCommand
     private static async Task<int> ExecuteAsync(IHost running, TextWriter output, RunRequest request, CancellationToken cancellationToken)
     {
         IServiceProvider services = running.Services;
+
+        // The start of the command, taken once: every run file name of the command and every run.startUtc carry it (design 5.4).
+        DateTimeOffset startUtc = services.GetRequiredService<TimeProvider>().GetUtcNow();
         PreflightService preflight = services.GetRequiredService<PreflightService>();
         AgentJoulesOptions options = services.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
         string contentRoot = services.GetRequiredService<IHostEnvironment>().ContentRootPath;
@@ -171,7 +189,7 @@ internal static class RunCommand
 
         return request.DryRun
             ? await DryRunAsync(services, output, tiers, cancellationToken)
-            : await MeasureAsync(services, options, contentRoot, request, tiers, tasks, cancellationToken);
+            : await MeasureAsync(services, options, contentRoot, request, tiers, tasks, startUtc, cancellationToken);
     }
 
     // Paths:Tasks under the content root, then --task; a problem of the folder or of a file names the key (and the file name), never a path.
@@ -211,6 +229,7 @@ internal static class RunCommand
         RunRequest request,
         IReadOnlyList<Tier> tiers,
         IReadOnlyList<TaskDefinition> tasks,
+        DateTimeOffset startUtc,
         CancellationToken cancellationToken)
     {
         PreflightService preflight = services.GetRequiredService<PreflightService>();
@@ -236,19 +255,21 @@ internal static class RunCommand
             throw new AgentJoulesException(ExitCode.Unexpected, $"The output directory \"{TextEcho.ForMessage(request.Out)}\" cannot be written ({failure.GetType().Name}).");
         }
 
-        TimeProvider time = services.GetRequiredService<TimeProvider>();
         SecretRedactor redactor = services.GetRequiredService<SecretRedactor>();
         var writers = new Dictionary<Tier, IRunCheckpointWriter>();
         foreach (Tier tier in tiers)
         {
-            writers[tier] = new ResultsFileWriter(directory, RunFileName.Create(time, tier, ModelIdsOf(options, tier)), redactor, request.Out);
+            // A run of the same tier that started in the same second wrote this name already: refused now, before the model check and any completion call (exit 1).
+            var writer = new ResultsFileWriter(directory, RunFileName.Create(startUtc, tier, ModelIdsOf(options, tier)), redactor, request.Out);
+            writer.ThrowIfFileExists();
+            writers[tier] = writer;
         }
 
         ModelCheckResult models = await preflight.CheckModelsAsync(tiers, keys, cancellationToken);
         ReportFallbacks(reporter, preflight.CheckMeasuredTiers(tiers, services.GetRequiredService<IGpuTelemetrySourceFactory>()));
 
         double baselineSeconds = request.BaselineSeconds ?? options.Baseline.Seconds;
-        var plan = new RunPlan(tiers, tasks, request.Mode, request.Repeat, baselineSeconds, writers, keys, models);
+        var plan = new RunPlan(tiers, tasks, request.Mode, request.Repeat, baselineSeconds, writers, keys, models, startUtc, request.Out);
         return await services.GetRequiredService<IRunOrchestrator>().RunAsync(plan, cancellationToken);
     }
 
@@ -263,12 +284,12 @@ internal static class RunCommand
         return [.. TierOptions.KnownAgentNames.Select(configured.ResolveModelId)];
     }
 
-    // An automatic fallback to sampling is disclosed on stderr, as probe does.
+    // An automatic fallback to sampling is disclosed on stderr, as probe does, once per command: every measured tier reads the same GPU, so the first fallback stands for all of them.
     private static void ReportFallbacks(ConsoleReporter reporter, IEnumerable<KeyValuePair<Tier, MeterCapabilities>> meters)
     {
-        foreach ((_, MeterCapabilities capabilities) in meters)
+        if (meters.Select(static pair => pair.Value).FirstOrDefault(static capabilities => capabilities.IsFallback) is { } fallback)
         {
-            reporter.ReportFallback(capabilities);
+            reporter.ReportFallback(fallback);
         }
     }
 

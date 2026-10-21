@@ -14,7 +14,8 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.TestSupport;
 
 /// <summary>
-/// A test-only <see cref="IRunOrchestrator"/> that stands where the measured run of AJ-056 will stand: it records the <see cref="RunPlan"/> the real <c>run</c> command built, then makes
+/// A test-only <see cref="IRunOrchestrator"/> that stands where the measured run of AJ-056 stands (the default double of the AJ-052 to AJ-055 tests; AJ-056 tests opt in to the production
+/// orchestrator with <see cref="RunCommandSetup.UseProductionOrchestrator"/>): it records the <see cref="RunPlan"/> the real <c>run</c> command built, then makes
 /// exactly one chat request to the first selected tier through the real provider pipeline (<see cref="IProviderClientFactory"/> and the named <see cref="HttpClient"/> of the tier), so a
 /// test measures that the command reached the orchestrator, what it handed over, and what a provider failure looks like at the command line. A provider failure is wrapped in a
 /// <see cref="StepFailedException"/> of the <c>Planner</c> agent with the failure type, its status and the failure attached, as the real orchestrator does (exit code 5).

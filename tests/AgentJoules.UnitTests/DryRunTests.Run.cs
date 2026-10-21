@@ -478,7 +478,13 @@ public sealed partial class DryRunTests
             RepeatBelowOne,
             BaselineNotAboveZero,
             WritersDoNotMatchTiers,
+            StartNotUtc,
+            StartDefault,
+            OutputDisplayBlank,
         }
+
+        // The start of the command in the plans of these tests (AJ-056: one UTC instant per command).
+        private static readonly DateTimeOffset PlanStart = RunCheckpointFixtures.RunStartUtc;
 
         [Theory]
         [InlineData(PlanDefect.EmptyTiers)]
@@ -488,6 +494,9 @@ public sealed partial class DryRunTests
         [InlineData(PlanDefect.RepeatBelowOne)]
         [InlineData(PlanDefect.BaselineNotAboveZero)]
         [InlineData(PlanDefect.WritersDoNotMatchTiers)]
+        [InlineData(PlanDefect.StartNotUtc)]
+        [InlineData(PlanDefect.StartDefault)]
+        [InlineData(PlanDefect.OutputDisplayBlank)]
         public async Task A_plan_with_a_defect_is_refused(PlanDefect defect)
         {
             (KeyCheckResult keys, ModelCheckResult models) = await RealCheckResultsAsync();
@@ -496,19 +505,23 @@ public sealed partial class DryRunTests
 
             Exception failure = Record.Exception(() => defect switch
             {
-                PlanDefect.EmptyTiers => new RunPlan([], tasks, RunMode.Serialized, 1, 30, writers, keys, models),
-                PlanDefect.DuplicateTier => new RunPlan([Tier.Nvidia, Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models),
-                PlanDefect.EmptyTasks => new RunPlan([Tier.Nvidia], [], RunMode.Serialized, 1, 30, writers, keys, models),
-                PlanDefect.UndefinedMode => new RunPlan([Tier.Nvidia], tasks, default, 1, 30, writers, keys, models),
-                PlanDefect.RepeatBelowOne => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 0, 30, writers, keys, models),
-                PlanDefect.BaselineNotAboveZero => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 0, writers, keys, models),
-                _ => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, new Dictionary<Tier, IRunCheckpointWriter> { [Tier.Nebius] = new NullWriter() }, keys, models),
+                PlanDefect.EmptyTiers => new RunPlan([], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "results"),
+                PlanDefect.DuplicateTier => new RunPlan([Tier.Nvidia, Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "results"),
+                PlanDefect.EmptyTasks => new RunPlan([Tier.Nvidia], [], RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "results"),
+                PlanDefect.UndefinedMode => new RunPlan([Tier.Nvidia], tasks, default, 1, 30, writers, keys, models, PlanStart, "results"),
+                PlanDefect.RepeatBelowOne => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 0, 30, writers, keys, models, PlanStart, "results"),
+                PlanDefect.BaselineNotAboveZero => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 0, writers, keys, models, PlanStart, "results"),
+                PlanDefect.StartNotUtc => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart.ToOffset(TimeSpan.FromHours(2)), "results"),
+                PlanDefect.StartDefault => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, default, "results"),
+                PlanDefect.OutputDisplayBlank => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "  "),
+                _ => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, new Dictionary<Tier, IRunCheckpointWriter> { [Tier.Nebius] = new NullWriter() }, keys, models, PlanStart, "results"),
             });
 
             _ = Assert.IsType<ArgumentException>(failure, exactMatch: false);
 
             // The control: the same inputs without the defect make a plan.
-            Assert.NotNull(new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models));
+            RunPlan plan = new([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "results");
+            Assert.Equal((PlanStart, "results"), (plan.StartUtc, plan.OutputDisplay));
         }
 
         [Theory]
@@ -521,7 +534,7 @@ public sealed partial class DryRunTests
             IReadOnlyList<Core.Tasks.TaskDefinition> tasks = TaskSetLoader.Load(Path.Combine(ConfigurationFixtures.RepositoryRoot(), RunCommandHarness.TasksFolder));
             var writers = new Dictionary<Tier, IRunCheckpointWriter> { [Tier.Nvidia] = new NullWriter() };
 
-            _ = Assert.Throws<ArgumentOutOfRangeException>(() => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, baseline, writers, keys, models));
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, baseline, writers, keys, models, PlanStart, "results"));
         }
 
         [Fact]
@@ -531,7 +544,7 @@ public sealed partial class DryRunTests
             IReadOnlyList<Core.Tasks.TaskDefinition> tasks = TaskSetLoader.Load(Path.Combine(ConfigurationFixtures.RepositoryRoot(), RunCommandHarness.TasksFolder));
             var first = new NullWriter();
             var writers = new Dictionary<Tier, IRunCheckpointWriter> { [Tier.Nvidia] = first };
-            var plan = new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models);
+            var plan = new RunPlan([Tier.Nvidia], tasks, RunMode.Serialized, 1, 30, writers, keys, models, PlanStart, "results");
 
             writers[Tier.Nvidia] = new NullWriter();
             writers[Tier.Nebius] = new NullWriter();
@@ -735,17 +748,26 @@ public sealed partial class DryRunTests
         }
 
         [Fact]
-        public async Task The_production_orchestrator_is_a_placeholder_that_exits_1()
+        public async Task The_production_orchestrator_runs_the_workflow_over_the_fake_endpoint_and_writes_the_file()
         {
+            using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
             (RunCommandSetup setup, FakeHttpMessageHandler nvidia) = NvidiaOnly();
             setup.UseProductionOrchestrator = true;
+            setup.WorkingDirectory = workspace.Root;
 
-            CliRunResult result = await RunAsync("run --tier nvidia", setup);
+            CliRunResult result = await RunAsync("run --tier nvidia --repeat 2", setup);
 
-            Assert.Equal(1, result.ExitCode);
-            Assert.Equal("error: measured runs are built by AJ-056 (NotSupportedException)", Assert.Single(result.ErrorLines));
+            // AJ-056 replaced the placeholder: one models request, then four completion requests per task and repeat.
+            Assert.True(result.ExitCode == 0, $"Expected exit code 0 but got {result.ExitCode}; stderr: {result.Stderr}");
+            Assert.Empty(result.ErrorLines);
             Assert.Equal(1, nvidia.Count(FakeRoute.Models));
-            Assert.Equal(0, nvidia.Count(FakeRoute.ChatCompletions));
+            Assert.Equal(4 * TaskNames.Length * 2, nvidia.Count(FakeRoute.ChatCompletions));
+            Assert.Equal(0, setup.Orchestrator.Runs);
+
+            string file = Assert.Single(Directory.GetFiles(Path.Combine(workspace.Root, "results")));
+            Assert.True(RunFileName.IsValid(Path.GetFileName(file)), file);
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(file));
+            Assert.Equal("completed", document.RootElement.GetProperty("run").GetProperty("status").GetString());
         }
 
         [Fact]

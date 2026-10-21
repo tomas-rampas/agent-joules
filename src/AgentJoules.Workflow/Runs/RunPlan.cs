@@ -7,8 +7,8 @@ namespace AgentJoules.Workflow.Runs;
 
 /// <summary>
 /// What one <c>AJ run</c> outside a dry run hands to the <see cref="IRunOrchestrator"/> (REQ-017): the selected tiers in the order of a run, the selected tasks, the mode, the repeat count,
-/// the idle-baseline length, one checkpoint writer per tier (constructed before any request, so its directory probe already passed), and the results of the key check and the model
-/// check. The two check results can only be created by <see cref="PreflightService"/>, so a plan proves that both checks ran and passed.
+/// the idle-baseline length, one checkpoint writer per tier (constructed before any request, so its directory probe already passed), the results of the key check and the model
+/// check, the one start instant of the command, and the <c>--out</c> value as the user gave it. The two check results can only be created by <see cref="PreflightService"/>, so a plan proves that both checks ran and passed.
 /// </summary>
 public sealed record RunPlan
 {
@@ -21,9 +21,16 @@ public sealed record RunPlan
     /// <param name="writers">The checkpoint writer of each selected tier, keyed by tier; exactly the selected tiers. The plan keeps a frozen copy, so a later change to the dictionary does not reach it.</param>
     /// <param name="keys">The result of <see cref="PreflightService.CheckKeys"/> outside a dry run.</param>
     /// <param name="models">The result of <see cref="PreflightService.CheckModelsAsync"/>.</param>
-    /// <exception cref="ArgumentNullException">A list, the writers or a check result is null.</exception>
-    /// <exception cref="ArgumentException">The tiers or the tasks are empty, a tier repeats, or the writers do not match the tiers.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The mode is not defined, the repeat count is below 1, or the baseline is not a finite number greater than 0.</exception>
+    /// <param name="startUtc">
+    /// The start of the command, taken once on the registered clock: every run file name of the command carries it and every document records it as <c>run.startUtc</c>; UTC (offset
+    /// zero) and not the default value.
+    /// </param>
+    /// <param name="outputDisplay">The <c>--out</c> value as the user gave it, for the <c>results:</c> line of each tier (never the absolute path it resolved to); not blank.</param>
+    /// <exception cref="ArgumentNullException">A list, the writers, a check result or the output display is null.</exception>
+    /// <exception cref="ArgumentException">The tiers or the tasks are empty, a tier repeats, the writers do not match the tiers, or the output display is blank.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The mode is not defined, the repeat count is below 1, the baseline is not a finite number greater than 0, or the start is not a UTC instant or is the default value.
+    /// </exception>
     public RunPlan(
         IReadOnlyList<Tier> tiers,
         IReadOnlyList<TaskDefinition> tasks,
@@ -32,7 +39,9 @@ public sealed record RunPlan
         double baselineSeconds,
         IReadOnlyDictionary<Tier, IRunCheckpointWriter> writers,
         KeyCheckResult keys,
-        ModelCheckResult models)
+        ModelCheckResult models,
+        DateTimeOffset startUtc,
+        string outputDisplay)
     {
         ArgumentNullException.ThrowIfNull(tiers);
         ArgumentNullException.ThrowIfNull(tasks);
@@ -65,6 +74,14 @@ public sealed record RunPlan
             throw new ArgumentException("A plan needs exactly one writer per selected tier.", nameof(writers));
         }
 
+        // Stored as ISO 8601 UTC (design 5.4): an instant with another offset, or the default value, is not a command start.
+        if (startUtc == default || startUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(startUtc), startUtc, "The start of the command must be a UTC instant (offset zero) and not the default value.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputDisplay);
+
         Tiers = [.. tiers];
         Tasks = [.. tasks];
         Mode = mode;
@@ -73,6 +90,8 @@ public sealed record RunPlan
         Writers = writers.ToFrozenDictionary();
         Keys = keys;
         Models = models;
+        StartUtc = startUtc;
+        OutputDisplay = outputDisplay;
     }
 
     /// <summary>The selected tiers in the order of a run (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c>, <c>nebius</c>).</summary>
@@ -98,4 +117,10 @@ public sealed record RunPlan
 
     /// <summary>The model check result: the endpoint and the matched model IDs of every tier that was asked.</summary>
     public ModelCheckResult Models { get; }
+
+    /// <summary>The start of the command in UTC: the timestamp of every run file name of the command and the <c>run.startUtc</c> of every document.</summary>
+    public DateTimeOffset StartUtc { get; }
+
+    /// <summary>The <c>--out</c> value as the user gave it; the <c>results:</c> line of a tier joins it with the file name.</summary>
+    public string OutputDisplay { get; }
 }

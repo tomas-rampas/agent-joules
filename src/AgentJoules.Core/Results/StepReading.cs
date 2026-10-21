@@ -191,7 +191,7 @@ public sealed record StepReading
         ReadOnlyCollection<string>? reasons = CopyReasons(throttleReasons);
         RequireThrottleShape(flags, reasons);
 
-        if (tier is Tier.Nvidia or Tier.Nebius)
+        if (TierKinds.IsHosted(tier))
         {
             // A hosted tier has no GPU of ours to measure: its energy is N/A with one reason, and nothing about samples, a method or a measurement flag can be stated.
             RequireHostedNotApplicable(nameof(grossJoules), grossJoules);

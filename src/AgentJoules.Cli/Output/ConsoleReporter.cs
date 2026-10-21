@@ -4,6 +4,7 @@ using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Results;
 
 namespace AgentJoules.Cli.Output;
 
@@ -12,17 +13,25 @@ namespace AgentJoules.Cli.Output;
 /// whole line per call, so a <see cref="RedactingTextWriter"/> in front of either writer sees complete lines.
 /// </summary>
 /// <remarks>
-/// AJ-030 adds the idle-baseline warning; AJ-034 extends this class with the rest of the console output (the run header and the
-/// per-step lines), which is why it already takes both writers. Numbers are formatted with the invariant culture, never the culture of
-/// the machine.
+/// AJ-030 added the idle-baseline warning; AJ-056 adds the per-step lines and the closing lines of a tier of <c>run</c> on the output writer
+/// (<see cref="ReportStep"/>, <see cref="ReportTierCompleted"/>), which the orchestrator reaches through <see cref="ConsoleRunListener"/>.
+/// Numbers are formatted with the invariant culture, never the culture of the machine.
 /// </remarks>
 /// <param name="output">The writer for results (standard output); not used by the baseline warning.</param>
 /// <param name="error">The writer for warnings and diagnostics (standard error).</param>
 public sealed class ConsoleReporter(TextWriter output, TextWriter error)
 {
+    private const string EnergyFormat = "0.###";
+    private const string TokenFormat = "0";
+    private const string MillisecondFormat = "F0";
+    private const string CostFormat = "0.######";
+
+    // The --out value is the operator's own text; it is scrubbed, and cut only when it is far longer than a path.
+    private const int MaxPathLength = 1024;
+
     private readonly TextWriter _error = error ?? throw new ArgumentNullException(nameof(error));
 
-    /// <summary>The writer for results; kept for the AJ-034 console output.</summary>
+    /// <summary>The writer for results: the step lines and the closing lines of a run.</summary>
     internal TextWriter Output { get; } = output ?? throw new ArgumentNullException(nameof(output));
 
     /// <summary>
@@ -99,6 +108,66 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
             _error.WriteLine("  " + TextEcho.ForMessage(id));
         }
     }
+
+    /// <summary>
+    /// Writes the line of one finished step to the output writer (REQ-017 criterion 6, design 3.6 "Run console output"):
+    /// <c>&lt;task&gt; r&lt;repeat&gt; &lt;agent&gt; &lt;outcome&gt; netJ=&lt;v|N/A&gt; avgW=&lt;v|N/A&gt; in=&lt;v|not-reported&gt; out=&lt;v|not-reported&gt; latency=&lt;ms&gt;</c>.
+    /// A value that does not exist prints its label text exactly (<c>N/A</c> or <c>not-reported</c>), never 0; joules and watts print with up to three decimals, tokens as integers and the
+    /// latency in whole milliseconds, all in the invariant culture.
+    /// </summary>
+    /// <param name="reading">The reading of the step.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> is null.</exception>
+    public void ReportStep(StepReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+
+        Output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{TextEcho.ForMessage(reading.Task)} r{reading.Repeat} {TextEcho.ForMessage(reading.Agent)} {TextEcho.ForMessage(reading.Outcome)} netJ={Format(reading.NetJoules, EnergyFormat)} avgW={Format(reading.AvgW, EnergyFormat)} in={Format(reading.InputTokens, TokenFormat)} out={Format(reading.OutputTokens, TokenFormat)} latency={Format(reading.LatencyMs, MillisecondFormat)}"));
+    }
+
+    /// <summary>
+    /// Writes the closing lines of a tier to the output writer, after its step lines: <c>results: &lt;displayPath&gt;</c> and
+    /// <c>totals: grossJ=&lt;v|N/A&gt; netJ=&lt;v|N/A&gt; in=&lt;v|not-reported&gt; out=&lt;v|not-reported&gt; cost=&lt;CUR v[,CUR v]|N/A&gt; wallClockMs=&lt;v&gt;</c>, with the formatting rules of
+    /// <see cref="ReportStep"/>; the cost lists each currency in ordinal order with up to six decimals and is <c>N/A</c> when no step carried a cost or a step lacked its cost (every currency N/A <c>missing-step-costs</c>).
+    /// </summary>
+    /// <param name="displayPath">The run file as the user names it (the <c>--out</c> value as given and the file name), never the absolute path.</param>
+    /// <param name="totals">The totals of the final document.</param>
+    /// <exception cref="ArgumentException"><paramref name="displayPath"/> is null or blank.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="totals"/> is null.</exception>
+    public void ReportTierCompleted(string displayPath, Totals totals)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayPath);
+        ArgumentNullException.ThrowIfNull(totals);
+
+        // No priced step, or a currency without a value (a step lacked its cost): the run has no cost to show.
+        string cost = totals.CostByCurrency.Count == 0 || totals.CostByCurrency.Values.Any(static entry => entry.Value is null)
+            ? MetricLabelText.NotApplicable
+            : string.Join(',', totals.CostByCurrency.OrderBy(static pair => pair.Key, StringComparer.Ordinal).Select(static pair => TextEcho.ForMessage(pair.Key) + " " + Format(pair.Value, CostFormat)));
+        Output.WriteLine("results: " + TextEcho.ForMessage(displayPath, MaxPathLength));
+        Output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"totals: grossJ={Format(totals.GrossJoules, EnergyFormat)} netJ={Format(totals.NetJoules, EnergyFormat)} in={Format(totals.InputTokens, TokenFormat)} out={Format(totals.OutputTokens, TokenFormat)} cost={cost} wallClockMs={Format(totals.WallClockMs, MillisecondFormat)}"));
+    }
+
+    /// <summary>
+    /// Warns that the <c>incomplete</c> checkpoint of a shutdown could not be written: exactly one line to the error writer, naming the exception type only (its message can quote a path):
+    /// <c>Warning: the run file could not be written after the shutdown (&lt;Type&gt;); the last complete checkpoint was kept</c> when a checkpoint of the tier is on disk, and
+    /// <c>Warning: the run file could not be written after the shutdown (&lt;Type&gt;); no checkpoint of this tier was written</c> when none is.
+    /// </summary>
+    /// <param name="exceptionTypeName">The type name of the failure.</param>
+    /// <param name="previousCheckpointKept">True when a checkpoint of the tier was written before the shutdown.</param>
+    /// <exception cref="ArgumentException"><paramref name="exceptionTypeName"/> is null or empty.</exception>
+    public void ReportCheckpointFailed(string exceptionTypeName, bool previousCheckpointKept)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(exceptionTypeName);
+        string kept = previousCheckpointKept ? "the last complete checkpoint was kept" : "no checkpoint of this tier was written";
+        _error.WriteLine($"Warning: the run file could not be written after the shutdown ({TextEcho.ForMessage(exceptionTypeName)}); {kept}");
+    }
+
+    // A value in the invariant culture, or the label text of a value that does not exist (never 0).
+    private static string Format(Metric metric, string format) =>
+        metric.Value is { } value ? value.ToString(format, CultureInfo.InvariantCulture) : MetricLabelText.Of(metric.Label);
 
     /// <summary>
     /// Warns that the judge key is not set outside a dry run (EDGE-011): exactly one line to the error writer, <c>Warning: judge key NVIDIA_API_KEY is not set; the run continues and the

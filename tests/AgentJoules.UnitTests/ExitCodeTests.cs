@@ -577,7 +577,8 @@ public sealed class ExitCodeTests
                 nvidia.SetStatuses(FakeRoute.ChatCompletions, 500);
             }
 
-            var setup = new RunCommandSetup { WorkingDirectory = workspace.Root };
+            // The failed step runs through the production orchestrator (AJ-056): the real workflow raises StepFailedException for the Planner's 500; the other rows keep the double.
+            var setup = new RunCommandSetup { WorkingDirectory = workspace.Root, UseProductionOrchestrator = expected == 5 };
             setup.Settings["NVIDIA_API_KEY"] = ProviderClientFixtures.FakeKey();
             setup.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nvidia);
             setup.Endpoints["nvidia"] = nvidia;
@@ -598,7 +599,11 @@ public sealed class ExitCodeTests
             }
 
             Assert.DoesNotContain(StackFramePrefix, result.Stderr, StringComparison.Ordinal);
-            Assert.Equal(expected == 5 ? 1 : 0, setup.Orchestrator.Runs);
+            Assert.Equal(0, setup.Orchestrator.Runs);
+            if (expected == 5)
+            {
+                Assert.True(nvidia.Count(FakeRoute.ChatCompletions) >= 1, "The production orchestrator made no completion request.");
+            }
         }
     }
 }
