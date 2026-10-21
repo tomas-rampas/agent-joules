@@ -35,4 +35,7 @@ public sealed class AgentJoulesOptions
 
     /// <summary>Section <c>Workflow</c>: settings of the agent workflow that every tier shares.</summary>
     public WorkflowOptions Workflow { get; set; } = new();
+
+    /// <summary>Section <c>CloudGpu</c>: how the rented-GPU tier is reached; <c>RequireSshVariables</c> is false on the VM.</summary>
+    public CloudGpuOptions CloudGpu { get; set; } = new();
 }

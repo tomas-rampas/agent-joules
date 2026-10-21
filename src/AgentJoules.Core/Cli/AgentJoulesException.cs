@@ -160,3 +160,29 @@ public sealed class StepFailedException : AgentJoulesException
         return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{text} and HTTP status {status}");
     }
 }
+
+/// <summary>
+/// One or more required variables are not set (EDGE-011): the API key of a selected tier, the SSH variables of the <c>cloudgpu</c> tier, and, in a dry run, the key of the
+/// judge. Exits with <see cref="Cli.ExitCode.MissingKey"/> (3).
+/// </summary>
+/// <remarks>
+/// The message is formatted once for every missing variable (the formatter lives with the preflight in the workflow assembly) and holds the variable names and the
+/// user-secrets alternative only, never a value: this exception exists because a value is absent, and the check reads no value into a message.
+/// </remarks>
+public sealed class MissingKeyException : AgentJoulesException
+{
+    /// <summary>Creates the exception for <paramref name="variables"/> with the already formatted <paramref name="message"/>.</summary>
+    /// <param name="message">The single message that names every missing variable.</param>
+    /// <param name="variables">The names of the missing variables, at least one.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="variables"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="variables"/> is empty.</exception>
+    public MissingKeyException(string message, IReadOnlyList<string> variables)
+        : base(ExitCode.MissingKey, message)
+    {
+        ArgumentNullException.ThrowIfNull(variables);
+        Variables = variables.Count > 0 ? [.. variables] : throw new ArgumentException("At least one missing variable is needed.", nameof(variables));
+    }
+
+    /// <summary>The names of the missing variables, in the order the check found them.</summary>
+    public IReadOnlyList<string> Variables { get; }
+}

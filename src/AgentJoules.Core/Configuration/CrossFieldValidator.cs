@@ -17,7 +17,7 @@ namespace AgentJoules.Core.Configuration;
 /// sees that failure once. The tiers are a dictionary, which the generated <see cref="FlatSectionsValidator"/> does not enumerate, so this
 /// validator loops over them: a known tier name, a <c>BaseUrl</c> (absolute, no user info, query or fragment, https unless loopback) and a <c>ModelId</c> when the tier is enabled,
 /// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c>, a positive <c>TimeoutSeconds</c>, the names and values of
-/// <c>AgentModelIds</c>, and an <c>ApiKeyVariable</c> that is a variable name. A line names the key path and never shows a configured value.
+/// <c>AgentModelIds</c>, and an <c>ApiKeyVariable</c> that is a variable name ending in <c>_API_KEY</c> (AJ-052). A line names the key path and never shows a configured value.
 /// </remarks>
 public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 {
@@ -105,9 +105,9 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add($"{path}:ModelId must be set when the tier is enabled");
         }
 
-        if (tier.ApiKeyVariable is not null && !VariableNames.IsValid(tier.ApiKeyVariable))
+        if (tier.ApiKeyVariable is not null && !VariableNames.IsKeyVariable(tier.ApiKeyVariable))
         {
-            failures.Add($"{path}:ApiKeyVariable must be the name of an environment variable (letters, digits and underscores), never a key; the value is not shown");
+            failures.Add($"{path}:ApiKeyVariable must be the name of an environment variable that ends in _API_KEY (capital letters, digits and underscores), never a key; the value is not shown");
         }
 
         if (!TierOptions.ReasoningModes.Contains(tier.ReasoningMode, StringComparer.Ordinal))

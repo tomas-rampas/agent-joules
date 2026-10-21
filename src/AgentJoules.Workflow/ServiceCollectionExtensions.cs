@@ -3,6 +3,7 @@ using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
 using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Providers;
+using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -136,6 +137,22 @@ public static class ServiceCollectionExtensions
             return runServices => new AgentFactory(providerClients, runServices ?? throw new ArgumentNullException(nameof(runServices)), retryOptions, runServices.Time, random);
         });
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="PreflightService"/> (design 3.7) as a singleton. It reads the key variables from the registered <see cref="IConfiguration"/> and the tiers from
+    /// <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host registers both) and never from the process environment, so a test that replaces the configuration controls every key.
+    /// </summary>
+    /// <remarks>The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes nothing.</remarks>
+    /// <param name="services">The collection to add the service to.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    public static IServiceCollection AddAgentJoulesPreflight(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<PreflightService>();
         return services;
     }
 }

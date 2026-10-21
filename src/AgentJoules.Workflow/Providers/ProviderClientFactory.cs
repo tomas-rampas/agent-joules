@@ -4,6 +4,7 @@ using System.ClientModel.Primitives;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
+using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -81,7 +82,7 @@ public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptio
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
     /// <exception cref="ArgumentException"><paramref name="modelId"/> is null or blank.</exception>
     /// <exception cref="ConfigurationException">The tier is not configured, its base URL or timeout is not usable, or it has a key and its base URL is plain http on a host that is not loopback.</exception>
-    /// <exception cref="AgentJoulesException">With <see cref="ExitCode.MissingKey"/>: the tier names a key variable that has no value.</exception>
+    /// <exception cref="MissingKeyException">The tier names a key variable that has no value (exit code 3, the message of the preflight key check).</exception>
     public IChatClient Create(Tier tier, string modelId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
@@ -140,12 +141,14 @@ public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptio
         }
 
         string? key = _configuration[variable];
-        return !string.IsNullOrWhiteSpace(key)
-            ? key
-            : throw new AgentJoulesException(ExitCode.MissingKey, "Tiers:" + name + ":ApiKeyVariable names " + EchoableName(variable) + ", which is not set");
-    }
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            return key;
+        }
 
-    // The variable name is echoed so the user knows what to set; a value that is not shaped like a name (the validator's rule, VariableNames) might be
-    // a key typed into the wrong setting, so it is not echoed.
-    private static string EchoableName(string variable) => VariableNames.IsValid(variable) ? variable : "a variable whose name is not shown";
+        // The same message as the preflight key check (MissingKeyMessage). A name that is not shaped like a variable name (the validator's rule, VariableNames) might be a key
+        // typed into the wrong setting, so neither the message nor the exception holds it.
+        string[] shown = [VariableNames.IsValid(variable) ? variable : MissingKeyMessage.HiddenName];
+        throw new MissingKeyException(MissingKeyMessage.Format(shown), shown);
+    }
 }

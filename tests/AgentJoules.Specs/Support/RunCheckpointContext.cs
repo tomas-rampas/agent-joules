@@ -118,12 +118,7 @@ public sealed class RunCheckpointContext : IDisposable
         string directory = OutDirectory ?? throw new InvalidOperationException("No output directory was chosen.");
         string arguments = $"run --tier nvidia --out \"{directory}\" --repeat 1";
 
-        // The root help lists the commands one per line; "run --help" cannot tell, because the help option wins over an unrecognized command.
-        CliRunResult help = await CliHarness.RunAsync("--help");
-        if (help.Stdout.Split('\n').Any(static line => line.Length > 0 && char.IsWhiteSpace(line[0]) && line.Trim().Split(' ')[0] == "run"))
-        {
-            throw new XunitException("a run command exists: rewire AJ-055 scenario 6 (AJ-054/AJ-056)");
-        }
+        await RunCommandStandIn.EnsureNoRealRunCommandAsync("AJ-055 scenario 6");
 
         CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NVIDIA_API_KEY", ProviderClientFixtures.FakeKey())]) with
         {

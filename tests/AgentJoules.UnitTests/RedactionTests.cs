@@ -1,10 +1,14 @@
+using System.CommandLine;
+
 using AgentJoules.Cli;
+using AgentJoules.Cli.Hosting;
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Security;
 using AgentJoules.TestSupport;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 using Xunit;
@@ -15,6 +19,9 @@ public sealed class RedactionTests
 {
     private const string Suffix = "abcdef1234567890";
     private const string MaskedNvidiaKey = "nvapi-****";
+
+    // A command that hangs must fail the test, not the run (system clock; it only ends a run that already failed).
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     private static string BuildNvidiaKey() => string.Concat("nvapi-", Suffix);
 
@@ -1002,5 +1009,300 @@ public sealed class RedactionTests
         Assert.Contains("System.InvalidOperationException: failed-nvapi-****,****", result.Stderr, StringComparison.Ordinal);
         Assert.DoesNotContain(Suffix, result.Stderr, StringComparison.Ordinal);
         Assert.DoesNotContain(opaque, result.Stderr, StringComparison.Ordinal);
+    }
+
+    // ---- AJ-052 (EDGE-011): the output writers with a runtime-built key, the 64-character echo cut, the JSON form, the configured variable names ----
+
+    // A test-only command that writes its argument to both standard streams: to stdout in two writes without a newline between them (a key split across calls), to stderr as one line.
+    private static Command EchoBothStreams()
+    {
+        var text = new Argument<string>("text");
+        var command = new Command("echo-both") { text };
+        command.SetAction(parseResult =>
+        {
+            string value = parseResult.GetRequiredValue(text);
+            int middle = value.Length / 2;
+            Console.Out.Write(value[..middle]);
+            Console.Out.Write(value[middle..]);
+            Console.Out.WriteLine();
+            Console.Error.WriteLine("err " + value);
+            return 0;
+        });
+        return command;
+    }
+
+    private static async Task<CliRunResult> EchoAsync(string text, params (string Key, string? Value)[] configuration)
+    {
+        CliHostOverrides overrides = CliHarness.Overrides(configuration) with { AdditionalCommands = [EchoBothStreams()] };
+        return await CliHarness.RunTokensAsync(["echo-both", text], overrides).WaitAsync(HangGuard);
+    }
+
+    private static void AssertNoWindowOf(string secret, string output, int window)
+    {
+        for (int start = 0; start + window <= secret.Length; start++)
+        {
+            Assert.DoesNotContain(secret.Substring(start, window), output, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Both_output_writers_keep_only_the_nvapi_prefix_of_a_runtime_built_key()
+    {
+        string suffix = BuildOpaqueKey();
+        string key = string.Concat("nvapi-", suffix);
+
+        CliRunResult result = await EchoAsync(key);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(MaskedNvidiaKey + Environment.NewLine, result.Stdout);
+        Assert.Equal("err " + MaskedNvidiaKey, Assert.Single(result.StderrLines, line => line.Length > 0));
+        foreach (string output in new[] { result.Stdout, result.Stderr })
+        {
+            Assert.DoesNotContain(suffix, output, StringComparison.Ordinal);
+            AssertNoWindowOf(suffix, output, 5);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Key_longer_than_64_characters_echoed_through_TextEcho_is_still_masked_in_both_streams()
+    {
+        string key = BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey();
+        string echoed = TextEcho.ForMessage(key);
+        Assert.Equal(64 + 3, echoed.Length);
+        Assert.StartsWith(key[..64], echoed, StringComparison.Ordinal);
+
+        CliRunResult result = await EchoAsync(echoed, ("NEBIUS_API_KEY", key));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("****" + Environment.NewLine, result.Stdout);
+        Assert.Equal("err ****", Assert.Single(result.StderrLines, line => line.Length > 0));
+        AssertNoWindowOf(key, result.Stdout + result.Stderr, 6);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Key_longer_than_64_characters_echoed_inside_an_error_line_is_masked()
+    {
+        string key = BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey();
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NEBIUS_API_KEY", key), ("Logging:LogLevel:Default", "Debug")]);
+
+        CliRunResult result = await CliHarness.RunTokensAsync(["fake-throw", "ConfigurationException", "bad value " + TextEcho.ForMessage(key)], overrides).WaitAsync(HangGuard);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("bad value ****", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+        AssertNoWindowOf(key, result.Stdout + result.Stderr, 6);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void Register_masks_the_cut_echo_of_a_long_value_wherever_the_cut_falls_and_nothing_that_was_not_cut()
+    {
+        string longKey = BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey();
+        string exactly64 = longKey[..64];
+        var redactor = new SecretRedactor();
+
+        // The cut forms end in the marker, so the mask replaces the marker with the text it cut.
+        Assert.True(redactor.Register(longKey));
+        Assert.Equal("****", redactor.Redact(TextEcho.ForMessage(longKey)));
+        Assert.Equal("a **** b", redactor.Redact("a " + TextEcho.ForMessage(longKey) + " b"));
+
+        // A cut that left only part of the key (the key came after other text) is masked by the form that ends in the cut marker.
+        Assert.Equal(" ****", redactor.Redact(TextEcho.ForMessage(" " + longKey)));
+        Assert.Equal("Bearer ****", redactor.Redact(TextEcho.ForMessage("Bearer " + longKey)));
+
+        // A value of 64 characters or fewer is its own echo and needs no cut forms; a fragment that was not cut (no marker after it) is not masked.
+        var shortRedactor = new SecretRedactor();
+        Assert.True(shortRedactor.Register(exactly64));
+        Assert.Equal("****", shortRedactor.Redact(TextEcho.ForMessage(exactly64)));
+        Assert.Equal(longKey[..40], redactor.Redact(longKey[..40]));
+        Assert.Equal("****", redactor.Redact(longKey));
+    }
+
+    [Theory]
+    [Trait("Spec", "EDGE-011")]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("Bearer ")]
+    [InlineData("Authorization: Bearer ")]
+    public void A_120_character_key_echoed_after_a_prefix_leaves_no_8_character_window_of_it(string prefix)
+    {
+        string key = (BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey())[..120];
+        var redactor = new SecretRedactor();
+        Assert.True(redactor.Register(key));
+
+        string echoed = TextEcho.ForMessage(prefix + key);
+        Assert.EndsWith("...", echoed, StringComparison.Ordinal);
+        string redacted = redactor.Redact(echoed);
+
+        Assert.StartsWith(prefix, redacted, StringComparison.Ordinal);
+        AssertNoWindowOf(key, redacted, 8);
+        Assert.Contains("****", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void A_cut_that_leaves_fewer_than_8_characters_of_the_key_is_the_documented_limit()
+    {
+        // 60 characters of other text leave 4 characters of the key in the echo; they are not masked (at most 7 can remain), and the full key still is.
+        string key = (BuildOpaqueKey() + BuildOpaqueKey() + BuildOpaqueKey())[..90];
+        string text = new string('x', 60) + key;
+        var redactor = new SecretRedactor();
+        Assert.True(redactor.Register(key));
+
+        string redacted = redactor.Redact(TextEcho.ForMessage(text));
+
+        Assert.EndsWith(key[..4] + "...", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain(key[..8], redacted, StringComparison.Ordinal);
+        Assert.Equal("****", redactor.Redact(key));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void Register_covers_the_cut_that_stops_one_character_early_in_front_of_a_surrogate_pair()
+    {
+        // The pair starts at index 63, so TextEcho cuts at 63 instead of splitting it; the registered prefix has to match that shorter cut as well.
+        string key = BuildOpaqueKey() + BuildOpaqueKey()[..31] + char.ConvertFromUtf32(0x1F600) + BuildOpaqueKey();
+        Assert.True(char.IsHighSurrogate(key[63]));
+        var redactor = new SecretRedactor();
+
+        Assert.True(redactor.Register(key));
+
+        string echoed = TextEcho.ForMessage(key);
+        Assert.Equal(63 + 3, echoed.Length);
+        Assert.Equal("****", redactor.Redact(echoed));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void Register_adds_the_prefix_of_the_json_encoded_form_too()
+    {
+        // The encoded form of a key with a plus sign is longer than the key; the prefix of the long form is registered, and the encoded prefix with it.
+        string key = BuildOpaqueKey() + "+" + BuildOpaqueKey() + "<" + BuildOpaqueKey();
+        var redactor = new SecretRedactor();
+
+        Assert.True(redactor.Register(key));
+
+        string encoded = System.Text.Json.JsonSerializer.Serialize(key);
+        Assert.Equal("\"****\"", redactor.Redact(encoded));
+        Assert.Equal("****", redactor.Redact(TextEcho.ForMessage(key)));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Json_encoded_form_of_a_key_is_masked_in_both_streams()
+    {
+        string key = "k" + BuildOpaqueKey() + "+" + BuildOpaqueKey()[..12] + "<";
+        string encoded = System.Text.Json.JsonSerializer.Serialize(key);
+        Assert.NotEqual("\"" + key + "\"", encoded);
+
+        CliRunResult result = await EchoAsync(encoded, ("NEBIUS_API_KEY", key));
+
+        Assert.Equal("\"****\"" + Environment.NewLine, result.Stdout);
+        Assert.Equal("err \"****\"", Assert.Single(result.StderrLines, line => line.Length > 0));
+        AssertNoWindowOf(key, result.Stdout + result.Stderr, 6);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Key_under_a_configured_ApiKeyVariable_name_is_masked_in_a_parse_error_before_the_host_exists()
+    {
+        // The parse error is printed after RegisterEarly and before any host is built, so only the early pass over the file-free sources can have registered this value.
+        string key = BuildOpaqueKey();
+
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["--bogus-" + key],
+            CliHarness.Overrides(configuration: [("AgentJoules:Tiers:nvidia:ApiKeyVariable", "OTHER_API_KEY"), ("OTHER_API_KEY", key)])).WaitAsync(HangGuard);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--bogus-****", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, result.Stderr + result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Key_under_a_variable_outside_the_allowlist_is_not_registered_so_a_parse_error_echoes_it()
+    {
+        // GITHUB_TOKEN does not end in _API_KEY, so the registry never looks it up: the value is echoed by the parse error exactly as an unrelated word would be.
+        // (The same configuration is refused at start once a host is built; the parse error comes first.)
+        string value = BuildOpaqueKey();
+
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["--bogus-" + value],
+            CliHarness.Overrides(configuration: [("AgentJoules:Tiers:nvidia:ApiKeyVariable", "GITHUB_TOKEN"), ("GITHUB_TOKEN", value)])).WaitAsync(HangGuard);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("--bogus-" + value, result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Key_under_a_variable_name_only_the_json_file_declares_is_masked_once_the_host_is_built()
+    {
+        string key = BuildOpaqueKey();
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string json = File.ReadAllText(workspace.ConfigPath);
+        string renamed = json.Replace("\"ApiKeyVariable\": \"NVIDIA_API_KEY\"", "\"ApiKeyVariable\": \"OTHER_API_KEY\"", StringComparison.Ordinal);
+        Assert.NotEqual(json, renamed);
+        workspace.WriteConfig(renamed);
+
+        CliHostOverrides overrides = CliHarness.Overrides(configuration: [("OTHER_API_KEY", key)]) with
+        {
+            AdditionalCommands = [EchoBothStreams()],
+            WorkingDirectory = workspace.Root,
+        };
+        CliRunResult result = await CliHarness.RunTokensAsync(["echo-both", key], overrides).WaitAsync(HangGuard);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("****" + Environment.NewLine, result.Stdout);
+        Assert.Equal("err ****", Assert.Single(result.StderrLines, line => line.Length > 0));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public async Task Configured_key_variable_outside_the_allowlist_is_refused_before_the_command_runs_without_echoing_it()
+    {
+        string other = BuildOpaqueKey();
+
+        CliRunResult result = await EchoAsync(other, ("AgentJoules:Tiers:nvidia:ApiKeyVariable", "GITHUB_TOKEN"), ("GITHUB_TOKEN", other));
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        Assert.DoesNotContain("GITHUB_TOKEN", result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(other, result.Stderr, StringComparison.Ordinal);
+    }
+
+    // ---- the early pass registers the file-free sources together (item 5 of the AJ-052 fix round) ----
+
+    private static Action<IConfigurationBuilder> MemorySource(params (string Key, string Value)[] pairs) =>
+        builder => builder.AddInMemoryCollection(pairs.Select(pair => new KeyValuePair<string, string?>(pair.Key, pair.Value)));
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void Early_pass_registers_a_value_whose_variable_name_sits_in_another_file_free_source()
+    {
+        string key = BuildOpaqueKey();
+        var registry = new KeyRegistry(new SecretRedactor());
+
+        registry.RegisterEarly(
+            [MemorySource(("AgentJoules:Tiers:nvidia:ApiKeyVariable", "OTHER_API_KEY")), MemorySource(("OTHER_API_KEY", key))],
+            TextWriter.Null);
+
+        Assert.Equal("****", registry.Redactor.Redact(key));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-011")]
+    public void Early_pass_skips_a_source_that_cannot_be_read_and_still_registers_the_others()
+    {
+        string key = BuildOpaqueKey();
+        var registry = new KeyRegistry(new SecretRedactor());
+
+        registry.RegisterEarly(
+            [builder => throw new InvalidDataException("a malformed secrets file"), MemorySource(("NEBIUS_API_KEY", key))],
+            TextWriter.Null);
+
+        Assert.Equal("****", registry.Redactor.Redact(key));
     }
 }

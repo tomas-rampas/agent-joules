@@ -14,6 +14,7 @@ using AgentJoules.TestSupport;
 using AgentJoules.Workflow;
 using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Providers;
+using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -519,10 +520,11 @@ public sealed class ProviderClientTests
             : ConfigurationFixtures.InMemory((ProviderClientFixtures.NvidiaKeyVariable, value), (ProviderClientFixtures.NebiusKeyVariable, ProviderClientFixtures.FakeKey()));
         using ProviderClientHost host = ProviderClientFixtures.Build(ProviderClientFixtures.FourTiers(), configuration);
 
-        AgentJoulesException failure = Assert.Throws<AgentJoulesException>(() => host.Factory.Create(Tier.Nvidia, "model-nvidia"));
+        MissingKeyException failure = Assert.Throws<MissingKeyException>(() => host.Factory.Create(Tier.Nvidia, "model-nvidia"));
 
         Assert.Equal(ExitCode.MissingKey, failure.ExitCode);
-        Assert.Contains("Tiers:nvidia:ApiKeyVariable", failure.Message, StringComparison.Ordinal);
+        Assert.Contains(MissingKeyMessage.UserSecretsAlternative, failure.Message, StringComparison.Ordinal);
+        Assert.Equal([ProviderClientFixtures.NvidiaKeyVariable], failure.Variables);
         Assert.Contains(ProviderClientFixtures.NvidiaKeyVariable, failure.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(ProviderClientFixtures.FakeKey(), failure.Message, StringComparison.Ordinal);
         Assert.Equal(0, host.Handler(Tier.Nvidia).RequestCount);
@@ -550,10 +552,11 @@ public sealed class ProviderClientTests
         options.Tiers["nvidia"].ApiKeyVariable = notAName;
         using ProviderClientHost host = ProviderClientFixtures.Build(options, ConfigurationFixtures.InMemory());
 
-        AgentJoulesException failure = Assert.Throws<AgentJoulesException>(() => host.Factory.Create(Tier.Nvidia, "model-nvidia"));
+        MissingKeyException failure = Assert.Throws<MissingKeyException>(() => host.Factory.Create(Tier.Nvidia, "model-nvidia"));
 
         Assert.Equal(ExitCode.MissingKey, failure.ExitCode);
         Assert.DoesNotContain(notAName, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(notAName, failure.Variables);
         Assert.DoesNotContain(key, failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("not shown", failure.Message, StringComparison.Ordinal);
     }
@@ -574,7 +577,8 @@ public sealed class ProviderClientTests
             AgentJoulesOptions options = ProviderClientFixtures.FourTiers();
             options.Tiers["nvidia"].ApiKeyVariable = value;
 
-            Assert.Equal(expected, !ValidatorFailures(options).Any(line => line.Contains("ApiKeyVariable", StringComparison.Ordinal)));
+            // The validator applies the stricter allowlist (a name that ends in _API_KEY, AJ-052); the factory echoes any name that is shaped like one.
+            Assert.Equal(VariableNames.IsKeyVariable(value), !ValidatorFailures(options).Any(line => line.Contains("ApiKeyVariable", StringComparison.Ordinal)));
         }
     }
 

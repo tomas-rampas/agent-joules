@@ -59,6 +59,29 @@ Prints the GPU, driver, power limit and energy method that will be measured; wit
 - `--suffix <text>`: only with `--save`; adds `-<text>` to the file name, for example `--suffix cloudgpu` gives `results/probe-20261019T093015Z-cloudgpu.json`. The text must be 1 to 20 ASCII letters or digits (`^[A-Za-z0-9]{1,20}$`), so it cannot hold a path separator or `..`; anything else, or `--suffix` without `--save`, exits 2 and writes nothing.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
 
+## Keys
+
+The hosted tiers read their API key from the environment variable named by `Tiers:<tier>:ApiKeyVariable` in `config/appsettings.json`: `NVIDIA_API_KEY` for `nvidia` and `NEBIUS_API_KEY` for `nebius`. The judge uses its tier's variable. `NGC_API_KEY` is the NIM container pull key of the local tier setup (M4), not a hosted-tier key.
+
+- A variable name must end with `_API_KEY`; any other value stops the command with exit 2 and names the setting.
+- Before any request, a run checks the variable of every selected tier. Missing variables are reported in one message that names each of them and the alternative, and the run exits 3 without sending a request.
+- Outside `--dry-run`, a missing judge key only prints a warning and the run continues.
+- With `CloudGpu:RequireSshVariables` true (the laptop default), `cloudgpu` also requires `CLOUDGPU_SSH_HOST` and `CLOUDGPU_SSH_USER`.
+
+PowerShell, for your user account (new terminals only):
+
+```powershell
+setx NVIDIA_API_KEY "<value>"
+```
+
+Portable, into the user-secrets store of the CLI project:
+
+```bash
+dotnet user-secrets set "NVIDIA_API_KEY" "<value>" --project src/AgentJoules.Cli
+```
+
+Values are never printed. Every output line masks a registered key to `****`: the full value, its JSON-encoded form, its first 64 characters and every cut the 64-character echo limit can produce. Up to 7 characters can remain when a key starts after more than 56 characters of other text, and a URL-encoded or base64 copy of a key is not masked. Note that `setx` leaves the value in the shell history (PSReadLine) and that the user-secrets store is unencrypted JSON under your profile; clear the history line after setting a key.
+
 ## Telemetry
 
 Every metered agent step records OpenTelemetry metrics on the meter named `AgentJoules`.

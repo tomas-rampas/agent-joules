@@ -9,6 +9,7 @@ namespace AgentJoules.Core.Configuration;
 public static class VariableNames
 {
     private const int MaxLength = 64;
+    private const string KeyVariableSuffix = "_API_KEY";
 
     /// <summary>True when <paramref name="value"/> is 1 to 64 characters, starts with an uppercase ASCII letter or an underscore, and continues with uppercase ASCII letters, digits and underscores.</summary>
     /// <param name="value">The text to test.</param>
@@ -17,4 +18,12 @@ public static class VariableNames
         value is { Length: > 0 and <= MaxLength }
         && (char.IsAsciiLetterUpper(value[0]) || value[0] == '_')
         && value.All(static character => char.IsAsciiLetterUpper(character) || char.IsAsciiDigit(character) || character == '_');
+
+    /// <summary>
+    /// True when <paramref name="value"/> is an <see cref="IsValid(string?)"/> name that ends in <c>_API_KEY</c> (the allowlist of <c>Tiers:&lt;tier&gt;:ApiKeyVariable</c>): a configuration change can then only
+    /// point the bearer of a tier at another API key variable, never at an unrelated secret such as a token or a password of the machine.
+    /// </summary>
+    /// <param name="value">The text to test.</param>
+    /// <returns>Whether it is an allowed key variable name.</returns>
+    public static bool IsKeyVariable(string? value) => IsValid(value) && value!.EndsWith(KeyVariableSuffix, StringComparison.Ordinal);
 }

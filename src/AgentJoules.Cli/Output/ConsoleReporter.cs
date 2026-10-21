@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 
@@ -68,5 +69,19 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"Warning: idle baseline unstable (CV {coefficient:F2} > {baseline.MaxCoefficientOfVariation:F2})"));
+    }
+
+    /// <summary>
+    /// Warns that the judge key is not set outside a dry run (EDGE-011): exactly one line to the error writer, <c>Warning: judge key NVIDIA_API_KEY is not set; the run continues and the
+    /// judge will not score it</c>. The name is echoed only when <see cref="VariableNames.IsValid(string?)"/> accepts it, so a value that is not shaped like a name is never printed.
+    /// </summary>
+    /// <param name="variable">The name of the judge key variable.</param>
+    /// <exception cref="ArgumentException"><paramref name="variable"/> is null or empty.</exception>
+    public void ReportMissingJudgeKey(string variable)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(variable);
+
+        string shown = VariableNames.IsValid(variable) ? variable : "(name not shown)";
+        _error.WriteLine($"Warning: judge key {shown} is not set; the run continues and the judge will not score it");
     }
 }

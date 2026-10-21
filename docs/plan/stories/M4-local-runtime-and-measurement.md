@@ -452,6 +452,7 @@ Acceptance criteria:
 3. `--repeat <n>` (default 3) executes every selected task n times after warm-up; every step carries `repeat` 1 to n and `run.repeat` equals n; `--repeat 0` exits 2.
 4. A `--baseline-seconds` value below 30 prints `Warning: baseline shorter than 30 s is not publishable`, still runs, and adds `non-publishable` to `run.flags` (the schema lists it among the run flags); `RunFileSelector.Latest` never returns such a file (resolved, see the note under the story).
 5. Hosted tiers perform no warm-up and no baseline window and ignore `--baseline-seconds`; a failing warm-up (Ollama refusing) exits 5 before the baseline window opens.
+6. Added 2026-10-20 (AJ-052 spec review): under non-null `CliHostOverrides` the harness's `IPowerSourceDetector` returns `unknown` and never reads the host's power state (the clause moved here from AJ-052 criterion 7; test `Harness_power_source_is_unknown`, trait `Spec=EDGE-011`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S106 @REQ-021
@@ -512,7 +513,7 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-106-T1 | Create or extend the failing feature and unit tests | tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.75 | AJ-105-T7 |
-| AJ-106-T2a | Implement `PowerSourceDetector` behind `IPowerSourceDetector` (Windows `GetSystemPowerStatus` through `LibraryImport("kernel32.dll")`, ACLineStatus 1 = ac, 0 = battery; Linux `/sys/class/power_supply/*/type` = Mains and `online`; no supply files = unknown) with a unit test through a fake | src/AgentJoules.Nvml/Platform/PowerSourceDetector.cs, tests/AgentJoules.UnitTests/PowerSourceDetectorTests.cs | 1.0 | AJ-106-T1 |
+| AJ-106-T2a | Implement `PowerSourceDetector` behind `IPowerSourceDetector` (Windows `GetSystemPowerStatus` through `LibraryImport("kernel32.dll")`, ACLineStatus 1 = ac, 0 = battery; Linux `/sys/class/power_supply/*/type` = Mains and `online`; no supply files = unknown) with a unit test through a fake plus the harness `unknown` detector under overrides | src/AgentJoules.Nvml/Platform/PowerSourceDetector.cs, tests/AgentJoules.UnitTests/PowerSourceDetectorTests.cs | 1.0 | AJ-106-T1 |
 | AJ-106-T2 | Create or extend the Ollama warm-up with keep-alive and load-time capture | src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.5 | AJ-106-T1 |
 | AJ-106-T3 | Implement the NIM warm-up through an unmetered client | src/AgentJoules.Workflow/Local/NimRuntime.cs | 0.5 | AJ-106-T1 |
 | AJ-106-T4 | Order warm-up, baseline and repeats in the orchestrator | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-106-T2, AJ-106-T2a, AJ-106-T3 |

@@ -1013,13 +1013,13 @@ public sealed class TierConfigurationTests
     [Fact]
     public void An_api_key_variable_is_at_most_64_characters()
     {
-        string longest = new('A', 64);
-        string tooLong = new('A', 65);
+        string longest = new string('A', 56) + "_API_KEY";
+        string tooLong = new string('A', 57) + "_API_KEY";
 
         Assert.Equal(longest, OptionsLoader.Load(OnTopOfTheFile(("Tiers:nvidia:ApiKeyVariable", longest))).Tiers["nvidia"].ApiKeyVariable);
         ConfigurationException failure = Rejected(("Tiers:nvidia:ApiKeyVariable", tooLong));
 
         AssertNames(failure, "Tiers:nvidia:ApiKeyVariable", tooLong);
-        Assert.Equal("_X1", OptionsLoader.Load(OnTopOfTheFile(("Tiers:nvidia:ApiKeyVariable", "_X1"))).Tiers["nvidia"].ApiKeyVariable);
+        Assert.Equal("_X1_API_KEY", OptionsLoader.Load(OnTopOfTheFile(("Tiers:nvidia:ApiKeyVariable", "_X1_API_KEY"))).Tiers["nvidia"].ApiKeyVariable);
     }
 }

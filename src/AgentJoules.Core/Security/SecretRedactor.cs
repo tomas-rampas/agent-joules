@@ -4,18 +4,27 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using AgentJoules.Core.Labels;
+
 namespace AgentJoules.Core.Security;
 
 /// <summary>
 /// Masks configured key values and <c>nvapi-</c> keys in any text so that no key entropy reaches a log or a console:
 /// every registered value becomes <c>****</c>; <c>nvapi-</c> keys keep only the public prefix.
 /// </summary>
+/// <remarks>
+/// Limits: a cut echo that leaves fewer than 8 characters of a key (57 or more characters of other text in front of it) can leave up to 7 characters of it in the output; only the exact
+/// text of a registered value, its JSON-encoded form, its lines and its trimmed forms are masked, so a URL-encoded or base64 copy of a key is not registered. A later feature that puts a key in
+/// a URL must register the <c>Uri.EscapeDataString</c> form of the key itself.
+/// </remarks>
 public sealed partial class SecretRedactor
 {
     private const string Stars = "****";
     private const string NvidiaPrefix = "nvapi-";
     private const string MaskedNvidiaKey = "nvapi-****";
     private const int MinimumRegisteredLength = 5;
+    private const int EchoLength = TextEcho.DefaultMaxLength;
+    private const int MinimumCutFragmentLength = 8;
 
     private static readonly char[] LineTerminators =
         ['\r', '\n', '\v', '\f', (char)0x0085, (char)0x2028, (char)0x2029];
@@ -42,6 +51,11 @@ public sealed partial class SecretRedactor
     /// least five characters long (short placeholders such as <c>x</c> or <c>0</c> would rewrite unrelated output),
     /// does not contain <c>*</c> (redaction would stop being idempotent) and is not a part of the <c>nvapi-****</c>
     /// mask (it would corrupt the mask).
+    /// Every form longer than 64 characters is also registered as its 64-character prefix (and, when the 64th character is the first half of a surrogate pair, as its 63-character prefix),
+    /// because <see cref="TextEcho.ForMessage(string, int)"/> cuts an echoed text at 64 characters and a masking that matches only whole values would let the cut text through; the
+    /// prefixes are registered before the JSON forms, so the encoded prefix is registered too. For an echo where other text came first (<c>Authorization: Bearer</c> and then the key),
+    /// the form is also registered as its first <c>m</c> characters followed by the three-character cut marker <c>...</c> for every <c>m</c> from 8 to 64; those forms match only where
+    /// <see cref="TextEcho.ForMessage(string, int)"/> really cut, so no other text is masked.
     /// Every registered form is also registered in the form the JSON encoder writes when it differs (a key with <c>+</c>, <c>&lt;</c>, <c>&gt;</c>, <c>&amp;</c>, an apostrophe
     /// or a non-ASCII character appears escaped in a JSON text), under the same rules.
     /// </summary>
@@ -61,6 +75,7 @@ public sealed partial class SecretRedactor
             AddForms(forms, segment);
         }
 
+        AddEchoPrefixForms(forms);
         AddJsonEncodedForms(forms);
 
         if (forms.Count == 0)
@@ -144,6 +159,34 @@ public sealed partial class SecretRedactor
 
         builder.Append(text, copied, text.Length - copied);
         return builder.ToString();
+    }
+
+    // TextEcho.ForMessage keeps the first 64 characters of an echoed text (63 when the 64th is the first half of a surrogate pair) and appends the cut marker "...", while Redact
+    // masks only exact registered values, so the cut text of a registered form longer than 64 characters would pass unmasked. Two registrations cover it:
+    //  - the 64- and 63-character prefix of the form, for an echo that starts with the key;
+    //  - F[..m] + marker for every m from 8 to 64, for an echo where other text came first and the cut left only the first m characters of the key. These forms match only where
+    //    TextEcho really cut (the marker follows), so no other text is masked; a cut that leaves fewer than 8 characters leaves at most 7 of them in the output.
+    // None has a star, and each is at least 8 characters, so the registrable rules hold; a form of 64 characters or fewer is its own echo and needs none.
+    private static void AddEchoPrefixForms(HashSet<string> forms)
+    {
+        foreach (string form in forms.ToArray())
+        {
+            if (form.Length <= EchoLength)
+            {
+                continue;
+            }
+
+            AddIfRegistrable(forms, form[..EchoLength]);
+            if (char.IsHighSurrogate(form[EchoLength - 1]))
+            {
+                AddIfRegistrable(forms, form[..(EchoLength - 1)]);
+            }
+
+            for (int kept = MinimumCutFragmentLength; kept <= EchoLength; kept++)
+            {
+                AddIfRegistrable(forms, form[..kept] + TextEcho.CutMarker);
+            }
+        }
     }
 
     // The JSON encoder writes + < > & ' and every non-ASCII character as \uXXXX, so a key with one of them never matches JSON text (a results file, probe --json)

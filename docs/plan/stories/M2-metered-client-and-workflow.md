@@ -784,7 +784,7 @@ Acceptance criteria:
 4. A missing workflow-tier key exits 3 before any HTTP request (the fake handler records 0 requests).
 5. Outside `--dry-run`, a missing judge key only warns and the command continues; with `--dry-run` the judge key joins the same message.
 6. For `cloudgpu` on the laptop (`CloudGpu:RequireSshVariables` true) a missing `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` exits 3; on the VM (`RequireSshVariables` false) it does not.
-7. The harness is deny-by-default: when `CliHostOverrides` is non-null the GPU factory is `UnavailableGpuTelemetrySourceFactory`, every primary HTTP handler is a `DenyAllHttpMessageHandler` that throws naming the URL, `IPowerSourceDetector` returns `unknown`, and the OTLP endpoint is read only from the isolated `IConfiguration`; a harness run with no override performs 0 real requests (test `Harness_makes_no_real_requests`).
+7. The harness is deny-by-default: when `CliHostOverrides` is non-null the GPU factory is `UnavailableGpuTelemetrySourceFactory`, every primary HTTP handler is a `DenyAllHttpMessageHandler` that throws naming the URL, `IPowerSourceDetector` returns `unknown`, and the OTLP endpoint is read only from the isolated `IConfiguration`; a harness run with no override performs 0 real requests (test `Harness_makes_no_real_requests`). (Note 2026-10-20, AJ-052 spec review: the `IPowerSourceDetector` clause moves to AJ-106, which creates the type in M4; the deny-all handler wiring lives in the test harness `CliHarnessRun`, the only caller passing non-null overrides, see design 3.6 line 489; the other clauses are delivered by AJ-052.)
 BDD scenarios:
 ```gherkin
 @unit @AJ-S052 @EDGE-011
@@ -846,10 +846,10 @@ Tasks:
 Test mapping: `DryRunTests` and `RedactionTests` (design classes, trait `Spec=EDGE-011`); feature file `tests/AgentJoules.Specs/Features/Cli/MissingKeys.feature`.
 Docs impact: README section "Keys" (variable names, `setx` and `dotnet user-secrets` forms; no values).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-011"` shows at least one passed and no failed test
-- [ ] `CliHarness` never reads the process environment unless a test asks for it
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,526/0/5)
+- [x] docs listed above updated (2026-10-20: README `## Keys` written and this entry)
+- [x] `dotnet test --filter "Spec=EDGE-011"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-011 66 passed, 0 failed)
+- [x] `CliHarness` never reads the process environment unless a test asks for it (2026-10-20: `Harness_reads_neither_the_process_environment_nor_user_secrets_unless_asked` green)
 Demo relevance: no.
 
 ### AJ-053: Exit 4 before any completion call when a model ID is not listed
