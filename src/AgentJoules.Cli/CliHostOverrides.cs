@@ -10,7 +10,7 @@ namespace AgentJoules.Cli;
 /// environment-variable and user-secrets sources are omitted unless requested, the default GPU factory reports no GPU, and every relative path
 /// resolves against <see cref="WorkingDirectory"/>.
 /// </summary>
-/// <param name="Services">Registers or replaces services after the defaults, so fakes win.</param>
+/// <param name="Services">Registers or replaces services after the defaults and after the services a command adds to its own host (the telemetry of <c>run</c>), so fakes win.</param>
 /// <param name="Configuration">In-memory keys, the last configuration source; root keys such as <c>NVIDIA_API_KEY</c> and full keys such as <c>AgentJoules:Meter:SampleRateHz</c>.</param>
 /// <param name="IncludeProcessEnvironment">True to add the process environment variables as a configuration source.</param>
 /// <param name="IncludeUserSecrets">True to add the user-secrets store as a configuration source.</param>

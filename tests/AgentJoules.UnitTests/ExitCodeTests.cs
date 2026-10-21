@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 using AgentJoules.Cli;
 using AgentJoules.Core.Cli;
 using AgentJoules.Nvml.Interop;
@@ -6,6 +8,7 @@ using AgentJoules.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 
 using Xunit;
 
@@ -13,7 +16,7 @@ namespace AgentJoules.UnitTests;
 
 /// <summary>
 /// AJ-034 (REQ-006): the exit codes 1, 2 and 6 of the command line, the redacted one-line error, and the shutdown, drain and escaped-exception
-/// paths, all through the real application under <see cref="CliHarness"/>. Codes 3, 4, 5 (other than shutdown) and 7 follow in M2.
+/// paths, all through the real application under <see cref="CliHarness"/>. The codes 3, 4, 5 and 7 and the one-line failure contract of AJ-058 are in the nested classes below.
 /// </summary>
 [Trait("Spec", "REQ-006")]
 public sealed class ExitCodeTests
@@ -115,6 +118,7 @@ public sealed class ExitCodeTests
     }
 
     [Fact]
+    [Trait("Spec", "REQ-017")]
     public async Task Unexpected_exception_exits_1_with_message_and_type_and_no_stack_trace_at_Information()
     {
         CliHostOverrides overrides = CliHarness.Overrides(gpuFactoryThrows: new InvalidOperationException("boom"));
@@ -550,6 +554,319 @@ public sealed class ExitCodeTests
         Assert.Equal(6, (int)ExitCode.PreconditionFailed);
         Assert.Equal(7, (int)ExitCode.ContentDiffers);
         Assert.Equal(8, Enum.GetValues<ExitCode>().Length);
+    }
+
+    /// <summary>
+    /// AJ-054 (REQ-017): the exit codes the <c>run</c> command reaches in M2, one row each, through the real command under the harness with the orchestrator double: 1 for an output
+    /// directory that cannot be written, 2 for a value outside the allowed ones, 3 for a missing key, 4 for a model ID that is not listed, 5 for a failed step and 6 for a measured tier
+    /// without a GPU. Code 7 belongs to <c>report --verify-readme</c> (M6, AJ-144). A nested class, so the <c>Spec=REQ-006</c> trait of the probe tests does not tag these rows.
+    /// </summary>
+    [Trait("Spec", "REQ-017")]
+    public sealed class RunCommandCodes
+    {
+        [Theory]
+        [InlineData(1, "run --tier nvidia --out occupied", "(AgentJoulesException)")]
+        [InlineData(2, "run --tier bogus", "(ParseError)")]
+        [InlineData(3, "run --tier nebius --dry-run", "(MissingKeyException)")]
+        [InlineData(4, "run --tier nvidia --dry-run", "(ModelNotFoundException)")]
+        [InlineData(5, "run --tier nvidia", "(StepFailedException)")]
+        [InlineData(6, "run --tier local --dry-run", "(MeasurementPreconditionException)")]
+        public async Task The_run_command_maps_each_failure_to_its_exit_code(int expected, string arguments, string errorType)
+        {
+            using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+            _ = workspace.WriteFile("occupied", "this path is a file");
+            var nvidia = new FakeHttpMessageHandler { ModelIds = expected == 4 ? ["acme/other"] : ConfigurationFixtures.ShippedModelIds() };
+            if (expected == 5)
+            {
+                nvidia.SetStatuses(FakeRoute.ChatCompletions, 500);
+            }
+
+            // The failed step runs through the production orchestrator (AJ-056): the real workflow raises StepFailedException for the Planner's 500; the other rows keep the double.
+            var setup = new RunCommandSetup { WorkingDirectory = workspace.Root, UseProductionOrchestrator = expected == 5 };
+            setup.Settings["NVIDIA_API_KEY"] = ProviderClientFixtures.FakeKey();
+            setup.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nvidia);
+            setup.Endpoints["nvidia"] = nvidia;
+            setup.Endpoints["local"] = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+
+            CliRunResult result = await RunCommandHarness.RunAsync(arguments, setup).WaitAsync(HangGuard);
+
+            Assert.True(expected == result.ExitCode, $"Expected exit code {expected} but got {result.ExitCode}; stderr: {result.Stderr}");
+            Assert.EndsWith(errorType, Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+            if (expected == 2)
+            {
+                // The parse error of the tier rule, not an unrecognized command.
+                Assert.Contains("Must be one of", result.Stderr, StringComparison.Ordinal);
+                Assert.DoesNotContain("Unrecognized command", result.Stderr, StringComparison.Ordinal);
+            }
+
+            Assert.DoesNotContain(StackFramePrefix, result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(0, setup.Orchestrator.Runs);
+            if (expected == 5)
+            {
+                Assert.True(nvidia.Count(FakeRoute.ChatCompletions) >= 1, "The production orchestrator made no completion request.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// AJ-058 (REQ-017, EDGE-001): the one-line failure contract through the real application under the harness: a refused connection (5), a service override that throws
+    /// <see cref="ContentDiffersException"/> (7), the missing NVML library of a measured tier (6, EDGE-001), the parse error that folds into one <c>error:</c> line (2) and the redaction of a key
+    /// that a failing endpoint echoes. A nested class, so the <c>Spec=REQ-006</c> trait of the outer class does not tag these tests.
+    /// </summary>
+    [Trait("Spec", "REQ-017")]
+    public sealed class FailureLines
+    {
+        private static string LibraryName => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "nvml.dll" : "libnvidia-ml.so.1";
+
+        // One hosted tier (nvidia, also the judge tier) with a fake key, a fake base URL and the given endpoint.
+        private static RunCommandSetup NvidiaSetup(FakeHttpMessageHandler nvidia, string? key = null)
+        {
+            var setup = new RunCommandSetup();
+            setup.Settings["NVIDIA_API_KEY"] = key ?? ProviderClientFixtures.FakeKey();
+            setup.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nvidia);
+            setup.Endpoints["nvidia"] = nvidia;
+            return setup;
+        }
+
+        // The failure printed exactly one line starting with "error:", ending in the type, with no stack frame at the default level.
+        private static string AssertOneErrorLine(CliRunResult result, string typeName)
+        {
+            string line = Assert.Single(result.ErrorLines);
+            Assert.EndsWith("(" + typeName + ")", line, StringComparison.Ordinal);
+            Assert.DoesNotContain(StackFramePrefix, result.Stderr, StringComparison.Ordinal);
+            return line;
+        }
+
+        // No 6-character window of the secret part may be shown (a whole-value check would miss a truncated echo).
+        private static void AssertNoWindowOf(string secret, string text)
+        {
+            for (int start = 0; start + 6 <= secret.Length; start++)
+            {
+                Assert.DoesNotContain(secret.Substring(start, 6), text, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
+        public async Task A_refused_connection_exits_5_with_one_error_line_and_no_completion_call()
+        {
+            var nvidia = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), ConnectionRefused = true };
+            RunCommandSetup setup = NvidiaSetup(nvidia);
+
+            CliRunResult result = await RunCommandHarness.RunAsync("run --tier nvidia --dry-run", setup).WaitAsync(HangGuard);
+
+            Assert.True(result.ExitCode == 5, $"Expected exit code 5 but got {result.ExitCode}; stderr: {result.Stderr}");
+            _ = AssertOneErrorLine(result, "EndpointUnreachableException");
+            Assert.True(nvidia.Count(FakeRoute.Models) >= 1, "The refusing endpoint received no models request, so the test proved nothing.");
+            Assert.Equal(0, nvidia.Count(FakeRoute.ChatCompletions));
+            Assert.Equal(0, setup.Orchestrator.Runs);
+            Assert.Empty(result.DeniedRequests);
+        }
+
+        [Fact]
+        public async Task A_service_override_that_throws_ContentDiffersException_exits_7_with_one_error_line()
+        {
+            CliHostOverrides overrides = CliHarness.Overrides(gpuFactoryThrows: new ContentDiffersException("README results block differs from the generated one"));
+
+            CliRunResult result = await CliHarness.RunAsync("probe", overrides).WaitAsync(HangGuard);
+
+            Assert.Equal(7, result.ExitCode);
+            Assert.Equal("error: README results block differs from the generated one (ContentDiffersException)", AssertOneErrorLine(result, "ContentDiffersException"));
+        }
+
+        [Fact]
+        [Trait("Spec", "EDGE-001")]
+        public async Task Run_tier_local_without_the_NVML_library_exits_6_naming_it_and_makes_no_completion_call()
+        {
+            var local = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+            RunCommandSetup setup = NvidiaSetup(new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() });
+            setup.Endpoints["local"] = local;
+            setup.Gpu = new ScriptedNvmlApi(new FakeTimeProvider()) { MissingLibrary = true };
+
+            // The production orchestrator is in the path, so "no completion call" is a real claim: the GPU check fails in the preflight, before any orchestrator runs.
+            setup.UseProductionOrchestrator = true;
+
+            CliRunResult result = await RunCommandHarness.RunAsync("run --tier local --repeat 1", setup).WaitAsync(HangGuard);
+
+            Assert.True(result.ExitCode == 6, $"Expected exit code 6 but got {result.ExitCode}; stderr: {result.Stderr}");
+            Assert.Contains(LibraryName, AssertOneErrorLine(result, "MeasurementPreconditionException"), StringComparison.Ordinal);
+            Assert.True(local.Count(FakeRoute.Models) >= 1, "The local endpoint received no models request, so the preflight did not run.");
+            Assert.Equal(0, local.Count(FakeRoute.ChatCompletions));
+            Assert.Empty(result.DeniedRequests);
+        }
+
+        [Fact]
+        public async Task A_missing_key_exits_3_with_one_error_line_and_makes_no_request()
+        {
+            // No key anywhere: neither NEBIUS_API_KEY nor NVIDIA_API_KEY (the key of the judge tier) is in the configuration.
+            var nvidia = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+            var nebius = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+            var setup = new RunCommandSetup();
+            setup.Settings["AgentJoules:Tiers:nvidia:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nvidia);
+            setup.Settings["AgentJoules:Tiers:nebius:BaseUrl"] = ProviderClientFixtures.BaseUrl(Core.Runs.Tier.Nebius);
+            setup.Endpoints["nvidia"] = nvidia;
+            setup.Endpoints["nebius"] = nebius;
+
+            CliRunResult result = await RunCommandHarness.RunAsync("run --tier nebius --dry-run", setup).WaitAsync(HangGuard);
+
+            Assert.True(result.ExitCode == 3, $"Expected exit code 3 but got {result.ExitCode}; stderr: {result.Stderr}");
+            _ = AssertOneErrorLine(result, "MissingKeyException");
+            Assert.Equal(0, nvidia.RequestCount);
+            Assert.Equal(0, nebius.RequestCount);
+            Assert.Empty(result.DeniedRequests);
+            Assert.Equal(0, setup.Orchestrator.Runs);
+        }
+
+        [Fact]
+        public async Task A_parse_error_prints_one_error_line_typed_ParseError_and_exits_2()
+        {
+            CliRunResult result = await CliHarness.RunAsync("run --tier bogus").WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            string line = AssertOneErrorLine(result, "ParseError");
+            Assert.Contains("Must be one of", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("Unrecognized command", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(line, Assert.Single(result.StderrLines, static text => text.Length > 0));
+            Assert.Equal(string.Empty, result.Stdout);
+        }
+
+        [Fact]
+        public async Task Two_parse_errors_at_once_still_print_one_error_line_holding_both_messages()
+        {
+            CliRunResult result = await CliHarness.RunAsync("run --tier bogus --repeat zero").WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            string line = AssertOneErrorLine(result, "ParseError");
+            Assert.Contains("Must be one of", line, StringComparison.Ordinal);
+            Assert.Contains("--repeat", line, StringComparison.Ordinal);
+            Assert.Contains("; ", line, StringComparison.Ordinal);
+            Assert.Equal(line, Assert.Single(result.StderrLines, static text => text.Length > 0));
+            Assert.Equal(string.Empty, result.Stdout);
+        }
+
+        [Fact]
+        public async Task A_parse_error_line_masks_a_key_the_user_typed()
+        {
+            string key = "nvapi-" + Guid.NewGuid().ToString("N");
+
+            CliRunResult result = await CliHarness.RunAsync("run --tier " + key).WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            string line = AssertOneErrorLine(result, "ParseError");
+
+            // The echo happened (System.CommandLine quotes the rejected value) and was masked to the public prefix.
+            Assert.Contains("'nvapi-****'", line, StringComparison.Ordinal);
+            AssertNoWindowOf(key["nvapi-".Length..], result.Stderr);
+        }
+
+        [Fact]
+        public async Task A_registered_key_in_the_second_parse_message_is_masked_in_the_joined_line()
+        {
+            // An opaque key without the nvapi- prefix is masked only because the configuration registers it; the key is the value of --mode, so it sits in the second message.
+            string key = Guid.NewGuid().ToString("N");
+            CliHostOverrides overrides = CliHarness.Overrides(configuration: [("NEBIUS_API_KEY", key)]);
+
+            CliRunResult result = await CliHarness.RunTokensAsync(["run", "--tier", "bogus", "--mode", key], overrides).WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            string line = AssertOneErrorLine(result, "ParseError");
+            Assert.Contains("Must be one of", line, StringComparison.Ordinal);
+            Assert.Contains("'****'", line, StringComparison.Ordinal);
+            Assert.DoesNotContain(key, result.Stderr, StringComparison.Ordinal);
+            AssertNoWindowOf(key, result.Stderr);
+        }
+
+        [Fact]
+        public async Task A_hostile_token_cannot_forge_a_second_line_or_smuggle_a_control_character_into_the_parse_error_line()
+        {
+            // A line feed followed by a forged "error:" prefix, and a right-to-left override written as a cast, never literally.
+            string hostile = "x\nerror: forged" + (char)0x202E;
+
+            CliRunResult result = await CliHarness.RunTokensAsync(["run", "--tier", hostile]).WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            string line = Assert.Single(result.StderrLines, static text => text.Length > 0);
+            Assert.StartsWith("error: ", line, StringComparison.Ordinal);
+            Assert.EndsWith(" (ParseError)", line, StringComparison.Ordinal);
+            Assert.DoesNotContain('\n', result.Stderr.TrimEnd('\r', '\n'));
+            Assert.DoesNotContain((char)0x202E, result.Stderr);
+            _ = AssertOneErrorLine(result, "ParseError");
+        }
+
+        [Fact]
+        public async Task A_failing_endpoint_that_echoes_the_key_leaves_no_part_of_it_in_the_error_line()
+        {
+            string key = "nvapi-" + Guid.NewGuid().ToString("N");
+            var nvidia = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds() };
+            nvidia.SetStatuses(FakeRoute.Models, 401);
+            nvidia.CustomizeResponse = (route, response) =>
+            {
+                response.Content = new StringContent("{\"error\":{\"message\":\"Incorrect API key provided: " + key + "\"}}", System.Text.Encoding.UTF8, "application/json");
+                _ = response.Headers.TryAddWithoutValidation("X-Echo", key);
+            };
+            RunCommandSetup setup = NvidiaSetup(nvidia, key);
+
+            CliRunResult result = await RunCommandHarness.RunAsync("run --tier nvidia --dry-run", setup).WaitAsync(HangGuard);
+
+            Assert.Equal(5, result.ExitCode);
+            _ = AssertOneErrorLine(result, "EndpointUnreachableException");
+            Assert.True(nvidia.Count(FakeRoute.Models) >= 1, "The failing endpoint received no request, so the test proved nothing.");
+            AssertNoWindowOf(key["nvapi-".Length..], result.Stderr);
+            AssertNoWindowOf(key["nvapi-".Length..], result.Stdout);
+        }
+    }
+
+    /// <summary>
+    /// AJ-058 (REQ-017): the documented code of each exception class, in the order of the story, and the documented meaning of each code. A nested class, so the <c>Spec=REQ-006</c> trait of the
+    /// outer class does not tag these tests.
+    /// </summary>
+    [Trait("Spec", "REQ-017")]
+    public sealed class DocumentedCodes
+    {
+        [Fact]
+        public void The_six_exception_classes_map_to_2_3_4_5_6_and_7_in_that_order()
+        {
+            Exception[] failures =
+            [
+                new ConfigurationException("bad setting"),
+                new MissingKeyException("NVIDIA_API_KEY is not set", ["NVIDIA_API_KEY"]),
+                new ModelNotFoundException("nvidia", ["acme/absent"], ["acme/other"], 1),
+                new EndpointUnreachableException("tier nvidia: models endpoint unreachable"),
+                new MeasurementPreconditionException("NVML is unavailable"),
+                new ContentDiffersException("README results block differs from the generated one"),
+            ];
+
+            Assert.Equal([2, 3, 4, 5, 6, 7], failures.Select(static failure => ExitCodeMapper.Map(failure, shutdownRequested: false)));
+            Assert.Equal([2, 3, 4, 5, 6, 7], failures.Select(static failure => ExitCodeMapper.Map(failure, shutdownRequested: true)));
+        }
+
+        [Theory]
+        [InlineData(ExitCode.Success, "success")]
+        [InlineData(ExitCode.Unexpected, "unexpected")]
+        [InlineData(ExitCode.InvalidArguments, "invalid arguments or configuration")]
+        [InlineData(ExitCode.MissingKey, "missing API key")]
+        [InlineData(ExitCode.ModelNotFound, "model not found")]
+        [InlineData(ExitCode.Unreachable, "unreachable, retries exhausted, step failed or run interrupted")]
+        [InlineData(ExitCode.PreconditionFailed, "measurement precondition failed")]
+        [InlineData(ExitCode.ContentDiffers, "generated content differs")]
+        public void Describe_returns_the_documented_meaning_of_each_code(ExitCode code, string meaning)
+        {
+            Assert.Equal(meaning, ExitCodeMapper.Describe(code));
+        }
+
+        [Fact]
+        public void Describe_covers_every_defined_code()
+        {
+            foreach (ExitCode code in Enum.GetValues<ExitCode>())
+            {
+                Assert.False(string.IsNullOrWhiteSpace(ExitCodeMapper.Describe(code)), $"No meaning for {code}.");
+            }
+        }
+
+        [Fact]
+        public void Describe_rejects_a_value_the_enum_does_not_define()
+        {
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => ExitCodeMapper.Describe((ExitCode)99));
+        }
     }
 }
 

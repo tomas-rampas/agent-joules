@@ -26,7 +26,21 @@ public static class OptionsLoader
     /// </exception>
     public static AgentJoulesOptions Bind(IConfiguration root)
     {
+        var options = new AgentJoulesOptions();
+        Bind(root, options);
+        return options;
+    }
+
+    /// <summary>Binds the <c>AgentJoules</c> section of <paramref name="root"/> into <paramref name="target"/> through the generated binder, whatever sections the options have; a key that is absent leaves the value of its property.</summary>
+    /// <remarks>The host fills its options object through this overload, so a section added to <see cref="AgentJoulesOptions"/> reaches the CLI without a second list to keep in step. The checks and messages are those of <see cref="Bind(IConfiguration)"/>.</remarks>
+    /// <param name="root">The configuration that holds the <c>AgentJoules</c> section.</param>
+    /// <param name="target">The options object to fill.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="root"/> or <paramref name="target"/> is null.</exception>
+    /// <exception cref="ConfigurationException">As for <see cref="Bind(IConfiguration)"/>.</exception>
+    public static void Bind(IConfiguration root, AgentJoulesOptions target)
+    {
         ArgumentNullException.ThrowIfNull(root);
+        ArgumentNullException.ThrowIfNull(target);
         IConfigurationSection section = root.GetSection(AgentJoulesOptions.SectionName);
 
         List<string> shape = ConfigurationShape.ShapeProblems(section);
@@ -37,8 +51,8 @@ public static class OptionsLoader
 
         try
         {
-            // Get returns null when the section has no keys at all. The unknown-key switch is a backstop: the shape check has named them already.
-            return section.Get<AgentJoulesOptions>(binder => binder.ErrorOnUnknownConfiguration = true) ?? new AgentJoulesOptions();
+            // The unknown-key switch is a backstop: the shape check has named them already.
+            section.Bind(target, binder => binder.ErrorOnUnknownConfiguration = true);
         }
         catch (InvalidOperationException)
         {

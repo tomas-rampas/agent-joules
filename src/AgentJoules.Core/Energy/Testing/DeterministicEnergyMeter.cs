@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Gpu;
@@ -29,7 +30,7 @@ namespace AgentJoules.Core.Energy.Testing;
 /// </para>
 /// <para>
 /// The power function is called exactly once per synthesized sample, in time order, with the sample's time in seconds since time zero;
-/// it is never called outside <see cref="IMeterWindow.Close"/> and <see cref="MeasureBaselineAsync"/>. It runs under the meter's lock,
+/// it is never called outside <see cref="IMeterWindow.Close"/>, <see cref="MeasureBaselineAsync"/> and <see cref="ComputeUnion"/>. It runs under the meter's lock,
 /// so it must not call the meter or wait on a thread that does. It must return a finite power from 0 W to 4,294,967.295 W (the NVML
 /// milliwatt ceiling the real meter also applies); anything else throws <see cref="InvalidOperationException"/> naming the instant,
 /// where the real meter would skip the read. Every sample has the throttle value <c>supported, nothing active</c>: the fake never flags
@@ -271,6 +272,52 @@ public sealed class DeterministicEnergyMeter : IEnergyMeter
         {
             ThrowIfNotRunning();
             return new Window(this, ElapsedSeconds());
+        }
+    }
+
+    /// <summary>
+    /// Computes the energy of the union of <paramref name="windows"/> (REQ-013, design 3.2 "Union") from the power function: the windows are merged, every
+    /// merged segment gets its samples by the grid rule (as a window over that segment would), and <see cref="UnionWindowCalculator"/> computes the union.
+    /// Under the sampling method it integrates the samples of each segment; under the counter method each segment's counter delta is the trapezoid
+    /// integral of its samples in millijoules rounded to a whole number, as a window's is, so the meter keeps its exactness (two windows of the same second
+    /// at a constant 60 W unite to exactly 60 J, two touching seconds to exactly 120 J). The net subtracts the stored baseline times the summed segment
+    /// length. The clock is not read: the spans carry their own instants.
+    /// </summary>
+    /// <param name="windows">The spans of closed windows, in any order; at least one.</param>
+    /// <returns>The energy of the union.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="windows"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="windows"/> is empty or holds a window that is not finite or does not stop after it starts; checked first.</exception>
+    /// <exception cref="InvalidOperationException">The meter was not started, a segment needs more samples than the cap allows, or the power function returned an unusable value.</exception>
+    /// <exception cref="ObjectDisposedException">The meter was disposed.</exception>
+    public UnionEnergy ComputeUnion(IReadOnlyList<WindowSpan> windows)
+    {
+        WindowSpan[] segments = UnionWindowCalculator.Merge(windows);
+        lock (_gate)
+        {
+            ThrowIfNotRunning();
+            List<PowerSample> samples = [];
+            List<CounterMark> marks = [];
+            double counterMillijoules = 0.0;
+            foreach (WindowSpan segment in segments)
+            {
+                PowerSample[] synthesized = Synthesize(segment.StartSeconds, segment.StopSeconds, "union segment");
+
+                // Touching segments share the instant between them; the power function gives that instant one value, so it is kept once.
+                int first = samples.Count > 0 && samples[^1].Seconds == synthesized[0].Seconds ? 1 : 0;
+                samples.AddRange(synthesized.AsSpan(first));
+
+                // A counter that is the integral of the power function, read at the two boundaries of every segment.
+                if (Capabilities.Method == EnergyMethod.Counter)
+                {
+                    marks.Add(new CounterMark(segment.StartSeconds, counterMillijoules, CounterEdge.Open));
+                    counterMillijoules += CounterDelta(synthesized, segment.StartSeconds, segment.StopSeconds);
+                    marks.Add(new CounterMark(segment.StopSeconds, counterMillijoules, CounterEdge.Close));
+                }
+            }
+
+            return Capabilities.Method == EnergyMethod.Counter
+                ? UnionWindowCalculator.ComputeFromCounterMarks(segments, CollectionsMarshal.AsSpan(marks), _baselineMeanWatts)
+                : UnionWindowCalculator.ComputeFromSamples(segments, CollectionsMarshal.AsSpan(samples), _baselineMeanWatts);
         }
     }
 

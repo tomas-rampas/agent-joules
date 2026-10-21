@@ -24,7 +24,7 @@ namespace AgentJoules.Core.Energy;
 public static class BaselineCalculator
 {
     private const string WattUnit = "W";
-    private const string InsufficientSamples = "insufficient-samples";
+    private const string InsufficientSamples = EnergyReasons.InsufficientSamples;
     private const string MeanNonPositive = "baseline-mean-nonpositive";
 
     /// <summary>Computes the baseline of the samples of one idle window.</summary>

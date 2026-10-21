@@ -23,7 +23,7 @@ namespace AgentJoules.UnitTests;
 /// </summary>
 [Trait("Spec", "REQ-004")]
 [Trait("Spec", "REQ-005")]
-public sealed class SampledEnergyMeterTests
+public sealed partial class SampledEnergyMeterTests
 {
     private const double Tolerance = 1e-9;
     private const int MaxYields = 2_000_000;

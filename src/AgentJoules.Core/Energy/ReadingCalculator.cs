@@ -14,10 +14,10 @@ public static class ReadingCalculator
 {
     private const string JouleUnit = "J";
     private const string WattUnit = "W";
-    private const string InsufficientSamples = "insufficient-samples";
-    private const string CounterNotRead = "counter-not-read";
-    private const string CounterWentBackwards = "counter-went-backwards";
-    private const string NoBaseline = "no-baseline";
+    private const string InsufficientSamples = EnergyReasons.InsufficientSamples;
+    private const string CounterNotRead = EnergyReasons.CounterNotRead;
+    private const string CounterWentBackwards = EnergyReasons.CounterWentBackwards;
+    private const string NoBaseline = EnergyReasons.NoBaseline;
 
     /// <summary>Computes the reading of one window.</summary>
     /// <param name="input">The samples, window, method, counter delta, baseline and rate.</param>
@@ -112,6 +112,12 @@ public static class ReadingCalculator
         if (!Enum.IsDefined(input.Method))
         {
             throw Rejected(nameof(input), $"ReadingInput.Method {(int)input.Method} is not a defined energy method.");
+        }
+
+        // A hosted tier has no samples to compute from; its readings come from UnmeteredEnergyMeter, never from this calculator.
+        if (input.Method == EnergyMethod.Unmetered)
+        {
+            throw Rejected(nameof(input), $"ReadingInput.Method must be counter or sampling, but it is {input.Method}.");
         }
 
         if (input.IsSamplingFallback && input.Method != EnergyMethod.Sampling)

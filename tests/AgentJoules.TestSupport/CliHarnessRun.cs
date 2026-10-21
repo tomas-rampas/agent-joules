@@ -7,6 +7,7 @@ using AgentJoules.Cli;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Http;
 
 namespace AgentJoules.TestSupport;
 
@@ -124,12 +125,18 @@ public sealed class CliHarnessRun
         try
         {
             CliHostOverrides supplied = overrides ?? new CliHostOverrides();
+            using var denyAll = new DenyAllHttpMessageHandler();
             using TempWorkspace? workspace = supplied.WorkingDirectory is null ? TempWorkspace.Create() : null;
             CliHostOverrides effective = supplied with
             {
                 Stdout = _stdout,
                 Stderr = _stderr,
                 WorkingDirectory = supplied.WorkingDirectory ?? workspace!.Root,
+                Services = services =>
+                {
+                    supplied.Services?.Invoke(services);
+                    DenyRealNetwork(services, denyAll);
+                },
                 AdditionalCommands = [.. _commands.Commands, .. supplied.AdditionalCommands ?? []],
                 OnHostStarted = host =>
                 {
@@ -151,12 +158,21 @@ public sealed class CliHarnessRun
             return new CliRunResult(exitCode, _stdout.ToString() ?? string.Empty, _stderr.ToString() ?? string.Empty)
             {
                 ConsoleRestored = ReferenceEquals(Console.Out, outBefore) && ReferenceEquals(Console.Error, errorBefore),
+                DeniedRequests = denyAll.RequestedUrls,
             };
         }
         finally
         {
             Gate.Release();
         }
+    }
+
+    // Deny-by-default for HTTP (design 3.6, AJ-052): the supplied services run first, so a fake a test registers for a named client exists; the filter then replaces every primary
+    // handler that would reach the network (what the production registration and an unconfigured client use) with the deny-all handler of this run, which refuses and records.
+    private static void DenyRealNetwork(IServiceCollection services, DenyAllHttpMessageHandler denyAll)
+    {
+        _ = services.AddSingleton(denyAll);
+        _ = services.AddSingleton<IHttpMessageHandlerBuilderFilter>(new DenyRealHandlersFilter(denyAll));
     }
 
     private void Capture(IHost host)

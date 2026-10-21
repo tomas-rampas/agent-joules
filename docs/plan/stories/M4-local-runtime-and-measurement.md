@@ -452,6 +452,7 @@ Acceptance criteria:
 3. `--repeat <n>` (default 3) executes every selected task n times after warm-up; every step carries `repeat` 1 to n and `run.repeat` equals n; `--repeat 0` exits 2.
 4. A `--baseline-seconds` value below 30 prints `Warning: baseline shorter than 30 s is not publishable`, still runs, and adds `non-publishable` to `run.flags` (the schema lists it among the run flags); `RunFileSelector.Latest` never returns such a file (resolved, see the note under the story).
 5. Hosted tiers perform no warm-up and no baseline window and ignore `--baseline-seconds`; a failing warm-up (Ollama refusing) exits 5 before the baseline window opens.
+6. Added 2026-10-20 (AJ-052 spec review): under non-null `CliHostOverrides` the harness's `IPowerSourceDetector` returns `unknown` and never reads the host's power state (the clause moved here from AJ-052 criterion 7; test `Harness_power_source_is_unknown`, trait `Spec=EDGE-011`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S106 @REQ-021
@@ -512,7 +513,7 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-106-T1 | Create or extend the failing feature and unit tests | tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature, tests/AgentJoules.UnitTests/LocalRuntimeTests.cs | 0.75 | AJ-105-T7 |
-| AJ-106-T2a | Implement `PowerSourceDetector` behind `IPowerSourceDetector` (Windows `GetSystemPowerStatus` through `LibraryImport("kernel32.dll")`, ACLineStatus 1 = ac, 0 = battery; Linux `/sys/class/power_supply/*/type` = Mains and `online`; no supply files = unknown) with a unit test through a fake | src/AgentJoules.Nvml/Platform/PowerSourceDetector.cs, tests/AgentJoules.UnitTests/PowerSourceDetectorTests.cs | 1.0 | AJ-106-T1 |
+| AJ-106-T2a | Implement `PowerSourceDetector` behind `IPowerSourceDetector` (Windows `GetSystemPowerStatus` through `LibraryImport("kernel32.dll")`, ACLineStatus 1 = ac, 0 = battery; Linux `/sys/class/power_supply/*/type` = Mains and `online`; no supply files = unknown) with a unit test through a fake plus the harness `unknown` detector under overrides | src/AgentJoules.Nvml/Platform/PowerSourceDetector.cs, tests/AgentJoules.UnitTests/PowerSourceDetectorTests.cs | 1.0 | AJ-106-T1 |
 | AJ-106-T2 | Create or extend the Ollama warm-up with keep-alive and load-time capture | src/AgentJoules.Workflow/Local/OllamaRuntime.cs | 0.5 | AJ-106-T1 |
 | AJ-106-T3 | Implement the NIM warm-up through an unmetered client | src/AgentJoules.Workflow/Local/NimRuntime.cs | 0.5 | AJ-106-T1 |
 | AJ-106-T4 | Order warm-up, baseline and repeats in the orchestrator | src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 1.0 | AJ-106-T2, AJ-106-T2a, AJ-106-T3 |
@@ -660,7 +661,7 @@ Definition of done:
 Demo relevance: no (the report header shows the reasoning mode per tier).
 
 ### AJ-109: Compute the counter versus sampling calibration
-Covers: REQ-021
+Covers: REQ-021, REQ-014
 User story: As a reader who doubts the energy figures, I want `AJ calibrate` to measure one workload window with both methods and publish both totals and their relative difference, so that the agreement or disagreement of the two methods is a published fact.
 Acceptance criteria:
 1. `AJ calibrate [--task <name>] [--seconds <n>]` (defaults: the first task in file order, 60) runs a warm-up, then one window during which the task workflow repeats until `--seconds` have elapsed, and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -668,6 +669,7 @@ Acceptance criteria:
 3. When the counter is unsupported, `counterJoules` is `{value:null,label:"N/A",reason:"counter-not-supported: <probe reason>"}` and `relativeDifference` is N/A with a reason; the command exits 0 and nothing is estimated. A counter of 0 gives `relativeDifference` N/A with reason `counter-zero`.
 4. Without a GPU the command exits 6 and writes no file; `--seconds 0` or an unknown `--task` exits 2.
 5. The file validates against `$defs/calibration` of `docs/results-schema.json`; `dotnet test --filter "Spec=REQ-021" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
+6. Added 2026-10-20 (AJ-051 spec review): `calibrate` offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given (test `Calibrate_no_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S109 @REQ-021
@@ -719,7 +721,7 @@ Tasks:
 | AJ-109-T1 | Write the failing feature and unit tests | tests/AgentJoules.Specs/Features/Cli/Calibration.feature, tests/AgentJoules.UnitTests/CalibrationTests.cs | 0.75 | AJ-108-T7 |
 | AJ-109-T2 | Add or confirm the calibration document model and its schema definition | src/AgentJoules.Core/Results/CalibrationDocument.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs, docs/results-schema.json | 0.75 | AJ-109-T1 |
 | AJ-109-T3 | Implement the calibration service (one window, two methods, difference) | src/AgentJoules.Workflow/Runs/CalibrationService.cs | 1.0 | AJ-109-T2 |
-| AJ-109-T4 | Implement the calibrate command and its argument checks | src/AgentJoules.Cli/Commands/CalibrateCommand.cs | 0.75 | AJ-109-T3 |
+| AJ-109-T4 | Implement the calibrate command and its argument checks, incl. `--no-console-telemetry` and the `TelemetrySetup.Add` call | src/AgentJoules.Cli/Commands/CalibrateCommand.cs | 0.75 | AJ-109-T3 |
 | AJ-109-T5 | Bind the feature steps | tests/AgentJoules.Specs/Steps/CliSteps.cs | 0.5 | AJ-109-T4 |
 | AJ-109-T6 | Regenerate the schema and run the committed-schema test | docs/results-schema.json | 0.25 | AJ-109-T5 |
 | AJ-109-T7 | Document the command and the file fields | docs/build-log.md | 0.25 | AJ-109-T6 |

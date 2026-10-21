@@ -23,4 +23,22 @@ public sealed class AgentJoulesOptions
     /// <summary>Section <c>Baseline</c>: how the idle baseline is measured and judged.</summary>
     [ValidateObjectMembers]
     public BaselineOptions Baseline { get; set; } = new();
+
+    /// <summary>
+    /// Section <c>Tiers</c>: one entry per tier name (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c>, <c>nebius</c>), matched without regard to case.
+    /// Checked by <see cref="CrossFieldValidator"/>: the generated validator does not enumerate a dictionary.
+    /// </summary>
+    public Dictionary<string, TierOptions> Tiers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Section <c>Judge</c>: which tier and model score the answers; checked by <see cref="CrossFieldValidator"/>.</summary>
+    public JudgeOptions Judge { get; set; } = new();
+
+    /// <summary>Section <c>Workflow</c>: settings of the agent workflow that every tier shares.</summary>
+    public WorkflowOptions Workflow { get; set; } = new();
+
+    /// <summary>Section <c>CloudGpu</c>: how the rented-GPU tier is reached; <c>RequireSshVariables</c> is false on the VM.</summary>
+    public CloudGpuOptions CloudGpu { get; set; } = new();
+
+    /// <summary>Section <c>Paths</c>: the files a run reads, relative to the content root; every key has a default.</summary>
+    public PathsOptions Paths { get; set; } = new();
 }

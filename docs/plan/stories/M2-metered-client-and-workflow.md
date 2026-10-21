@@ -33,6 +33,8 @@ Hands over to later milestones: `ICostCalculator` seam with a placeholder implem
 
 User actions from prompt section 12: steps 5 (`NEBIUS_API_KEY`) and 6 (`NVIDIA_API_KEY`) are needed only for the live dry-run criterion above. Step 4 (credits) should be done before step 5. Step 7 (`NGC_API_KEY`) is not needed in this milestone. No test in this milestone needs a key; tests build fake keys at run time.
 
+Note (2026-10-20, M2 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-0nn-<slug>.feature; the file names in the story tables (for example ReadingAndSink.feature) map to that form.
+
 ## Stories
 
 ### AJ-040: Define the per-call reading and publish it to a metrics sink
@@ -80,9 +82,9 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/ReadingAndSink.feature`.
 Docs impact: `docs/build-log.md` (test result line); README telemetry and results sections are written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,769/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=REQ-008"` shows at least one passed and no failed test (2026-10-20: `dotnet test --filter "Spec=REQ-008"` 122 passed, 0 failed)
 Demo relevance: no (internal contract; every console step line and results row in the demo comes from this record).
 
 ### AJ-041: Meter buffered and streaming calls with exactly one reading per call
@@ -145,10 +147,10 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/MeteredCalls.feature`.
 Docs impact: `docs/build-log.md` (test result line); `docs/methodology.md` input note on attribution by construction (written in M4).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-007"` shows at least one passed and no failed test
-- [ ] `grep -rnE "AsyncLocal" src` returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,821/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=REQ-007"` shows at least one passed and no failed test (2026-10-20: Spec=REQ-007 46 passed, 0 failed)
+- [x] `grep -rnE "AsyncLocal" src` returns no hit (2026-10-20: `grep -rnIE "AsyncLocal" src --include=*.cs` 0 hits; the literal command matches third-party DLLs under bin/)
 Demo relevance: yes: each streamed step line in the demo (agent, joules, watts, tokens, latency) is one reading from this decorator.
 
 ### AJ-042: Report absent usage as not-reported, never 0
@@ -209,10 +211,10 @@ Tasks:
 Test mapping: `MeteredChatClientTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Metering/UsageReporting.feature`.
 Docs impact: `docs/build-log.md`. Whether Ollama honours `stream_options.include_usage` is unverified (design O-04); M4 verifies it and records it in `docs/endpoints.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-007"` shows at least one passed and no failed test
-- [ ] the report-cell half of the no-usage acceptance (token cells show `not-reported`, cost cell shows `N/A`) is carried by the Markdown rendering story in M3 with the no-usage fixture this story creates in `RunDocumentFixtures`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,865/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=EDGE-007"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-007 6 passed, 0 failed)
+- [x] the report-cell half of the no-usage acceptance (token cells show `not-reported`, cost cell shows `N/A`) is carried by the Markdown rendering story in M3 with the no-usage fixture this story creates in `RunDocumentFixtures` (2026-10-20: the fixture is `StepReadingFixtures.NoUsage()`; RunDocument does not exist before AJ-055; `RunDocumentFixtures` is created by AJ-078-T5 (M3) and AJ-083-T2 adds the no-usage row; the report-cell assertion stays with M3)
 Demo relevance: yes: the honesty rule "a value that does not exist is N/A or not-reported, never 0" is visible in the console step line (`in=not-reported`).
 
 ### AJ-043: Bind and validate tier configuration
@@ -269,9 +271,9 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Configuration/TierConfiguration.feature`; class `TierConfigurationTests` (trait `Spec=REQ-012`).
 Docs impact: `config/appsettings.json`; the README configuration table is written in M6 from these keys.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the URL grep in acceptance criterion 4 returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; battery 2,000 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: `config/appsettings.json` and the configuration keys paragraph of the AJ-043 entry in docs/build-log.md)
+- [x] the URL grep in acceptance criterion 4 returns no hit (2026-10-20: the grep printed nothing, exit 1)
 Demo relevance: no (the demo shows the effect: the same command runs on every tier).
 Conflict: C-05 (design 9.2) - the global config-path option and `validate --config` share a name; resolution: `--config <path>` is defined per command (here on `run`, `probe`, `report`, `calibrate`), and its zero-or-one arity form belongs to `validate` (delivered in M3 and M4).
 
@@ -342,9 +344,9 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Workflow/ProviderClients.feature`; class `ProviderClientTests` (trait `Spec=REQ-012`).
 Docs impact: `docs/build-log.md`; the reasoning-off JSON per endpoint is verified and written to `docs/endpoints.md` in M4 (design default: `{"chat_template_kwargs":{"enable_thinking":false}}`, assumed).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the URL grep from AJ-043 still returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,090/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry, verified member and body names recorded)
+- [x] the URL grep from AJ-043 still returns no hit (2026-10-20: the grep printed nothing)
 Demo relevance: no.
 
 ### AJ-045: Retry HTTP 429 with backoff and keep the wait out of latency
@@ -411,10 +413,10 @@ Tasks:
 Test mapping: `RetryPolicyTests` (design class); feature file `tests/AgentJoules.Specs/Features/Metering/RateLimitRetry.feature`.
 Docs impact: `docs/build-log.md`; the retry rule (5 attempts, base 1 s, factor 2, cap 30 s) is quoted in the README rate-limit note in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test
-- [ ] the retry tests complete without sleeping on the wall clock (injected `TimeProvider`)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; full run 2,173 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-006 77 passed, 0 failed)
+- [x] the retry tests complete without sleeping on the wall clock (injected `TimeProvider`) (2026-10-20: every wait goes through the injected TimeProvider and the exact-time driver, no `Task.Delay` without a provider and no `TimeProvider.System` in the retry tests)
 Demo relevance: no (a 429 during the recorded run would show as `retries` in the step line).
 
 ### AJ-046: Serialize metered windows with the process-wide meter gate
@@ -469,13 +471,14 @@ Test mapping: `ExecutionModeTests` (design class; the 1 s branches use wide marg
 Docs impact: `docs/build-log.md`; the README "serialized by default" note is written in M6.
 Carried from AJ-032 (2026-10-19): `SerializedMeterGate` is not re-entrant, so no judge call and no second metered call may start while a flow holds the gate; a streaming `MeteredChatClient` holds the gate until its enumerator is disposed, so an abandoned enumerator hangs the run until the run token fires; the try/finally that disposes the releaser must begin immediately after `AcquireAsync` returns, before `ledger.Reset()` and `OpenWindow()`, or one failed call keeps the only slot for the process; the composition root disposes the gate only after every metered call has finished (a waiter queued at Dispose never completes); the shared-window overlap rule is strict (a.Start < b.Stop and b.Start < a.Stop).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-013"` shows at least one passed and no failed test for the serialized tests
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 1,893 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: in the AJ-046 entry of `docs/build-log.md`)
+- [x] `dotnet test --filter "Spec=REQ-013"` shows at least one passed and no failed test for the serialized tests (2026-10-20: Spec=REQ-013 23 passed, 0 failed)
 Demo relevance: yes: serialized default is why each demo step has an exclusive energy value.
 
 ### AJ-047: Flag shared windows and total concurrent runs over the union window
 Covers: REQ-013, EDGE-004
+Note (2026-10-21, AJ-047): the feature file is `tests/AgentJoules.Specs/Features/Metering/AJ-047-concurrent-union.feature` (the M2 name mapping, instead of `ConcurrentUnion.feature`), identical to the story block. Pinned readings: the `shared-window` flag is set on every step of a measured tier whose window strictly overlaps another step's, in both modes, and never on a hosted step or a judge reading; windows that only touch do not overlap. The union is computed by the meter's `ComputeUnion` and passed by the orchestrator; without that function, or with a step that lacks its window, the totals are not-reported `union-not-computed` (the guard). The window is the in-memory member `StepReading.Window`, never serialized. The console step line does not carry the flag; the live flag is M3 dashboard work. Measured fact: on the fake endpoint the two fan-out branches do not overlap, because `FakeHttpMessageHandler` advances the fake clock inside each call (windows in seconds since meter start: Planner [2.1, 3.1], Researcher [3.1, 4.1], Writer [4.1, 5.1], Reviewer [5.1, 6.1]); the production-orchestrator test therefore asserts that the union equals the sum, no flag, net 0 J and `run.mode` "concurrent", and the overlap itself is proven on the deterministic meter and on the sampled meter. Deviation: the union test holds its branches on `Task.Delay(1 s, fakeTime)` with `ResponseDelay` zero, not a 1 s `ResponseDelay`, because the fake client's delay would advance the clock inside the call and serialize the branches (the design row 803 setup). Fix round (2026-10-21, AJ-047): the counter marks carry their edge (`CounterEdge`, open or close); a segment start reads the earliest usable open mark at that instant and a segment stop the latest usable close mark, so the union of one window equals its own delta and two touching windows unite to the sum of their deltas (an overlap is counted once). Judge window rule: the judge must return each scored step with its `Window` unchanged; a judge that drops it makes the orchestrator throw `The judge must return each step with its window unchanged.` (the M3 judge story AJ-076 must pass the window through). Measured production overlap: a test-private barrier handler holds completions 2 and 3 until both have arrived, so the Researcher and Writer windows overlap; the union is 3 s, the gross 90 J against a 120 J sum, and only Researcher and Writer are flagged `shared-window`.
 User story: As a reader of concurrent-mode results, I want overlapping readings flagged `shared-window` and the run energy computed over the union of windows, so that per-step values are never summed into a wrong total.
 Acceptance criteria:
 1. In concurrent mode two branches of 1 s that start together produce two readings flagged `shared-window`, and the run `totals.grossJoules` equals the union-window energy, not the sum of the two readings (test `Concurrent_total_is_union_not_sum`, fixture values from `DeterministicEnergyMeter`, not measurements).
@@ -532,9 +535,9 @@ Tasks:
 Test mapping: `ExecutionModeTests` (design class); feature file `tests/AgentJoules.Specs/Features/Metering/ConcurrentUnion.feature`.
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the union-window rule (written in M4).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-004"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21: build 0 warnings exit 0 and 2,884 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-21: README --mode text, design 3.2 and 3.4 amendments and the AJ-047 entry of `docs/build-log.md`; `docs/methodology.md` is written in M4)
+- [x] `dotnet test --filter "Spec=EDGE-004"` shows at least one passed and no failed test (2026-10-21: Spec=EDGE-004 71 passed, 0 failed)
 Demo relevance: no (the demo runs serialized; concurrent mode is a documented option).
 
 ### AJ-048: Load the fixed task set from tasks/
@@ -590,9 +593,9 @@ Tasks:
 Test mapping: `TaskSetTests` (design class); feature file `tests/AgentJoules.Specs/Features/Configuration/TaskSet.feature`.
 Docs impact: `tasks/*.json`; the README task table is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `ls tasks/*.json | wc -l` prints 3 and the folder holds nothing else
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0, 0 warnings; full run 2,271/0/5 at 19:08Z)
+- [x] docs listed above updated (2026-10-20: task file shape in the build-log AJ-048 entry)
+- [x] `ls tasks/*.json | wc -l` prints 3 and the folder holds nothing else (2026-10-20: `ls tasks/*.json | wc -l` prints 3 and `ls -A tasks | wc -l` prints 3)
 Demo relevance: yes: the demo runs `--task energy-explainer`.
 
 ### AJ-049: Create one metered agent per name from a tier and model
@@ -645,9 +648,9 @@ Tasks:
 Test mapping: `AttributionBaselineTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Workflow/AgentFactory.feature`.
 Docs impact: `docs/build-log.md`; the agent role table is written in the README in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `grep -rnE "AsyncLocal" src` still returns no hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,309/0/5)
+- [x] docs listed above updated (2026-10-20: docs updated in this entry)
+- [x] `grep -rnE "AsyncLocal" src` still returns no hit (2026-10-20: `grep -rnIE "AsyncLocal" src --include=*.cs` 0 hits; the literal command matches third-party DLLs under bin/, as recorded for AJ-041)
 Demo relevance: yes: the four named agents are the rows of the demo table and chart.
 
 ### AJ-050: Run Planner, fan-out Researcher and Writer, fan-in Reviewer as a workflow
@@ -707,10 +710,10 @@ Tasks:
 Test mapping: `AttributionBaselineTests` (required test class); feature file `tests/AgentJoules.Specs/Features/Workflow/FanOutFanIn.feature`.
 Docs impact: `docs/build-log.md`; the workflow diagram for the README is produced in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-011"` shows at least one passed and no failed test
-- [ ] the three greps in criterion 1 each return at least one hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build exit 0 with 0 warnings; battery 2,339 passed, 0 failed, 5 skipped)
+- [x] docs listed above updated (2026-10-20: build log entry, test count, per-ID and secret scan rows; grep hits recorded)
+- [x] `dotnet test --filter "Spec=REQ-011"` shows at least one passed and no failed test (2026-10-20: 58 passed, 0 failed; full run 2,339 passed, 0 failed, 5 skipped)
+- [x] the three greps in criterion 1 each return at least one hit (2026-10-20: hits 1, 1 and 2 over src/*.cs)
 Demo relevance: yes: the demo shows Planner, then Researcher and Writer, then Reviewer, each with its own joules.
 
 ### AJ-051: Record OpenTelemetry instruments and the activity source
@@ -766,10 +769,10 @@ Tasks:
 Test mapping: `TelemetryTests` (design class, trait `Spec=REQ-014`); feature file `tests/AgentJoules.Specs/Features/Metering/Telemetry.feature`.
 Docs impact: README section "Telemetry" (instrument names, `--no-console-telemetry`, `OTEL_EXPORTER_OTLP_ENDPOINT`).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-014"` shows at least one passed and no failed test
-- [ ] `grep -rn "UseOpenTelemetry" src` returns at least one hit
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,412/0/5)
+- [x] docs listed above updated (2026-10-20: README `## Telemetry` written and this entry)
+- [x] `dotnet test --filter "Spec=REQ-014"` shows at least one passed and no failed test (2026-10-20: Spec=REQ-014 68 passed, 0 failed)
+- [x] `grep -rn "UseOpenTelemetry" src` returns at least one hit (2026-10-20: 1 hit, `src/AgentJoules.Workflow/Agents/AgentFactory.cs` line 135)
 Demo relevance: no (optional: the console exporter output can be shown for a few seconds).
 
 ### AJ-052: Exit 3 before any call when an API key is missing
@@ -782,7 +785,7 @@ Acceptance criteria:
 4. A missing workflow-tier key exits 3 before any HTTP request (the fake handler records 0 requests).
 5. Outside `--dry-run`, a missing judge key only warns and the command continues; with `--dry-run` the judge key joins the same message.
 6. For `cloudgpu` on the laptop (`CloudGpu:RequireSshVariables` true) a missing `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` exits 3; on the VM (`RequireSshVariables` false) it does not.
-7. The harness is deny-by-default: when `CliHostOverrides` is non-null the GPU factory is `UnavailableGpuTelemetrySourceFactory`, every primary HTTP handler is a `DenyAllHttpMessageHandler` that throws naming the URL, `IPowerSourceDetector` returns `unknown`, and the OTLP endpoint is read only from the isolated `IConfiguration`; a harness run with no override performs 0 real requests (test `Harness_makes_no_real_requests`).
+7. The harness is deny-by-default: when `CliHostOverrides` is non-null the GPU factory is `UnavailableGpuTelemetrySourceFactory`, every primary HTTP handler is a `DenyAllHttpMessageHandler` that throws naming the URL, `IPowerSourceDetector` returns `unknown`, and the OTLP endpoint is read only from the isolated `IConfiguration`; a harness run with no override performs 0 real requests (test `Harness_makes_no_real_requests`). (Note 2026-10-20, AJ-052 spec review: the `IPowerSourceDetector` clause moves to AJ-106, which creates the type in M4; the deny-all handler wiring lives in the test harness `CliHarnessRun`, the only caller passing non-null overrides, see design 3.6 line 489; the other clauses are delivered by AJ-052.)
 BDD scenarios:
 ```gherkin
 @unit @AJ-S052 @EDGE-011
@@ -844,10 +847,10 @@ Tasks:
 Test mapping: `DryRunTests` and `RedactionTests` (design classes, trait `Spec=EDGE-011`); feature file `tests/AgentJoules.Specs/Features/Cli/MissingKeys.feature`.
 Docs impact: README section "Keys" (variable names, `setx` and `dotnet user-secrets` forms; no values).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-011"` shows at least one passed and no failed test
-- [ ] `CliHarness` never reads the process environment unless a test asks for it
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,526/0/5)
+- [x] docs listed above updated (2026-10-20: README `## Keys` written and this entry)
+- [x] `dotnet test --filter "Spec=EDGE-011"` shows at least one passed and no failed test (2026-10-20: Spec=EDGE-011 66 passed, 0 failed)
+- [x] `CliHarness` never reads the process environment unless a test asks for it (2026-10-20: `Harness_reads_neither_the_process_environment_nor_user_secrets_unless_asked` green)
 Demo relevance: no.
 
 ### AJ-053: Exit 4 before any completion call when a model ID is not listed
@@ -905,22 +908,23 @@ Tasks:
 Test mapping: `DryRunTests` (design class, trait `Spec=EDGE-008`); feature file `tests/AgentJoules.Specs/Features/Cli/ModelNotFound.feature`.
 Docs impact: `docs/build-log.md`; the exit-code table in the README is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-008"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21: build 0 warnings exit 0 and 2,567/0/5)
+- [x] docs listed above updated (2026-10-21: this build-log entry)
+- [x] `dotnet test --filter "Spec=EDGE-008"` shows at least one passed and no failed test (2026-10-21: Spec=EDGE-008 36 passed, 0 failed)
 Demo relevance: no.
 
 ### AJ-054: Add `run --dry-run` that validates everything and makes no completion call
-Covers: REQ-017, EDGE-001
+Covers: REQ-017, REQ-014, EDGE-001
 Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
 User story: As a user, I want `AJ run --dry-run` to validate configuration, keys and model IDs and to show the endpoint and matched models per tier without spending a token, so that I find setup problems before a long measured run.
 Acceptance criteria:
-1. `AJ run --help` lists `--tier`, `--task`, `--mode`, `--out`, `--baseline-seconds`, `--repeat` and `--dry-run` (test `Help_lists_seven_options`).
+1. `AJ run --help` lists `--tier`, `--task`, `--mode`, `--out`, `--baseline-seconds`, `--repeat`, `--no-console-telemetry` and `--dry-run` (test `Help_lists_eight_options`).
 2. `AJ run --tier all --dry-run` with fake endpoints, fake keys and models listed exits 0 and prints, per tier, the endpoint, the matched model IDs and `OK`.
 3. A dry-run never calls a chat completions route (test `Dry_run_never_calls_completions`: no recorded request path ends in `/chat/completions`).
 4. `AJ run --tier bogus` exits 2; `--mode bogus`, `--repeat 0` and `--baseline-seconds -1` exit 2.
 5. For `local` the dry-run runs the probe through the GPU port; with no GPU it exits 6.
-6. Live check on the laptop (keys required): `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` exit 0; the `local` dry-run is completed in M4.
+6. Live check on the laptop (keys required): `AJ run --tier nvidia --dry-run` and `AJ run --tier nebius --dry-run` exit 0; the `local` dry-run is completed in M4. (Note 2026-10-21, AJ-054: both measured exit 0 from the committed configuration after the nvidia and nebius model IDs were corrected to the live catalog entries `nvidia/nemotron-nano-3-30b-a3b` and `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`; the nebius run read the key from the user-secrets store.)
+7. Added 2026-10-20 (AJ-051 spec review): the run command offers the option from `TelemetryOptions.CreateNoConsoleTelemetry()` and its host calls `TelemetrySetup.Add(services, configuration, consoleEnabled)` with the console metrics exporter on unless the flag is given; `probe` never enables it (tests `Run_registers_console_exporter_by_default` and `No_console_telemetry_omits_console_exporter`, trait `Spec=REQ-014`, using the AJ-051 registration-count helpers). `AgentJoulesInstruments` is registered by AJ-056 with the composition root. (Note 2026-10-21, AJ-054: in a dry run the console metrics exporter is not registered, because the OpenTelemetry console exporter prints a resource block on stdout at host disposal even when no metric was recorded, which would break the per-tier output of criterion 2; outside a dry run the exporter is on unless the flag is given; the OTLP checks run in both cases.)
 BDD scenarios:
 ```gherkin
 @unit @AJ-S054 @REQ-017
@@ -961,16 +965,16 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-054-T1 | Write the failing BDD feature and unit tests for run options and dry-run | tests/AgentJoules.Specs/Features/Cli/DryRun.feature, tests/AgentJoules.UnitTests/DryRunTests.cs | 0.5 | AJ-053-T1 |
-| AJ-054-T2 | Define the `run` command and its options with allowed values and defaults | src/AgentJoules.Cli/Commands/RunCommand.cs | 1.0 | AJ-054-T1 |
+| AJ-054-T2 | Define the `run` command and its options with allowed values and defaults, incl. `--no-console-telemetry`, and call `TelemetrySetup.Add` from the run host | src/AgentJoules.Cli/Commands/RunCommand.cs, src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs | 1.0 | AJ-054-T1 |
 | AJ-054-T3 | Return exit 2 when `ParseResult.Errors` is non-empty before invoking any action | src/AgentJoules.Cli/CliApplication.cs | 0.75 | AJ-054-T2 |
 | AJ-054-T4 | Implement `DryRunService` with the per-tier output lines and the local probe | src/AgentJoules.Workflow/Runs/DryRunService.cs | 1.25 | AJ-054-T2, AJ-053-T4 |
 | AJ-054-T5 | Add the run options table and the dry-run example to the README | README.md | 0.5 | AJ-054-T4 |
-Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
+Test mapping: `DryRunTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6) and `Spec=REQ-014` on the two console-exporter tests); feature file `tests/AgentJoules.Specs/Features/Cli/DryRun.feature`.
 Docs impact: README section "Run" (options table and dry-run example).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet run --project src/AgentJoules.Cli -- run --tier bogus; echo $?` prints 2
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21: build 0 warnings exit 0 and 2,647/0/5)
+- [x] docs listed above updated (2026-10-21: README `### run` subsection and this build-log entry)
+- [x] `dotnet run --project src/AgentJoules.Cli -- run --tier bogus; echo $?` prints 2 (2026-10-21: dotnet run --project src/AgentJoules.Cli --no-build -- run --tier bogus exit 2, measured by the orchestrator)
 Demo relevance: yes: step 2 of the demo is `AJ run --tier all --dry-run`.
 Conflict: C-04 (design 9.2) - REQ-017 requires `AJ run --tier bogus` to exit 2 but System.CommandLine returns 1 on parse errors; resolution: `CliApplication` inspects `ParseResult.Errors`, prints them and returns 2 before any action runs.
 Conflict: C-05 (design 9.2) - `--config` is defined per command (zero-or-one arity only on `validate`), so `run --config <path>` is a plain path option.
@@ -1034,13 +1038,15 @@ Tasks:
 Test mapping: feature file `tests/AgentJoules.Specs/Features/Reporting/RunCheckpoint.feature`; class `RunCheckpointTests` (trait `Spec=REQ-017`); `SchemaValidationTests` consumes the same records in M3.
 Docs impact: `.gitignore` (`results/*.partial`); `docs/build-log.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the checkpoint file survives a simulated write failure (scenario above)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-20: build 0 warnings exit 0 and 2,452/0/5)
+- [x] docs listed above updated (2026-10-20: `.gitignore` entry already present (line 501) and this build-log entry)
+- [x] the checkpoint file survives a simulated write failure (scenario above) (2026-10-20: scenario "failed write keeps the previous complete file" green and `Failed_write_keeps_previous_file` plus the `[WindowsFact]` real-conflict test green)
 Demo relevance: no.
 
 ### AJ-056: Orchestrate a tier run over tasks, repeats and modes
 Covers: REQ-017, REQ-013, EDGE-005
+Note (2026-10-21, AJ-054): the `run` command, its options, the dry run, the preflight order (keys, one results writer per tier, models, GPU) and the `IRunOrchestrator` seam with `RunPlan` exist; AJ-056 replaces the `RunOrchestrator` placeholder (exit 1 until then, pinned by `The_production_orchestrator_is_a_placeholder_that_exits_1`), registers `AddAgentJoulesMeterGate(mode)` and `AgentJoulesInstruments` through the run command's service hook, keeps `StepFailedException` free of provider text (the AJ-052 leak proof relies on it), re-points the exit-5 row of `ExitCodeTests.RunCommandCodes` at the production orchestrator, takes the run-file timestamp once at command start, prints the sampling-fallback line once, and decides whether the console exporter's resource block on stdout at the end of a measured run is acceptable.
+Note (2026-10-21, AJ-056): the feature file is `tests/AgentJoules.Specs/Features/Cli/AJ-056-run-orchestration.feature` (the M2 name mapping, instead of `RunOrchestration.feature`), identical to the story block. Criteria 3, 4 and 7 were already delivered by AJ-054; they are proven here through the production orchestrator, and `PreflightService` is unchanged (task T5 is tests only). Criterion 8, reading: every `cancelled` reading of the interrupted (task, repeat) is copied as `incomplete`, and the shutdown checkpoint has its own 10 s wall-clock token. Criterion 9, reading: `baseline-unstable` is recorded in `baseline.flags`, not in `run.flags`. The judge is the no-op seam `NoOpJudgeService` (M3 fills it), and the local runtime is `NoOpLocalRuntime` with `ILocalRuntime.WarmUpAsync` returning `Task<TimeSpan?>` (M4 fills it). Concurrent-mode energy totals were the placeholder `union-not-computed` until AJ-047 computed the union (since 831bbff the reason is only the guard for a missing union function or window; see the AJ-047 block). The design extras not built are deferred with their owners: the `--baseline-seconds` warning and the `non-publishable` flag (AJ-106), the `failed` checkpoint (AJ-057) and `CloudGpuBudgetGuard` (M5). Fix round (2026-10-21, AJ-056): the mode wiring named for `ExecutionModeTests` in the test mapping is delivered as the nested class `RunOrchestrationTests.Modes` (Spec=REQ-013). Cost rule: `costByCurrency` follows the all-steps rule of the other sums; when any step lacks a cost, every currency seen maps to N/A with the reason `missing-step-costs`, and the `totals:` line prints `cost=N/A`; the M3 cost stories keep this rule or change it deliberately.
 User story: As a user, I want `AJ run --tier <t>` to run every selected task for the requested number of repeats in the requested mode and write one results file per tier, so that one command produces the evidence behind the report.
 Acceptance criteria:
 1. `AJ run` accepts `--tier`, `--task` (default all), `--mode serialized|concurrent` (default serialized), `--out` (default `results/`), `--baseline-seconds` (default 30, local only) and `--repeat` (default 3); a fake run with 3 tasks, `--repeat 2` and 4 agents yields 24 step readings (test `Run_produces_tasks_x_repeats_x_agents`).
@@ -1116,14 +1122,15 @@ Tasks:
 Test mapping: class `RunOrchestrationTests` (trait `Spec=REQ-017`) and `ExecutionModeTests` for the mode wiring; feature file `tests/AgentJoules.Specs/Features/Cli/RunOrchestration.feature`.
 Docs impact: README section "Run" (`--tier all` expands to enabled tiers; cloudgpu runs on the VM).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] a fake `--tier all` run writes the expected number of run files
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] a fake `--tier all` run writes the expected number of run files
 Demo relevance: yes: step 3 of the demo is `AJ run --tier all`.
 Conflict: C-06 (design 9.2) - `--tier all` versus `cloudgpu` running only on the VM; resolution (ADR-13): `all` expands to the tiers enabled in configuration in the fixed order local, cloudgpu, nvidia, nebius; cloudgpu is disabled in the committed file and enabled on the VM by `AGENTJOULES__Tiers__cloudgpu__Enabled=true`.
 
 ### AJ-057: Stop on a failed step, keep partial results and exit 5
 Covers: REQ-017, EDGE-006
+Note (2026-10-21, AJ-057): the feature file is `tests/AgentJoules.Specs/Features/Cli/AJ-057-step-failure.feature` (the M2 name mapping, instead of `StepFailure.feature`); its five scenarios are byte-identical to the story block (`cmp` exit 0 against lines 1142 to 1172). Criterion 1 counts its 5 HTTP requests on the chat-completions route. Criterion 2, reading: the file has `run.status` `failed`, or `incomplete` when the failing agent's latest reading has outcome `incomplete` (a connection that dropped after the first update, design 3.6 step 3). Criterion 4 was delivered by the AJ-056 tier loop (a `StepFailedException` propagated and earlier files stayed); AJ-057 adds the proofs (`Tier_all_stops_at_the_first_failing_tier_and_keeps_earlier_files`, `Tier_all_does_not_start_a_later_tier_after_a_failure`). Criterion 5, reading: the error line on stderr carries the partial file path and the failing agent (`Step <agent> failed ...; partial results in <path>`); the stdout `results:` and `status:` lines printed before it name the same path; in a default run the console exporter prints its end-of-run metrics block after the error line (the host is disposed after the line is printed), so the error line is the last line of the process only with `--no-console-telemetry`. Files changed beyond the task table: `IRunListener.cs`, `ConsoleRunListener.cs`, `RunLog.cs` and `CheckpointKind.cs` (needed by the listener seam, the log event and the checkpoint kind; T2 to T5 did not list them). The timeout test (`Tiers:nvidia:TimeoutSeconds=1`) runs on the system clock with a real timer of about 1 s, because on the fake clock a stalled call has a zero-length window: `Close()` throws "no duration", `MeteredChatClient` swallows it onto `Error.Data` and no reading is published (pre-existing behaviour, builder-reported).
 User story: As a user, I want a failed workflow step to stop the tier, keep the partial results file and exit 5, so that a rate-limit exhaustion or an unreachable endpoint never discards finished steps and never looks like success.
 Acceptance criteria:
 1. With an endpoint that answers 429 on every call the fake handler records exactly 5 HTTP requests, `AJ run` exits 5 and the results file contains the failed step with `outcome: "error"` (test `Exhausted_429_writes_partial_file_and_exits_5`).
@@ -1177,14 +1184,15 @@ Tasks:
 Test mapping: `RetryPolicyTests` (design class, trait `Spec=EDGE-006`); feature file `tests/AgentJoules.Specs/Features/Cli/StepFailure.feature`.
 Docs impact: `docs/build-log.md`; the README troubleshooting entry for exit 5 is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21, battery 2: scenarios `Category=AJ-S057` 5 passed and 0 failed, `RetryPolicyTests` green, build exit 0 with 0 warnings)
+- [x] docs listed above updated (2026-10-21: README run section, design 3.6 and the AJ-056 amendment line, this note, and the build-log entry)
+- [x] `dotnet test --filter "Spec=EDGE-006"` shows at least one passed and no failed test (2026-10-21, battery 2: 95 passed, 0 failed)
 Demo relevance: no.
 
 ### AJ-058: Map every failure to the documented exit code
 Covers: REQ-017, EDGE-001
 Note (2026-10-20, M1 exit): EDGE-001 added per plan section 5 seam row 5 (`run --tier local` with the missing-NVML fake carries the EDGE-001 trait) and the M1 spec full pass, so the trait is not lost.
+Note (2026-10-21, AJ-058): the feature file is `tests/AgentJoules.Specs/Features/Cli/AJ-058-exit-codes.feature` (the M2 name mapping, instead of `ExitCodes.feature`); it is byte-identical to the story block (`cmp` exit 0, builder-measured). Criterion 1 already held: `ExitCode` in `src/AgentJoules.Core/Cli/ExitCode.cs` defines 0 to 7 (`ContentDiffers = 7`), and AJ-058 changed nothing in it. Criterion 2: code 5 is proven by a refused connection through `run --tier nvidia --dry-run` (`FailureLines` in `ExitCodeTests`); code 7 is proven by a `ContentDiffersException` thrown from the `probe` GPU-factory override, not through `run`, because the run command's orchestrator double wraps an exception thrown inside a step into a step failure (builder-reported). The EDGE-001 fact `Run_tier_local_without_the_NVML_library_exits_6_naming_it_and_makes_no_completion_call` (`Spec=EDGE-001`) sits in `ExitCodeTests` next to the AJ-054 proof in `DryRunTests.Run.cs`, because the test mapping names `ExitCodeTests`. Criterion 3 is extended to parse errors, which print one line ending with the type in brackets: `run --tier bogus` prints `error: Argument 'bogus' not recognized. Must be one of: 'local' 'cloudgpu' 'nvidia' 'nebius' 'all' (ParseError)`; two parse errors at once are joined with `; ` into that one line; `run --tier nvidia --mode parallel` prints `error: Argument 'parallel' not recognized. Must be one of: 'serialized' 'concurrent' (ParseError)` (builder-measured lines). The no-command path is read as usage text, not as a failure line: it prints the usage on stderr and exits 2 with no error line. Task T4 needed no change, because AJ-034 and AJ-054 built the mapper wiring. T5 became `ExitCodeMapper.Describe`, with its eight meaning texts asserted in `DocumentedCodes`; no README rows were added (the table is AJ-131-T4, M6). The AJ-054 test `The_tier_rule_lists_the_allowed_values_with_spaces_and_no_replaced_tab` in `tests/AgentJoules.UnitTests/DryRunTests.Run.cs` was re-anchored to the new parse-line form (2 lines), its intent kept.
 User story: As a script author, I want each failure class to end in a fixed exit code with one redacted error line, so that automation can react to missing keys, unknown models, unreachable endpoints and missing GPUs without parsing text.
 Acceptance criteria:
 1. `ExitCode` is the enum 0 success, 1 unexpected, 2 invalid arguments or configuration, 3 missing API key, 4 model not found, 5 unreachable or retries exhausted, 6 measurement precondition failed, 7 generated content differs.
@@ -1244,9 +1252,9 @@ Tasks:
 Test mapping: `ExitCodeTests` (design class, trait `Spec=REQ-017`, with `Spec=EDGE-001` on the `run --tier local` missing-NVML case (exit 6)); feature file `tests/AgentJoules.Specs/Features/Cli/ExitCodes.feature`.
 Docs impact: README section "Exit codes" is created by AJ-131-T4 in M6; this story only verifies the code-to-meaning mapping in code and adds rows if the table already exists (then the table exists exactly once).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-017"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings (2026-10-21, battery 2: `Category=AJ-S058` 11 passed and 0 failed, `ExitCodeTests` 87 passed, build exit 0 with 0 warnings)
+- [x] docs listed above updated (2026-10-21: README `### run` sentence, design 3.6 exit-mapping amendment, this note and the build-log entry; the README exit-code table stays with AJ-131-T4 in M6)
+- [x] `dotnet test --filter "Spec=REQ-017"` shows at least one passed and no failed test (2026-10-21, battery 2: 278 passed, 0 failed)
 Demo relevance: no.
 
 ## Risks

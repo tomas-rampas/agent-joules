@@ -28,7 +28,8 @@ namespace AgentJoules.Core.Energy;
 /// nominal interval. The buffer is strictly increasing: a sample taken at the same instant as the last one replaces it (one sample
 /// per instant, so an edge sample supersedes a tick that landed on the same instant), and a sample earlier than the last one is a
 /// clock that went backwards, which throws <see cref="InvalidOperationException"/> from <see cref="OpenWindow"/> and
-/// <see cref="IMeterWindow.Close"/> and skips the tick in the loop. The buffer is not trimmed in M1.
+/// <see cref="IMeterWindow.Close"/> and skips the tick in the loop. The buffer is not trimmed (M1 and M2), so the union of any windows of the run can
+/// still be computed from it.
 /// </para>
 /// <para>
 /// Failed reads. A power read that throws <see cref="InvalidOperationException"/> (or returns a value that is not a finite,
@@ -48,6 +49,17 @@ namespace AgentJoules.Core.Energy;
 /// stays open. Overlapping windows each report their own slice. Closing a window after the meter was disposed throws
 /// <see cref="ObjectDisposedException"/>. The timer period and the reading's sample rate both come from
 /// <see cref="Capabilities"/>, and a meter built from fallback capabilities flags every window.
+/// </para>
+/// <para>
+/// Union. Under the counter method every counter mark a window edge takes, at <see cref="OpenWindow"/> and at <see cref="IMeterWindow.Close"/>, is also
+/// recorded with its instant and its edge (open or close) under the lock, a failed read as a mark without a value, so a segment boundary can tell "not
+/// read" from "no such edge" (both read <c>counter-not-read</c>) and a segment start never takes the close mark of a window that touches it; the marks are
+/// never trimmed either. An edge whose instant is earlier than the last recorded mark is a clock that went backwards and throws
+/// <see cref="InvalidOperationException"/> before anything is read, as an edge sample earlier than the last sample does, so the marks stay in time order.
+/// <see cref="ComputeUnion"/> checks the windows first, copies the marks or only the samples inside the merged segments and the stored baseline under the
+/// lock, and computes with <see cref="UnionWindowCalculator"/> after the lock is released, over that copy in place. It works while the loop runs and after the windows were closed, and also after the
+/// loop stopped on a fault, because the samples and marks of windows that were closed before it are still valid; it refuses only a meter that was not
+/// started or was disposed.
 /// </para>
 /// <para>
 /// Baseline. <see cref="MeasureBaselineAsync"/> takes an edge sample under the lock (the same path as opening a window), waits the
@@ -106,14 +118,14 @@ public sealed class SampledEnergyMeter : IEnergyMeter
     // NVML reports power as an unsigned 32-bit milliwatt count, so no real reading exceeds this many watts.
     private const double MaxWatts = uint.MaxValue / 1000.0;
 
-    // 2^63: the first double above every long.
-    private const double LongUpperBound = 9223372036854775808.0;
-
     private readonly IGpuTelemetrySource _source;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _period;
     private readonly Lock _gate = new();
     private readonly List<PowerSample> _samples = [];
+
+    // Every counter mark a window edge took under the counter method, in time order (guarded by the lock); empty under the sampling method.
+    private readonly List<CounterMark> _counterMarks = [];
 
     // Cancelled when the sampling loop ends for any reason or the meter is disposed; it ends a pending baseline wait. It is never
     // waited on, so it holds no handle and needs no disposal.
@@ -254,10 +266,45 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         {
             ThrowIfNotRunning();
             double seconds = ElapsedSeconds();
+            ThrowIfBeforeLastMark(seconds);
             _ = TrySample(seconds);
             double? mark = ReadCounterMark();
+            RecordCounterMark(seconds, mark, CounterEdge.Open);
             return new Window(this, seconds, mark);
         }
+    }
+
+    /// <inheritdoc />
+    public UnionEnergy ComputeUnion(IReadOnlyList<WindowSpan> windows)
+    {
+        // The windows are checked before the state, so a rejected list leaves the meter untouched (as MeasureBaselineAsync checks its arguments first).
+        WindowSpan[] segments = UnionWindowCalculator.Merge(windows);
+        PowerSample[] inside = [];
+        CounterMark[] marks = [];
+        double? baselineMeanWatts;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            if (!_started)
+            {
+                throw new InvalidOperationException("The meter was not started; call StartAsync first.");
+            }
+
+            // Only copies while the lock is held; a span over a list would not survive its growth, and the computation runs after the lock is released.
+            baselineMeanWatts = _baselineMeanWatts;
+            if (Capabilities.Method == EnergyMethod.Counter)
+            {
+                marks = [.. _counterMarks];
+            }
+            else
+            {
+                inside = CopySamplesInside(segments);
+            }
+        }
+
+        return Capabilities.Method == EnergyMethod.Counter
+            ? UnionWindowCalculator.ComputeFromCounterMarks(segments, marks, baselineMeanWatts)
+            : UnionWindowCalculator.ComputeFromSamples(segments, inside, baselineMeanWatts);
     }
 
     /// <inheritdoc />
@@ -530,17 +577,57 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         }
     }
 
-    private static long? CounterDelta(double? openMark, double? closeMark)
+    // A counter that went backwards must never round to 0 and read as an idle window: any negative difference becomes at most -1. The rule is shared with
+    // the segments of a union, and a segment reads the open mark at its start and the close mark at its stop, so a window and the union of that one window
+    // give the same delta and two touching windows unite to the sum of their deltas.
+    private static long? CounterDelta(double? openMark, double? closeMark) => UnionWindowCalculator.CounterDeltaOf(openMark, closeMark);
+
+    // An edge earlier than the last counter mark is a clock that went backwards, refused like a sample earlier than the last sample, before anything is read; the
+    // last sample alone cannot catch it when the edge sample at that mark was a failed read. Without the check the marks would leave time order and every later
+    // union would be refused. The caller holds the lock.
+    private void ThrowIfBeforeLastMark(double seconds)
     {
-        if (openMark is not { } open || closeMark is not { } close)
+        if (_counterMarks.Count > 0 && seconds < _counterMarks[^1].Seconds)
         {
-            return null;
+            throw new InvalidOperationException("The clock went backwards: a window edge cannot be earlier than the previous counter mark.");
+        }
+    }
+
+    // The caller holds the lock and took the instant inside it, after the edge sample, so the marks stay in time order. Only the counter method takes marks.
+    private void RecordCounterMark(double seconds, double? mark, CounterEdge edge)
+    {
+        if (Capabilities.Method == EnergyMethod.Counter)
+        {
+            _counterMarks.Add(new CounterMark(seconds, mark, edge));
+        }
+    }
+
+    // The samples inside the merged segments (both edges of every segment included), in time order, copied in one array; a sample at the instant where
+    // two touching segments meet is copied once. The samples between the segments are not copied. The caller holds the lock.
+    private PowerSample[] CopySamplesInside(WindowSpan[] segments)
+    {
+        var ranges = new (int Low, int High)[segments.Length];
+        int count = 0;
+        int previousHigh = 0;
+        for (int i = 0; i < segments.Length; i++)
+        {
+            int low = Math.Max(LowerBound(segments[i].StartSeconds), previousHigh);
+            int high = Math.Max(UpperBound(segments[i].StopSeconds), low);
+            ranges[i] = (low, high);
+            count += high - low;
+            previousHigh = high;
         }
 
-        // A counter that went backwards must never round to 0 and read as an idle window: any negative difference becomes at most -1.
-        double difference = close - open;
-        double delta = difference < 0.0 ? Math.Floor(difference) : Math.Round(difference);
-        return double.IsFinite(delta) && delta >= long.MinValue && delta < LongUpperBound ? (long)delta : null;
+        var copy = new PowerSample[count];
+        ReadOnlySpan<PowerSample> buffer = CollectionsMarshal.AsSpan(_samples);
+        int next = 0;
+        foreach ((int low, int high) in ranges)
+        {
+            buffer[low..high].CopyTo(copy.AsSpan(next));
+            next += high - low;
+        }
+
+        return copy;
     }
 
     // Index of the first sample at or after the given time. The caller holds the lock.
@@ -610,8 +697,10 @@ public sealed class SampledEnergyMeter : IEnergyMeter
                 throw new InvalidOperationException("The window has no duration: it was closed at the same instant it was opened (zero duration).");
             }
 
+            ThrowIfBeforeLastMark(stop);
             _ = TrySample(stop);
             closeMark = ReadCounterMark();
+            RecordCounterMark(stop, closeMark, CounterEdge.Close);
             window.MarkClosed(stop);
             baselineMeanWatts = _baselineMeanWatts;
 

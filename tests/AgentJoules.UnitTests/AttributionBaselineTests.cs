@@ -19,7 +19,7 @@ using Xunit;
 namespace AgentJoules.UnitTests;
 
 [Trait("Spec", "REQ-005")]
-public sealed class AttributionBaselineTests
+public sealed partial class AttributionBaselineTests
 {
     private const double Tolerance = 1e-9;
     private const double Threshold = 0.10;
@@ -454,7 +454,7 @@ public sealed class AttributionBaselineTests
 
     [Theory]
     [InlineData((EnergyMethod)0)]
-    [InlineData((EnergyMethod)3)]
+    [InlineData((EnergyMethod)4)]
     [InlineData((EnergyMethod)99)]
     public void AnUndefinedMethodIsRejected(EnergyMethod method)
     {

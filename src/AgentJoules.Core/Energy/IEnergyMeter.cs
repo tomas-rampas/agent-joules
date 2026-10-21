@@ -5,7 +5,8 @@ namespace AgentJoules.Core.Energy;
 /// Every window is computed from the same sample buffer, with or without the energy counter.
 /// </summary>
 /// <remarks>
-/// The union computation joins this interface with REQ-013 (M2); it is not declared here, so no member of this interface is a stub.
+/// <see cref="ComputeUnion"/> computes the run-level energy of a concurrent run over the union of its windows (REQ-013, EDGE-004), from the same
+/// buffer and counter marks the windows were computed from.
 /// </remarks>
 public interface IEnergyMeter : IAsyncDisposable
 {
@@ -46,6 +47,20 @@ public interface IEnergyMeter : IAsyncDisposable
     /// <exception cref="InvalidOperationException">The meter was not started, the clock went backwards, or the sampling loop stopped (the inner exception is the cause).</exception>
     /// <exception cref="ObjectDisposedException">The meter was disposed.</exception>
     IMeterWindow OpenWindow();
+
+    /// <summary>
+    /// Computes the energy of the union of <paramref name="windows"/>, the concurrent-mode totals (REQ-013, design 3.2 "Union"): the windows are
+    /// merged where they strictly overlap (<see cref="UnionWindowCalculator.Merge"/>; windows that only touch stay two segments), the counter method
+    /// sums the counter deltas between the marks recorded at the segment boundaries, the sampling method integrates the sample buffer over each
+    /// segment, and the net subtracts the stored baseline power times the summed segment length. A hosted meter returns N/A <c>hosted-tier</c>.
+    /// </summary>
+    /// <param name="windows">The spans of closed windows of this meter, in any order; at least one.</param>
+    /// <returns>The energy of the union; a value that cannot be computed is not-reported with its reason, never 0.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="windows"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="windows"/> is empty, or a window has a bound that is not finite or does not stop after it starts (an open window); checked before anything else.</exception>
+    /// <exception cref="InvalidOperationException">A measuring meter was not started.</exception>
+    /// <exception cref="ObjectDisposedException">A measuring meter was disposed.</exception>
+    UnionEnergy ComputeUnion(IReadOnlyList<WindowSpan> windows);
 }
 
 /// <summary>

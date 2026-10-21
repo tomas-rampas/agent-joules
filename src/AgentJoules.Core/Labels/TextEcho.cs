@@ -3,22 +3,30 @@ using System.Globalization;
 namespace AgentJoules.Core.Labels;
 
 /// <summary>Makes caller- or document-controlled text safe to put into an exception message that may reach a log or a console.</summary>
-internal static class TextEcho
+public static class TextEcho
 {
-    private const int MaxLength = 64;
+    /// <summary>The number of characters an echo keeps unless the caller asks for another length.</summary>
+    public const int DefaultMaxLength = 64;
+
+    /// <summary>The three characters <see cref="ForMessage(string, int)"/> appends after a cut; <see cref="Security.SecretRedactor"/> registers the cut forms of a key with it.</summary>
+    internal const string CutMarker = "...";
 
     /// <summary>
-    /// Cuts the text to 64 characters (appending <c>...</c> when cut) and replaces every control character (C0, DEL, C1),
+    /// Cuts the text to <paramref name="maxLength"/> characters (appending <c>...</c> when cut) and replaces every control character (C0, DEL, C1),
     /// format character (for example U+202E) and line or paragraph separator (U+2028, U+2029) with <c>?</c>.
     /// </summary>
     /// <param name="text">The text to echo.</param>
-    internal static string ForMessage(string text)
+    /// <param name="maxLength">The most characters of <paramref name="text"/> to keep, at least 1; 64 unless given.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxLength"/> is less than 1.</exception>
+    public static string ForMessage(string text, int maxLength = DefaultMaxLength)
     {
         ArgumentNullException.ThrowIfNull(text);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxLength, 1);
 
         // Cut one character earlier when the cut would separate a surrogate pair, so no lone high surrogate is left behind.
-        int cut = text.Length > MaxLength && char.IsHighSurrogate(text[MaxLength - 1]) ? MaxLength - 1 : MaxLength;
-        string bounded = text.Length > MaxLength ? string.Concat(text.AsSpan(0, cut), "...") : text;
+        int cut = text.Length > maxLength && char.IsHighSurrogate(text[maxLength - 1]) ? maxLength - 1 : maxLength;
+        string bounded = text.Length > maxLength ? string.Concat(text.AsSpan(0, cut), CutMarker) : text;
 
         return string.Create(bounded.Length, bounded, static (span, source) =>
         {

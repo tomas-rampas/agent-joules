@@ -1,3 +1,5 @@
+using AgentJoules.Core.Configuration;
+
 using Microsoft.Extensions.Configuration;
 
 namespace AgentJoules.TestSupport;
@@ -13,6 +15,18 @@ public static class ConfigurationFixtures
 
     /// <summary>The path of the shipped <c>config/appsettings.json</c>; the file itself may not exist yet.</summary>
     public static string AppSettingsPath() => Path.Combine(RepositoryRoot(), "config", "appsettings.json");
+
+    /// <summary>The options the shipped <c>config/appsettings.json</c> binds to. Each call loads the file again and returns a new instance, so a test that changes the options cannot affect another test.</summary>
+    /// <returns>A new options instance.</returns>
+    public static AgentJoulesOptions ShippedOptions() => OptionsLoader.Load(FromJsonFile(AppSettingsPath()));
+
+    /// <summary>Every model ID the shipped configuration names: the model of each tier and the judge model, each once.</summary>
+    /// <returns>The model IDs.</returns>
+    public static string[] ShippedModelIds()
+    {
+        AgentJoulesOptions shipped = ShippedOptions();
+        return [.. shipped.Tiers.Values.Select(static tier => tier.ModelId).Append(shipped.Judge.ModelId).OfType<string>().Distinct(StringComparer.Ordinal)];
+    }
 
     /// <summary>Builds a configuration that holds only <paramref name="pairs"/>; a later pair with the same key wins.</summary>
     public static IConfiguration InMemory(params (string Key, string Value)[] pairs) =>

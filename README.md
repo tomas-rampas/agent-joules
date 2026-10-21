@@ -59,6 +59,80 @@ Prints the GPU, driver, power limit and energy method that will be measured; wit
 - `--suffix <text>`: only with `--save`; adds `-<text>` to the file name, for example `--suffix cloudgpu` gives `results/probe-20261019T093015Z-cloudgpu.json`. The text must be 1 to 20 ASCII letters or digits (`^[A-Za-z0-9]{1,20}$`), so it cannot hold a path separator or `..`; anything else, or `--suffix` without `--save`, exits 2 and writes nothing.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
 
+### run
+
+`run` validates the configuration, the keys and the model IDs of the selected tiers and, outside `--dry-run`, runs the measured workflow. The measured run (without `--dry-run`) runs the workflow for every selected tier, in the fixed order of `--tier all`. For a measured tier (`local`, `cloudgpu`) the GPU is opened, the meter started, the warm-up seam called (a no-op until the local runtime arrives in M4) and the idle baseline measured for `--baseline-seconds`; a warning is printed on stderr when the baseline is unstable. The hosted tiers (`nvidia`, `nebius`) skip those steps and have no GPU energy meter. Every task runs `--repeat` times, each time with fresh agents and a fresh workflow. One results file per tier is written under `--out`, named `<yyyyMMddTHHmmssZ>-<tier>[-baseline].json`; with `--tier all` every file of the command carries the same timestamp. The file is rewritten atomically after every task and repeat: `run.status` is `running` until the last task and repeat finish, then `completed`. The console prints one line per finished step, `<task> r<repeat> <agent> <outcome> netJ=<v|N/A> avgW=<v|N/A> in=<v|not-reported> out=<v|not-reported> latency=<ms>`, where a missing value prints its label and never 0; after each tier it prints `results: <--out as given>/<file name>` and `totals: grossJ=<v|N/A> netJ=<v|N/A> in=<v|not-reported> out=<v|not-reported> cost=<CUR v[,CUR v]|N/A> wallClockMs=<v|not-reported>`. In M2 the judge seam scores nothing (every `quality` stays N/A `not-scored` and the `judge` array is empty) and the local-runtime seam describes nothing (the runtime fields of `environment` are null); M3 and M4 fill them. Ctrl+C, SIGTERM, SIGHUP or a host stop leaves a file whose `run.status` is `incomplete`, with the in-flight steps marked `incomplete`, and the command exits 5. The incomplete file is written before the incomplete step lines are printed. The write has a budget of at most 10 s and never more than 12 s after the signal (at least 1 s); if it fails, the command prints one stderr line `Warning: the run file could not be written after the shutdown (<Type>); the last complete checkpoint was kept` (or `...; no checkpoint of this tier was written` when no checkpoint of the tier exists yet, for example after a shutdown during the baseline or the first task and repeat) and still exits 5. A tier that had not started when the cancellation landed gets no file. A shutdown inside the local baseline wait leaves a file with a null baseline and zero steps, and its sums are not-reported (`no-steps`). A failed step stops the tier and exits 5. A step fails on a provider status other than 429, a refused connection, a timeout, or a 429 answer on every one of the 5 attempts; no other status is retried. The file is then rewritten with `run.status` `failed` and holds every step published so far: the failed step with `outcome` `error` and its `retries`, and the steps finished before it unchanged; steps that never ran are absent, never zero-filled. When the failing agent's latest reading has outcome `incomplete` (a connection that dropped after the first update), `run.status` is `incomplete` instead. The console then prints `results: <--out as given>/<file name>` and `status: failed at <agent>` (or `status: incomplete at <agent>`), with no `totals:` line for that tier, and the error line ends with `; partial results in <that path>`. With `--tier all` the first failing tier stops the command and the files of earlier tiers remain. If the failed-step file cannot be written, stderr carries `Warning: the run file could not be written after the failed step (<Type>); the last complete checkpoint was kept` (or `...; no checkpoint of this tier was written`), the error line has no partial-file suffix, and the command still exits 5. Before any request, the command refuses a run file whose name already exists (exit 1: `The run file <name> exists already and is not replaced; wait a second and run again.`). Cost totals follow one rule: when every step is priced, `costByCurrency` holds the per-currency sums; when some step lacks a cost, each currency seen maps to N/A with the reason `missing-step-costs` and the `totals:` line prints `cost=N/A`; with no priced step the map is empty, as in M2. The console metrics exporter prints a metrics block on stdout about every 10 s during the run, between the step lines, and once more at the end; the interval is 10000 ms (measured on OpenTelemetry.Exporter.Console 1.18.0), and `--no-console-telemetry` switches the block off.
+
+- `--tier <local|cloudgpu|nvidia|nebius|all>` (required): the tier to run. `all` expands to the tiers enabled in the configuration, in the fixed order local, cloudgpu, nvidia, nebius. `cloudgpu` is disabled in the committed configuration and is enabled on the VM with `AGENTJOULES__Tiers__cloudgpu__Enabled=true`.
+- `--task <name>`: run one task of the `tasks/` folder; by default every task runs, in file-name order. An unknown name exits 2 and lists the available names. The folder comes from `Paths:Tasks` (default `tasks`, relative to the working directory, never absolute and never containing `..`).
+- `--mode <serialized|concurrent>` (default `serialized`): how the agents' calls share the GPU. `serialized` holds the process-wide meter gate for each metered window, so one step's energy is not mixed with another's. `concurrent` lets the calls overlap: every step on a measured tier whose metering window strictly overlaps another step's window is flagged `shared-window` (windows that only touch at a boundary are not flagged), and hosted-tier steps are never flagged. On a measured tier the energy totals (`grossJoules`, `netJoules`) of a concurrent run are computed over the union of the windows, so they are not the sum of the step energies. The hosted tiers keep the N/A totals with the reason `hosted-tier`, never 0. Tokens and cost are summed in both modes. Any other value exits 2.
+- `--out <dir>` (default `results`): where the run files go, relative to the working directory unless absolute. A directory that cannot be written exits 1 before any request. A blank value exits 2; a drive-relative value such as `C:results` joins the working directory on that drive.
+- `--baseline-seconds <n>` (default `Baseline:Seconds` (30); a whole number greater than 0 and at most 4294967; the configuration key accepts fractions down to 0.001, the flag whole seconds only): the length of the idle baseline for the measured tiers.
+- `--repeat <n>` (default 3): how often each task runs; 1 or more.
+- `--dry-run`: validate everything and make no completion call. The keys of every selected tier and the judge key are checked in one message (exit 3). `GET /v1/models` runs on each selected endpoint (exit 5 when it cannot be reached, exit 4 when a configured model ID is not listed, with up to 20 listed IDs printed, Nemotron and Qwen first). The GPU of the measured tiers is checked (exit 6 without a GPU or NVML, naming the missing library), and the task folder is checked. The command prints one line per tier, `<tier> <endpoint> <matched model ids> OK`, and exits 0. Nothing is written.
+- `--no-console-telemetry`: do not print the OpenTelemetry metrics to the console at the end of a run (see Telemetry). A dry run prints none in any case.
+- `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
+
+Dry-run example (the three endpoints and model IDs of `config/appsettings.json`):
+
+```text
+dotnet run --project src/AgentJoules.Cli -- run --tier all --dry-run
+local http://localhost:11434/v1 nemotron-3-nano:30b OK
+nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-nano-3-30b-a3b OK
+nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B OK
+```
+
+A wrong option value exits 2 before anything runs and prints one stderr line `error: <message> (ParseError)` (several parse errors are joined with `; ` into that one line); the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
+
+## Keys
+
+The hosted tiers read their API key from the environment variable named by `Tiers:<tier>:ApiKeyVariable` in `config/appsettings.json`: `NVIDIA_API_KEY` for `nvidia` and `NEBIUS_API_KEY` for `nebius`. The judge uses its tier's variable. `NGC_API_KEY` is the NIM container pull key of the local tier setup (M4), not a hosted-tier key.
+
+- A variable name must end with `_API_KEY`; any other value stops the command with exit 2 and names the setting.
+- Before any request, a run checks the variable of every selected tier. Missing variables are reported in one message that names each of them and the alternative, and the run exits 3 without sending a request.
+- Outside `--dry-run`, a missing judge key only prints a warning and the run continues.
+- With `CloudGpu:RequireSshVariables` true (the laptop default), `cloudgpu` also requires `CLOUDGPU_SSH_HOST` and `CLOUDGPU_SSH_USER`.
+
+PowerShell, for your user account (new terminals only):
+
+```powershell
+setx NVIDIA_API_KEY "<value>"
+```
+
+Portable, into the user-secrets store of the CLI project:
+
+```bash
+dotnet user-secrets set "NVIDIA_API_KEY" "<value>" --project src/AgentJoules.Cli
+```
+
+An environment variable of the same name overrides the user-secrets value (the host reads the JSON file, then user secrets, then environment variables), and on Windows a User-scope variable overrides a Machine-scope one. When a key that you know is valid is refused with HTTP 401, check which copy the process sees before replacing it.
+
+Values are never printed. Every output line masks a registered key to `****`: the full value, its JSON-encoded form, its first 64 characters and every cut the 64-character echo limit can produce. Up to 7 characters can remain when a key starts after more than 56 characters of other text, and a URL-encoded or base64 copy of a key is not masked. Note that `setx` leaves the value in the shell history (PSReadLine) and that the user-secrets store is unencrypted JSON under your profile; clear the history line after setting a key.
+
+## Telemetry
+
+Every metered agent step records OpenTelemetry metrics on the meter named `AgentJoules`.
+
+| Instrument | Kind | Unit | Attribute |
+|---|---|---|---|
+| `agentjoules.step.energy` | histogram | J | `aj.energy.kind`: `gross` or `net` |
+| `agentjoules.step.power` | histogram | W | the step average |
+| `agentjoules.step.tokens` | counter | `{token}` | `aj.token.type`: `input` or `output` |
+| `agentjoules.step.latency` | histogram | ms | none |
+| `agentjoules.step.cost` | counter | none (the currency is in `aj.currency`) | `aj.currency` |
+
+Only the instruments whose names start with `agentjoules.` leave the process; the instruments of the agent middleware on the same meter are dropped.
+
+Every measurement carries `gen_ai.agent.name`, `aj.tier` and `gen_ai.request.model`. A value that does not exist (hosted-tier energy, unreported tokens, unpriced cost) is not recorded rather than recorded as 0. No prompt or output text is ever exported: `EnableSensitiveData` is off. Net energy is not recorded for a step that ends below the idle baseline, so the count of net points can be lower than the count of gross points; the results file keeps the value.
+
+- Console exporter: on by default for `run` and `calibrate`; switch it off with `--no-console-telemetry`. It is never on for `probe`, whose stdout holds only the probe output.
+- OTLP exporter: enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is set to an absolute http or https URL without user-info, query or fragment; a set but invalid value stops the command with exit 2 and names the variable, never its value. `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` enable their own signal on their own. It carries the metrics and the traces of the sources `AgentJoules` and `Microsoft.Agents.AI.Workflows*`. Blank or unset means no OTLP exporter is added.
+- OTLP protocol and headers: `OTEL_EXPORTER_OTLP_PROTOCOL` and the headers keys `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS` and `OTEL_EXPORTER_OTLP_TRACES_HEADERS` are read from the same configuration as the endpoint and sent only to that endpoint. With headers configured for a signal, its endpoint must be https unless its host is loopback, so a header token never travels in cleartext; use an https collector you trust.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dotnet run --project src/AgentJoules.Cli -- run --tier nvidia
+```
+
 ## Reproduce
 
 Filled during the build: the exact steps to regenerate every results file and the report on your own NVIDIA GPU.

@@ -39,6 +39,7 @@ public sealed class MetricTests
         "below-baseline",
         "throttled",
         "partial-offload",
+        "max-tokens-exceeded",
     ];
 
     private static string Serialize(Metric metric) => JsonSerializer.Serialize(metric, Options);
@@ -756,6 +757,7 @@ public sealed class MetricTests
     [InlineData(ReadingFlags.BelowBaseline, "below-baseline")]
     [InlineData(ReadingFlags.Throttled, "throttled")]
     [InlineData(ReadingFlags.PartialOffload, "partial-offload")]
+    [InlineData(ReadingFlags.MaxTokensExceeded, "max-tokens-exceeded")]
     public void ToStrings_SingleFlag_ReturnsItsVocabularyString(ReadingFlags flag, string expected)
     {
         string[] expectedNames = [expected];
@@ -770,10 +772,10 @@ public sealed class MetricTests
     }
 
     [Fact]
-    public void ToStrings_AllSevenFlags_ReturnsTheWholeVocabularyInBitOrder()
+    public void ToStrings_AllEightFlags_ReturnsTheWholeVocabularyInBitOrder()
     {
         ReadingFlags all = ReadingFlags.SamplingFallback | ReadingFlags.LowResolution | ReadingFlags.SharedWindow
-            | ReadingFlags.BaselineUnstable | ReadingFlags.BelowBaseline | ReadingFlags.Throttled | ReadingFlags.PartialOffload;
+            | ReadingFlags.BaselineUnstable | ReadingFlags.BelowBaseline | ReadingFlags.Throttled | ReadingFlags.PartialOffload | ReadingFlags.MaxTokensExceeded;
 
         Assert.Equal(FlagVocabulary, ReadingFlagNames.ToStrings(all));
     }
@@ -795,6 +797,7 @@ public sealed class MetricTests
     [InlineData("below-baseline", ReadingFlags.BelowBaseline)]
     [InlineData("throttled", ReadingFlags.Throttled)]
     [InlineData("partial-offload", ReadingFlags.PartialOffload)]
+    [InlineData("max-tokens-exceeded", ReadingFlags.MaxTokensExceeded)]
     public void Parse_EveryVocabularyName_ReturnsItsFlag(string name, ReadingFlags expected)
     {
         Assert.Equal(expected, ReadingFlagNames.Parse(name));
@@ -840,9 +843,9 @@ public sealed class MetricTests
     }
 
     [Theory]
-    [InlineData(128)]
+    [InlineData(256)]
     [InlineData(-1)]
-    [InlineData(255)]
+    [InlineData(511)]
     [InlineData(int.MinValue)]
     public void ToStrings_WithABitOutsideTheVocabulary_ThrowsArgumentOutOfRangeException(int raw)
     {
@@ -854,7 +857,7 @@ public sealed class MetricTests
     [Fact]
     public void ToStrings_KnownFlagCombinedWithAnUndefinedBit_ThrowsInsteadOfDroppingTheBit()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => ReadingFlagNames.ToStrings(ReadingFlags.Throttled | (ReadingFlags)128));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ReadingFlagNames.ToStrings(ReadingFlags.Throttled | (ReadingFlags)256));
     }
 
     [Fact]
@@ -906,17 +909,17 @@ public sealed class MetricTests
     }
 
     [Fact]
-    public void ReadingFlags_IsAFlagsEnumWithSevenDistinctPowerOfTwoMembersAndNone()
+    public void ReadingFlags_IsAFlagsEnumWithEightDistinctPowerOfTwoMembersAndNone()
     {
         Assert.NotNull(typeof(ReadingFlags).GetCustomAttribute<FlagsAttribute>());
         Assert.Equal(0, (int)ReadingFlags.None);
 
         int[] values = [.. Enum.GetValues<ReadingFlags>().Select(flag => (int)flag).Where(value => value != 0)];
 
-        Assert.Equal(7, values.Length);
-        Assert.Equal(7, values.Distinct().Count());
+        Assert.Equal(8, values.Length);
+        Assert.Equal(8, values.Distinct().Count());
         Assert.All(values, value => Assert.True(value > 0 && (value & (value - 1)) == 0, $"{value} is not a power of two."));
-        string[] expectedNames = ["BaselineUnstable", "BelowBaseline", "LowResolution", "PartialOffload", "SamplingFallback", "SharedWindow", "Throttled"];
+        string[] expectedNames = ["BaselineUnstable", "BelowBaseline", "LowResolution", "MaxTokensExceeded", "PartialOffload", "SamplingFallback", "SharedWindow", "Throttled"];
 
         Assert.Equal(
             expectedNames,

@@ -1,11 +1,10 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Labels;
 
-using GpuThrottleReasons = AgentJoules.Core.Gpu.ThrottleReasons;
+using static AgentJoules.Core.Energy.EnergyShapeRules;
 
 namespace AgentJoules.Core.Energy;
 
@@ -13,8 +12,10 @@ namespace AgentJoules.Core.Energy;
 /// The single reading shape both meters produce for one window (design 3.2). In production <see cref="ReadingCalculator"/>
 /// builds it; tests and deserialisation build it through the same public constructor, which checks every invariant, so a
 /// reading that exists is always well formed. A value that could not be determined is a not-reported <see cref="Metric"/>
-/// with a reason, never 0. Deserialising a document runs the constructor checks: a violated invariant (a missing or null metric,
-/// a non-positive duration, a negative count, a non-positive rate, flags outside the vocabulary, a label other than measured,
+/// with a reason, never 0. The one reading without a measurement is the unmetered one of a hosted tier (<see cref="EnergyMethod.Unmetered"/>): all four metrics
+/// are N/A with the reason <c>hosted-tier</c>, the sample count and the rate are 0, and there are no flags and no throttle reasons.
+/// Deserialising a document runs the constructor checks: a violated invariant (a missing or null metric,
+/// a non-positive duration, a negative count, a non-positive rate (0 for the unmetered method only), flags outside the vocabulary, a label other than measured,
 /// not-reported or N/A, a measured value without its unit J or W, a measured negative net without the below-baseline flag or that flag
 /// without such a net, the sampling-fallback flag with the counter method, the throttled flag without throttle reasons or reasons
 /// without the flag, a reason that is not one of the five throttle names or is repeated or out of bit order) surfaces as an unwrapped
@@ -22,9 +23,6 @@ namespace AgentJoules.Core.Energy;
 /// </summary>
 public sealed record EnergyReading
 {
-    private const string JouleUnit = "J";
-    private const string WattUnit = "W";
-
     /// <summary>Creates a reading after checking every invariant.</summary>
     /// <param name="grossJoules">The energy the GPU drew in the window, in joules.</param>
     /// <param name="netJoules">The gross energy minus the idle baseline power times the duration; negative values are kept.</param>
@@ -33,7 +31,7 @@ public sealed record EnergyReading
     /// <param name="durationSeconds">The window length in seconds; positive and finite.</param>
     /// <param name="method">The method that produced <paramref name="grossJoules"/>; a defined member.</param>
     /// <param name="sampleCount">The number of power samples in the window, both edges included; not negative.</param>
-    /// <param name="sampleRateHz">The configured sampling rate in hertz; positive and finite.</param>
+    /// <param name="sampleRateHz">The configured sampling rate in hertz; positive and finite, except that the unmetered method has no sampling and needs exactly 0.</param>
     /// <param name="flags">The qualifiers of this reading; only bits of the vocabulary.</param>
     /// <param name="throttleReasons">
     /// The names of the throttle reasons seen in the window: listed when any sample carried a throttling bit, an empty list when every
@@ -76,7 +74,7 @@ public sealed record EnergyReading
             throw Rejected(nameof(sampleCount), $"The sample count must not be negative, but it is {sampleCount}.");
         }
 
-        if (!double.IsFinite(sampleRateHz) || sampleRateHz <= 0.0)
+        if (method != EnergyMethod.Unmetered && (!double.IsFinite(sampleRateHz) || sampleRateHz <= 0.0))
         {
             throw Rejected(nameof(sampleRateHz), $"The sample rate must be positive and finite, but it is {sampleRateHz} Hz.");
         }
@@ -86,24 +84,20 @@ public sealed record EnergyReading
             throw Rejected(nameof(flags), $"The flags value {(int)flags} has a bit outside the reading-flag vocabulary.");
         }
 
+        RequireNoStepFlags(flags);
+
         RequireShape(nameof(grossJoules), grossJoules, JouleUnit);
         RequireShape(nameof(netJoules), netJoules, JouleUnit);
         RequireShape(nameof(averageWatts), averageWatts, WattUnit);
         RequireShape(nameof(peakWatts), peakWatts, WattUnit);
 
-        // Net is published negative together with its flag, never one without the other (REQ-005).
-        bool netIsNegative = netJoules is { Label: MetricLabel.Measured, Value: < 0.0 };
-        if (netIsNegative != flags.HasFlag(ReadingFlags.BelowBaseline))
+        if (method == EnergyMethod.Unmetered)
         {
-            throw netIsNegative
-                ? Rejected(nameof(flags), $"A measured negative net requires the {nameof(ReadingFlags.BelowBaseline)} flag.")
-                : Rejected(nameof(flags), $"The {nameof(ReadingFlags.BelowBaseline)} flag requires a measured negative net.");
+            RequireUnmeteredShape(grossJoules, netJoules, averageWatts, peakWatts, sampleCount, sampleRateHz, flags, throttleReasons);
         }
 
-        if (flags.HasFlag(ReadingFlags.SamplingFallback) && method != EnergyMethod.Sampling)
-        {
-            throw Rejected(nameof(flags), $"The {nameof(ReadingFlags.SamplingFallback)} flag requires the sampling method, but the method is {method}.");
-        }
+        RequireNetFlagPairing(netJoules, flags);
+        RequireFallbackMethod(flags, method);
 
         ReadOnlyCollection<string>? reasons = CopyReasons(throttleReasons);
         RequireThrottleShape(flags, reasons);
@@ -163,88 +157,41 @@ public sealed record EnergyReading
     /// </summary>
     public IReadOnlyList<string>? ThrottleReasons { get; }
 
-    // A reading holds measured quantities or an explicit absence; an estimated or model-judged metric never belongs in it.
-    private static void RequireShape(string parameter, Metric metric, string unit)
+    // An unmetered reading (a hosted tier) holds no measurement at all: every energy metric is N/A with the hosted-tier reason, and there are
+    // no samples, no rate, no flags and no throttle information, so a number can never appear in it.
+    private static void RequireUnmeteredShape(
+        Metric grossJoules,
+        Metric netJoules,
+        Metric averageWatts,
+        Metric peakWatts,
+        int sampleCount,
+        double sampleRateHz,
+        ReadingFlags flags,
+        IReadOnlyList<string>? throttleReasons)
     {
-        if (metric.Label is not (MetricLabel.Measured or MetricLabel.NotReported or MetricLabel.NotApplicable))
+        RequireHostedNotApplicable(nameof(grossJoules), grossJoules);
+        RequireHostedNotApplicable(nameof(netJoules), netJoules);
+        RequireHostedNotApplicable(nameof(averageWatts), averageWatts);
+        RequireHostedNotApplicable(nameof(peakWatts), peakWatts);
+
+        if (sampleCount != 0)
         {
-            throw Rejected(parameter, $"The metric must be measured, not-reported or N/A, but it is {metric.Label}.");
+            throw Rejected(nameof(sampleCount), $"An unmetered reading has no samples, but the count is {sampleCount}.");
         }
 
-        if (metric.Label == MetricLabel.Measured && !string.Equals(metric.Unit, unit, StringComparison.Ordinal))
+        if (sampleRateHz != 0.0)
         {
-            throw Rejected(parameter, $"A measured metric must carry the unit {unit}, but it carries {(metric.Unit is null ? "none" : TextEcho.ForMessage(metric.Unit))}.");
+            throw Rejected(nameof(sampleRateHz), $"An unmetered reading has no sampling rate, so it must be 0, but it is {sampleRateHz} Hz.");
+        }
+
+        if (flags != ReadingFlags.None)
+        {
+            throw Rejected(nameof(flags), $"An unmetered reading carries no flags.");
+        }
+
+        if (throttleReasons is not null)
+        {
+            throw Rejected(nameof(throttleReasons), $"An unmetered reading has no throttle information, so the list must be null.");
         }
     }
-
-    private static ReadOnlyCollection<string>? CopyReasons(IReadOnlyList<string>? reasons)
-    {
-        if (reasons is null)
-        {
-            return null;
-        }
-
-        string[] copy = new string[reasons.Count];
-        for (int i = 0; i < copy.Length; i++)
-        {
-            string? reason = reasons[i];
-            if (string.IsNullOrWhiteSpace(reason))
-            {
-                throw Rejected("throttleReasons", $"The throttle reason at index {i} must not be null or blank.");
-            }
-
-            copy[i] = reason;
-        }
-
-        return Array.AsReadOnly(copy);
-    }
-
-    // The throttled flag and a non-empty list imply each other (EDGE-013); the names are the five throttle names in bit order, each once.
-    private static void RequireThrottleShape(ReadingFlags flags, ReadOnlyCollection<string>? reasons)
-    {
-        IReadOnlyList<string> vocabulary = GpuThrottleReasons.AllNames;
-        int previous = -1;
-        if (reasons is not null)
-        {
-            for (int i = 0; i < reasons.Count; i++)
-            {
-                int index = IndexOf(vocabulary, reasons[i]);
-                if (index < 0)
-                {
-                    throw Rejected("throttleReasons", $"The throttle reason at index {i} must be one of {string.Join(", ", vocabulary)}, but it is {TextEcho.ForMessage(reasons[i])}.");
-                }
-
-                if (index <= previous)
-                {
-                    throw Rejected("throttleReasons", $"The throttle reason {reasons[i]} at index {i} is repeated or out of bit order ({string.Join(", ", vocabulary)}).");
-                }
-
-                previous = index;
-            }
-        }
-
-        bool hasReasons = reasons is { Count: > 0 };
-        if (hasReasons != flags.HasFlag(ReadingFlags.Throttled))
-        {
-            throw hasReasons
-                ? Rejected("flags", $"Throttle reasons require the {nameof(ReadingFlags.Throttled)} flag.")
-                : Rejected("flags", $"The {nameof(ReadingFlags.Throttled)} flag requires at least one throttle reason.");
-        }
-    }
-
-    private static int IndexOf(IReadOnlyList<string> vocabulary, string name)
-    {
-        for (int i = 0; i < vocabulary.Count; i++)
-        {
-            if (string.Equals(vocabulary[i], name, StringComparison.Ordinal))
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
-    private static ArgumentException Rejected(string parameterName, FormattableString message) =>
-        new(message.ToString(CultureInfo.InvariantCulture), parameterName);
 }

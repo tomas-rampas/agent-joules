@@ -1,0 +1,5 @@
+{
+  "name": "incident-brief",
+  "prompt": "You are an on-call engineer writing a postmortem brief for a team that was not paged. Turn the outage timeline below into a brief of no more than 300 words with five short sections: Summary, Customer impact, Timeline, Root cause and Follow-up actions. Use only the facts in the timeline, do not invent causes or numbers, and mark anything the timeline does not settle as unknown.\n\nOutage timeline (all times UTC, 14 March):\n09:02 A configuration change raises the connection pool limit of the orders database from 200 to 2000.\n09:11 Orders database CPU reaches 95 percent and API latency rises from 120 ms to 4 s.\n09:14 The error-rate alert fires; 38 percent of checkout requests fail with timeouts.\n09:21 The on-call engineer pages the database owner.\n09:33 The configuration change is rolled back.\n09:40 CPU falls to 40 percent and latency returns to 130 ms.\n09:55 The checkout error rate is back under 0.5 percent and the incident is closed.\n\nWrite for engineering managers: plain words, no blame, past tense.",
+  "maxOutputTokens": 512
+}

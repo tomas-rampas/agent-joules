@@ -82,14 +82,20 @@ public sealed class ConfigValidationTests
     }
 
     [Fact]
-    public void TheShippedFileHoldsNoModelIdBaseUrlOrKey()
+    public void TheMeterSectionsOfTheShippedFileHoldNoModelIdBaseUrlOrKey()
     {
-        string text = File.ReadAllText(ConfigurationFixtures.AppSettingsPath());
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement root = document.RootElement.GetProperty(AgentJoulesOptions.SectionName);
 
-        // Those settings arrive with the M2 stories; a grep-style check keeps them out of the file that ships in M1.
-        Assert.DoesNotContain("http", text, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Model", text, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Key", text, StringComparison.OrdinalIgnoreCase);
+        // The tier sections (AJ-043) hold endpoints, model IDs and key variable names; the sections of M1 still hold none of them.
+        foreach (string section in new[] { "Gpu", "Meter", "Baseline" })
+        {
+            string text = root.GetProperty(section).GetRawText();
+
+            Assert.DoesNotContain("http", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Model", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Key", text, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     // ---- criterion 2: absent keys, mutable classes ----
@@ -584,10 +590,17 @@ public sealed class ConfigValidationTests
     public void TheTypedKeyListCoversEveryNonStringScalarOption()
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+
+        // The dictionary section Tiers is checked per tier by TierConfigurationTests.The_typed_key_list_of_a_tier_covers_every_non_string_scalar_option;
+        // it is skipped by name, and no other generic section may hide here.
+        Assert.Equal(
+            [nameof(AgentJoulesOptions.Tiers)],
+            typeof(AgentJoulesOptions).GetProperties(flags).Where(section => section.PropertyType.IsGenericType).Select(section => section.Name));
+
         string[] expected =
         [
             .. typeof(AgentJoulesOptions).GetProperties(flags)
-                .Where(section => section.PropertyType.IsClass)
+                .Where(section => section.PropertyType.IsClass && section.Name != nameof(AgentJoulesOptions.Tiers))
                 .SelectMany(section => section.PropertyType.GetProperties(flags)
                     .Where(property => property.SetMethod is not null && property.PropertyType != typeof(string))
                     .Select(property => section.Name + ConfigurationPath.KeyDelimiter + property.Name)),

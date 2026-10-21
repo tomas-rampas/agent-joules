@@ -39,6 +39,7 @@ internal static class ProbeCommand
             string? fileSuffix = parseResult.GetResult(suffix) is null ? null : parseResult.GetValue(suffix) ?? string.Empty;
             return host.RunAsync(
                 parseResult.GetValue(config),
+                configure: null,
                 (running, _) => Task.FromResult(Probe(running, host.Output, asJson, saving, fileSuffix)),
                 cancellationToken);
         });

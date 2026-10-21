@@ -1,0 +1,5 @@
+{
+  "name": "energy-explainer",
+  "prompt": "You are a technical writer explaining GPU energy measurement to application developers who have never read a power specification. Write an explanation of about 200 words in plain paragraphs, without bullet lists and without marketing language. Cover these four points in order: first, the difference between power in watts and energy in joules; second, how a GPU reports its power draw and why adding up power readings taken at short intervals gives an estimate of the energy used; third, why the idle power of the GPU should be measured first and subtracted, so that the result shows the cost of the task and not of the machine; fourth, why the energy of one task varies a little from run to run and what that means for comparing two runs. Include one short worked example: a GPU that draws a steady 200 watts for 30 seconds uses 6000 joules, which is about 1.7 watt-hours.",
+  "maxOutputTokens": 384
+}

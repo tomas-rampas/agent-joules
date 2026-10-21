@@ -1,5 +1,7 @@
 using AgentJoules.Cli.Output;
+using AgentJoules.Core.Cli;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,7 +12,7 @@ namespace AgentJoules.Cli.Hosting;
 /// <summary>
 /// Runs one command action inside its own host: builds it, validates the options (before the host starts, so an options failure is the first and
 /// only thing reported), starts it, hands the action a token linked to the System.CommandLine token and to <c>ApplicationStopping</c>, and turns any
-/// failure into the one redacted error line and the exit code of <see cref="ExitCodeMapper"/>. Shared by <c>probe</c> and by the commands a test adds
+/// failure into the one redacted error line and the exit code of <see cref="ExitCodeMapper"/>. Shared by <c>probe</c>, <c>run</c> and the commands a test adds
 /// through <c>CliHostOverrides.AdditionalCommands</c>.
 /// </summary>
 internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys, TextWriter output, TextWriter error)
@@ -25,9 +27,22 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
     /// Runs <paramref name="action"/> in a started host and returns its exit code, or the code of the failure it threw. An
     /// <see cref="OperationCanceledException"/> while the linked token is cancelled (the caller's token, which System.CommandLine cancels on
     /// SIGINT and SIGTERM, or <c>ApplicationStopping</c>, which SIGHUP raises) is a shutdown: exit 5 with the line
-    /// <c>error: interrupted by shutdown (OperationCanceledException)</c>.
+    /// <c>error: interrupted by shutdown (OperationCanceledException)</c>. A <see cref="ModelNotFoundException"/> prints its error line first and then the listed IDs
+    /// (<see cref="ConsoleReporter.ReportModelNotFound"/>), because the error line is one folded line.
     /// </summary>
-    internal async Task<int> RunAsync(string? configPath, Func<IHost, CancellationToken, Task<int>> action, CancellationToken commandToken)
+    /// <param name="configPath">The <c>--config</c> value, or null for <c>config/appsettings.json</c>.</param>
+    /// <param name="configure">
+    /// The services of this command, added after the composition root and before the test overrides (so a test still replaces them), with the host configuration; <c>run</c> adds its
+    /// telemetry here, <c>probe</c> passes null.
+    /// </param>
+    /// <param name="action">The command action, run in the started host.</param>
+    /// <param name="commandToken">The token System.CommandLine hands to the command.</param>
+    /// <returns>The exit code of the action, or of the failure it threw.</returns>
+    internal async Task<int> RunAsync(
+        string? configPath,
+        Action<IServiceCollection, IConfiguration>? configure,
+        Func<IHost, CancellationToken, Task<int>> action,
+        CancellationToken commandToken)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -35,7 +50,7 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
         CancellationTokenSource? linked = null;
         try
         {
-            host = AgentJoulesHostFactory.Build(configPath, overrides, keys, Output, Error);
+            host = AgentJoulesHostFactory.Build(configPath, configure, overrides, keys, Output, Error);
             IHostApplicationLifetime lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
             linked = CancellationTokenSource.CreateLinkedTokenSource(commandToken, lifetime.ApplicationStopping);
 
@@ -57,6 +72,10 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
             else
             {
                 ErrorLine.Write(Error, reported, keys.Redactor);
+                if (reported is ModelNotFoundException notFound)
+                {
+                    new ConsoleReporter(Output, Error).ReportModelNotFound(notFound);
+                }
             }
 
             LogFailure(host, reported);

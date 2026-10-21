@@ -8,7 +8,7 @@ namespace AgentJoules.Cli.Output;
 /// <summary>
 /// Formats the one line a failure prints on stderr: <c>error: &lt;message&gt; (&lt;exception type&gt;)</c>, never more than one line and never with a
 /// control character: a key is masked first (a registered value may itself hold a control character, which scrubbing would otherwise break),
-/// every run of line terminators is then folded into one space, and every remaining control, format, line-separator and paragraph-separator
+/// every run of line terminators and tabs is then folded into one space, and every remaining control, format, line-separator and paragraph-separator
 /// character becomes <c>?</c>, so an escape sequence in a message cannot reach the terminal.
 /// </summary>
 public static class ErrorLine
@@ -36,12 +36,17 @@ public static class ErrorLine
         writer.WriteLine(Format(exception, redactor));
     }
 
-    /// <summary>Masks keys, folds line terminators into single spaces, trims, and replaces every other control character with <c>?</c>.</summary>
+    /// <summary>
+    /// Masks keys, folds every run of line terminators and tabs into one space, trims, and replaces every other control character with <c>?</c>. A tab is folded rather
+    /// than replaced because System.CommandLine lays out its parse errors with them (<c>Must be one of:</c> followed by a tab before each value).
+    /// </summary>
     public static string Sanitize(string? text, SecretRedactor? redactor = null) =>
-        Scrub(Fold(redactor is null ? text : redactor.Redact(text)));
+        Scrub(Fold(redactor is null ? text : redactor.Redact(text), foldTabs: true));
 
     /// <summary>Replaces every run of line terminators (CR, LF, VT, FF, U+0085, U+2028, U+2029) with one space and trims the ends.</summary>
-    public static string Fold(string? text)
+    public static string Fold(string? text) => Fold(text, foldTabs: false);
+
+    private static string Fold(string? text, bool foldTabs)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -52,7 +57,7 @@ public static class ErrorLine
         bool inRun = false;
         foreach (char character in text)
         {
-            if (IsTerminator(character))
+            if (IsTerminator(character) || (foldTabs && character == '\t'))
             {
                 if (!inRun)
                 {

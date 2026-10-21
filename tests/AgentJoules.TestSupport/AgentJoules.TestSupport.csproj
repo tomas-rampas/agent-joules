@@ -8,13 +8,16 @@
     <ProjectReference Include="../../src/AgentJoules.Core/AgentJoules.Core.csproj" />
     <ProjectReference Include="../../src/AgentJoules.Nvml/AgentJoules.Nvml.csproj" />
     <ProjectReference Include="../../src/AgentJoules.Cli/AgentJoules.Cli.csproj" />
+    <ProjectReference Include="../../src/AgentJoules.Workflow/AgentJoules.Workflow.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="xunit" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.Extensions.Configuration" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="OpenTelemetry.Exporter.InMemory" />
   </ItemGroup>
 
 </Project>

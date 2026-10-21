@@ -12,14 +12,14 @@ namespace AgentJoules.Core.Labels;
 /// </summary>
 public sealed class MetricJsonConverter : JsonConverter<Metric>
 {
-    // One ordered table; the strings equal the [JsonStringEnumMemberName] attributes on MetricLabel.
+    // One ordered table; the strings are MetricLabelText's, which equal the [JsonStringEnumMemberName] attributes on MetricLabel.
     private static readonly (MetricLabel Label, string Name)[] Labels =
     [
-        (MetricLabel.Measured, "measured"),
-        (MetricLabel.Estimated, "estimated"),
-        (MetricLabel.ModelJudged, "model-judged"),
-        (MetricLabel.NotApplicable, "N/A"),
-        (MetricLabel.NotReported, "not-reported"),
+        (MetricLabel.Measured, MetricLabelText.Measured),
+        (MetricLabel.Estimated, MetricLabelText.Estimated),
+        (MetricLabel.ModelJudged, MetricLabelText.ModelJudged),
+        (MetricLabel.NotApplicable, MetricLabelText.NotApplicable),
+        (MetricLabel.NotReported, MetricLabelText.NotReported),
     ];
 
     /// <inheritdoc />
