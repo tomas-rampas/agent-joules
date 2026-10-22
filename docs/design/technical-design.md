@@ -131,7 +131,7 @@ There is deliberately **no** `"test"` section: the repository runs VSTest (ADR-0
 | Microsoft.Extensions.Hosting | 10.0.12 | verified (fork line 103, nuget.org) | Cli |
 | Microsoft.Extensions.Http | 10.0.12 | verified (nuget.org) | Workflow |
 | System.CommandLine | 2.0.13 | verified (stack-facts section 4: GA since 2.0.0 on 2025-11-11, net8.0 asset runs on net10.0) | Cli |
-| JsonSchema.Net | 8.0.5 | verified (nuspec: MIT; every 9.x is `OSMFEULA.txt`, not OSI; lib net9.0 used on net10.0) | Reporting |
+| JsonSchema.Net | 8.0.5 | verified (nuspec: MIT; every 9.x is `OSMFEULA.txt`, not OSI; lib net9.0 used on net10.0) | Reporting; TestSupport (test fixtures) |
 | xunit | 2.9.3 | verified (stack-facts sections 5, 6, project `rq2` exit 0) | test projects |
 | xunit.runner.visualstudio | 3.1.5 | verified (same) | test projects |
 | Microsoft.NET.Test.Sdk | 18.11.0 | verified (same) | test projects |
@@ -191,7 +191,7 @@ Amended 2026-10-19 (AJ-021 code-review gate): the clock-event fallback (new expo
 
 ### 3.2 AgentJoules.Core
 
-Folders and files: `Labels/Metric.cs`, `Labels/MetricLabel.cs`, `Labels/ReadingFlags.cs`; `Gpu/IGpuTelemetrySource.cs`, `Gpu/GpuIdentity.cs`, `Gpu/ProbeResult.cs`; `Energy/IEnergyMeter.cs`, `Energy/SampledEnergyMeter.cs`, `Energy/DeterministicEnergyMeter.cs`, `Energy/UnmeteredEnergyMeter.cs`, `Energy/PowerSample.cs`, `Energy/PowerIntegrator.cs`, `Energy/BaselineCalculator.cs`, `Energy/ReadingCalculator.cs`, `Energy/UnionWindowCalculator.cs`, `Energy/EnergyReading.cs`; `Cost/PriceTable.cs`, `Cost/CostCalculator.cs`; `Quality/JudgeScoreParser.cs`, `Quality/DerivedMetrics.cs`; `Configuration/*Options.cs`, `Configuration/*Validator.cs`; `Results/*.cs` (results model records); `Runs/StepIdentity.cs`, `Runs/Tier.cs`, `Runs/IRunCheckpointWriter.cs`, `Runs/CloudGpuBudgetGuard.cs`, `Runs/RunStatus.cs`, `Runs/RunMode.cs`, `Runs/TierKinds.cs`, `Runs/CheckpointKind.cs`; `Tasks/TaskDefinition.cs`; `Cli/ExitCode.cs`, `Cli/AgentJoulesException.cs`; `Security/SecretRedactor.cs`; `CoreJsonContext.cs` (tasks, prices).
+Folders and files: `Labels/Metric.cs`, `Labels/MetricLabel.cs`, `Labels/ReadingFlags.cs`; `Gpu/IGpuTelemetrySource.cs`, `Gpu/GpuIdentity.cs`, `Gpu/ProbeResult.cs`; `Energy/IEnergyMeter.cs`, `Energy/SampledEnergyMeter.cs`, `Energy/DeterministicEnergyMeter.cs`, `Energy/UnmeteredEnergyMeter.cs`, `Energy/PowerSample.cs`, `Energy/PowerIntegrator.cs`, `Energy/BaselineCalculator.cs`, `Energy/ReadingCalculator.cs`, `Energy/UnionWindowCalculator.cs`, `Energy/EnergyReading.cs`; `Cost/PriceRow.cs`, `Cost/PriceTable.cs`, `Cost/CostCalculator.cs`; `Quality/JudgeScoreParser.cs`, `Quality/DerivedMetrics.cs`; `Configuration/*Options.cs`, `Configuration/*Validator.cs`; `Results/*.cs` (results model records); `Runs/StepIdentity.cs`, `Runs/Tier.cs`, `Runs/IRunCheckpointWriter.cs`, `Runs/CloudGpuBudgetGuard.cs`, `Runs/RunStatus.cs`, `Runs/RunMode.cs`, `Runs/TierKinds.cs`, `Runs/CheckpointKind.cs`; `Tasks/TaskDefinition.cs`; `Cli/ExitCode.cs`, `Cli/AgentJoulesException.cs`; `Security/SecretRedactor.cs`; `CoreJsonContext.cs` (tasks, prices).
 
 **Label object.** `Metric` is the only representation of a metric value anywhere in the code.
 
@@ -287,6 +287,8 @@ Amended 2026-10-21 (AJ-047): the union contract as shipped. `IEnergyMeter.Comput
 | cloudgpu | `CloudGpu:HourlyPriceUsd` x step wall seconds / 3600, USD (ADR-15) | price unset: N/A `hourly-price-not-configured` |
 
 Totals group cost by currency (`costByCurrency`), no conversion. `Cost:GCo2ePerKwh` null makes `totals.gco2e` N/A `not-configured`; set, it is net kWh x factor, `estimated`.
+
+Amended 2026-10-22 (AJ-070): Core does not reference JsonSchema.Net (section 2.4 keeps it out of Core), so PriceTable.Load mirrors config/prices.schema.json in code (every required member, prices finite and above 0, tier one of the four names, retrievedDate yyyy-MM-dd, sourceUrl https made of RFC 3986 characters only, with no space, no user info and no non-ASCII) and throws ConfigurationException (exit 2) naming the file name, the row index and the member, never a value; CostModelTests keeps the schema and the loader in step (the committed file is validated against the schema with JsonSchema.Net, and an equivalence theory asserts every invalid row shape is rejected by both). Duplicate rows are detected by (tier, modelId) with OrdinalIgnoreCase and Find uses the same comparison; Rows keeps the file order; the file is read through a bounded stream of at most 1 MiB in strict UTF-8.
 
 **Quality (REQ-010, EDGE-012).** `JudgeScoreParser.Parse(string reply)` strips `<think>...</think>` blocks and surrounding whitespace, then accepts exactly `^[1-5]$`; anything else returns `ParseFailure` with the first 60 characters of the reply. `DerivedMetrics.JoulesPerQualityPoint(netJoules, quality)` and `CostPerQualityPoint(cost, quality)` return `model-judged` values only when both inputs have values, else N/A with reason `missing-input`.
 

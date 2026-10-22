@@ -1,0 +1,10 @@
+[
+  {
+    "tier": "nebius",
+    "modelId": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "inputUsdPer1M": 0.06,
+    "outputUsdPer1M": 0.24,
+    "sourceUrl": "https://tokenfactory.nebius.com/model-catalog.md",
+    "retrievedDate": "2026-10-22"
+  }
+]

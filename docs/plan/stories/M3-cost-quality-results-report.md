@@ -36,8 +36,11 @@ User actions from prompt section 12: none needed for the offline criteria. Step 
 
 ## Stories
 
+Note (2026-10-22, M3 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-0nn-<slug>.feature; the file names in the story tables (for example PriceTable.feature) map to that form.
+
 ### AJ-070: Load a price table that cannot represent a zero price
 Covers: REQ-009
+Note (2026-10-22, AJ-070): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-070-price-table.feature` (the table's PriceTable.feature, same content as the story block); pinned P-a to P-f applied (row shape and schema; loader in Core without JsonSchema.Net, exit 2 messages never echo a value; committed file checked through schema and loader; positional PriceRow and sealed PriceTable with Rows and Find; Specs call PriceTable.Load directly; lookup with verbatim evidence, no zero price, USD only); the nebius row takes its sourceUrl from the Token Factory model catalog `https://tokenfactory.nebius.com/model-catalog.md` (fetched 2026-10-22), because the pricing page is a script-rendered single-page app with no price text; currency USD inferred; no nvidia row (no published price on build.nvidia.com); the .cs files end without a final newline per .editorconfig.
 User story: As a reader of cost numbers, I want every price to come from a committed table with its source URL and retrieval date, so that no cost is based on an unsourced or zero price.
 Acceptance criteria:
 1. `config/prices.schema.json` requires `tier`, `modelId`, `inputUsdPer1M`, `outputUsdPer1M`, `sourceUrl` and `retrievedDate` on every row, with both price fields `exclusiveMinimum: 0`; the test `Committed_prices_validate` in `CostModelTests` validates the committed `config/prices.json` against it.
@@ -88,9 +91,9 @@ Tasks:
 Test mapping: `CostModelTests` (required test class, trait `Spec=REQ-009`); feature file `tests/AgentJoules.Specs/Features/Reporting/PriceTable.feature`.
 Docs impact: `config/prices.json`, `config/prices.schema.json`, `docs/build-log.md`; the README prices note is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every row in `config/prices.json` has `sourceUrl` and `retrievedDate` (validated by `Committed_prices_validate`)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every row in `config/prices.json` has `sourceUrl` and `retrievedDate` (validated by `Committed_prices_validate`)
 Demo relevance: no (prices feed the cost column of the report).
 
 ### AJ-071: Compute hosted token cost in USD or label it N/A
