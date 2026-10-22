@@ -225,6 +225,7 @@ Conflict: C-08 (design 9.2) - REQ-009 defines no cloudgpu cost; resolution (ADR-
 
 ### AJ-073: Parse judge replies into an integer score from 1 to 5
 Covers: REQ-010
+Note (2026-10-22, AJ-073): the feature file is `tests/AgentJoules.Specs/Features/Reporting/AJ-073-judge-parsing.feature` (the table's `JudgeParsing.feature`, renamed to the M1 convention, deviation D1). Pinned readings P-a to P-f applied: think blocks removed by IndexOf loops, exactly one digit 1 to 5 after trimming, never clamped, failure excerpt cleaned by TextEcho and capped at 60 UTF-16 code units, `(empty)` for an empty reply, unterminated `<think>` left in place, null reply throws; measured: unit 51/51 and Specs 9/9 green, `Spec=REQ-010` 51 passed 0 failed, build 0 warnings. Q1 (secret redaction of the excerpt) was resolved in the fix round: the parser takes the `SecretRedactor` and redacts the think-stripped reply before trimming and the digit check. Criterion 3's `ParseFailure` is `JudgeParseResult` with `Parsed == false`; its excerpt is taken after think-stripping, redaction and trimming (design 3.2 amendment).
 User story: As a reader of quality numbers, I want a judge reply accepted only when it is exactly an integer from 1 to 5, so that free-text replies never turn into invented scores.
 Acceptance criteria:
 1. `JudgeScoreParser.Parse("4")` gives quality `{value:4,label:"model-judged"}`; surrounding whitespace and newlines are ignored (test `Plain_integer_parses`).
@@ -276,9 +277,9 @@ Tasks:
 Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); feature file `tests/AgentJoules.Specs/Features/Reporting/JudgeParsing.feature`.
 Docs impact: `docs/build-log.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
 Demo relevance: no.
 
 ### AJ-074: Derive joules and cost per quality point only when both inputs exist
