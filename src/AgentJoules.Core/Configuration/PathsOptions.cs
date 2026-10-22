@@ -14,6 +14,9 @@ public sealed class PathsOptions
     /// <summary>The configuration key of <see cref="Prices"/>, relative to the root section; messages name the key and never the value.</summary>
     public const string PricesKey = "Paths:Prices";
 
+    /// <summary>The configuration key of <see cref="Rubric"/>, relative to the root section; messages name the key and never the value.</summary>
+    public const string RubricKey = "Paths:Rubric";
+
     /// <summary>Key <c>Paths:Tasks</c>, default <c>tasks</c>: the folder of the task files (one <c>*.json</c> per task).</summary>
     public string Tasks { get; set; } = "tasks";
 

@@ -339,6 +339,7 @@ Demo relevance: yes: the local rows show joules per quality point, labelled `mod
 
 ### AJ-075: Commit the judge rubric and load it
 Covers: REQ-010
+Note (2026-10-22, AJ-075): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-075-judge-rubric.feature` (the table's `JudgeRubric.feature`, repository convention from M1); pinned readings P-a to P-e applied (each of the five level lines required once in any order, the lowest missing level named, the path already resolved by the caller with the key named in the error, a 64 KiB strict-UTF-8 read, the rubric naming no model or vendor and presenting no number as a result). Measured: Specs `Category=AJ-S075` 4 of 4 and `JudgeParsingTests` 217 of 217 green after the fix and final rounds (192 at the draft), build 0 warnings; deviations D1 (a control-character file-name test dropped, Windows cannot create such a file) and D2 (feature file named per the M1 convention).
 User story: As a reviewer of the quality scores, I want the judging rubric committed as `config/judge-rubric.md` with five defined levels, so that a score of 4 means the same thing in every run.
 Acceptance criteria:
 1. `config/judge-rubric.md` defines the levels 1 to 5 against the role of the judged step: 1 off-task or wrong, 2 major gaps, 3 usable with gaps, 4 correct and complete, 5 correct, complete and concise.
@@ -382,13 +383,14 @@ Tasks:
 Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); feature file `tests/AgentJoules.Specs/Features/Reporting/JudgeRubric.feature`.
 Docs impact: `config/judge-rubric.md`; the README judge section (model ID, exclusion from totals, self-judging) is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `config/judge-rubric.md` is committed and loads without error
+- [x] `config/judge-rubric.md` is committed and loads without error
 Demo relevance: no.
 
 ### AJ-076: Score each ok step with a metered hosted judge
 Covers: REQ-010
+Note (2026-10-22, AJ-075): AJ-075 criterion 3 names the test `Prompt_contains_rubric_text`, which AJ-076 delivers; the AJ-076 gate must cover it (spec remark R-2 of AJ-075).
 User story: As a reader of quality numbers, I want every successful workflow step scored by a configurable hosted judge whose calls are metered but kept out of the workflow totals, so that quality exists without distorting energy, tokens or cost.
 Acceptance criteria:
 1. A fake judge returning `4` yields step `quality {value:4,label:"model-judged"}` and `joulesPerQualityPoint` equal to net joules divided by 4 (test `Judge_four_gives_quality_four`).

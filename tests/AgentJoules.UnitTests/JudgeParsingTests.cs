@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
@@ -12,6 +14,8 @@ using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
 using AgentJoules.Reporting.Json;
 using AgentJoules.TestSupport;
+using AgentJoules.Workflow.Agents;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Runs;
 
 using Xunit;
@@ -773,4 +777,381 @@ public sealed class JudgeParsingTests
 
         return root.ToJsonString();
     }
+
+    private const string RubricFileName = "judge-rubric.md";
+    private const int RubricCapBytes = 64 * 1024;
+
+    private static readonly string[] LevelDigits = ["1", "2", "3", "4", "5"];
+
+    // Text a task-agnostic rubric must not hold: an address, or the name of a vendor or of a model family.
+    private static readonly string[] ForbiddenRubricWords = ["http", "://", "www.", "nemotron", "nvidia", "nebius", "openai", "gpt", "claude", "anthropic", "llama", "qwen", "gemini"];
+
+    private static string CommittedRubricPath() => Path.Combine(ConfigurationFixtures.RepositoryRoot(), "config", RubricFileName);
+
+    private static string CommittedRubricText() => File.ReadAllText(CommittedRubricPath());
+
+    private static bool HasLevelLine(string text, int level) => Regex.IsMatch(text, $"^{level}\\. ", RegexOptions.Multiline, TimeSpan.FromSeconds(1));
+
+    private static string RubricWith(params int[] levels) => "Score one step.\n\n" + string.Concat(levels.Select(level => $"{level}. level {level}\n"));
+
+    private static string LoadFromTemp(string text)
+    {
+        using var workspace = TempWorkspace.CreateEmpty();
+        return RubricLoader.Load(workspace.WriteFile(RubricFileName, text));
+    }
+
+    private static ConfigurationException LoadFailure(byte[] content, string fileName = RubricFileName)
+    {
+        using var workspace = TempWorkspace.CreateEmpty();
+        string path = Path.Combine(workspace.Root, fileName);
+        File.WriteAllBytes(path, content);
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => RubricLoader.Load(path));
+        Assert.DoesNotContain(workspace.Root, failure.Message, StringComparison.OrdinalIgnoreCase);
+        return failure;
+    }
+
+    private static ConfigurationException LoadFailure(string text) => LoadFailure(System.Text.Encoding.UTF8.GetBytes(text));
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void The_committed_rubric_loads_and_holds_the_level_line(int level)
+    {
+        string text = RubricLoader.Load(CommittedRubricPath());
+
+        Assert.True(HasLevelLine(text, level), $"The committed rubric has no line that starts with \"{level}. \".");
+    }
+
+    [Fact]
+    public void The_committed_rubric_defines_each_level_once_and_in_order()
+    {
+        string[] levelLines = [.. CommittedRubricText().Split('\n').Where(line => line.Length > 2 && line[0] is >= '1' and <= '5' && line[1] == '.' && line[2] == ' ')];
+
+        Assert.Equal(LevelDigits, levelLines.Select(line => line[..1]));
+    }
+
+    [Fact]
+    public void The_committed_rubric_text_is_returned_verbatim()
+    {
+        Assert.Equal(CommittedRubricText(), RubricLoader.Load(CommittedRubricPath()));
+    }
+
+    [Theory]
+    [InlineData(1, "1. Off-task or wrong")]
+    [InlineData(2, "2. Major gaps")]
+    [InlineData(3, "3. Usable with gaps")]
+    [InlineData(4, "4. Correct and complete")]
+    [InlineData(5, "5. Correct, complete and concise")]
+    public void The_committed_level_line_starts_with_the_phrase_of_the_design(int level, string phrase)
+    {
+        string line = CommittedRubricText().Split('\n').Single(candidate => candidate.StartsWith($"{level}. ", StringComparison.Ordinal));
+
+        Assert.StartsWith(phrase, line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Every_digit_of_the_committed_rubric_opens_a_level_line_or_follows_the_word_level()
+    {
+        string[] lines = CommittedRubricText().Split('\n');
+
+        foreach (string line in lines)
+        {
+            for (int index = 0; index < line.Length; index++)
+            {
+                if (!char.IsAsciiDigit(line[index]))
+                {
+                    continue;
+                }
+
+                bool opensLevelLine = index == 0 && line[0] is >= '1' and <= '5' && line.Length > 2 && line[1] == '.' && line[2] == ' ';
+                bool followsLevel = index >= 6 && line[index] is >= '1' and <= '5' && string.CompareOrdinal(line, index - 6, "level ", 0, 6) == 0;
+                Assert.True(opensLevelLine || followsLevel, $"A digit at offset {index} of a line is neither a level number nor the number after the word level.");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_committed_rubric_is_ascii_with_lf_line_ends_and_one_final_line_end_under_two_kib()
+    {
+        byte[] bytes = File.ReadAllBytes(CommittedRubricPath());
+
+        Assert.InRange(bytes.Length, 1, 2047);
+        Assert.DoesNotContain((byte)'\r', bytes);
+        Assert.All(bytes, value => Assert.True(value < 0x80, "The rubric holds a byte outside ASCII."));
+        Assert.Equal((byte)'\n', bytes[^1]);
+        Assert.NotEqual((byte)'\n', bytes[^2]);
+    }
+
+    [Fact]
+    public void The_committed_rubric_contains_no_key_and_no_run_of_32_letters_and_digits()
+    {
+        string text = CommittedRubricText();
+
+        Assert.DoesNotContain("nvapi-", text, StringComparison.Ordinal);
+        Assert.DoesNotMatch(new Regex("[A-Za-z0-9]{32,}", RegexOptions.None, TimeSpan.FromSeconds(1)), text);
+    }
+
+    [Fact]
+    public void The_committed_rubric_names_the_four_roles_and_no_model_vendor_or_address()
+    {
+        string text = CommittedRubricText();
+
+        Assert.All(AgentCatalog.Names, name => Assert.Contains(name, text, StringComparison.Ordinal));
+        Assert.All(ForbiddenRubricWords, word => Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_committed_rubric_leaves_the_closing_instruction_to_the_prompt()
+    {
+        string text = CommittedRubricText();
+
+        Assert.DoesNotContain("Reply with one integer", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("nothing else", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Score one step.  \n\n1. a\n2. b  \n3. c\n4. d\n5. e\n\n")]
+    [InlineData("1. a\n2. b\n3. c\n4. d\n5. e")]
+    [InlineData("Score.\r\n\r\n1. a\r\n2. b\r\n3. c\r\n4. d\r\n5. e\r\n")]
+    [InlineData("5. e\n4. d\n3. c\n2. b\n1. a\n")]
+    [InlineData("1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n")]
+    [InlineData("1. a\t(tab)\n2. b\r\n3. c\n4. d\n5. e\n")]
+    public void The_text_of_a_valid_rubric_is_returned_verbatim(string text) => Assert.Equal(text, LoadFromTemp(text));
+
+    [Fact]
+    public void A_byte_order_mark_is_removed_from_the_returned_text()
+    {
+        string text = RubricWith(1, 2, 3, 4, 5);
+        using var workspace = TempWorkspace.CreateEmpty();
+        string path = Path.Combine(workspace.Root, RubricFileName);
+        File.WriteAllBytes(path, [.. System.Text.Encoding.UTF8.GetPreamble(), .. System.Text.Encoding.UTF8.GetBytes(text)]);
+
+        string loaded = RubricLoader.Load(path);
+
+        Assert.Equal(text, loaded);
+    }
+
+    [Fact]
+    public void A_missing_file_exits_2_naming_the_file_and_the_key_and_no_folder()
+    {
+        using var workspace = TempWorkspace.CreateEmpty();
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => RubricLoader.Load(Path.Combine(workspace.Root, RubricFileName)));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md does not exist (Paths:Rubric)", failure.Message);
+        Assert.Null(failure.InnerException);
+        Assert.DoesNotContain(workspace.Root, failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_missing_folder_exits_2_naming_the_file_and_the_key()
+    {
+        using var workspace = TempWorkspace.CreateEmpty();
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => RubricLoader.Load(Path.Combine(workspace.Root, "gone", RubricFileName)));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md does not exist (Paths:Rubric)", failure.Message);
+        Assert.Null(failure.InnerException);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void A_rubric_without_one_level_exits_2_naming_that_level(int missing)
+    {
+        int[] levels = [.. Enumerable.Range(1, 5).Where(level => level != missing)];
+
+        ConfigurationException failure = LoadFailure(RubricWith(levels));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal($"judge-rubric.md: level {missing} is missing", failure.Message);
+    }
+
+    [Fact]
+    public void A_rubric_without_several_levels_names_the_lowest_missing_one()
+    {
+        ConfigurationException failure = LoadFailure(RubricWith(2, 5));
+
+        Assert.Equal("judge-rubric.md: level 1 is missing", failure.Message);
+    }
+
+    [Fact]
+    public void An_empty_rubric_exits_2_naming_level_1()
+    {
+        ConfigurationException failure = LoadFailure(string.Empty);
+
+        Assert.Equal("judge-rubric.md: level 1 is missing", failure.Message);
+    }
+
+    [Theory]
+    [InlineData("3.x")]
+    [InlineData("3.")]
+    [InlineData(" 3. indented")]
+    [InlineData("13. thirteen")]
+    [InlineData("3) paren")]
+    [InlineData("- 3. bullet")]
+    [InlineData("level 3. inside a line")]
+    public void A_line_that_is_not_a_level_line_does_not_define_the_level(string line)
+    {
+        string text = "1. a\n2. b\n" + line + "\n4. d\n5. e\n";
+
+        ConfigurationException failure = LoadFailure(text);
+
+        Assert.Equal("judge-rubric.md: level 3 is missing", failure.Message);
+    }
+
+    [Fact]
+    public void A_level_line_that_ends_the_file_without_a_line_end_still_counts()
+    {
+        Assert.Equal("1. a\n2. b\n3. c\n4. d\n5. e", LoadFromTemp("1. a\n2. b\n3. c\n4. d\n5. e"));
+    }
+
+    [Fact]
+    public void A_failure_message_never_carries_text_of_the_rubric()
+    {
+        const string marker = "distinctive-marker-sentence";
+
+        ConfigurationException failure = LoadFailure($"{marker}\n1. a\n2. b\n4. d\n5. e\n");
+
+        Assert.DoesNotContain(marker, failure.Message, StringComparison.Ordinal);
+        Assert.Equal("judge-rubric.md: level 3 is missing", failure.Message);
+    }
+
+    [Fact]
+    public void A_file_of_exactly_64_KiB_loads_and_one_byte_more_exits_2_naming_the_file()
+    {
+        string levels = RubricWith(1, 2, 3, 4, 5);
+        string atCap = levels + new string('x', RubricCapBytes - levels.Length - 1) + "\n";
+        string overCap = atCap + "x";
+
+        Assert.Equal(RubricCapBytes, atCap.Length);
+        Assert.Equal(atCap, LoadFromTemp(atCap));
+
+        ConfigurationException failure = LoadFailure(overCap);
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md is larger than 64 KiB", failure.Message);
+    }
+
+    [Fact]
+    public void A_file_that_is_not_valid_utf8_exits_2_naming_the_file()
+    {
+        byte[] bytes = [.. System.Text.Encoding.UTF8.GetBytes(RubricWith(1, 2, 3, 4, 5)), 0xC3, 0x28];
+
+        ConfigurationException failure = LoadFailure(bytes);
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md is not valid UTF-8", failure.Message);
+    }
+
+    [Fact]
+    public void A_folder_given_as_the_file_exits_2_naming_the_file()
+    {
+        using var workspace = TempWorkspace.CreateEmpty();
+        string path = Path.Combine(workspace.Root, RubricFileName);
+        Directory.CreateDirectory(path);
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => RubricLoader.Load(path));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md cannot be read (Paths:Rubric)", failure.Message);
+        Assert.Null(failure.InnerException);
+        Assert.DoesNotContain(workspace.Root, failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_path_with_a_nul_character_exits_2_as_unreadable_without_the_path_in_the_message()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "agentjoules-nul" + (char)0 + "-" + RubricFileName);
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => RubricLoader.Load(path));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.EndsWith("cannot be read (Paths:Rubric)", failure.Message, StringComparison.Ordinal);
+        Assert.Null(failure.InnerException);
+        Assert.DoesNotContain(Path.GetTempPath(), failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Windows only: on Linux the named pipe is a Unix socket under /tmp whose open fails before the seek check,
+    // and its file-name label differs, so the test would exercise the open-failure path with a mismatched message.
+    [WindowsFact]
+    public async Task A_stream_that_cannot_seek_is_refused_as_unreadable_without_blocking()
+    {
+        string pipeName = "agentjoules-rubric-" + Guid.NewGuid().ToString("N");
+        string path = @"\\.\pipe\" + pipeName;
+        using var server = new System.IO.Pipes.NamedPipeServerStream(pipeName, System.IO.Pipes.PipeDirection.InOut, 1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+
+        // The load runs on its own task and the wait is bounded (a TimeoutException), so a regression that reads the pipe fails this test instead of wedging the run.
+        Task<ConfigurationException> attempt = Task.Run(() => Assert.Throws<ConfigurationException>(() => RubricLoader.Load(path)));
+        ConfigurationException failure = await attempt.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal(pipeName + " cannot be read (Paths:Rubric)", failure.Message);
+        Assert.Null(failure.InnerException);
+    }
+
+    [Theory]
+    [InlineData(0x0000)]
+    [InlineData(0x0007)]
+    [InlineData(0x001B)]
+    [InlineData(0x007F)]
+    [InlineData(0x0085)]
+    [InlineData(0x200B)]
+    [InlineData(0x202E)]
+    [InlineData(0xFEFF)]
+    [InlineData(0xE000)]
+    [InlineData(0xE0041)]
+    [InlineData(0xF0000)]
+    [InlineData(0x0378)]
+    [InlineData(0x2028)]
+    [InlineData(0x2029)]
+    public void A_control_or_invisible_character_exits_2_without_echo(int codePoint)
+    {
+        string character = char.ConvertFromUtf32(codePoint);
+
+        ConfigurationException failure = LoadFailure("Score" + character + " one step.\n" + RubricWith(1, 2, 3, 4, 5));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("judge-rubric.md holds a control or invisible character", failure.Message);
+        Assert.Null(failure.InnerException);
+    }
+
+    [Fact]
+    public void A_second_byte_order_mark_at_the_start_exits_2()
+    {
+        byte[] preamble = System.Text.Encoding.UTF8.GetPreamble();
+        byte[] bytes = [.. preamble, .. preamble, .. System.Text.Encoding.UTF8.GetBytes(RubricWith(1, 2, 3, 4, 5))];
+
+        ConfigurationException failure = LoadFailure(bytes);
+
+        Assert.Equal("judge-rubric.md holds a control or invisible character", failure.Message);
+    }
+
+    [Fact]
+    public void A_control_character_is_refused_before_the_missing_level_is_named()
+    {
+        ConfigurationException failure = LoadFailure("1. a\n2. b\n4. d\n5. e" + (char)0 + "\n");
+
+        Assert.Equal("judge-rubric.md holds a control or invisible character", failure.Message);
+    }
+
+    [Fact]
+    public void Tab_line_feed_carriage_return_and_ordinary_non_ascii_letters_are_accepted()
+    {
+        string text = "Tab\there\r\nLine\n1. a\n2. b\n3. c\n4. d\n5. e " + char.ConvertFromUtf32(0x00E9) + char.ConvertFromUtf32(0x1F600) + "\n";
+
+        Assert.Equal(text, LoadFromTemp(text));
+    }
+
+    [Fact]
+    public void A_null_path_is_refused_as_a_programming_error() =>
+        Assert.Throws<ArgumentNullException>(() => RubricLoader.Load(null!));
 }
