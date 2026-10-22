@@ -154,6 +154,7 @@ Demo relevance: yes: hosted rows in the demo table show cost in USD or an explic
 
 ### AJ-072: Compute local electricity cost in EUR and cloudgpu rental cost in USD
 Covers: REQ-009
+Note (2026-10-22, AJ-072): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-072-local-and-cloud-cost.feature` (the story table's `LocalAndCloudCost.feature`, the story block verbatim). Pinned readings applied: a below-baseline step is N/A and keeps its negative joules (reading P1), cloudgpu cost is the hourly price times wall seconds over 3600 in USD with no electricity model (ADR-15), and `totals.gco2e` and the assumptions follow the factor rule with `electricityPrice` always labelled estimated. Deviations: the Core test `The_measured_tiers_stay_cost_not_configured_until_the_local_and_cloudgpu_branches_exist` is renamed to `The_measured_tiers_answer_with_their_own_reason_and_no_longer_cost_not_configured`, two M2 run-document assertions are re-anchored to the estimated price and the N/A `not-configured` factor, and the feature file name follows the repository convention.
 User story: As a reader comparing tiers, I want local cost from net energy times a labelled electricity price and cloudgpu cost from the VM rental price, each in its own currency, so that currencies are never mixed and every cost is marked as an estimate.
 Acceptance criteria:
 1. 3 600 000 J net at 0.30 EUR/kWh gives `{value:0.30,label:"estimated",currency:"EUR"}` (test `Local_cost_example`); the price and currency come from `Cost:ElectricityPricePerKwh` and `Cost:Currency`.
@@ -215,9 +216,9 @@ Tasks:
 Test mapping: `CostModelTests` (required test class, trait `Spec=REQ-009`); feature file `tests/AgentJoules.Specs/Features/Reporting/LocalAndCloudCost.feature`.
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the rental-time rule (written in M4); the README labels the electricity price as an assumption (M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-009"` shows at least one passed and no failed test for the local and cloudgpu tests
+- [x] `dotnet test --filter "Spec=REQ-009"` shows at least one passed and no failed test for the local and cloudgpu tests
 - [ ] the below-baseline rule is confirmed or replaced by the architect and the outcome is noted in `docs/build-log.md`
 Demo relevance: yes: the local row shows cost in EUR next to joules, labelled as an estimate.
 Conflict: C-08 (design 9.2) - REQ-009 defines no cloudgpu cost; resolution (ADR-15): step cost = configured hourly GPU price x step wall time, `estimated`, USD, with the whole-run billed cost in `environment.cloudCostUsd`; no electricity model is applied to a rented VM.

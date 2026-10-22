@@ -418,8 +418,8 @@ public sealed partial class RunOrchestrationTests
             Assert.Equal(EnvironmentInfo.GpuBoardOnly, environment.EnergyScope);
             Assert.Null(environment.PowerSource);
             Assert.Equal((null, null, null, null), (environment.InstancePreset, environment.Region, environment.ContainerImage, environment.ContainerDigest));
-            Assert.Equal((MetricLabel.NotReported, "not-configured"), (environment.Assumptions.ElectricityPrice.Label, environment.Assumptions.ElectricityPrice.Reason));
-            Assert.Equal((MetricLabel.NotReported, "not-configured"), (environment.Assumptions.Gco2ePerKwh.Label, environment.Assumptions.Gco2ePerKwh.Reason));
+            Assert.Equal(Metric.Estimated(0.30, "EUR"), environment.Assumptions.ElectricityPrice);
+            Assert.Equal((MetricLabel.NotApplicable, "not-configured"), (environment.Assumptions.Gco2ePerKwh.Label, environment.Assumptions.Gco2ePerKwh.Reason));
 
             // One row per agent in catalog order; a model ID without nemotron is a baseline model.
             Assert.Equal(

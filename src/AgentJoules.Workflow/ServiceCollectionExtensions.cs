@@ -167,8 +167,8 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the <see cref="CostCalculator"/> as the one <see cref="ICostCalculator"/> of the process (REQ-009, design 3.2), built from the price table at <c>Paths:Prices</c> and the
-    /// missing-price reasons of <c>Tiers</c>. It replaces <see cref="NotConfiguredCostCalculator"/>, which stays as a type but is no longer registered.
+    /// Registers the <see cref="CostCalculator"/> as the one <see cref="ICostCalculator"/> of the process (REQ-009, design 3.2), built from the price table at <c>Paths:Prices</c>, the
+    /// missing-price reasons of <c>Tiers</c>, the electricity price and currency of <c>Cost</c> and the rental price of <c>CloudGpu</c>. It replaces <see cref="NotConfiguredCostCalculator"/>, which stays as a type but is no longer registered.
     /// </summary>
     /// <remarks>
     /// The registration is a factory, so nothing is read until the calculator is first resolved: a command that never meters (<c>probe</c>) never touches the price file. <c>run</c> resolves it
@@ -194,7 +194,7 @@ public static class ServiceCollectionExtensions
             string path = ContentPaths.Resolve(contentRoot, options.Paths.Prices, PathsOptions.PricesKey);
             try
             {
-                return new CostCalculator(PriceTable.Load(path), options.Tiers);
+                return new CostCalculator(PriceTable.Load(path), options.Tiers, options.Cost, options.CloudGpu);
             }
             catch (ConfigurationException failure)
             {

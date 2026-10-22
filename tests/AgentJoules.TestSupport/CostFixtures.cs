@@ -1,5 +1,6 @@
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
+using AgentJoules.Core.Labels;
 using AgentJoules.Core.Runs;
 
 using Microsoft.Extensions.Time.Testing;
@@ -47,5 +48,31 @@ public static class CostFixtures
         EnergyReading reading = window.Close();
         meter.DisposeAsync().AsTask().GetAwaiter().GetResult();
         return reading;
+    }
+
+    /// <summary>The closed window of a local step that measured <paramref name="netJoules"/> of net energy; a negative net carries the <c>below-baseline</c> flag, as the reading requires.</summary>
+    /// <param name="netJoules">The net energy in joules; finite.</param>
+    /// <returns>The reading, one second long, sampled at 10 Hz.</returns>
+    public static EnergyReading LocalEnergy(double netJoules) =>
+        new(
+            Metric.Measured(netJoules + 1000.0, "J"),
+            Metric.Measured(netJoules, "J"),
+            Metric.Measured(90.0, "W"),
+            Metric.Measured(110.0, "W"),
+            durationSeconds: 1.0,
+            EnergyMethod.Sampling,
+            sampleCount: 11,
+            sampleRateHz: 10.0,
+            netJoules < 0.0 ? ReadingFlags.BelowBaseline : ReadingFlags.None,
+            throttleReasons: null);
+
+    /// <summary>The closed window of a local step whose energy could not be measured: every energy metric is N/A with the given reason.</summary>
+    /// <param name="reason">The reason of the absence.</param>
+    /// <param name="notReported">True for not-reported metrics, false for N/A.</param>
+    /// <returns>The reading.</returns>
+    public static EnergyReading LocalEnergyAbsent(string reason, bool notReported = false)
+    {
+        Metric absent = notReported ? Metric.NotReported(reason) : Metric.NotApplicable(reason);
+        return new EnergyReading(absent, absent, absent, absent, durationSeconds: 1.0, EnergyMethod.Sampling, sampleCount: 0, sampleRateHz: 10.0, ReadingFlags.None, throttleReasons: null);
     }
 }

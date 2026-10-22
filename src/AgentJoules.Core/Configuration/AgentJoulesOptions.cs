@@ -37,7 +37,12 @@ public sealed class AgentJoulesOptions
     public WorkflowOptions Workflow { get; set; } = new();
 
     /// <summary>Section <c>CloudGpu</c>: how the rented-GPU tier is reached; <c>RequireSshVariables</c> is false on the VM.</summary>
+    [ValidateObjectMembers]
     public CloudGpuOptions CloudGpu { get; set; } = new();
+
+    /// <summary>Section <c>Cost</c>: the electricity price, its currency and the optional carbon factor.</summary>
+    [ValidateObjectMembers]
+    public CostOptions Cost { get; set; } = new();
 
     /// <summary>Section <c>Paths</c>: the files a run reads, relative to the content root; every key has a default.</summary>
     public PathsOptions Paths { get; set; } = new();

@@ -137,7 +137,7 @@ public sealed class RunOrchestrator(
             ? configured
             : throw new ConfigurationException("Tiers:" + name + " is not configured");
 
-        var progress = new TierProgress(plan, tier, tierOptions, plan.Writers[tier]);
+        var progress = new TierProgress(plan, tier, tierOptions, options.Cost, plan.Writers[tier]);
         var sink = new InMemoryMetricsSink();
         var listening = new RunListenerSink(sink, _listener, _logger, cancellationToken);
         IGpuTelemetrySource? source = null;
@@ -399,13 +399,15 @@ public sealed class RunOrchestrator(
     }
 
     // What one tier run has collected so far, and the document of any of its writes.
-    private sealed class TierProgress(RunPlan plan, Tier tier, TierOptions tierOptions, IRunCheckpointWriter writer)
+    private sealed class TierProgress(RunPlan plan, Tier tier, TierOptions tierOptions, CostOptions costOptions, IRunCheckpointWriter writer)
     {
         private readonly string[] _taskNames = [.. plan.Tasks.Select(static task => task.Name)];
 
         public Tier Tier { get; } = tier;
 
         public TierOptions TierOptions { get; } = tierOptions;
+
+        public CostOptions CostOptions { get; } = costOptions;
 
         public IRunCheckpointWriter Writer { get; } = writer;
 
@@ -434,8 +436,8 @@ public sealed class RunOrchestrator(
         public RunDocument Document(IReadOnlyList<StepReading> steps, RunStatus status)
         {
             RunInfo run = RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status);
-            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad);
-            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, [], WallClockMs, Union);
+            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions);
+            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, [], WallClockMs, Union, CostOptions);
         }
     }
 }

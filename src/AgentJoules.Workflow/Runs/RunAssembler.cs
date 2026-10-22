@@ -25,9 +25,9 @@ namespace AgentJoules.Workflow.Runs;
 /// energies do not add up (<see cref="ReportSentences.ConcurrentOverlap"/>): the energy totals are the union of the step windows, computed by the meter of the tier
 /// (<see cref="IEnergyMeter.ComputeUnion"/>, REQ-013, EDGE-004), and not-reported <c>union-not-computed</c> when no meter was given or a step has no window; serialized mode sums. Tokens
 /// sum in both modes. The cost follows the same all-steps rule per currency: when every step carries a cost <c>estimated</c> in a currency, the sums per currency;
-/// when at least one step lacks one, every currency seen is N/A <c>missing-step-costs</c>; when no step carries one, an empty map (M2, where every cost is N/A). <c>wallClockMs</c> is the measured
+/// when at least one step lacks one, every currency seen is N/A <c>missing-step-costs</c>; an empty map when no step carries a cost. <c>wallClockMs</c> is the measured
 /// sum of the workflow wall times of the (task, repeat) runs, and not-reported <c>no-steps</c> when none started. The judge readings are never part of these and are summed into <c>totals.judge</c>
-/// (N/A <c>not-scored</c> while there are none). The emission (<c>gco2e</c>) is N/A <c>not-configured</c>.
+/// (N/A <c>not-scored</c> while there are none). The emission (<c>gco2e</c>) is the estimate of <see cref="CostCalculator.EstimateEmissions"/> from the net energy total and <c>Cost:GCo2ePerKwh</c>: N/A <c>not-configured</c> while no factor is set, N/A <c>energy-not-measured</c> when the net total is N/A or not-reported, N/A <c>below-baseline</c> when the net total is negative, N/A <c>price-not-representable</c> when the product cannot be held, and an estimated 0 for a measured net total of 0.
 /// </para>
 /// <para>
 /// The <c>shared-window</c> flag is derived when a document is assembled (<see cref="MarkSharedWindows"/>): on a measured tier, in both modes, every step whose in-memory window strictly
@@ -50,9 +50,6 @@ public static class RunAssembler
     /// <summary>The reason of a judge total while no judge reading exists (M2: the judge seam is a no-op).</summary>
     public const string NotScoredReason = "not-scored";
 
-    /// <summary>The reason of a value whose configuration is not set: the emission of the run and the two assumptions of the environment.</summary>
-    public const string NotConfiguredReason = "not-configured";
-
     /// <summary>The reason of <c>environment.cloudCostUsd</c> on every tier other than <c>cloudgpu</c>: no VM is rented.</summary>
     public const string NotCloudGpuReason = "not-cloudgpu";
 
@@ -69,6 +66,7 @@ public static class RunAssembler
     private const string NotMeasuredReason = "not-measured";
 
     private const string JouleUnit = "J";
+    private const string GramsPerKwhUnit = "gCO2e/kWh";
     private const string MillisecondUnit = "ms";
     private const string FallbackVersion = "0.0.0";
 
@@ -86,10 +84,11 @@ public static class RunAssembler
     /// The union of the step windows (<see cref="IEnergyMeter.ComputeUnion"/> of the tier's meter), asked once for a concurrent run on a measured tier whose steps all carry a window;
     /// null when there is none, which leaves those energy totals not-reported <see cref="UnionNotComputedReason"/>.
     /// </param>
+    /// <param name="cost">The <c>Cost</c> section whose carbon factor turns the net energy total into <c>gco2e</c>; null takes the defaults of <see cref="CostOptions"/> (no factor).</param>
     /// <returns>The totals.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="steps"/> or <paramref name="judge"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined, or <paramref name="wallClockMs"/> is negative or not finite.</exception>
-    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
+    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null, CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
@@ -113,7 +112,7 @@ public static class RunAssembler
             CostByCurrency(steps),
             wallClockMs is { } measured ? Metric.Measured(measured, MillisecondUnit) : Metric.NotReported(NoStepsReason),
             JudgeTotalsOf(judge),
-            Metric.NotApplicable(NotConfiguredReason));
+            CostCalculator.EstimateEmissions(net, cost?.GCo2ePerKwh));
     }
 
     /// <summary>
@@ -126,12 +125,13 @@ public static class RunAssembler
     /// <param name="gpu">The identity of the measured GPU, or null for a hosted tier.</param>
     /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier).</param>
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
+    /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
     /// <returns>The environment.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tierOptions"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier is not defined, or <paramref name="modelLoad"/> is negative.</exception>
     /// <exception cref="ArgumentException">The reasoning mode of the tier is not off, on or unsupported.</exception>
     /// <exception cref="Core.Cli.ConfigurationException">An agent of the tier has no model ID.</exception>
-    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad)
+    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(tierOptions);
         if (modelLoad < TimeSpan.Zero)
@@ -148,7 +148,7 @@ public static class RunAssembler
                 return new EnvironmentModel(agent, modelId, Baseline: !ModelIdRules.IsNemotron(modelId));
             }),
         ];
-        Metric notConfigured = Metric.NotReported(NotConfiguredReason);
+        CostOptions assumed = cost ?? new CostOptions();
 
         return new EnvironmentInfo(
             GpuName: gpu?.Name,
@@ -171,7 +171,9 @@ public static class RunAssembler
             Precision: runtime?.Precision ?? (string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision),
             CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(NotObservedReason) : Metric.NotApplicable(NotCloudGpuReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
-            Assumptions: new EnvironmentAssumptions(notConfigured, notConfigured),
+            Assumptions: new EnvironmentAssumptions(
+                Metric.Estimated(assumed.ElectricityPricePerKwh, assumed.Currency),
+                assumed.GCo2ePerKwh is { } factor ? Metric.EstimatedQuantity(factor, GramsPerKwhUnit) : Metric.NotApplicable(CostCalculator.NotConfiguredReason)),
             Models: models);
     }
 
@@ -207,6 +209,7 @@ public static class RunAssembler
     /// <param name="judge">The judge readings.</param>
     /// <param name="wallClockMs">The sum of the workflow wall times so far, in milliseconds; null when no (task, repeat) started.</param>
     /// <param name="computeUnion">The union of the step windows for the energy totals of a concurrent measured run (see <see cref="ComputeTotals"/>), or null.</param>
+    /// <param name="cost">The <c>Cost</c> section for the carbon factor of the totals (see <see cref="ComputeTotals"/>), or null.</param>
     /// <returns>The document.</returns>
     /// <exception cref="ArgumentNullException">A member, the steps or the judge readings are null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="wallClockMs"/> is negative or not finite.</exception>
@@ -218,7 +221,8 @@ public static class RunAssembler
         IReadOnlyList<StepReading> steps,
         IReadOnlyList<StepReading> judge,
         double? wallClockMs,
-        Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
+        Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null,
+        CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(environment);
@@ -235,7 +239,7 @@ public static class RunAssembler
             baseline,
             stepCopy,
             judgeCopy,
-            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion));
+            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion, cost));
     }
 
     /// <summary>

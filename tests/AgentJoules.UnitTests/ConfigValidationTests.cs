@@ -122,6 +122,7 @@ public sealed class ConfigValidationTests
     [InlineData(typeof(GpuOptions))]
     [InlineData(typeof(MeterOptions))]
     [InlineData(typeof(BaselineOptions))]
+    [InlineData(typeof(CostOptions))]
     public void TheOptionTypesAreSealedMutableClassesWithPlainGetAndSet(Type type)
     {
         Assert.True(type.IsClass);
@@ -654,7 +655,8 @@ public sealed class ConfigValidationTests
         ];
 
         Assert.NotEmpty(annotated);
-        Assert.All(annotated, property => Assert.Contains(property.PropertyType, numeric));
+        // A nullable number (CloudGpu:HourlyPriceUsd, Cost:GCo2ePerKwh) is optional: unset passes, a set value is checked as the number it is.
+        Assert.All(annotated, property => Assert.Contains(Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType, numeric));
     }
 
     // ---- a binding failure never shows a configured value ----
@@ -713,7 +715,7 @@ public sealed class ConfigValidationTests
     [InlineData("Gpu:Idx", "3")]
     [InlineData("Meter:Methd", "counter")]
     [InlineData("Baseline:Secs", "5")]
-    [InlineData("Cost", "1")]
+    [InlineData("Costs", "1")]
     public void AnUnknownKeyIsRejectedNamingIt(string key, string value)
     {
         ConfigurationException failure = Rejected((key, value));
@@ -856,5 +858,123 @@ public sealed class ConfigValidationTests
     {
         string[] segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return segments.Contains("bin", StringComparer.OrdinalIgnoreCase) || segments.Contains("obj", StringComparer.OrdinalIgnoreCase);
+    }
+
+    // ---- AJ-072: the Cost section and CloudGpu:HourlyPriceUsd ----
+
+    [Theory]
+    [InlineData("Cost:ElectricityPricePerKwh", "0")]
+    [InlineData("Cost:ElectricityPricePerKwh", "-0.5")]
+    [InlineData("Cost:ElectricityPricePerKwh", "NaN")]
+    [InlineData("Cost:ElectricityPricePerKwh", "Infinity")]
+    [InlineData("Cost:Currency", "")]
+    [InlineData("Cost:Currency", "eur")]
+    [InlineData("Cost:Currency", "EURO")]
+    [InlineData("Cost:Currency", "E1R")]
+    [InlineData("Cost:Currency", " EU")]
+    [InlineData("Cost:GCo2ePerKwh", "0")]
+    [InlineData("Cost:GCo2ePerKwh", "-5")]
+    [InlineData("Cost:GCo2ePerKwh", "NaN")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "0")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "-1")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "Infinity")]
+    public void AnInvalidCostOrRentalValueExitsTwoNamingTheKey(string key, string value)
+    {
+        ConfigurationException failure = Rejected((key, value));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains(key, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Cost:ElectricityPricePerKwh", "-7.123")]
+    [InlineData("Cost:ElectricityPricePerKwh", "not-a-number-zz")]
+    [InlineData("Cost:Currency", "xq9")]
+    [InlineData("Cost:GCo2ePerKwh", "-8.456")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "-9.789")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "not-a-number-zz")]
+    public void ACostOrRentalFailureNamesTheKeyAndNeverTheValue(string key, string value)
+    {
+        ConfigurationException failure = Rejected((key, value));
+
+        Assert.Contains(key, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(value, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ACostSectionWithEveryKeySetAndARentalPriceValidate()
+    {
+        AgentJoulesOptions options = Load(
+            ("Cost:ElectricityPricePerKwh", "0.25"),
+            ("Cost:Currency", "SEK"),
+            ("Cost:GCo2ePerKwh", "400"),
+            ("CloudGpu:HourlyPriceUsd", "3.6"));
+
+        Assert.Equal(0.25, options.Cost.ElectricityPricePerKwh, Tolerance);
+        Assert.Equal("SEK", options.Cost.Currency);
+        Assert.Equal(400.0, options.Cost.GCo2ePerKwh!.Value, Tolerance);
+        Assert.Equal(3.6, options.CloudGpu.HourlyPriceUsd!.Value, Tolerance);
+    }
+
+    [Fact]
+    public void TheCostDefaultsAreThirtyCentsInEuroWithNoFactorAndNoRentalPrice()
+    {
+        var options = new AgentJoulesOptions();
+
+        Assert.Equal(0.30, options.Cost.ElectricityPricePerKwh, Tolerance);
+        Assert.Equal("EUR", options.Cost.Currency);
+        Assert.Null(options.Cost.GCo2ePerKwh);
+        Assert.Null(options.CloudGpu.HourlyPriceUsd);
+        OptionsLoader.ValidateOrThrow(options);
+    }
+
+    [Fact]
+    public void TheShippedFileHoldsTheElectricityPriceAndCurrencyButNoFactorAndNoRentalPrice()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement root = document.RootElement.GetProperty(AgentJoulesOptions.SectionName);
+        JsonElement cost = root.GetProperty("Cost");
+        AgentJoulesOptions options = OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath()));
+
+        Assert.Equal(0.30, cost.GetProperty("ElectricityPricePerKwh").GetDouble(), Tolerance);
+        Assert.Equal("EUR", cost.GetProperty("Currency").GetString());
+        Assert.False(cost.TryGetProperty("GCo2ePerKwh", out _));
+        Assert.False(root.GetProperty("CloudGpu").TryGetProperty("HourlyPriceUsd", out _));
+        Assert.Null(options.Cost.GCo2ePerKwh);
+        Assert.Null(options.CloudGpu.HourlyPriceUsd);
+    }
+
+    [Fact]
+    public void AnUnknownCostKeyIsRejectedNamingIt()
+    {
+        ConfigurationException failure = Rejected(("Cost:Currncy", "EUR"));
+
+        Assert.Contains("Cost:Currncy", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("eur")]
+    public void AProgrammaticCurrencyThatIsNotACodeFailsNamingTheKeyOnly(string currency)
+    {
+        var options = new AgentJoulesOptions();
+        options.Cost.Currency = currency;
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => OptionsLoader.ValidateOrThrow(options));
+
+        Assert.Equal("Cost:Currency must be three upper-case letters", failure.Message);
+    }
+
+    [Fact]
+    public void ACurrencyCodeIsExactlyThreeUpperCaseAsciiLetters()
+    {
+        string accented = string.Concat("E", ((char)0xC9).ToString(), "R");
+
+        string[] codes = ["EUR", "USD", "SEK"];
+        string?[] notCodes = [null, string.Empty, " ", "   ", "eur", "Eur", "EU", "EURO", "E1R", "E R", "EUR ", accented];
+
+        Assert.All(codes, code => Assert.True(CostOptions.IsCurrencyCode(code), code));
+        Assert.All(notCodes, code => Assert.False(CostOptions.IsCurrencyCode(code)));
     }
 }

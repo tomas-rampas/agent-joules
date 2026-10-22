@@ -19,8 +19,10 @@ public static class StepReadingFixtures
     /// <param name="window">The in-memory meter window the run assembler reads (AJ-047), or null for none.</param>
     /// <param name="cost">The cost, or null for not-reported <c>not-priced</c>.</param>
     /// <param name="inputTokens">The prompt tokens, or null for a measured 120.</param>
+    /// <param name="netJoules">The net energy, or null for a measured 60 J.</param>
+    /// <param name="flags">The reading flags; a negative net needs <see cref="ReadingFlags.BelowBaseline"/>.</param>
     /// <returns>The reading.</returns>
-    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null) =>
+    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null, Metric? netJoules = null, ReadingFlags flags = ReadingFlags.None) =>
         new(
             task: "summarise",
             repeat: 1,
@@ -35,13 +37,13 @@ public static class StepReadingFixtures
             inputTokens: inputTokens ?? Metric.Measured(120, "tokens"),
             outputTokens: Metric.Measured(80, "tokens"),
             grossJoules: Metric.Measured(180, "J"),
-            netJoules: Metric.Measured(60, "J"),
+            netJoules: netJoules ?? Metric.Measured(60, "J"),
             avgW: Metric.Measured(90, "W"),
             peakW: Metric.Measured(110, "W"),
             cost: cost ?? Metric.NotReported("not-priced"),
             retries: 0,
             waitMs: 0,
-            flags: ReadingFlags.None,
+            flags: flags,
             method: EnergyMethod.Sampling,
             sampleCount: 21,
             sampleRateHz: 10.0,

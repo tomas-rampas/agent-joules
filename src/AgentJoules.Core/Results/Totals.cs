@@ -16,7 +16,7 @@ namespace AgentJoules.Core.Results;
 /// <param name="CostByCurrency">The summed cost per currency code.</param>
 /// <param name="WallClockMs">The summed wall time of the workflow runs in milliseconds.</param>
 /// <param name="Judge">The sums over the judge calls.</param>
-/// <param name="Gco2e">The estimated grams of CO2e; N/A with the reason <c>not-configured</c> when no carbon factor is set, never null and never 0.</param>
+/// <param name="Gco2e">The grams of CO2e, estimated with the unit <c>gCO2e</c> when <c>Cost:GCo2ePerKwh</c> is set (an estimated 0 for a measured net total of 0); otherwise N/A with the reason <c>not-configured</c> (no factor), <c>energy-not-measured</c> (net total N/A or not-reported), <c>below-baseline</c> (negative net total) or <c>price-not-representable</c> (product a decimal cannot hold); never null and never a bare 0.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record Totals(
     Metric GrossJoules,
