@@ -778,6 +778,8 @@ public sealed partial class RunOrchestrationTests
 
         public void TierFailed(string displayPath, string agent, RunStatus status) => ThrowIfFailing();
 
+        public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => ThrowIfFailing();
+
         private void ThrowIfFailing()
         {
             if (Failure is not null)

@@ -22,7 +22,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <summary>
 /// The production <see cref="IRunOrchestrator"/> (REQ-017, REQ-013, EDGE-005, EDGE-016, design 3.4 "Run orchestration"): runs every tier of the plan in order, and in each tier every task in
 /// file order for every repeat, with fresh agents, fresh pipelines and a fresh workflow per (task, repeat); writes one checkpoint after each (task, repeat) and the final document with
-/// status <c>completed</c>; and tells the user about every finished step, the idle baseline and the closing lines of each tier through the <see cref="IRunListener"/>.
+/// status <c>completed</c>; and tells the user about every finished step, the idle baseline, a judge that failed for some steps of a tier (one warning line, EDGE-012) and the closing lines of each tier through the <see cref="IRunListener"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -62,7 +62,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="cost">The cost calculator of every step (M2: not configured).</param>
 /// <param name="instruments">The OpenTelemetry instruments every reading is recorded on.</param>
 /// <param name="time">The clock of the meter, the windows, the latencies and the workflow wall times.</param>
-/// <param name="listener">Receives the step lines, the baseline and the closing lines of each tier.</param>
+/// <param name="listener">Receives the step lines, the baseline, the judge warning and the closing lines of each tier.</param>
 /// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
 /// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
@@ -207,6 +207,14 @@ public sealed class RunOrchestrator(
             RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), RunStatus.Completed, judged?.SelfJudged);
             await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
             string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
+
+            // A judge failure is a warning and nothing else (EDGE-012): one line per tier run in which a judged step failed, told after the file was written and before the closing lines of the tier.
+            // The counts and the kinds travel in the result; no message does. A skipped judge (no result) and a judge that scored every step tell nothing.
+            if (judged is { FailedSteps: > 0 } failures)
+            {
+                listening.Tell(listener => listener.JudgeFailed(tier, failures.FailedSteps, failures.JudgedSteps, failures.FailureKinds));
+            }
+
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

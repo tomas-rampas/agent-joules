@@ -523,6 +523,8 @@ public sealed partial class RetryPolicyTests
 
             public void TierCompleted(string displayPath, Totals totals) => inner.TierCompleted(displayPath, totals);
 
+            public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
+
             public void TierFailed(string displayPath, string agent, RunStatus status) => throw new IOException("console-detail-3b7e");
         }
 

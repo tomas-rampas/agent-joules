@@ -28,6 +28,15 @@ public static class ConfigurationFixtures
         return [.. shipped.Tiers.Values.Select(static tier => tier.ModelId).Append(shipped.Judge.ModelId).OfType<string>().Distinct(StringComparer.Ordinal)];
     }
 
+    /// <summary>The model ID that the shipped configuration gives <paramref name="tier"/>, so a test never repeats a model name that a change of the file would make wrong.</summary>
+    /// <param name="tier">The lowercase tier name.</param>
+    /// <returns>The model ID.</returns>
+    /// <exception cref="InvalidOperationException">The shipped configuration holds no tier of that name or no model ID for it.</exception>
+    public static string ShippedModelId(string tier) =>
+        ShippedOptions().Tiers.TryGetValue(tier, out TierOptions? options) && !string.IsNullOrWhiteSpace(options.ModelId)
+            ? options.ModelId
+            : throw new InvalidOperationException($"The shipped configuration holds no model ID for the tier '{tier}'.");
+
     /// <summary>Builds a configuration that holds only <paramref name="pairs"/>; a later pair with the same key wins.</summary>
     public static IConfiguration InMemory(params (string Key, string Value)[] pairs) =>
         new ConfigurationBuilder()

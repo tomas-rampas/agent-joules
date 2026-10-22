@@ -391,6 +391,8 @@ public sealed partial class RunOrchestrationTests
 
         public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
 
+        public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
+
         public void TierCompleted(string displayPath, Totals totals)
         {
             inner.TierCompleted(displayPath, totals);

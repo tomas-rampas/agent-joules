@@ -461,13 +461,14 @@ Demo relevance: yes: the quality column in the demo table comes from this judge 
 
 ### AJ-077: Never let a judge failure change the exit code
 Covers: EDGE-012
+Note (2026-10-22, AJ-077): feature file `tests/AgentJoules.Specs/Features/Workflow/AJ-077-judge-failure.feature` (the table's `JudgeFailure.feature`, named per the M1 repository convention). Pinned readings applied from the architect's record of 2026-10-22: one `JudgeFailed` line per tier run through `IRunListener`, told after the completed write (P-12, P-13); the missing judge key is pinned by tests only, `PreflightService.cs` unchanged (P-14); failed-judge reasons are exact, `judge-failed: <type>` or `parse-error: <excerpt>`, `not-scored`, derived N/A `missing-input` (P-15); the per-step conversion stays in `JudgeService` (P-16). A-13 applied in place: criterion 5 now says one warning line per tier run (per results file), T3 adds the listener and orchestrator files, T4 is the tests-only pin of the existing skip. Deviations: the warning names the run's tier, not the judge tier (D1); the lone-surrogate reason is reached only through a JSON escape in the HTTP body (D2); the fourteen EDGE-012 tests (twelve at the draft, two from the fix round) sit in the nested class `JudgeParsingTests.JudgeFailureNeverChangesTheExitCode` (D6); D3 to D5, D7 and D8 are test-side choices that change no criterion. A judge endpoint unreachable at preflight exits 5 under the preflight rule (design 3.4 Preflight step 3; an absent judge model ID is EDGE-008, exit 4) (spec R-1); the quality reason uses the raw exception type name, identical to its TextEcho form for every reachable name (spec R-4).
 User story: As a user, I want a failing or unparseable judge to leave the workflow results intact and the exit code at 0, so that a rate-limited judge never destroys a measured run.
 Acceptance criteria:
 1. A failing fake judge (endpoint answers 500) gives `quality.label == "N/A"`, `qualityReason == "not-scored"`, `joulesPerQualityPoint.label == "N/A"` and exit code 0 (test `Failing_judge_keeps_exit_0`).
 2. A judge that answers 429 on every call (5 attempts) behaves the same; an unparseable reply records `parse-error: <excerpt>` and the same labels.
 3. A missing judge key outside `--dry-run` produces one warning, every quality N/A, and exit 0; with `--dry-run` it is reported by AJ-052 and exits 3.
 4. The workflow steps, their totals and `run.status: "completed"` are identical to a run whose judge succeeded, except for quality and derived metrics.
-5. One warning line per run names the judge failure (not one per step); no key value appears in it (test `One_judge_warning_no_key`: exactly 1 warning line and it does not contain the runtime-built key).
+5. One warning line per tier run (per results file) names the judge failure (not one per step); no key value appears in it (test `One_judge_warning_no_key`: exactly 1 warning line and it does not contain the runtime-built key).
 6. When some judge calls succeed and some fail, the successful steps keep their scores (test `Partial_judge_failure_keeps_scores`).
 BDD scenarios:
 ```gherkin
@@ -511,17 +512,17 @@ Feature: AJ-077 Never let a judge failure change the exit code
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-077-T1 | Write the failing BDD feature and unit tests for judge failure | tests/AgentJoules.Specs/Features/Workflow/JudgeFailure.feature, tests/AgentJoules.UnitTests/JudgeParsingTests.cs | 0.5 | AJ-076-T1 |
-| AJ-077-T2 | Convert judge exceptions and parse failures into N/A quality with `not-scored` | src/AgentJoules.Workflow/Judge/JudgeService.cs | 1.0 | AJ-077-T1, AJ-076-T3 |
-| AJ-077-T3 | Print one judge warning per run | src/AgentJoules.Cli/Output/ConsoleReporter.cs | 0.5 | AJ-077-T2 |
-| AJ-077-T4 | Skip judging with a warning when the judge key is absent outside dry-run | src/AgentJoules.Workflow/Runs/PreflightService.cs, src/AgentJoules.Workflow/Judge/JudgeService.cs | 0.75 | AJ-077-T2 |
+| AJ-077-T1 | Write the failing BDD feature and unit tests for judge failure | tests/AgentJoules.Specs/Features/Workflow/JudgeFailure.feature (AJ-077-judge-failure.feature per the M1 convention), tests/AgentJoules.UnitTests/JudgeParsingTests.cs, JudgeParsingTests.Service.cs, JudgeParsingTests.Command.cs, tests/AgentJoules.TestSupport/JudgeFailedThrows.cs, OrderRecordingListener.cs, RunListenerFixtures.cs, ConfigurationFixtures.cs, tests/AgentJoules.Specs/Steps/JudgeFailureSteps.cs, tests/AgentJoules.Specs/Support/JudgeFailureContext.cs | 0.5 | AJ-076-T1 |
+| AJ-077-T2 | Convert judge exceptions and parse failures into N/A quality with `not-scored` | none (the conversion shipped in AJ-076; pinned here by tests) | 1.0 | AJ-077-T1, AJ-076-T3 |
+| AJ-077-T3 | Print one judge warning per tier run | src/AgentJoules.Cli/Output/ConsoleReporter.cs, src/AgentJoules.Cli/Output/ConsoleRunListener.cs, src/AgentJoules.Workflow/Runs/IRunListener.cs, src/AgentJoules.Workflow/Runs/RunOrchestrator.cs | 0.5 | AJ-077-T2 |
+| AJ-077-T4 | Pin the existing missing-judge-key skip with tests | tests only | 0.75 | AJ-077-T2 |
 | AJ-077-T5 | Record the `Spec=EDGE-012` result in the build log | docs/build-log.md | 0.25 | AJ-077-T4 |
-Test mapping: `JudgeParsingTests` (required test class, trait `Spec=EDGE-012`); feature file `tests/AgentJoules.Specs/Features/Workflow/JudgeFailure.feature`.
+Test mapping: `JudgeParsingTests.JudgeFailureNeverChangesTheExitCode` (a nested class carrying the trait `Spec=EDGE-012`; the outer class keeps `Spec=REQ-010`); feature file `tests/AgentJoules.Specs/Features/Workflow/JudgeFailure.feature`.
 Docs impact: `docs/build-log.md`; the README exit-code note that judge failures never change the exit code is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=EDGE-012"` shows at least one passed and no failed test
+- [x] `dotnet test --filter "Spec=EDGE-012"` shows at least one passed and no failed test
 Demo relevance: no.
 
 ### AJ-078: Complete the results model and its serialisation

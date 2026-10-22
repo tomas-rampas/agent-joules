@@ -32,7 +32,7 @@ public sealed class JudgeScoringContext : IDisposable
     private const string TaskName = "summarise";
     private const string TaskPrompt = "Summarise the incident for the on-call engineer.";
     private const string StepOutput = "The pager fired at three and the disk was full.";
-    private const string NebiusModel = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B";
+    private static readonly string NebiusModel = ConfigurationFixtures.ShippedModelId("nebius");
 
     private readonly TimerTrackingTimeProvider _time = new();
     private readonly InMemoryMetricsSink _judgeSink = new();

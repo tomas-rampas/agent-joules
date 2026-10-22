@@ -632,6 +632,8 @@ public sealed partial class RunOrchestrationTests
             public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 
             public void TierCompleted(string displayPath, Totals totals) => inner.TierCompleted(displayPath, totals);
+
+            public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
         }
     }
 }

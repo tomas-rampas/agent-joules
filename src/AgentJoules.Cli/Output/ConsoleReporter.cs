@@ -16,7 +16,7 @@ namespace AgentJoules.Cli.Output;
 /// <remarks>
 /// AJ-030 added the idle-baseline warning; AJ-056 adds the per-step lines and the closing lines of a tier of <c>run</c> on the output writer
 /// (<see cref="ReportStep"/>, <see cref="ReportTierCompleted"/>), which the orchestrator reaches through <see cref="ConsoleRunListener"/>; AJ-057 adds the lines of a tier that a failed step
-/// stopped (<see cref="ReportTierFailed"/>) and the warning for a partial file that could not be written (<see cref="ReportCheckpointFailed"/>).
+/// stopped (<see cref="ReportTierFailed"/>) and the warning for a partial file that could not be written (<see cref="ReportCheckpointFailed"/>); AJ-077 adds the one warning line per tier run in which the judge failed for some steps (<see cref="ReportJudgeFailed"/>).
 /// Numbers are formatted with the invariant culture, never the culture of the machine.
 /// </remarks>
 /// <param name="output">The writer for results (standard output); not used by the baseline warning.</param>
@@ -224,5 +224,26 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
 
         string shown = VariableNames.IsValid(variable) ? variable : "(name not shown)";
         _error.WriteLine($"Warning: judge key {shown} is not set; the run continues and the judge will not score it");
+    }
+
+    /// <summary>
+    /// Warns that the judge failed for some steps of a tier run (EDGE-012): exactly one line to the error writer, <c>Warning: the judge failed for &lt;f&gt; of &lt;n&gt; steps of tier &lt;tier&gt;
+    /// (&lt;kinds&gt;); their quality is N/A and the exit code is unchanged</c>. The kinds are exception type names and refusal tokens, each scrubbed of control characters and cut when far too long;
+    /// no message of a failure, no URL, no key and no model text is ever printed, because none of them reaches this method.
+    /// </summary>
+    /// <param name="tier">The tier whose steps were judged.</param>
+    /// <param name="failedSteps">How many judged steps failed.</param>
+    /// <param name="judgedSteps">How many steps were sent to the judge.</param>
+    /// <param name="failureKinds">The distinct failure kinds, in the order to print.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="failureKinds"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
+    public void ReportJudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds)
+    {
+        ArgumentNullException.ThrowIfNull(failureKinds);
+
+        string kinds = string.Join(", ", failureKinds.Select(static kind => TextEcho.ForMessage(kind)));
+        _error.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"Warning: the judge failed for {failedSteps} of {judgedSteps} steps of tier {TierOptions.NameOf(tier)} ({kinds}); their quality is N/A and the exit code is unchanged"));
     }
 }
