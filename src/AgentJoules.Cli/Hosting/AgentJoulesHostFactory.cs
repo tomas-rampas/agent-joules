@@ -1,7 +1,6 @@
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
-using AgentJoules.Core.Cost;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml;
 using AgentJoules.Workflow;
@@ -65,7 +64,7 @@ internal static class AgentJoulesHostFactory
         keys.Register(builder.Configuration, error);
         ConfigureLogging(builder);
         ConfigureOptions(builder.Services);
-        ConfigureServices(builder.Services, keys, output, error);
+        ConfigureServices(builder.Services, keys, output, error, contentRoot);
 
         // The services of this command only (run registers its telemetry); before the overrides, so a test can still replace them.
         configure?.Invoke(builder.Services, builder.Configuration);
@@ -205,7 +204,7 @@ internal static class AgentJoulesHostFactory
         services.AddOptions<AgentJoulesOptions>().ValidateOnStart();
     }
 
-    private static void ConfigureServices(IServiceCollection services, KeyRegistry keys, TextWriter output, TextWriter error)
+    private static void ConfigureServices(IServiceCollection services, KeyRegistry keys, TextWriter output, TextWriter error, string contentRoot)
     {
         services.RemoveAll<IHostLifetime>();
         services.AddSingleton<IHostLifetime, SignalHostLifetime>();
@@ -214,12 +213,12 @@ internal static class AgentJoulesHostFactory
         services.AddSingleton(new ConsoleReporter(output, error));
 
         // The composition root of every command (AJ-054, AJ-056): the provider clients of the tiers (registered once; a second call throws), the preflight with the dry run, the
-        // orchestrator of a measured run and the seams it takes: the cost calculator (not configured until M3 replaces it), the no-op judge (M3), the no-op local runtime (M4) and
+        // orchestrator of a measured run and the seams it takes: the cost calculator (the price-table one of M3, read from Paths:Prices only when first resolved), the no-op judge (M3), the no-op local runtime (M4) and
         // the console listener of the step lines. The meter gate, the agent factory and the instruments belong to run and are added by its service hook. Nothing here is resolved
         // unless a command asks for it.
         services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
         services.AddSingleton<IRunOrchestrator, RunOrchestrator>();
-        services.TryAddSingleton<ICostCalculator>(NotConfiguredCostCalculator.Instance);
+        services.AddAgentJoulesCost(contentRoot);
         services.TryAddSingleton<IJudgeService, NoOpJudgeService>();
         services.TryAddSingleton<ILocalRuntime, NoOpLocalRuntime>();
         services.AddSingleton<IRunListener, ConsoleRunListener>();

@@ -6,6 +6,7 @@ using AgentJoules.Cli.Hosting;
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
@@ -187,6 +188,9 @@ internal static class RunCommand
 
         IReadOnlyList<Tier> tiers = preflight.SelectTiers(request.Tier);
         IReadOnlyList<TaskDefinition> tasks = LoadTasks(contentRoot, options.Paths.Tasks, request.Task);
+
+        // Paths:Prices is read now, a dry run included (AJ-071): the calculator is built on first resolution, and resolving it here turns a missing or invalid price file into exit 2 before any check or request.
+        _ = services.GetRequiredService<ICostCalculator>();
 
         return request.DryRun
             ? await DryRunAsync(services, output, tiers, cancellationToken)

@@ -853,7 +853,7 @@ public sealed partial class RunOrchestrationTests
 
             _ = Assert.IsType<NoOpJudgeService>(host.Services.GetRequiredService<IJudgeService>());
             _ = Assert.IsType<NoOpLocalRuntime>(host.Services.GetRequiredService<ILocalRuntime>());
-            Assert.Same(NotConfiguredCostCalculator.Instance, host.Services.GetRequiredService<ICostCalculator>());
+            _ = Assert.IsType<CostCalculator>(host.Services.GetRequiredService<ICostCalculator>());
             _ = Assert.IsType<ConsoleRunListener>(host.Services.GetRequiredService<IRunListener>());
         }
     }

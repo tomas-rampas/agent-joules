@@ -798,6 +798,60 @@ public sealed class ConfigValidationTests
         Assert.Equal(1, hits);
     }
 
+    [Theory]
+    [InlineData("free-tier-no-price")]
+    [InlineData("price-not-found")]
+    [InlineData("contract-price-2026")]
+    public void AMissingPriceReasonOfLowercaseWordsJoinedByHyphensValidates(string reason)
+    {
+        AgentJoulesOptions options = Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", reason));
+
+        Assert.Equal(reason, options.Tiers["nvidia"].MissingPriceReason);
+    }
+
+    [Theory]
+    [InlineData("two words")]
+    [InlineData("tab\there")]
+    [InlineData("bell\a")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("Upper-case")]
+    [InlineData("-leading")]
+    [InlineData("trailing-")]
+    [InlineData("double--hyphen")]
+    [InlineData("under_score")]
+    [InlineData("   ")]
+    public void AMissingPriceReasonWithASpaceAControlCharacterOrAnotherShapeFailsNamingTheKeyWithoutTheValue(string reason)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", reason));
+
+        Assert.Contains("Tiers:nvidia:MissingPriceReason must be", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("the value is not shown", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        if (reason.Trim().Length > 2)
+        {
+            Assert.DoesNotContain(reason, failure.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void AMissingPriceReasonOf64CharactersValidatesAndOf65FailsWithoutTheValue()
+    {
+        string longest = new('a', CrossFieldValidator.MaxReasonLength);
+        string tooLong = new('b', CrossFieldValidator.MaxReasonLength + 1);
+
+        Assert.Equal(longest, Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", longest)).Tiers["nvidia"].MissingPriceReason);
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", tooLong));
+
+        Assert.Contains("Tiers:nvidia:MissingPriceReason must be", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(tooLong, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheShippedMissingPriceReasonValidates()
+    {
+        Assert.Equal("free-tier-no-price", ConfigurationFixtures.ShippedOptions().Tiers["nvidia"].MissingPriceReason);
+    }
+
     private static bool IsBuildOutput(string path)
     {
         string[] segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

@@ -16,13 +16,16 @@ namespace AgentJoules.Core.Configuration;
 /// no override allows, is left to the annotation on <see cref="MeterOptions.SampleRateHz"/> so that a caller that runs both validators
 /// sees that failure once. The tiers are a dictionary, which the generated <see cref="FlatSectionsValidator"/> does not enumerate, so this
 /// validator loops over them: a known tier name, a <c>BaseUrl</c> (absolute, no user info, query or fragment, https unless loopback) and a <c>ModelId</c> when the tier is enabled,
-/// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c>, a positive <c>TimeoutSeconds</c>, the names and values of
+/// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c>, a positive <c>TimeoutSeconds</c>, a <c>MissingPriceReason</c> of lowercase words joined by hyphens (at most 64 characters), the names and values of
 /// <c>AgentModelIds</c>, and an <c>ApiKeyVariable</c> that is a variable name ending in <c>_API_KEY</c> (AJ-052). A line names the key path and never shows a configured value.
 /// </remarks>
 public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 {
     /// <summary>The lowest sample rate in hertz that is valid without <c>Meter:AllowBelowMinRate</c>.</summary>
     public const double MinimumRateHz = 10.0;
+
+    /// <summary>The longest <c>Tiers:&lt;tier&gt;:MissingPriceReason</c>, which is printed in the results file as the reason of a cost.</summary>
+    public const int MaxReasonLength = 64;
 
     private static readonly MinimumValueAttribute Positive = new(0.0) { IsExclusive = true };
 
@@ -137,6 +140,11 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add($"{path}:MaxTokensField must be {ConfigurationMessages.OrList(TierOptions.MaxTokensFields)}; the value is not shown");
         }
 
+        if (!IsReasonWord(tier.MissingPriceReason))
+        {
+            failures.Add($"{path}:MissingPriceReason must be lowercase words joined by single hyphens (letters and digits, at most {MaxReasonLength} characters); the value is not shown");
+        }
+
         if (!Positive.IsValid(tier.TimeoutSeconds))
         {
             failures.Add($"{path}:TimeoutSeconds must be greater than 0");
@@ -172,6 +180,12 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             failures.Add("Judge:Tier names a tier that Tiers does not hold");
         }
     }
+
+    // The shape of a reason word of the results file: ^[a-z0-9]+(-[a-z0-9]+)*$ and at most MaxReasonLength characters. Blank, a space, a control character, upper case and a leading, trailing or doubled hyphen all fail.
+    private static bool IsReasonWord(string? reason) =>
+        !string.IsNullOrEmpty(reason)
+        && reason.Length <= MaxReasonLength
+        && reason.Split('-').All(static part => part.Length > 0 && part.All(static character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character)));
 
     private static bool IsKnownTierName(string name) => TierOptions.KnownNames.Contains(name, StringComparer.OrdinalIgnoreCase);
 }

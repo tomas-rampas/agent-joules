@@ -98,6 +98,7 @@ Demo relevance: no (prices feed the cost column of the report).
 
 ### AJ-071: Compute hosted token cost in USD or label it N/A
 Covers: REQ-009
+Note (2026-10-22, AJ-071): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-071-hosted-cost.feature` (the table's HostedCost.feature, same content as the story block); pinned P-a to P-f applied (cost = count x price per 1M in decimal, once to double, USD; row lookup first, then token counts, then arithmetic; `price-not-representable` for a product that is 0 although a token was counted, non-finite or overflowing; local and cloudgpu stay N/A `cost-not-configured` until AJ-072; `Paths:Prices` through `ContentPaths.Resolve`, lazy, exit 2 with key-only messages; Specs call `CostCalculator` directly); D1, a stated 0/0 token step costs an estimated 0 USD rather than N/A because the counts exist (accepted reading, reviewers may contest); the registration lives in Workflow's `AddAgentJoulesCost`, called by the host factory with the content root and resolved eagerly by `run` after the task load, and the task table's `ServiceCollectionExtensions.cs` is matched; battery 1 17:57:58Z to 17:59:25Z: 3108 passed, 0 failed, 4 skipped, REQ-009 151 of 151.
 User story: As a reader of hosted-tier results, I want token cost computed from the price table and labelled `estimated` in USD, or N/A with a reason, so that a free tier is never shown as a price of zero.
 Acceptance criteria:
 1. 1 000 000 input and 500 000 output tokens at 0.10 and 0.40 USD per 1M give `{value:0.30,label:"estimated",currency:"USD"}` (test `Hosted_cost_example`).
@@ -146,9 +147,9 @@ Tasks:
 Test mapping: `CostModelTests` (required test class, trait `Spec=REQ-009`); feature file `tests/AgentJoules.Specs/Features/Reporting/HostedCost.feature`.
 Docs impact: `docs/build-log.md`; README cost note (estimated, per currency, no conversion) is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-009"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `dotnet test --filter "Spec=REQ-009"` shows at least one passed and no failed test
 Demo relevance: yes: hosted rows in the demo table show cost in USD or an explicit N/A, never 0.
 
 ### AJ-072: Compute local electricity cost in EUR and cloudgpu rental cost in USD

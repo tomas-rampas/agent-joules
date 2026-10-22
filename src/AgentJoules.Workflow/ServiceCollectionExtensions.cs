@@ -1,4 +1,6 @@
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Runs;
 using AgentJoules.Metering;
 using AgentJoules.Workflow.Agents;
@@ -161,6 +163,45 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ModelCatalogClient>();
         services.TryAddSingleton<PreflightService>();
         services.TryAddSingleton<DryRunService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="CostCalculator"/> as the one <see cref="ICostCalculator"/> of the process (REQ-009, design 3.2), built from the price table at <c>Paths:Prices</c> and the
+    /// missing-price reasons of <c>Tiers</c>. It replaces <see cref="NotConfiguredCostCalculator"/>, which stays as a type but is no longer registered.
+    /// </summary>
+    /// <remarks>
+    /// The registration is a factory, so nothing is read until the calculator is first resolved: a command that never meters (<c>probe</c>) never touches the price file. <c>run</c> resolves it
+    /// right after the task set, before any check, so a missing, unreadable or invalid price file ends the command with exit 2 for a dry run too. The path is resolved with
+    /// <see cref="ContentPaths.Resolve"/> under <paramref name="contentRoot"/> exactly like <c>Paths:Tasks</c>: a rooted value, a colon or a <c>..</c> segment is refused naming only the key
+    /// <c>Paths:Prices</c>, and a failure of the file is prefixed with the key and names the file by its name only. The registration uses <c>TryAdd</c>: one that is already there wins and a
+    /// second call changes nothing, and a test replaces it with <c>RemoveAll&lt;ICostCalculator&gt;()</c> followed by <c>AddSingleton</c>. The caller registers
+    /// <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host does).
+    /// </remarks>
+    /// <param name="services">The collection to add the calculator to.</param>
+    /// <param name="contentRoot">The absolute content root, the working directory of the command.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="contentRoot"/> is null, empty or white space.</exception>
+    public static IServiceCollection AddAgentJoulesCost(this IServiceCollection services, string contentRoot)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentRoot);
+
+        services.TryAddSingleton<ICostCalculator>(provider =>
+        {
+            AgentJoulesOptions options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
+            string path = ContentPaths.Resolve(contentRoot, options.Paths.Prices, PathsOptions.PricesKey);
+            try
+            {
+                return new CostCalculator(PriceTable.Load(path), options.Tiers);
+            }
+            catch (ConfigurationException failure)
+            {
+                // The loader names the file by its name and the row and member of the problem, never a path or a value; the key tells which setting to change.
+                throw new ConfigurationException(PathsOptions.PricesKey + ": " + failure.Message);
+            }
+        });
         return services;
     }
 }
