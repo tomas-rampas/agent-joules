@@ -6,6 +6,7 @@ using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Quality;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Workflow.Agents;
@@ -200,7 +201,7 @@ public static class RunAssembler
         return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status);
     }
 
-    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>).</summary>
+    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
     /// <param name="run">The run member; its tier and mode decide the totals.</param>
     /// <param name="environment">The environment member.</param>
     /// <param name="probe">The probe of a measured tier, or null.</param>
@@ -229,7 +230,7 @@ public static class RunAssembler
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
 
-        StepReading[] stepCopy = MarkSharedWindows(run.Tier, steps);
+        StepReading[] stepCopy = [.. MarkSharedWindows(run.Tier, steps).Select(WithDerivedMetrics)];
         StepReading[] judgeCopy = [.. judge];
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
@@ -240,6 +241,26 @@ public static class RunAssembler
             stepCopy,
             judgeCopy,
             ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion, cost));
+    }
+
+    /// <summary>
+    /// Returns a copy of a reading whose two derived metrics are computed from its own quality, net energy, cost and flags (REQ-010, <see cref="DerivedMetrics"/>); every other member, the in-memory
+    /// output text and window included, is kept. A reading whose quality holds no value, whatever the reason (<c>not-scored</c>, <c>step-not-ok</c>, <c>empty-output</c>, a parse error), gets both
+    /// metrics as N/A <c>missing-input</c>: the <c>not-scored</c> that a fresh reading carries is only the value before this method ran. The input is not changed, so assembling again gives the same result.
+    /// </summary>
+    /// <param name="reading">The step reading.</param>
+    /// <returns>The reading with the derived metrics.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> is null.</exception>
+    public static StepReading WithDerivedMetrics(StepReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+
+        return Copy(
+            reading,
+            reading.Outcome,
+            reading.Flags,
+            DerivedMetrics.JoulesPerQualityPoint(reading.NetJoules, reading.Quality, reading.Flags),
+            DerivedMetrics.CostPerQualityPoint(reading.Cost, reading.Quality));
     }
 
     /// <summary>
@@ -410,6 +431,10 @@ public static class RunAssembler
 
     // The copy of a reading through its constructor with another outcome and flags; every other member, the in-memory output text and window included, is kept.
     private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags) =>
+        Copy(reading, outcome, flags, reading.JoulesPerQualityPoint, reading.CostPerQualityPoint);
+
+    // The same copy with the two derived metrics replaced.
+    private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags, Metric joulesPerQualityPoint, Metric costPerQualityPoint) =>
         new(
             reading.Task,
             reading.Repeat,
@@ -437,8 +462,8 @@ public static class RunAssembler
             reading.ThrottleReasons,
             reading.Quality,
             reading.QualityReason,
-            reading.JoulesPerQualityPoint,
-            reading.CostPerQualityPoint,
+            joulesPerQualityPoint,
+            costPerQualityPoint,
             reading.OutputSha256,
             reading.OutputChars,
             reading.OutputText,

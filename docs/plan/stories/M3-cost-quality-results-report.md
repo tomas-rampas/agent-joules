@@ -284,6 +284,7 @@ Demo relevance: no.
 
 ### AJ-074: Derive joules and cost per quality point only when both inputs exist
 Covers: REQ-010
+Note (2026-10-22, AJ-074): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-074-derived-metrics.feature` (the story table's `DerivedMetrics.feature`); pinned readings applied: criterion 2 governs over design 3.2 line 222 through `Metric.ModelJudgedCost`, and `RunAssembler.Assemble` applies the derived metrics to every step, so an unscored step reads `missing-input` after assembly. Deviations: a `MetricTests` JSON row and a factory-count test name were updated (D2, D3), and `RetryPolicyTests.Steps_finished_before_the_failure_are_kept_unchanged` moved from `Assert.Same` to value equality after battery 1 (D7). Criterion 4 applies when the quality holds a value; a step that is both unscored and below baseline reads `missing-input` by the pinned check order (quality, energy, flag), recorded 2026-10-22 for the user to confirm or revise at the M3 exit.
 User story: As a reader comparing efficiency within one tier, I want joules per quality point and cost per quality point computed only from real inputs and labelled `model-judged`, so that a missing input never produces a made-up ratio.
 Acceptance criteria:
 1. Quality 4 and net energy 120 J (fixture) give `joulesPerQualityPoint {value:30,label:"model-judged"}`; the test name is `Joules_per_point_is_net_over_quality`.
@@ -331,9 +332,9 @@ Tasks:
 Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); feature file `tests/AgentJoules.Specs/Features/Reporting/DerivedMetrics.feature`.
 Docs impact: `docs/build-log.md`; the metric definitions go into `docs/methodology.md` in M4.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
+- [x] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
 Demo relevance: yes: the local rows show joules per quality point, labelled `model-judged`; hosted rows show N/A.
 
 ### AJ-075: Commit the judge rubric and load it

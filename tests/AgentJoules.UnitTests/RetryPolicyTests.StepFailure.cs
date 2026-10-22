@@ -183,10 +183,10 @@ public sealed partial class RetryPolicyTests
         Assert.Equal(4, running.Steps.Count);
         Assert.Equal(8, failed.Steps.Count);
 
-        // The same readings: the failed document holds the very instances of the checkpoint, so nothing was rebuilt, rounded or zero-filled.
+        // The same readings, by value: nothing was rebuilt, rounded or zero-filled. Since AJ-074 Assemble copies each reading to attach the derived metrics, so the contract is value equality, not identity, for these hosted readings (ThrottleReasons null; the generated record equality compares that collection by reference).
         for (int i = 0; i < running.Steps.Count; i++)
         {
-            Assert.Same(running.Steps[i], failed.Steps[i]);
+            Assert.Equal(running.Steps[i], failed.Steps[i]);
         }
 
         // On disk: the first four steps of the file are, to the character, the four steps of the checkpoint serialized by the writer's own serializer.

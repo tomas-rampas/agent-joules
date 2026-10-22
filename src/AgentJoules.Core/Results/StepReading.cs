@@ -26,8 +26,8 @@ namespace AgentJoules.Core.Results;
 /// the sampling-fallback flag only with the sampling method, throttle reasons from the five names together with the throttled flag). A hosted tier
 /// (nvidia, nebius) holds N/A with the reason <c>hosted-tier</c> in all four energy metrics, no method, samples, rate or throttle reasons and none
 /// of the energy flags, because its GPU is not measured; a local or cloudgpu reading never carries that reason and names its method whenever the
-/// gross energy is measured. Quality and the two derived metrics are filled by the judge in a later story; until then they are N/A with the reason
-/// <c>not-scored</c>, never a number. A document with a member this type does not know is rejected, and one that omits a member without a default
+/// gross energy is measured. Quality is filled by the judge in a later story; until then it is N/A with the reason <c>not-scored</c>, never a number. The two derived metrics
+/// default to N/A <c>not-scored</c> too, but only until <c>RunAssembler.Assemble</c> replaces them with the derived values (a step without a quality score then holds N/A <c>missing-input</c>). A document with a member this type does not know is rejected, and one that omits a member without a default
 /// is rejected when the serializer options set <c>RespectRequiredConstructorParameters</c>.
 /// </para>
 /// <para>
@@ -219,6 +219,19 @@ public sealed record StepReading
             }
         }
 
+        // The judge and cost members: the shape of each is fixed by what produces it, so a document read back is held to the same rules as one built in memory.
+        RequireCostShape(nameof(cost), cost);
+        RequireNotNegative(nameof(cost), cost);
+        Metric resolvedQuality = quality ?? Metric.NotApplicable(NotScored);
+        Metric resolvedJoules = joulesPerQualityPoint ?? Metric.NotApplicable(NotScored);
+        Metric resolvedCostPoint = costPerQualityPoint ?? Metric.NotApplicable(NotScored);
+        RequireJudgedShape(nameof(quality), resolvedQuality, withCurrency: false);
+        RequireJudgedShape(nameof(joulesPerQualityPoint), resolvedJoules, withCurrency: false);
+        RequireJudgedShape(nameof(costPerQualityPoint), resolvedCostPoint, withCurrency: true);
+        RequireScoreRange(nameof(quality), resolvedQuality);
+        RequireNotNegative(nameof(joulesPerQualityPoint), resolvedJoules);
+        RequireNotNegative(nameof(costPerQualityPoint), resolvedCostPoint);
+
         ValidateOutputFingerprint(outputSha256, outputChars);
         if (window is { } span && !(double.IsFinite(span.StartSeconds) && double.IsFinite(span.StopSeconds) && span.StopSeconds > span.StartSeconds))
         {
@@ -333,10 +346,10 @@ public sealed record StepReading
     /// <summary>Why there is no score; <c>not-scored</c> until the judge has run.</summary>
     public string? QualityReason { get; }
 
-    /// <summary>Net joules per quality point; N/A with the reason <c>not-scored</c> until the judge has run.</summary>
+    /// <summary>Net joules per quality point; N/A <c>not-scored</c> on a fresh reading; <c>RunAssembler.Assemble</c> replaces it with the value from <c>DerivedMetrics</c>, or N/A <c>missing-input</c> or <c>below-baseline</c>.</summary>
     public Metric JoulesPerQualityPoint { get; }
 
-    /// <summary>Cost per quality point; N/A with the reason <c>not-scored</c> until the judge has run.</summary>
+    /// <summary>Cost per quality point; N/A <c>not-scored</c> on a fresh reading; <c>RunAssembler.Assemble</c> replaces it with the value from <c>DerivedMetrics</c>, or N/A <c>missing-input</c>.</summary>
     public Metric CostPerQualityPoint { get; }
 
     /// <summary>The qualifiers of this reading, serialized as an array of vocabulary strings whatever the options of the caller say.</summary>
@@ -392,6 +405,69 @@ public sealed record StepReading
         if (value.Offset != TimeSpan.Zero)
         {
             throw Rejected(parameter, $"The timestamp must be UTC, but its offset is {value.Offset}.");
+        }
+    }
+
+    // The cost is an estimate in a currency (a price table or a rate times a measured quantity) or an explicit absence; it is never measured and never model-judged.
+    private static void RequireCostShape(string parameter, Metric metric)
+    {
+        if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
+        {
+            return;
+        }
+
+        if (metric.Label != MetricLabel.Estimated)
+        {
+            throw Rejected(parameter, $"The cost must be estimated, not-reported or N/A, but it is {metric.Label}.");
+        }
+
+        if (metric.Currency is null)
+        {
+            throw Rejected(parameter, $"An estimated cost must carry a currency.");
+        }
+    }
+
+    // A judge score and the joules per point are model-judged numbers without a unit and without a currency, or an explicit absence; the cost per point is model-judged with a currency and no unit.
+    private static void RequireJudgedShape(string parameter, Metric metric, bool withCurrency)
+    {
+        if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
+        {
+            return;
+        }
+
+        if (metric.Label != MetricLabel.ModelJudged)
+        {
+            throw Rejected(parameter, $"The metric must be model-judged, not-reported or N/A, but it is {metric.Label}.");
+        }
+
+        if (metric.Unit is not null)
+        {
+            throw Rejected(parameter, $"A model-judged metric in this member must not carry a unit.");
+        }
+
+        if (withCurrency != (metric.Currency is not null))
+        {
+            throw withCurrency
+                ? Rejected(parameter, $"A model-judged cost per point must carry a currency.")
+                : Rejected(parameter, $"A model-judged metric in this member must not carry a currency.");
+        }
+    }
+
+    // A valued cost or ratio is finite and never negative: a negative net always gives N/A below-baseline, so no negative ratio can be produced, and a cost is never negative.
+    private static void RequireNotNegative(string parameter, Metric metric)
+    {
+        if (metric.Value is { } value && !(double.IsFinite(value) && value >= 0.0))
+        {
+            throw Rejected(parameter, $"A valued metric in this member must be finite and not negative.");
+        }
+    }
+
+    // The judge parser only produces an integer from 1 to 5, so a model-judged quality outside that scale cannot come from the judge.
+    private static void RequireScoreRange(string parameter, Metric metric)
+    {
+        if (metric.Value is { } value && !(double.IsFinite(value) && value >= 1.0 && value <= 5.0 && Math.Floor(value) == value))
+        {
+            throw Rejected(parameter, $"A quality score must be a whole number from 1 to 5.");
         }
     }
 
