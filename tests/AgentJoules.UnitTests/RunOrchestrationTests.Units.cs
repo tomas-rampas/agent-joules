@@ -817,7 +817,7 @@ public sealed partial class RunOrchestrationTests
         }
     }
 
-    /// <summary>AJ-056 T3 and T7: the no-op seams of M2 and their registration in the composition root.</summary>
+    /// <summary>AJ-056 T3 and T7 and AJ-076: the no-op seams and the judge service, and their registration in the composition root.</summary>
     [Trait("Spec", "REQ-017")]
     public sealed class Seams
     {
@@ -826,10 +826,14 @@ public sealed partial class RunOrchestrationTests
         {
             IReadOnlyList<StepReading> steps = [StepReadingFixtures.Metered(), StepReadingFixtures.NoUsage()];
 
-            IReadOnlyList<StepReading> scored = await new NoOpJudgeService().ScoreAsync(steps, CancellationToken.None);
+            var services = new MeteringServices(new UnmeteredEnergyMeter(TimeProvider.System), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), TimeProvider.System);
 
-            Assert.Equal(steps, scored);
-            Assert.All(scored, static step => Assert.Equal((MetricLabel.NotApplicable, "not-scored"), (step.Quality.Label, step.Quality.Reason)));
+            JudgeResult scored = await new NoOpJudgeService().ScoreAsync(new JudgeRequest(Tier.Local, steps, [], services), CancellationToken.None);
+
+            Assert.Equal(steps, scored.Steps);
+            Assert.Equal((false, 0, 0), (scored.SelfJudged, scored.JudgedSteps, scored.FailedSteps));
+            Assert.Empty(scored.FailureKinds);
+            Assert.All(scored.Steps, static step => Assert.Equal((MetricLabel.NotApplicable, "not-scored"), (step.Quality.Label, step.Quality.Reason)));
         }
 
         [Fact]
@@ -844,14 +848,14 @@ public sealed partial class RunOrchestrationTests
         }
 
         [Fact]
-        public void The_composition_root_registers_the_no_op_seams_the_cost_calculator_and_the_console_listener()
+        public void The_composition_root_registers_the_judge_service_the_no_op_runtime_the_cost_calculator_and_the_console_listener()
         {
             using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
             var keys = new Cli.Hosting.KeyRegistry(new Core.Security.SecretRedactor());
 
             using IHost host = Cli.Hosting.AgentJoulesHostFactory.Build(null, null, new Cli.CliHostOverrides(WorkingDirectory: workspace.Root), keys, TextWriter.Null, TextWriter.Null);
 
-            _ = Assert.IsType<NoOpJudgeService>(host.Services.GetRequiredService<IJudgeService>());
+            _ = Assert.IsType<JudgeService>(host.Services.GetRequiredService<IJudgeService>());
             _ = Assert.IsType<NoOpLocalRuntime>(host.Services.GetRequiredService<ILocalRuntime>());
             _ = Assert.IsType<CostCalculator>(host.Services.GetRequiredService<ICostCalculator>());
             _ = Assert.IsType<ConsoleRunListener>(host.Services.GetRequiredService<IRunListener>());

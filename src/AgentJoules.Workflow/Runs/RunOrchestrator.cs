@@ -63,7 +63,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="instruments">The OpenTelemetry instruments every reading is recorded on.</param>
 /// <param name="time">The clock of the meter, the windows, the latencies and the workflow wall times.</param>
 /// <param name="listener">Receives the step lines, the baseline and the closing lines of each tier.</param>
-/// <param name="judge">Scores the <c>ok</c> steps of a tier (M2: a no-op).</param>
+/// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
 /// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
 /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -139,6 +139,7 @@ public sealed class RunOrchestrator(
 
         var progress = new TierProgress(plan, tier, tierOptions, options.Cost, plan.Writers[tier]);
         var sink = new InMemoryMetricsSink();
+        var judgeSink = new InMemoryMetricsSink();
         var listening = new RunListenerSink(sink, _listener, _logger, cancellationToken);
         IGpuTelemetrySource? source = null;
         IEnergyMeter? meter = null;
@@ -186,7 +187,7 @@ public sealed class RunOrchestrator(
                     {
                         // A failed step stops the tier (EDGE-006): the partial file is written first. The copy that names the file leaves; when the file could not be written the original
                         // leaves unchanged, because a claim about a partial file would be false.
-                        StepFailedException? named = await WriteFailedAsync(plan, progress, sink, listening, shutdown, failure).ConfigureAwait(false);
+                        StepFailedException? named = await WriteFailedAsync(plan, progress, sink, judgeSink, listening, shutdown, failure).ConfigureAwait(false);
                         if (named is null)
                         {
                             throw;
@@ -195,13 +196,15 @@ public sealed class RunOrchestrator(
                         throw named;
                     }
 
-                    await progress.Writer.WriteAsync(progress.Document(sink.Snapshot(), RunStatus.Running), cancellationToken).ConfigureAwait(false);
+                    await progress.Writer.WriteAsync(progress.Document(sink.Snapshot(), judgeSink.Snapshot(), RunStatus.Running), cancellationToken).ConfigureAwait(false);
                     progress.CheckpointWritten = true;
                 }
             }
 
-            IReadOnlyList<StepReading> steps = await JudgeAsync(plan, sink.Snapshot(), cancellationToken).ConfigureAwait(false);
-            RunDocument completed = progress.Document(steps, RunStatus.Completed);
+            // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced, so a judge reading never reaches the workflow sink or the listener (no step line).
+            IReadOnlyList<StepReading> workflow = sink.Snapshot();
+            JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink }, cancellationToken).ConfigureAwait(false);
+            RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), RunStatus.Completed, judged?.SelfJudged);
             await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
             string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
@@ -209,7 +212,7 @@ public sealed class RunOrchestrator(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The checkpoint, or the warning that it failed, and then always the shutdown itself (exit code 5).
-            await WriteIncompleteAsync(progress, sink, listening, shutdown).ConfigureAwait(false);
+            await WriteIncompleteAsync(progress, sink, judgeSink, listening, shutdown).ConfigureAwait(false);
             throw;
         }
         finally
@@ -263,51 +266,49 @@ public sealed class RunOrchestrator(
         return total;
     }
 
-    // The judge scores the ok steps and they are put back in their places; it is skipped when the judge key is missing (the command warned).
-    private async Task<IReadOnlyList<StepReading>> JudgeAsync(RunPlan plan, IReadOnlyList<StepReading> steps, CancellationToken cancellationToken)
+    // The judge scores the steps of the tier and its steps are put in their places; it is skipped when the judge key is missing (the command warned). The count, the windows and the quality range of what it returns are checked.
+    private async Task<JudgeResult?> JudgeAsync(RunPlan plan, Tier tier, IReadOnlyList<StepReading> steps, MeteringServices judgeServices, CancellationToken cancellationToken)
     {
-        StepReading[] ok = [.. steps.Where(static step => step.Outcome == StepOutcomes.Ok)];
-        if (plan.Keys.MissingJudgeVariable is not null || ok.Length == 0)
+        if (plan.Keys.MissingJudgeVariable is not null || steps.Count == 0)
         {
-            return steps;
+            return null;
         }
 
-        IReadOnlyList<StepReading> scored = await _judge.ScoreAsync(ok, cancellationToken).ConfigureAwait(false);
-        if (scored is null || scored.Count != ok.Length)
+        JudgeResult scored = await _judge.ScoreAsync(new JudgeRequest(tier, steps, plan.Tasks, judgeServices), cancellationToken).ConfigureAwait(false);
+        if (scored is null || scored.Steps is null || scored.Steps.Count != steps.Count)
         {
             throw new InvalidOperationException("The judge must return one step for every step it was given, in the same order.");
         }
 
-        // The in-memory windows carry the union totals and the shared-window flags of the completed write (AJ-047): a judge that rebuilt a reading without its window
-        // would turn a concurrent run's energy into union-not-computed. The message names the rule, never a reading.
-        for (int i = 0; i < ok.Length; i++)
+        for (int i = 0; i < steps.Count; i++)
         {
-            if (scored[i] is null)
+            if (scored.Steps[i] is null)
             {
                 throw new InvalidOperationException("The judge must return one step for every step it was given, in the same order.");
             }
 
-            if (scored[i].Window != ok[i].Window)
+            // The in-memory windows carry the union totals and the shared-window flags of the completed write (AJ-047): a judge that rebuilt a reading without its window
+            // would turn a concurrent run's energy into union-not-computed. The message names the rule, never a reading.
+            if (scored.Steps[i].Window != steps[i].Window)
             {
                 throw new InvalidOperationException("The judge must return each step with its window unchanged.");
             }
+
+            // A faulty judge must not surface as an exception from Assemble after every step has run: a model-judged quality is a whole number from 1 to 5, as the parser produces it.
+            if (scored.Steps[i].Quality is { Label: MetricLabel.ModelJudged, Value: { } score } && !(score is >= 1.0 and <= 5.0 && Math.Floor(score) == score))
+            {
+                throw new InvalidOperationException("The judge must return a quality that is a whole number from 1 to 5, N/A or not-reported.");
+            }
         }
 
-        var judged = new List<StepReading>(steps.Count);
-        int next = 0;
-        foreach (StepReading step in steps)
-        {
-            judged.Add(step.Outcome == StepOutcomes.Ok ? scored[next++] : step);
-        }
-
-        return judged;
+        return scored;
     }
 
     // The partial file of a step failure (EDGE-006): the document of the readings published so far, which are the same instances the earlier checkpoints held, with the status failed, or incomplete
     // when the failing agent's latest reading is incomplete (a drop after the first update, EDGE-016). No judge call: a stopped tier is not scored. The write has a token of its own, bounded like
     // the shutdown write, and a failed write is logged and told with its type only. The token cancels the asynchronous part of the write only: the synchronous file operations of the writer (delete,
     // create, flush, move) are not cancellable and finish once started, so the budget bounds the await, not the disk. Returns the failure carrying the display path of the file, or null when the file could not be written.
-    private async Task<StepFailedException?> WriteFailedAsync(RunPlan plan, TierProgress progress, InMemoryMetricsSink sink, RunListenerSink listening, ShutdownSignal shutdown, StepFailedException failure)
+    private async Task<StepFailedException?> WriteFailedAsync(RunPlan plan, TierProgress progress, InMemoryMetricsSink sink, InMemoryMetricsSink judgeSink, RunListenerSink listening, ShutdownSignal shutdown, StepFailedException failure)
     {
         IReadOnlyList<StepReading> steps = sink.Snapshot();
         StepReading? latest = steps.LastOrDefault(step => string.Equals(step.Agent, failure.Agent, StringComparison.Ordinal));
@@ -316,7 +317,7 @@ public sealed class RunOrchestrator(
         {
             // The wall clock, like the shutdown write: a fake clock in a test must not cancel the write.
             using var timeout = new CancellationTokenSource(shutdown.WriteBudget());
-            await progress.Writer.WriteAsync(progress.Document(steps, status), timeout.Token).ConfigureAwait(false);
+            await progress.Writer.WriteAsync(progress.Document(steps, judgeSink.Snapshot(), status), timeout.Token).ConfigureAwait(false);
         }
         catch (Exception writeFailure)
         {
@@ -333,7 +334,7 @@ public sealed class RunOrchestrator(
 
     // The shutdown checkpoint: the in-flight steps of the interrupted (task, repeat) become incomplete, the document is written with a token of its own, and then the listener is told.
     // A failed write is logged and told with its type only and is never thrown: the caller rethrows the run's OperationCanceledException whatever happens here.
-    private async Task WriteIncompleteAsync(TierProgress progress, InMemoryMetricsSink sink, RunListenerSink listening, ShutdownSignal shutdown)
+    private async Task WriteIncompleteAsync(TierProgress progress, InMemoryMetricsSink sink, InMemoryMetricsSink judgeSink, RunListenerSink listening, ShutdownSignal shutdown)
     {
         IReadOnlyList<StepReading> snapshot = sink.Snapshot();
         var steps = new List<StepReading>(snapshot.Count);
@@ -360,7 +361,7 @@ public sealed class RunOrchestrator(
             // The wall clock of the termination timeout, not the run's clock: a fake clock in a test must not cancel the write. The token reaches the asynchronous part of the write
             // only; the writer's synchronous file operations finish once started.
             using var timeout = new CancellationTokenSource(shutdown.WriteBudget());
-            await progress.Writer.WriteAsync(progress.Document(steps, RunStatus.Incomplete), timeout.Token).ConfigureAwait(false);
+            await progress.Writer.WriteAsync(progress.Document(steps, judgeSink.Snapshot(), RunStatus.Incomplete), timeout.Token).ConfigureAwait(false);
         }
         catch (Exception failure)
         {
@@ -433,11 +434,12 @@ public sealed class RunOrchestrator(
         // The meter's union of the step windows on a measured tier (AJ-047), or null for a hosted tier, whose energy totals are N/A anyway.
         public Func<IReadOnlyList<WindowSpan>, UnionEnergy>? Union { get; set; }
 
-        public RunDocument Document(IReadOnlyList<StepReading> steps, RunStatus status)
+        // selfJudged is the judge's statement and is given to the completed write only: a checkpoint, a skipped judge, a failed or an incomplete file state none.
+        public RunDocument Document(IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, RunStatus status, bool? selfJudged = null)
         {
-            RunInfo run = RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status);
+            RunInfo run = RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged);
             EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions);
-            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, [], WallClockMs, Union, CostOptions);
+            return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, judge, WallClockMs, Union, CostOptions);
         }
     }
 }

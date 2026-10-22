@@ -1,6 +1,7 @@
 using AgentJoules.Cli;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,9 @@ public sealed class RunCommandSetup
 
     /// <summary>True to keep the production orchestrator (the measured run of AJ-056) instead of <see cref="Orchestrator"/>.</summary>
     public bool UseProductionOrchestrator { get; set; }
+
+    /// <summary>True to keep the production judge (the hosted judge of AJ-076, which reads the rubric and calls <c>Judge:Tier</c>) instead of the no-op judge the harness registers by default.</summary>
+    public bool UseProductionJudge { get; set; }
 
     /// <summary>The scripted GPU the real <see cref="NvmlGpuTelemetrySourceFactory"/> opens, or null for the harness default (no GPU is reachable).</summary>
     public ScriptedNvmlApi? Gpu { get; set; }
@@ -81,11 +85,20 @@ public sealed class RunCommandSetup
         ScriptedNvmlApi? gpu = Gpu;
         Action<IServiceCollection>? extra = Services;
         bool production = UseProductionOrchestrator;
+        bool productionJudge = UseProductionJudge;
 
         return new CliHostOverrides(
             Services: services =>
             {
                 _ = Interlocked.Increment(ref _hostBuilds);
+
+                // Before the test's own registrations, so a judge a test registers wins; the production judge only when the setup asks for it.
+                if (!productionJudge)
+                {
+                    _ = services.RemoveAll<IJudgeService>();
+                    _ = services.AddSingleton<IJudgeService>(new NoOpJudgeService());
+                }
+
                 extra?.Invoke(services);
                 foreach ((string tierName, HttpMessageHandler endpoint) in endpoints)
                 {

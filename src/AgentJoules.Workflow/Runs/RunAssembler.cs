@@ -48,7 +48,7 @@ public static class RunAssembler
     /// </summary>
     public const string UnionNotComputedReason = "union-not-computed";
 
-    /// <summary>The reason of a judge total while no judge reading exists (M2: the judge seam is a no-op).</summary>
+    /// <summary>The reason of a judge total while no judge reading exists (the judge was skipped or produced no reading).</summary>
     public const string NotScoredReason = "not-scored";
 
     /// <summary>The reason of <c>environment.cloudCostUsd</c> on every tier other than <c>cloudgpu</c>: no VM is rented.</summary>
@@ -179,7 +179,7 @@ public static class RunAssembler
     }
 
     /// <summary>
-    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason and no self-judging statement (the judge of M3 sets it).
+    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
     /// </summary>
     /// <param name="id">The run id: the file name of the run file without its extension.</param>
     /// <param name="tier">The tier of the run.</param>
@@ -188,17 +188,18 @@ public static class RunAssembler
     /// <param name="repeat">The repeats per task.</param>
     /// <param name="startUtc">The start of the command.</param>
     /// <param name="status">The status of the document.</param>
+    /// <param name="selfJudged">Whether the judge model is the model of any step, or null when the judge has not run.</param>
     /// <returns>The run member.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is null or blank.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="taskNames"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined.</exception>
-    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status)
+    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, SelfJudged: selfJudged);
     }
 
     /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
@@ -257,10 +258,8 @@ public static class RunAssembler
 
         return Copy(
             reading,
-            reading.Outcome,
-            reading.Flags,
-            DerivedMetrics.JoulesPerQualityPoint(reading.NetJoules, reading.Quality, reading.Flags),
-            DerivedMetrics.CostPerQualityPoint(reading.Cost, reading.Quality));
+            joulesPerQualityPoint: DerivedMetrics.JoulesPerQualityPoint(reading.NetJoules, reading.Quality, reading.Flags),
+            costPerQualityPoint: DerivedMetrics.CostPerQualityPoint(reading.Cost, reading.Quality));
     }
 
     /// <summary>
@@ -311,7 +310,7 @@ public static class RunAssembler
             StepReading step = marked[windowed[k]];
             if (shared[k] && !step.Flags.HasFlag(ReadingFlags.SharedWindow))
             {
-                marked[windowed[k]] = Copy(step, step.Outcome, step.Flags | ReadingFlags.SharedWindow);
+                marked[windowed[k]] = Copy(step, flags: step.Flags | ReadingFlags.SharedWindow);
             }
         }
 
@@ -331,7 +330,26 @@ public static class RunAssembler
     {
         ArgumentNullException.ThrowIfNull(reading);
 
-        return Copy(reading, outcome, reading.Flags);
+        return Copy(reading, outcome: outcome);
+    }
+
+    /// <summary>
+    /// Copies <paramref name="reading"/> with the quality and the reason the judge produced and every other member unchanged, the in-memory output text and window included. The two derived metrics are
+    /// left as they are: <see cref="Assemble"/> computes them from the quality of each step, so the judge never writes them. The reason is passed explicitly because the constructor derives it only
+    /// when no quality is given: a model-judged quality takes <c>null</c>, a quality that is N/A takes <c>not-scored</c> (the value every row of the judge's reason table shares).
+    /// </summary>
+    /// <param name="reading">The step reading.</param>
+    /// <param name="quality">The quality: model-judged from 1 to 5, or N/A with the reason that says why the step has none.</param>
+    /// <param name="qualityReason">The <see cref="StepReading.QualityReason"/>: null for a scored step, <c>not-scored</c> otherwise.</param>
+    /// <returns>The copy.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> or <paramref name="quality"/> is null.</exception>
+    /// <exception cref="ArgumentException">The quality does not have the shape of a judge score (a model-judged number from 1 to 5 without a unit or a currency), or is not one of the labels a quality may carry.</exception>
+    public static StepReading WithQuality(StepReading reading, Metric quality, string? qualityReason)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        ArgumentNullException.ThrowIfNull(quality);
+
+        return Copy(reading, quality: quality, qualityReason: qualityReason);
     }
 
     /// <summary>The <c>environment.provider</c> of a tier: <c>laptop</c>, <c>nebius-ai-cloud</c>, <c>build.nvidia.com</c> or <c>nebius-token-factory</c>.</summary>
@@ -429,12 +447,16 @@ public static class RunAssembler
         return (union.GrossJoules, union.NetJoules);
     }
 
-    // The copy of a reading through its constructor with another outcome and flags; every other member, the in-memory output text and window included, is kept.
-    private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags) =>
-        Copy(reading, outcome, flags, reading.JoulesPerQualityPoint, reading.CostPerQualityPoint);
-
-    // The same copy with the two derived metrics replaced.
-    private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags, Metric joulesPerQualityPoint, Metric costPerQualityPoint) =>
+    // The copy of a reading through its constructor: each optional argument that is given replaces the member of that name, every other member, the in-memory output text, the window and the
+    // judged agent included, is kept. A given quality replaces the quality and its reason together (the reason may be null for a scored step).
+    private static StepReading Copy(
+        StepReading reading,
+        string? outcome = null,
+        ReadingFlags? flags = null,
+        Metric? joulesPerQualityPoint = null,
+        Metric? costPerQualityPoint = null,
+        Metric? quality = null,
+        string? qualityReason = null) =>
         new(
             reading.Task,
             reading.Repeat,
@@ -443,7 +465,7 @@ public static class RunAssembler
             reading.Tier,
             reading.StartUtc,
             reading.EndUtc,
-            outcome,
+            outcome ?? reading.Outcome,
             reading.LatencyMs,
             reading.TtftMs,
             reading.InputTokens,
@@ -455,19 +477,20 @@ public static class RunAssembler
             reading.Cost,
             reading.Retries,
             reading.WaitMs,
-            flags,
+            flags ?? reading.Flags,
             reading.Method,
             reading.SampleCount,
             reading.SampleRateHz,
             reading.ThrottleReasons,
-            reading.Quality,
-            reading.QualityReason,
-            joulesPerQualityPoint,
-            costPerQualityPoint,
+            quality ?? reading.Quality,
+            quality is null ? reading.QualityReason : qualityReason,
+            joulesPerQualityPoint ?? reading.JoulesPerQualityPoint,
+            costPerQualityPoint ?? reading.CostPerQualityPoint,
             reading.OutputSha256,
             reading.OutputChars,
             reading.OutputText,
-            reading.Window);
+            reading.Window,
+            reading.JudgedAgent);
 
     // The sum of a measured value over the steps; the label and the reason of the first step that lacks it otherwise; not-reported no-steps without a step.
     private static Metric Sum(IReadOnlyList<StepReading> steps, Func<StepReading, Metric> select, string unit)

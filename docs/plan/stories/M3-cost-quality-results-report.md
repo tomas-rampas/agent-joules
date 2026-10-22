@@ -391,13 +391,14 @@ Demo relevance: no.
 ### AJ-076: Score each ok step with a metered hosted judge
 Covers: REQ-010
 Note (2026-10-22, AJ-075): AJ-075 criterion 3 names the test `Prompt_contains_rubric_text`, which AJ-076 delivers; the AJ-076 gate must cover it (spec remark R-2 of AJ-075).
+Note (2026-10-22, AJ-076): feature file `tests/AgentJoules.Specs/Features/Workflow/AJ-076-judge-scoring.feature` (the table's `JudgeScoring.feature`, repository convention from M1); the pinned readings P-1 to P-11 and the kept pins applied per the architect's record of 2026-10-22 (the judge takes a `JudgeRequest` and returns a `JudgeResult`; `judgedAgent` is an optional `StepReading` member; the judge total carries no energy member; `JudgeService` writes the reason table through `RunAssembler.WithQuality`; `AddAgentJoulesJudge` is registered in the Workflow `ServiceCollectionExtensions`). Criterion 2 now reads "... and `qualityReason` `not-scored`" (was "(assumption: same `qualityReason` value `not-scored` as AJ-077)"); criterion 5 now reads "... and no energy member; each judge reading of a hosted judge carries energy N/A reason `hosted-tier`" (was "with energy N/A reason `hosted-tier` for a hosted judge"); T6 files add `src/AgentJoules.Cli/Hosting/AgentJoulesHostFactory.cs` and `src/AgentJoules.Cli/Commands/RunCommand.cs`. Measured: builder `JudgeParsingTests` 286 of 286 and Specs `Category=AJ-S076` 6 of 6, build 0 warnings; battery 1 (orchestrator) 3539 passed, 0 failed, 3 skipped. Deviations: `AddAgentJoulesJudge` sits in `src/AgentJoules.Workflow/ServiceCollectionExtensions.cs` beside `AddAgentJoulesCost` (the brief's Cli path does not exist), and an empty `Judge:ModelId` exits 2 at start (the shape rule for empty values); an unset or white-space value gives every judgeable step `judge-failed: judge-model-not-configured` without a call (P-10 read accordingly). Criterion 2's "any other step" means a step handed to the judge; a tier stopped by a non-ok step is not judged and its steps keep `not-scored` (P-7); the fix round tagged the prompt delimiters with a digest of the output and replaced the excerpt of an over-long or unterminated-think reply with a fixed text (security L-1 and L-2).
 User story: As a reader of quality numbers, I want every successful workflow step scored by a configurable hosted judge whose calls are metered but kept out of the workflow totals, so that quality exists without distorting energy, tokens or cost.
 Acceptance criteria:
 1. A fake judge returning `4` yields step `quality {value:4,label:"model-judged"}` and `joulesPerQualityPoint` equal to net joules divided by 4 (test `Judge_four_gives_quality_four`).
-2. Only steps with `outcome: "ok"` are judged; any other step gets quality N/A with reason `step-not-ok` (assumption: same `qualityReason` value `not-scored` as AJ-077).
+2. Only steps with `outcome: "ok"` are judged; any other step gets quality N/A with reason `step-not-ok` and `qualityReason` `not-scored`.
 3. The judge prompt is the rubric text, the task prompt, the judged agent name and the step output, ending with "Reply with one integer from 1 to 5 and nothing else."; the call uses temperature 0 and the buffered path.
 4. Judge calls are metered with identity agent "Judge", tier `Judge:Tier`, model `Judge:ModelId`, published only to the judge sink and stored in the separate `judge` array with `judgedAgent`; workflow totals in a fixture are unchanged when judge readings are added (test `Totals_unchanged_by_judge`).
-5. `totals.judge` reports judge input and output tokens and `costByCurrency`, with energy N/A reason `hosted-tier` for a hosted judge.
+5. `totals.judge` reports judge input and output tokens and `costByCurrency`, and no energy member; each judge reading of a hosted judge carries energy N/A reason `hosted-tier`.
 6. `run.selfJudged` is true when the judge model ID equals any step model ID.
 7. `JudgeService` replaces the no-op `IJudgeService` seam of M2 in the orchestrator.
 8. A step whose output is empty (`outputChars` equal to 0) is not sent to the judge: its quality is N/A with reason `empty-output` and `qualityReason` is `not-scored` (test `Empty_output_not_judged`: the fake judge received 0 calls for that step).
@@ -453,9 +454,9 @@ Tasks:
 Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); feature file `tests/AgentJoules.Specs/Features/Workflow/JudgeScoring.feature`.
 Docs impact: `docs/build-log.md`; the README judge section (model ID, exclusion from totals, self-judging) is written in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
+- [x] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
 Demo relevance: yes: the quality column in the demo table comes from this judge and is labelled `model-judged`.
 
 ### AJ-077: Never let a judge failure change the exit code
@@ -525,6 +526,7 @@ Demo relevance: no.
 
 ### AJ-078: Complete the results model and its serialisation
 Covers: REQ-015
+Note (2026-10-22, AJ-076): criterion 1 reads `judge[]` as StepReading elements with `judgedAgent` (no `JudgeReading` type, P-5), so AJ-078-T3 drops `src/AgentJoules.Core/Results/JudgeReading.cs` from its files; AJ-078 also takes the document invariant of P-5 (every `judge[]` element names its judged agent and `steps[]` elements never carry it) and a round trip that contains it.
 User story: As a consumer of results files, I want one complete, strictly typed results model with the exact label strings, so that every file carries the documented fields and no missing value can hide as a zero.
 Acceptance criteria:
 1. The records of M2 are completed to the full prompt skeleton: `schemaVersion` "1"; `run` (`id`, `tier`, `tasks`, `mode`, `repeat`, `startUtc`, `toolVersion`, `gitCommit`, plus `status`, `flags` (values `partial-offload` and `non-publishable`), `stopReason`, `selfJudged`); `environment` (including `energyScope` constant "GPU-board only", `assumptions`, `models[]` with `baseline`); `probe`; `baseline` (`meanW`, `stdDevW`, `seconds`, `flags`); `steps[]`; `judge[]`; `totals` (including `costByCurrency`, `gco2e`, `judge`).

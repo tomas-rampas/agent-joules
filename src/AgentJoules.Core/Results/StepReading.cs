@@ -75,6 +75,7 @@ public sealed record StepReading
     /// <param name="outputChars">The length of the output text in characters; null when there is none; not negative.</param>
     /// <param name="outputText">The output text, kept in memory for the judge and never serialized.</param>
     /// <param name="window">The meter's window of this step, kept in memory for the run assembler and never serialized; null when it is not known (a reading read back from a file); when set, both bounds are finite and the stop is after the start.</param>
+    /// <param name="judgedAgent">For a judge reading, the name of the workflow agent whose step output was scored; with the task and the repeat it names exactly one step. Null for a workflow step; when set it is not blank.</param>
     /// <exception cref="ArgumentNullException">A metric is null.</exception>
     /// <exception cref="ArgumentException">Another argument violates the rule named above.</exception>
     [JsonConstructor]
@@ -110,11 +111,16 @@ public sealed record StepReading
         string? outputSha256 = null,
         int? outputChars = null,
         string? outputText = null,
-        WindowSpan? window = null)
+        WindowSpan? window = null,
+        string? judgedAgent = null)
     {
         RequireText(nameof(task), task);
         RequireText(nameof(agent), agent);
         RequireText(nameof(modelId), modelId);
+        if (judgedAgent is not null)
+        {
+            RequireText(nameof(judgedAgent), judgedAgent);
+        }
 
         if (repeat < 1)
         {
@@ -270,6 +276,7 @@ public sealed record StepReading
         ThrottleReasons = reasons;
         OutputText = outputText;
         Window = window;
+        JudgedAgent = judgedAgent;
     }
 
     /// <summary>The task the workflow ran.</summary>
@@ -373,8 +380,12 @@ public sealed record StepReading
     [JsonIgnore]
     public WindowSpan? Window { get; }
 
+    /// <summary>For a judge reading, the name of the workflow agent whose step output was scored; null for a workflow step, in which case the member is not written.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JudgedAgent { get; }
+
     // The record-generated printer would include OutputText, so a log line or an exception message that formats a reading would leak the model
-    // output. This one prints every member except the text (its length is OutputChars) and the in-memory window, which is not part of the file.
+    // output. This one prints every member of the file (the judged agent included) and leaves out the text (its length is OutputChars) and the in-memory window, which is not part of the file.
     private bool PrintMembers(StringBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -383,7 +394,7 @@ public sealed record StepReading
         builder.Append(CultureInfo.InvariantCulture, $"Outcome = {Outcome}, Retries = {Retries}, WaitMs = {WaitMs}, LatencyMs = {LatencyMs}, TtftMs = {TtftMs}, InputTokens = {InputTokens}, OutputTokens = {OutputTokens}, ");
         builder.Append(CultureInfo.InvariantCulture, $"GrossJoules = {GrossJoules}, NetJoules = {NetJoules}, AvgW = {AvgW}, PeakW = {PeakW}, Method = {Method}, SampleCount = {SampleCount}, SampleRateHz = {SampleRateHz}, ");
         builder.Append(CultureInfo.InvariantCulture, $"Cost = {Cost}, Quality = {Quality}, QualityReason = {QualityReason}, JoulesPerQualityPoint = {JoulesPerQualityPoint}, CostPerQualityPoint = {CostPerQualityPoint}, ");
-        builder.Append(CultureInfo.InvariantCulture, $"Flags = {Flags}, OutputSha256 = {OutputSha256}, OutputChars = {OutputChars}, ThrottleReasons = {(ThrottleReasons is null ? "null" : string.Join("|", ThrottleReasons))}");
+        builder.Append(CultureInfo.InvariantCulture, $"Flags = {Flags}, OutputSha256 = {OutputSha256}, OutputChars = {OutputChars}, ThrottleReasons = {(ThrottleReasons is null ? "null" : string.Join("|", ThrottleReasons))}, JudgedAgent = {JudgedAgent}");
         return true;
     }
 

@@ -505,10 +505,10 @@ public sealed partial class RetryPolicyTests
 
             public int Calls => Volatile.Read(ref _calls);
 
-            public Task<IReadOnlyList<StepReading>> ScoreAsync(IReadOnlyList<StepReading> okSteps, CancellationToken cancellationToken)
+            public Task<JudgeResult> ScoreAsync(JudgeRequest request, CancellationToken cancellationToken)
             {
                 _ = Interlocked.Increment(ref _calls);
-                return Task.FromResult(okSteps);
+                return Task.FromResult(new JudgeResult(request.Steps, SelfJudged: false, JudgedSteps: 0, FailedSteps: 0, FailureKinds: []));
             }
         }
 

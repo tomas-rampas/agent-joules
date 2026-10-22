@@ -16,6 +16,7 @@ using AgentJoules.Core.Tasks;
 using AgentJoules.Metering;
 using AgentJoules.Reporting.Results;
 using AgentJoules.Workflow;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Runs;
 using AgentJoules.Workflow.Tasks;
 
@@ -191,6 +192,9 @@ internal static class RunCommand
 
         // Paths:Prices is read now, a dry run included (AJ-071): the calculator is built on first resolution, and resolving it here turns a missing or invalid price file into exit 2 before any check or request.
         _ = services.GetRequiredService<ICostCalculator>();
+
+        // Paths:Rubric is read now too, a dry run included (AJ-076): the judge is built on first resolution, and resolving it here turns a missing or invalid rubric into exit 2 before any check or request.
+        _ = services.GetRequiredService<IJudgeService>();
 
         return request.DryRun
             ? await DryRunAsync(services, output, tiers, cancellationToken)

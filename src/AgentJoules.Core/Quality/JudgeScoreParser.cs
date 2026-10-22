@@ -53,11 +53,12 @@ public static class JudgeScoreParser
         ArgumentNullException.ThrowIfNull(reply);
         ArgumentNullException.ThrowIfNull(redactor);
 
-        string text = redactor.Redact(StripThinkBlocks(reply)).Trim();
+        string stripped = StripThinkBlocks(reply);
+        string text = redactor.Redact(stripped).Trim();
 
         return text.Length == 1 && text[0] is >= '1' and <= '5'
             ? JudgeParseResult.Success(text[0] - '0')
-            : JudgeParseResult.Failure(ExcerptOf(text));
+            : JudgeParseResult.Failure(ExcerptOf(text), stripped.Contains(ThinkOpen, StringComparison.OrdinalIgnoreCase) || stripped.Contains(ThinkClose, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string StripThinkBlocks(string reply)

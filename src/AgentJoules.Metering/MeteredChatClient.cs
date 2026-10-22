@@ -466,7 +466,10 @@ public sealed class MeteredChatClient : DelegatingChatClient
 
                 // The window has closed (there is energy only after Close returned), so its span is final; the run assembler reads it for the shared-window
                 // flag and the union of a concurrent run (AJ-047). A hosted window has a span too.
-                window: _window?.Span);
+                window: _window?.Span,
+
+                // Set for a judge call only: the workflow agent whose output this reading scored (P-5); null for every workflow agent, so steps[] never carry it.
+                judgedAgent: identity.JudgedAgent);
         }
     }
 }

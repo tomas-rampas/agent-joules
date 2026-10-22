@@ -11,4 +11,5 @@ namespace AgentJoules.Core.Runs;
 /// <param name="Task">The name of the task the workflow runs.</param>
 /// <param name="Repeat">The repeat number of the (task, tier) run, from 1.</param>
 /// <param name="IsJudge">True for a judge call, whose readings go to the judge sink and never to the workflow sink.</param>
-public sealed record StepIdentity(string Agent, string ModelId, [property: JsonConverter(typeof(TierJsonConverter))] Tier Tier, string Task, int Repeat, bool IsJudge);
+/// <param name="JudgedAgent">For a judge call, the name of the workflow agent whose step output is scored; copied into the reading so that it, with the task and the repeat, names exactly one step. Null for a workflow agent.</param>
+public sealed record StepIdentity(string Agent, string ModelId, [property: JsonConverter(typeof(TierJsonConverter))] Tier Tier, string Task, int Repeat, bool IsJudge, string? JudgedAgent = null);
