@@ -49,4 +49,8 @@ public sealed class AgentJoulesOptions
 
     /// <summary>Section <c>Report</c>: the settings of the <c>report</c> command; checked by <see cref="CrossFieldValidator"/>.</summary>
     public ReportOptions Report { get; set; } = new();
+
+    /// <summary>Section <c>Dashboard</c>: how the live dashboard is fed (the power forwarding interval).</summary>
+    [ValidateObjectMembers]
+    public DashboardOptions Dashboard { get; set; } = new();
 }

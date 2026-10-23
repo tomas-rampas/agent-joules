@@ -2,6 +2,7 @@ using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Live;
 using AgentJoules.Nvml;
 using AgentJoules.Workflow;
 using AgentJoules.Workflow.Local;
@@ -221,6 +222,9 @@ internal static class AgentJoulesHostFactory
         services.AddAgentJoulesJudge(contentRoot);
         services.TryAddSingleton<ILocalRuntime, NoOpLocalRuntime>();
         services.AddSingleton<IRunListener, ConsoleRunListener>();
+
+        // The live sink of the orchestrator: the null sink unless the dashboard registers its own (AJ-091).
+        services.TryAddSingleton<ILiveEventSink>(NullLiveEventSink.Instance);
 
         services.AddSingleton<IGpuTelemetrySourceFactory>(static _ => new NvmlGpuTelemetrySourceFactory(new NvmlApi()));
     }

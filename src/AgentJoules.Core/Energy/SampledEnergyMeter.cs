@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 
 using AgentJoules.Core.Gpu;
+using AgentJoules.Core.Labels;
+using AgentJoules.Core.Live;
 
 namespace AgentJoules.Core.Energy;
 
@@ -83,6 +85,13 @@ namespace AgentJoules.Core.Energy;
 /// after the meter, and <see cref="DisposeAsync"/> guarantees that no read happens once it has returned.
 /// </para>
 /// <para>
+/// Live forwarding (REQ-032, design 3.10). With a <see cref="PowerForwarding"/> the loop hands the samples it stored to the live sink as <see cref="PowerEvent"/>s and reads nothing
+/// extra: only loop ticks whose sample was stored are forwarded (an edge sample of a window or a baseline, a skipped read and a dropped tick never are, so no event says 0 W for a
+/// read that failed). The first stored sample goes, and then one whose gap to the last forwarded one is at least the effective interval, <c>ceil(IntervalMs / period) * period</c>, minus half a
+/// period, compared in timestamp ticks; an interval shorter than the period therefore forwards every stored sample. The decision and the timestamp are taken under the lock, and the
+/// event is emitted after the lock is released through <see cref="LiveEventSinkExtensions.EmitSafely"/>, so a sink never runs under the meter lock and cannot stop the loop.
+/// </para>
+/// <para>
 /// Loop failure. The loop skips only <see cref="InvalidOperationException"/> (a failed read, a clock that went backwards) and ends on
 /// <see cref="ObjectDisposedException"/>. Any other exception from the source (the real binding can raise
 /// <see cref="EntryPointNotFoundException"/> or <see cref="BadImageFormatException"/>) ends the loop and faults its task: from then on
@@ -118,6 +127,8 @@ public sealed class SampledEnergyMeter : IEnergyMeter
     // NVML reports power as an unsigned 32-bit milliwatt count, so no real reading exceeds this many watts.
     private const double MaxWatts = uint.MaxValue / 1000.0;
 
+    private const string WattUnit = "W";
+
     private readonly IGpuTelemetrySource _source;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _period;
@@ -140,16 +151,25 @@ public sealed class SampledEnergyMeter : IEnergyMeter
     private PeriodicTimer? _timer;
     private Task _loop = Task.CompletedTask;
 
+    // The live forwarding of stored loop samples (null: none), and the shortest gap between two forwarded samples: the effective interval, ceil(IntervalMs / period) * period, minus half a period,
+    // so a sample that lands a little early on a jittery timer still goes. The timestamp of the last forwarded sample is guarded by the lock.
+    private readonly PowerForwarding? _forwarding;
+    private readonly TimeSpan _forwardGap;
+    private long? _lastForwardTimestamp;
+
     /// <summary>Creates a meter that is not started; it neither samples nor reads the source until <see cref="StartAsync"/>.</summary>
     /// <param name="source">The opened GPU; the caller keeps ownership and disposes it after the meter.</param>
     /// <param name="capabilities">The method, the counter state and the sampling rate; the timer period is derived from the rate.</param>
     /// <param name="timeProvider">The clock for timestamps and for the sampling timer.</param>
-    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <param name="forwarding">
+    /// Where the loop forwards the samples it stored for the live dashboard, and how often; null (the default) forwards nothing. Forwarding never reads the source.
+    /// </param>
+    /// <exception cref="ArgumentNullException">An argument other than <paramref name="forwarding"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <c>Capabilities.SampleRateHz</c> gives a timer period (1000 / rate milliseconds) that is not finite, shorter than 1 ms (above
     /// 1000 Hz) or longer than a timer can wait (<c>uint.MaxValue - 1</c> ms); nothing is read from the source in that case.
     /// </exception>
-    public SampledEnergyMeter(IGpuTelemetrySource source, MeterCapabilities capabilities, TimeProvider timeProvider)
+    public SampledEnergyMeter(IGpuTelemetrySource source, MeterCapabilities capabilities, TimeProvider timeProvider, PowerForwarding? forwarding = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -169,6 +189,17 @@ public sealed class SampledEnergyMeter : IEnergyMeter
         Capabilities = capabilities;
         _timeProvider = timeProvider;
         _period = TimeSpan.FromMilliseconds(periodMilliseconds);
+        _forwarding = forwarding;
+        if (forwarding is not null)
+        {
+            // The effective interval is the smallest whole multiple of the period at or above the interval, in ticks: a sample can only be forwarded on a tick, so 150 ms at
+            // 10 Hz forwards every second sample (200 ms), never every one. TimeSpan.FromMilliseconds truncates the period to whole ticks (1000 / 6 ms is 1,666,666), so the
+            // division allows one tick of slack per period: an interval that is an exact multiple of such a period takes that many periods, not one more.
+            long periodTicks = _period.Ticks;
+            long intervalTicks = TimeSpan.FromMilliseconds(forwarding.IntervalMs).Ticks;
+            long periods = Math.Max(1L, (intervalTicks + periodTicks) / (periodTicks + 1));
+            _forwardGap = TimeSpan.FromTicks((periods * periodTicks) - (periodTicks / 2));
+        }
     }
 
     /// <inheritdoc />
@@ -443,6 +474,7 @@ public sealed class SampledEnergyMeter : IEnergyMeter
                     continue;
                 }
 
+                PowerSample? forward = null;
                 lock (_gate)
                 {
                     if (Volatile.Read(ref _disposed) != 0)
@@ -452,7 +484,12 @@ public sealed class SampledEnergyMeter : IEnergyMeter
 
                     try
                     {
-                        _ = TrySample(ElapsedSeconds());
+                        long timestamp = _timeProvider.GetTimestamp();
+                        if (TrySample(_timeProvider.GetElapsedTime(_startTimestamp, timestamp).TotalSeconds) && ShouldForward(timestamp))
+                        {
+                            _lastForwardTimestamp = timestamp;
+                            forward = _samples[^1];
+                        }
                     }
                     catch (ObjectDisposedException)
                     {
@@ -465,6 +502,12 @@ public sealed class SampledEnergyMeter : IEnergyMeter
                         _skippedReads++;
                     }
                 }
+
+                // Emitted after the lock is released, so a live sink never runs under the meter lock and never touches a window; EmitSafely drops whatever the sink throws.
+                if (forward is { } sample)
+                {
+                    _forwarding!.Sink.EmitSafely(new PowerEvent(_timeProvider.GetUtcNow(), false, Metric.Measured(sample.Watts, WattUnit), sample.Seconds));
+                }
             }
         }
         finally
@@ -474,6 +517,11 @@ public sealed class SampledEnergyMeter : IEnergyMeter
             _waitInterrupt.Cancel();
         }
     }
+
+    // Whether the loop sample stored at the timestamp is forwarded: the first one is, then one whose gap to the last forwarded sample reaches the forwarding gap. The caller holds the lock.
+    private bool ShouldForward(long timestamp) =>
+        _forwarding is not null
+        && (_lastForwardTimestamp is not { } last || _timeProvider.GetElapsedTime(last, timestamp) >= _forwardGap);
 
     // The caller holds the lock.
     private void ThrowIfNotRunning()

@@ -1072,4 +1072,57 @@ public sealed class ConfigValidationTests
 
         Assert.Equal("Report:Other is not a known option; check the spelling", failure.Message);
     }
+
+    // ---- AJ-089: Dashboard:PowerIntervalMs ----
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("25")]
+    [InlineData("49")]
+    [InlineData("1001")]
+    public void Power_interval_out_of_range_exits_2(string interval)
+    {
+        ConfigurationException failure = Rejected(("Dashboard:PowerIntervalMs", interval));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Dashboard:PowerIntervalMs must be a whole number from 50 to 1000", failure.Message);
+        Assert.DoesNotContain(interval, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("50")]
+    [InlineData("100")]
+    [InlineData("1000")]
+    public void Power_interval_within_range_passes(string interval)
+    {
+        Assert.Equal(int.Parse(interval, CultureInfo.InvariantCulture), Load(("Dashboard:PowerIntervalMs", interval)).Dashboard.PowerIntervalMs);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("100.5")]
+    [InlineData("fast")]
+    public void Power_interval_that_is_not_a_whole_number_exits_2_without_echoing_it(string interval)
+    {
+        ConfigurationException failure = Rejected(("Dashboard:PowerIntervalMs", interval));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Dashboard:PowerIntervalMs must be an integer", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(interval, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-032")]
+    public void The_power_interval_defaults_to_100_and_the_shipped_file_says_so()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement root = document.RootElement.GetProperty(AgentJoulesOptions.SectionName);
+
+        Assert.Equal(100, root.GetProperty("Dashboard").GetProperty("PowerIntervalMs").GetInt32());
+        Assert.Equal("Dashboard", root.EnumerateObject().Last().Name);
+        Assert.Equal(100, new AgentJoulesOptions().Dashboard.PowerIntervalMs);
+        Assert.Equal(100, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Dashboard.PowerIntervalMs);
+        Assert.Equal(100, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Dashboard.PowerIntervalMs);
+    }
 }

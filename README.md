@@ -97,6 +97,7 @@ Prints the GPU, driver, power limit and energy method that will be measured; wit
 - `--dry-run`: validate everything and make no completion call. The keys of every selected tier and the judge key are checked in one message (exit 3). `GET /v1/models` runs on each selected endpoint (exit 5 when it cannot be reached, exit 4 when a configured model ID is not listed, with up to 20 listed IDs printed, Nemotron and Qwen first). The GPU of the measured tiers is checked (exit 6 without a GPU or NVML, naming the missing library), and the task folder is checked. The command prints one line per tier, `<tier> <endpoint> <matched model ids> OK`, and exits 0. Nothing is written.
 - `--no-console-telemetry`: do not print the OpenTelemetry metrics to the console at the end of a run (see Telemetry). A dry run prints none in any case.
 - `--config <path>`: read this configuration file instead of `config/appsettings.json`; a missing file exits 2.
+- `Dashboard:PowerIntervalMs` (configuration key, default 100, a whole number from 50 to 1000): how often, in milliseconds, the sampling meter forwards power samples it already took to the live dashboard sink; a value outside the range exits 2 naming the key without echoing the value. The dashboard server and its `--dashboard` option are not wired yet, so the key is validated and the forwarding stays inert.
 
 Dry-run example (the three endpoints and model IDs of `config/appsettings.json`):
 

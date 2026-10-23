@@ -4,6 +4,7 @@ using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Live;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Tasks;
@@ -65,6 +66,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="listener">Receives the step lines, the baseline, the judge warning and the closing lines of each tier.</param>
 /// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
 /// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
+/// <param name="live">The live sink of the dashboard (<see cref="NullLiveEventSink"/> without <c>--dashboard</c>): when it also takes readings, the workflow readings of every tier run fan out to it after the listener sink; a measured tier forwards its stored power samples to it at <c>Dashboard:PowerIntervalMs</c>; the judge's services keep the null sink, so a judge reading never reaches it.</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
 /// <exception cref="ArgumentNullException">An argument is null.</exception>
 public sealed class RunOrchestrator(
@@ -78,6 +80,7 @@ public sealed class RunOrchestrator(
     IRunListener listener,
     IJudgeService judge,
     ILocalRuntime localRuntime,
+    ILiveEventSink live,
     ILogger<RunOrchestrator> logger) : IRunOrchestrator
 {
     /// <summary>
@@ -104,6 +107,7 @@ public sealed class RunOrchestrator(
     private readonly IRunListener _listener = listener ?? throw new ArgumentNullException(nameof(listener));
     private readonly IJudgeService _judge = judge ?? throw new ArgumentNullException(nameof(judge));
     private readonly ILocalRuntime _localRuntime = localRuntime ?? throw new ArgumentNullException(nameof(localRuntime));
+    private readonly ILiveEventSink _live = live ?? throw new ArgumentNullException(nameof(live));
     private readonly ILogger<RunOrchestrator> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
@@ -154,7 +158,7 @@ public sealed class RunOrchestrator(
                 progress.Gpu = source.Identity;
                 progress.Probe = ProbeResult.Create(source.Identity, source.EnergyCounterSupported, capabilities, options.Meter.SampleRateHz);
 
-                meter = new SampledEnergyMeter(source, capabilities, _time);
+                meter = new SampledEnergyMeter(source, capabilities, _time, _live is NullLiveEventSink ? null : new PowerForwarding(_live, options.Dashboard.PowerIntervalMs));
 
                 // The union of the step windows for the energy totals of a concurrent run; the meter is alive for every write of the tier (it is disposed in the finally below).
                 progress.Union = meter.ComputeUnion;
@@ -173,7 +177,9 @@ public sealed class RunOrchestrator(
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            var services = new MeteringServices(meter, _gate, listening, _cost, _instruments, _time);
+            // With a dashboard that also takes readings, the workflow readings fan out to the listener sink (which keeps them for the file) first and to the dashboard second.
+            IMetricsSink workflowSink = _live is IMetricsSink liveReadings ? new FanOutMetricsSink(_logger, listening, liveReadings) : listening;
+            var services = new MeteringServices(meter, _gate, workflowSink, _cost, _instruments, _time) { Live = _live };
             AgentFactory factory = _agentFactory(services);
             foreach (TaskDefinition task in plan.Tasks)
             {
@@ -201,9 +207,9 @@ public sealed class RunOrchestrator(
                 }
             }
 
-            // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced, so a judge reading never reaches the workflow sink or the listener (no step line).
+            // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced and the null live sink, so a judge reading never reaches the workflow sink, the listener (no step line) or the dashboard.
             IReadOnlyList<StepReading> workflow = sink.Snapshot();
-            JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink }, cancellationToken).ConfigureAwait(false);
+            JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance }, cancellationToken).ConfigureAwait(false);
             RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), RunStatus.Completed, judged?.SelfJudged);
             await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
             string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);

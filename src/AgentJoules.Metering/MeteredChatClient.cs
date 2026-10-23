@@ -5,6 +5,7 @@ using System.Text;
 using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Live;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 
@@ -60,12 +61,20 @@ namespace AgentJoules.Metering;
 /// The same holds for a failure of the reading itself (the cost calculator, the reading's checks, the sink, the OpenTelemetry instruments, which record the reading right after the sink received it, REQ-014): after a failed call it is attached under
 /// <see cref="ReadingFailureKey"/>, after a successful call it surfaces.
 /// </para>
+/// <para>
+/// Live progress (REQ-032, design 3.10). A streaming call emits a <see cref="StepProgressEvent"/> to <see cref="MeteringServices.Live"/> with the number of updates so far that carried
+/// non-empty answer or reasoning text: the first such update emits, then at most one per 100 ms on the clock's timestamps, so at most 10 per second, and the count never goes down. A
+/// buffered call emits none. Every emit goes through <see cref="LiveEventSinkExtensions.EmitSafely"/>, so the live sink can never change the call, its window or its reading.
+/// </para>
 /// </remarks>
 public sealed class MeteredChatClient : DelegatingChatClient
 {
     private const string MillisecondUnit = "ms";
     private const string BufferedReason = "buffered-call";
     private const string NoContentReason = "no-content-update";
+
+    // The shortest gap between two progress events of one streaming call: at most 10 per second (REQ-032).
+    private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(100);
 
     /// <summary>The key under which the <see cref="Exception.Data"/> of a call's exception holds the failure of the meter when the window could not be closed while the call itself failed.</summary>
     public const string MeterCloseFailureKey = "AgentJoules.MeterCloseFailure";
@@ -100,6 +109,7 @@ public sealed class MeteredChatClient : DelegatingChatClient
         ArgumentNullException.ThrowIfNull(services.Cost);
         ArgumentNullException.ThrowIfNull(services.Instruments);
         ArgumentNullException.ThrowIfNull(services.Time);
+        ArgumentNullException.ThrowIfNull(services.Live);
         ArgumentNullException.ThrowIfNull(ledger);
 
         if (inner.GetService(typeof(RetryLedger)) is RetryLedger found && !ReferenceEquals(found, ledger))
@@ -290,6 +300,9 @@ public sealed class MeteredChatClient : DelegatingChatClient
         // The two counts the provider stated, each replaced on its own by a later non-null count and never added up.
         private long? _inputTokenCount;
         private long? _outputTokenCount;
+        // The streamed updates that carried text so far, and the timestamp of the last progress event of this call.
+        private int _textUpdates;
+        private long? _lastProgressTimestamp;
 
         public Exception? Error { get; set; }
 
@@ -355,6 +368,33 @@ public sealed class MeteredChatClient : DelegatingChatClient
             {
                 _timeToFirstToken = Metric.Measured(Math.Max(0.0, ElapsedMilliseconds() - owner._ledger.WaitMs), MillisecondUnit);
             }
+
+            if (hasText && streaming)
+            {
+                _textUpdates++;
+                ReportProgress();
+            }
+        }
+
+        // The first update with text is reported, then at most one per ProgressInterval on the clock's timestamps; EmitSafely drops whatever the live sink throws, so the
+        // reading never depends on it. A run without a dashboard builds no event at all.
+        private void ReportProgress()
+        {
+            ILiveEventSink live = owner._services.Live;
+            if (live is NullLiveEventSink)
+            {
+                return;
+            }
+
+            TimeProvider time = owner._services.Time;
+            long now = time.GetTimestamp();
+            if (_lastProgressTimestamp is { } last && time.GetElapsedTime(last, now) < ProgressInterval)
+            {
+                return;
+            }
+
+            _lastProgressTimestamp = now;
+            live.EmitSafely(new StepProgressEvent(time.GetUtcNow(), false, owner._identity, _textUpdates));
         }
 
         // Closes the window, gives the gate back and publishes the reading, in this order. A call whose window never opened has nothing to publish.
