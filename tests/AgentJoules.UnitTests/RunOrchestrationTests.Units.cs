@@ -458,11 +458,11 @@ public sealed partial class RunOrchestrationTests
         [Theory]
         [InlineData("1.2.3+0123abc", "1.2.3", "0123abc")]
         [InlineData("1.2.3-beta.1+deadbeef", "1.2.3-beta.1", "deadbeef")]
-        [InlineData("1.2.3", "1.2.3", null)]
-        [InlineData("1.2.3+", "1.2.3", null)]
-        [InlineData(null, "4.5.6.7", null)]
-        [InlineData("", "4.5.6.7", null)]
-        public void The_tool_version_and_the_commit_come_from_the_informational_version(string? informational, string version, string? commit) =>
+        [InlineData("1.2.3", "1.2.3", "unknown")]
+        [InlineData("1.2.3+", "1.2.3", "unknown")]
+        [InlineData(null, "4.5.6.7", "unknown")]
+        [InlineData("", "4.5.6.7", "unknown")]
+        public void The_tool_version_and_the_commit_come_from_the_informational_version(string? informational, string version, string commit) =>
             Assert.Equal((version, commit), RunAssembler.ParseVersion(informational, new Version(4, 5, 6, 7)));
 
         [Theory]

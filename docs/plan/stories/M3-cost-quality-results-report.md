@@ -528,14 +528,15 @@ Demo relevance: no.
 ### AJ-078: Complete the results model and its serialisation
 Covers: REQ-015
 Note (2026-10-22, AJ-076): criterion 1 reads `judge[]` as StepReading elements with `judgedAgent` (no `JudgeReading` type, P-5), so AJ-078-T3 drops `src/AgentJoules.Core/Results/JudgeReading.cs` from its files; AJ-078 also takes the document invariant of P-5 (every `judge[]` element names its judged agent and `steps[]` elements never carry it) and a round trip that contains it.
+Note (2026-10-22, AJ-078): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-078-results-model.feature` (the table's `ResultsModel.feature`, the story block verbatim, cmp exit 0); pinned readings P-1 to P-9 of the architect's record applied (`gitCommit` is `unknown`; `run.flags` is checked against `RunFlagNames` on construction, `with` and read; no `Equals` override, documents are compared by the test-side `ResultsEquality`, which skips `OutputText` and `Window`; each `costByCurrency` entry is checked; T4 is tests only; no `JudgeReading` type; the `judge[]` pairing invariant; the strict read path fails with `JsonException` or `ArgumentException`). In-place edits made, as the architect's record names them: criterion 1 (the `judge[]` element wording), criterion 6 (the round-trip wording), the T1 row and the test mapping (feature file name), the T3 row (`JudgeReading.cs` dropped) and the T4 row (tests only). Measured: `Spec=REQ-015` 73 passed 0 failed 0 skipped (battery 1); the unit filter 73 of 73 and Specs `Category=AJ-S078` 9 of 9 (builder-measured); build 0 warnings. Deviations: the strict context rejects unknown members everywhere (`UnmappedMemberHandling = Disallow` at context level, not on `BaselineResult` alone), and the constructors of `RunInfo`, `Totals` and `JudgeTotals` take camelCase parameter names, so existing named arguments changed.
 User story: As a consumer of results files, I want one complete, strictly typed results model with the exact label strings, so that every file carries the documented fields and no missing value can hide as a zero.
 Acceptance criteria:
-1. The records of M2 are completed to the full prompt skeleton: `schemaVersion` "1"; `run` (`id`, `tier`, `tasks`, `mode`, `repeat`, `startUtc`, `toolVersion`, `gitCommit`, plus `status`, `flags` (values `partial-offload` and `non-publishable`), `stopReason`, `selfJudged`); `environment` (including `energyScope` constant "GPU-board only", `assumptions`, `models[]` with `baseline`); `probe`; `baseline` (`meanW`, `stdDevW`, `seconds`, `flags`); `steps[]`; `judge[]`; `totals` (including `costByCurrency`, `gco2e`, `judge`).
+1. The records of M2 are completed to the full prompt skeleton: `schemaVersion` "1"; `run` (`id`, `tier`, `tasks`, `mode`, `repeat`, `startUtc`, `toolVersion`, `gitCommit`, plus `status`, `flags` (values `partial-offload` and `non-publishable`), `stopReason`, `selfJudged`); `environment` (including `energyScope` constant "GPU-board only", `assumptions`, `models[]` with `baseline`); `probe`; `baseline` (`meanW`, `stdDevW`, `seconds`, `flags`); `steps[]`; `judge[]` (StepReading elements with `judgedAgent`, paired with `steps[]` by task, repeat and judged agent); `totals` (including `costByCurrency`, `gco2e`, `judge`).
 2. Labels serialise exactly as `measured`, `estimated`, `model-judged`, `N/A`, `not-reported`; `value` is always written, null included.
 3. Model types reject unknown properties on read (`JsonUnmappedMemberHandling.Disallow`), and numbers use strict handling (a string where a number is expected fails).
 4. A unit test builds a document containing every label kind and asserts that no metric labelled `N/A` or `not-reported` has a numeric value (test `No_NA_metric_has_a_number`).
 5. `StepReading.OutputText` is never persisted; only `outputSha256` (lowercase hex) and `outputChars` are.
-6. A document round-trips through serialisation without change (test `Document_round_trips`: the read-back document equals the original).
+6. A document round-trips through serialisation without change (test `Document_round_trips`: the read-back document equals the original member by member, the in-memory `OutputText` and `Window` excepted, and serialises to the same bytes).
 7. `run.toolVersion` and `run.gitCommit` are read from `AssemblyInformationalVersionAttribute` (the text before and after `+`) and `gitCommit` is `unknown` when there is no `+` suffix (test `Version_and_commit_from_informational_version`); `environment.cloudCostObservedUtc` exists and is null outside the cloudgpu tier (test `Cloud_cost_observed_utc_is_nullable`).
 BDD scenarios:
 ```gherkin
@@ -590,18 +591,18 @@ Feature: AJ-078 Complete the results model and its serialisation
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-078-T1 | Write the failing BDD feature and unit tests for the model | tests/AgentJoules.Specs/Features/Reporting/ResultsModel.feature, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-055-T2 |
+| AJ-078-T1 | Write the failing BDD feature and unit tests for the model | tests/AgentJoules.Specs/Features/Reporting/AJ-078-results-model.feature, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-055-T2 |
 | AJ-078-T2 | Complete the run, environment, baseline and totals records, with the run flag list and the informational-version split | src/AgentJoules.Core/Results/RunInfo.cs, src/AgentJoules.Core/Results/EnvironmentInfo.cs, src/AgentJoules.Core/Results/Totals.cs | 1.75 | AJ-078-T1 |
-| AJ-078-T3 | Complete the step and judge records and the persisted-field rules | src/AgentJoules.Core/Results/StepReading.cs, src/AgentJoules.Core/Results/JudgeReading.cs | 1.0 | AJ-078-T2 |
-| AJ-078-T4 | Set label enum member names and strict context options | src/AgentJoules.Core/Labels/MetricLabel.cs, src/AgentJoules.Reporting/Json/AgentJoulesJsonContext.cs | 1.0 | AJ-078-T3 |
+| AJ-078-T3 | Complete the step record (judged-agent rule from AJ-076) and the document invariants | src/AgentJoules.Core/Results/StepReading.cs, src/AgentJoules.Core/Results/RunDocument.cs, src/AgentJoules.Core/Results/RunInfo.cs, src/AgentJoules.Core/Results/Totals.cs, src/AgentJoules.Core/Results/JudgeTotals.cs, src/AgentJoules.Core/Results/RunFlagNames.cs | 1.0 | AJ-078-T2 |
+| AJ-078-T4 | Pin the label names and the strict context options by tests | tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 1.0 | AJ-078-T3 |
 | AJ-078-T5 | Create `RunDocumentFixtures` with builders for every label kind | tests/AgentJoules.TestSupport/RunDocumentFixtures.cs | 1.0 | AJ-078-T3 |
 | AJ-078-T6 | Document the results fields and label vocabulary | docs/build-log.md | 0.25 | AJ-078-T4 |
-Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`); feature file `tests/AgentJoules.Specs/Features/Reporting/ResultsModel.feature`.
+Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`); feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-078-results-model.feature`.
 Docs impact: `docs/build-log.md`; the field reference lives in the generated schema (AJ-079) and the README in M6.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-015"` shows at least one passed and no failed test for the model tests
+- [x] `dotnet test --filter "Spec=REQ-015"` shows at least one passed and no failed test for the model tests
 Demo relevance: no.
 
 ### AJ-079: Generate the JSON Schema and guard it against drift

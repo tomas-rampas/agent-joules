@@ -37,7 +37,7 @@ namespace AgentJoules.Workflow.Runs;
 /// </para>
 /// <para>
 /// <c>run.toolVersion</c> and <c>run.gitCommit</c> come from the <see cref="AssemblyInformationalVersionAttribute"/> of this assembly: the SDK appends <c>+&lt;commit&gt;</c> when it builds
-/// inside a git repository, so the part before <c>+</c> is the tool version and the part after it the commit (null when there is none).
+/// inside a git repository, so the part before <c>+</c> is the tool version and the part after it the commit (<c>unknown</c> when there is none).
 /// </para>
 /// </remarks>
 public static class RunAssembler
@@ -71,7 +71,7 @@ public static class RunAssembler
     private const string MillisecondUnit = "ms";
     private const string FallbackVersion = "0.0.0";
 
-    private static readonly (string ToolVersion, string? GitCommit) ThisVersion = ParseVersion(
+    private static readonly (string ToolVersion, string GitCommit) ThisVersion = ParseVersion(
         typeof(RunAssembler).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
         typeof(RunAssembler).Assembly.GetName().Version);
 
@@ -366,29 +366,29 @@ public static class RunAssembler
     };
 
     /// <summary>
-    /// Splits an informational version into the tool version (the part before <c>+</c>) and the commit (the part after it, null when there is none); without an informational version the
+    /// Splits an informational version into the tool version (the part before <c>+</c>) and the commit (the part after it, <c>unknown</c> when there is none); without an informational version the
     /// tool version is <paramref name="assemblyVersion"/>, or <c>0.0.0</c> when that is null too.
     /// </summary>
     /// <param name="informationalVersion">The <see cref="AssemblyInformationalVersionAttribute.InformationalVersion"/>, or null.</param>
     /// <param name="assemblyVersion">The assembly version, the fallback.</param>
     /// <returns>The tool version and the commit.</returns>
-    public static (string ToolVersion, string? GitCommit) ParseVersion(string? informationalVersion, Version? assemblyVersion)
+    public static (string ToolVersion, string GitCommit) ParseVersion(string? informationalVersion, Version? assemblyVersion)
     {
         string fallback = assemblyVersion?.ToString() ?? FallbackVersion;
         if (string.IsNullOrWhiteSpace(informationalVersion))
         {
-            return (fallback, null);
+            return (fallback, RunInfo.UnknownCommit);
         }
 
         int plus = informationalVersion.IndexOf('+', StringComparison.Ordinal);
         if (plus < 0)
         {
-            return (informationalVersion.Trim(), null);
+            return (informationalVersion.Trim(), RunInfo.UnknownCommit);
         }
 
         string version = informationalVersion[..plus].Trim();
         string commit = informationalVersion[(plus + 1)..].Trim();
-        return (version.Length > 0 ? version : fallback, commit.Length > 0 ? commit : null);
+        return (version.Length > 0 ? version : fallback, commit.Length > 0 ? commit : RunInfo.UnknownCommit);
     }
 
     /// <summary>

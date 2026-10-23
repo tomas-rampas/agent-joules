@@ -35,6 +35,9 @@ namespace AgentJoules.Core.Results;
 /// file keeps <see cref="OutputSha256"/> and <see cref="OutputChars"/> instead. <see cref="Window"/> lives in memory only too, for the run assembler (the
 /// <c>shared-window</c> flag and the union of the windows of a concurrent run, REQ-013); it is never serialized and never printed either.
 /// </para>
+/// <para>
+/// Record equality compares collection members by reference; compare documents member by member (tests: ResultsEquality) or by their serialised form.
+/// </para>
 /// </remarks>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record StepReading

@@ -25,8 +25,9 @@ public static class StepReadingFixtures
     /// <param name="outputText">The in-memory output text for the judge, or null.</param>
     /// <param name="joulesPerQualityPoint">The joules per quality point, or null for N/A <c>not-scored</c>.</param>
     /// <param name="costPerQualityPoint">The cost per quality point, or null for N/A <c>not-scored</c>.</param>
+    /// <param name="judgedAgent">For a judge reading, the workflow agent whose output was scored (it pairs the reading with the step of that agent); null for a workflow step.</param>
     /// <returns>The reading.</returns>
-    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null, Metric? netJoules = null, ReadingFlags flags = ReadingFlags.None, Metric? quality = null, string? outputText = null, Metric? joulesPerQualityPoint = null, Metric? costPerQualityPoint = null) =>
+    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null, Metric? netJoules = null, ReadingFlags flags = ReadingFlags.None, Metric? quality = null, string? outputText = null, Metric? joulesPerQualityPoint = null, Metric? costPerQualityPoint = null, string? judgedAgent = null) =>
         new(
             task: "summarise",
             repeat: 1,
@@ -55,7 +56,8 @@ public static class StepReadingFixtures
             joulesPerQualityPoint: joulesPerQualityPoint,
             costPerQualityPoint: costPerQualityPoint,
             outputText: outputText,
-            window: window);
+            window: window,
+            judgedAgent: judgedAgent);
 
     /// <summary>
     /// The no-usage reading (AJ-042, EDGE-007): a metered step whose provider sent no usage, so both token metrics are not-reported with the reason

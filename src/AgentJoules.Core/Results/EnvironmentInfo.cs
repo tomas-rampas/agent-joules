@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Labels;
@@ -30,7 +31,7 @@ namespace AgentJoules.Core.Results;
 /// <param name="CloudCostUsd">The observed cost of the VM in USD; N/A on a tier without a rented VM.</param>
 /// <param name="EnergyScope">What the energy figures cover; <see cref="GpuBoardOnly"/>.</param>
 /// <param name="Assumptions">The factors behind the cost and carbon figures.</param>
-/// <param name="Models">The model each agent used.</param>
+/// <param name="Models">The model each agent used; no element is null.</param>
 /// <param name="CloudCostObservedUtc">When the cloud cost was read from the billing page, or null.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record EnvironmentInfo(
@@ -56,8 +57,40 @@ public sealed record EnvironmentInfo(
     string EnergyScope,
     EnvironmentAssumptions Assumptions,
     IReadOnlyList<EnvironmentModel> Models,
-    DateTimeOffset? CloudCostObservedUtc = null)
+    [property: JsonPropertyOrder(2)] DateTimeOffset? CloudCostObservedUtc = null)
 {
     /// <summary>The only value of <see cref="EnergyScope"/>: the energy figures cover the GPU board and nothing else.</summary>
     public const string GpuBoardOnly = "GPU-board only";
+
+    private const string ModelsParameter = "Models";
+
+    /// <summary>
+    /// The model each agent used. No element is null; the list is a read-only copy, checked on construction, on <c>with</c> and on read. The order attribute keeps the skeleton order (models, then
+    /// cloudCostObservedUtc) although this member is declared in the body.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">The list or an element is null (the message names <c>environment.models[i]</c>, the index only).</exception>
+    [JsonPropertyOrder(1)]
+    public IReadOnlyList<EnvironmentModel> Models
+    {
+        get;
+        init => field = CheckedModels(value);
+    } = CheckedModels(Models);
+
+    private static ReadOnlyCollection<EnvironmentModel> CheckedModels(IReadOnlyList<EnvironmentModel>? models)
+    {
+        if (models is null)
+        {
+            throw NullElement(ModelsParameter, "environment.models must not be null.");
+        }
+
+        var copy = new List<EnvironmentModel>(models.Count);
+        for (int index = 0; index < models.Count; index++)
+        {
+            copy.Add(models[index] ?? throw NullElement(ModelsParameter, $"environment.models[{index}] must not be null."));
+        }
+
+        return new ReadOnlyCollection<EnvironmentModel>(copy);
+    }
+
+    private static ArgumentNullException NullElement(string parameterName, string message) => new(parameterName, message);
 }
