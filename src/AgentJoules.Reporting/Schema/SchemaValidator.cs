@@ -43,6 +43,7 @@ public static class SchemaValidator
 
     internal const string TooLarge = "The document is invalid and holds more than 100000 values; the failures are not listed.";
     internal const string NotEvaluable = "The document could not be checked: a value is nested too deeply.";
+    internal const string NotReadable = "The document holds a string the schema checks could not read (for example a lone surrogate escape).";
 
     private const string DefinitionsKey = "$defs";
     private const string ProbeDefinition = "probe";
@@ -106,6 +107,11 @@ public static class SchemaValidator
         {
             // The enum keyword of the schema package serialises the instance with a depth limit of 64, so a value nested deeper than that cannot be evaluated; the text of the exception is not passed on.
             return [new SchemaFailure(string.Empty, NotEvaluable)];
+        }
+        catch (InvalidOperationException)
+        {
+            // The schema package raises this exception for a string it cannot read as text, for example one that holds a lone surrogate escape (a member name, an enum value, a pattern); the cause is not narrowed down and its text is not passed on.
+            return [new SchemaFailure(string.Empty, NotReadable)];
         }
     }
 

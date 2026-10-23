@@ -3,14 +3,17 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using AgentJoules.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
+using AgentJoules.Reporting.Results;
 using AgentJoules.Reporting.Schema;
 using AgentJoules.TestSupport;
+using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Runs;
 
 using Xunit;
@@ -1828,6 +1831,998 @@ public sealed class SchemaValidationTests
         Assert.DoesNotContain(core.GetReferencedAssemblies(), static name => string.Equals(name.Name, package, StringComparison.Ordinal));
         Assert.DoesNotContain(cli.GetReferencedAssemblies(), static name => string.Equals(name.Name, package, StringComparison.Ordinal));
         Assert.Contains(typeof(SchemaValidator).Assembly.GetReferencedAssemblies(), static name => string.Equals(name.Name, package, StringComparison.Ordinal));
+    }
+
+    // ---- AJ-080: AJ validate, the run file validator and the committed fixture run files ---------------------------------------------------------------------------------------
+
+    private const string FixtureUpdateVariable = "AGENTJOULES_UPDATE_FIXTURES";
+    private const string FixtureUpdateHint = "Regenerate the files with " + FixtureUpdateVariable + "=1 dotnet test --filter \"FullyQualifiedName~CommittedFixtureRunFilesMatchGenerated\" and commit them.";
+    private const string FixtureUpdateRewrote = "rewrote the committed fixture run files; re-run without " + FixtureUpdateVariable;
+    private const string FixtureUpdateRefusedInCi = FixtureUpdateVariable + " is set in a CI run (the CI variable is set and not empty); the fixture files are not rewritten there. Unset it and commit the regenerated files.";
+    private const string ValidateFolder = "runs";
+    private const string ProbeFileName = "probe-20261019T205344Z.json";
+    private const string CalibrationFileName = "calibration-20261019T205344Z.json";
+
+    private static readonly Tier[] CommittedTiers = [Tier.Local, Tier.Nvidia, Tier.Nebius];
+
+    private static readonly string[] CorruptedMembers = ["cost", "quality", "latencyMs"];
+
+    private static readonly string[][] ConfigArguments = [["--config"], [ValidateFolder, "--config"], ["--config", "appsettings.json"], [ValidateFolder, "--config", "appsettings.json"]];
+
+    private static string CommittedFixtureFolder() => Path.Combine(ConfigurationFixtures.RepositoryRoot(), "tests", "AgentJoules.TestSupport", "Fixtures", "results");
+
+    private static string[] LinesOf(string text) => [.. text.Split('\n').Select(static line => line.TrimEnd('\r')).Where(static line => line.Length > 0)];
+
+    private static Task<CliRunResult> ValidateAsync(TempWorkspace workspace, params string[] arguments) =>
+        CliHarness.RunTokensAsync(["validate", .. arguments], new CliHostOverrides(WorkingDirectory: workspace.Root));
+
+    private static string WriteCommitted(TempWorkspace workspace, string folder, Tier tier) =>
+        workspace.WriteFile(Path.Combine(folder, RunDocumentFixtures.CommittedFileName(tier)), RunDocumentFixtures.CommittedText(tier));
+
+    // The N/A metric with a number of the scenario: the cost of the first step.
+    private static string WithCorruptCost(string json) =>
+        RunDocumentFixtures.Edit(json, static root =>
+        {
+            JsonObject cost = root["steps"]![0]!["cost"]!.AsObject();
+            cost["label"] = "N/A";
+            cost["value"] = 0.5;
+        });
+
+    // Every step gets an N/A cost and an N/A quality that hold a number: more failures than a file may list.
+    private static string WithManyCorruptSteps(string json) =>
+        RunDocumentFixtures.Edit(json, static root =>
+        {
+            foreach (JsonNode? step in root["steps"]!.AsArray())
+            {
+                foreach (string member in CorruptedMembers)
+                {
+                    JsonObject metric = step![member]!.AsObject();
+                    metric["label"] = "N/A";
+                    metric["value"] = 0.5;
+                }
+            }
+        });
+
+    private static void AssertSafeLine(string line)
+    {
+        foreach (char character in line)
+        {
+            Assert.False(
+                char.IsControl(character) || System.Globalization.CharUnicodeInfo.GetUnicodeCategory(character) is System.Globalization.UnicodeCategory.Format,
+                "A failure line holds a control or format character.");
+        }
+    }
+
+    [Fact]
+    public async Task Validate_counts_files()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (Tier tier in CommittedTiers)
+        {
+            _ = WriteCommitted(workspace, ValidateFolder, tier);
+        }
+
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, ProbeFileName), "{}\n");
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 3 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public async Task Validates_without_config_or_docs()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Local);
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "config")));
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 1 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public async Task Corrupted_file_prints_its_location_then_the_count()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, name), WithCorruptCost(RunDocumentFixtures.CommittedText(Tier.Local)));
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        string[] lines = LinesOf(result.Stdout);
+        Assert.True(lines.Length >= 2, "The output holds a failure line and the count line.");
+        Assert.Equal("Validated 1 files", lines[^1]);
+        string[] failures = lines[..^1];
+        Assert.All(failures, line => Assert.StartsWith(name + ": ", line, StringComparison.Ordinal));
+        Assert.Contains(failures, line => line[(name.Length + 2)..].StartsWith("/steps/0/cost", StringComparison.Ordinal));
+        Assert.Equal(["error: 1 of 1 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+        Assert.DoesNotContain(workspace.Root, result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Failure_lines_are_ordered_by_file_name_and_the_error_counts_the_files()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string local = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string nebius = RunDocumentFixtures.CommittedFileName(Tier.Nebius);
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, "20260102T000000Z-nvidia.json"), WithCorruptCost(RunDocumentFixtures.CommittedText(Tier.Nvidia)));
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, local), WithCorruptCost(RunDocumentFixtures.CommittedText(Tier.Local)));
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Nebius);
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        string[] lines = LinesOf(result.Stdout);
+        Assert.Equal("Validated 3 files", lines[^1]);
+        int firstFile = Array.FindIndex(lines, line => line.StartsWith(local + ": ", StringComparison.Ordinal));
+        int secondFile = Array.FindIndex(lines, line => line.StartsWith("20260102T000000Z-nvidia.json: ", StringComparison.Ordinal));
+        Assert.True(firstFile >= 0 && secondFile > firstFile, "The failures of the earlier file name come first.");
+        Assert.DoesNotContain(lines, line => line.StartsWith(nebius + ": ", StringComparison.Ordinal));
+        Assert.Equal(["error: 2 of 3 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public async Task A_file_lists_its_first_20_failures_then_the_number_of_the_rest()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string text = WithManyCorruptSteps(RunDocumentFixtures.CommittedText(Tier.Local));
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, name), text);
+        using JsonDocument document = JsonDocument.Parse(text);
+        int total = SchemaValidator.Validate(document.RootElement).Count;
+        Assert.True(total > RunFileValidator.MaxFailureLines, $"The file must hold more than {RunFileValidator.MaxFailureLines} failures, but holds {total}.");
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        string[] lines = LinesOf(result.Stdout);
+        Assert.Equal(RunFileValidator.MaxFailureLines + 2, lines.Length);
+        Assert.Equal($"{name}: (root) and {total - RunFileValidator.MaxFailureLines} more failures", lines[RunFileValidator.MaxFailureLines]);
+        Assert.Equal("Validated 1 files", lines[^1]);
+        Assert.Equal(["error: 1 of 1 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public async Task Non_json_run_file_exits_2_naming_it()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, name), "not json");
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        string[] lines = LinesOf(result.Stdout);
+        Assert.Equal(2, lines.Length);
+        Assert.Matches("^" + System.Text.RegularExpressions.Regex.Escape(name) + @": \(root\) not valid JSON at line 1, byte \d+$", lines[0]);
+        Assert.Equal("Validated 1 files", lines[1]);
+        Assert.Equal(["error: 1 of 1 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public async Task Missing_path_exits_2_naming_it()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ValidateAsync(workspace, "no-such-folder");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.StartsWith("error: ", line, StringComparison.Ordinal);
+        Assert.Contains("no-such-folder", line, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Missing_path_is_echoed_bounded()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = new('a', 1000);
+
+        CliRunResult result = await ValidateAsync(workspace, name);
+
+        Assert.Equal(2, result.ExitCode);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.Contains(new string('a', 256) + "...", line, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('a', 257), line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Named_non_run_file_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, ProbeFileName), "{}\n");
+
+        CliRunResult result = await ValidateAsync(workspace, Path.Combine(ValidateFolder, ProbeFileName));
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.Contains(ProbeFileName, line, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_named_run_file_is_validated_alone()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (Tier tier in CommittedTiers)
+        {
+            _ = WriteCommitted(workspace, ValidateFolder, tier);
+        }
+
+        CliRunResult result = await ValidateAsync(workspace, Path.Combine(ValidateFolder, RunDocumentFixtures.CommittedFileName(Tier.Nebius)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 1 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public async Task Default_path_is_results()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = WriteCommitted(workspace, "results", Tier.Nvidia);
+        _ = WriteCommitted(workspace, "other", Tier.Local);
+        _ = workspace.WriteFile(Path.Combine("results", ProbeFileName), "{}\n");
+
+        CliRunResult result = await ValidateAsync(workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 1 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public async Task Default_path_that_is_missing_exits_2_naming_results()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ValidateAsync(workspace);
+
+        Assert.Equal(2, result.ExitCode);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.Contains("results", line, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Empty_folder_validates_0_files()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, ProbeFileName), "{}\n");
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, CalibrationFileName), "{}\n");
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, "notes.json"), "not json");
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 0 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public async Task Only_files_that_match_the_run_file_pattern_are_counted()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Local);
+        foreach (string ignored in new[] { ProbeFileName, CalibrationFileName, "20260101T000000Z-cloudgpu-baseline.json.bak", "20260101T000000Z-bogus.json", "20260101T000000Z-local.jsonl", "readme.txt" })
+        {
+            _ = workspace.WriteFile(Path.Combine(ValidateFolder, ignored), "not json");
+        }
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 1 files"], LinesOf(result.Stdout));
+    }
+
+    [Fact]
+    public async Task Config_flag_parses_with_zero_or_one_value()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Local);
+
+        foreach (string[] arguments in ConfigArguments)
+        {
+            CliRunResult result = await ValidateAsync(workspace, arguments);
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Empty(result.Stdout);
+            string line = Assert.Single(LinesOf(result.Stderr));
+            Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
+            Assert.Contains("M4", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("ParseError", line, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Unknown_option_exits_2_through_the_parse_check()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ValidateAsync(workspace, "--bogus");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.EndsWith("(ParseError)", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_file_over_16_MiB_is_one_line_and_exit_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string path = workspace.WriteFile(Path.Combine(ValidateFolder, name), string.Empty);
+        byte[] big = new byte[RunFileValidator.MaxBytes + 1];
+        Array.Fill(big, (byte)' ');
+        File.WriteAllBytes(path, big);
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([$"{name}: (root) is larger than 16777216 bytes", "Validated 1 files"], LinesOf(result.Stdout));
+        Assert.Equal(["error: 1 of 1 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public async Task Committed_fixture_folder_validates_3_files()
+    {
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["validate", RunDocumentFixtures.CommittedFolder],
+            new CliHostOverrides(WorkingDirectory: ConfigurationFixtures.RepositoryRoot()));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 3 files"], LinesOf(result.Stdout));
+        Assert.Empty(result.Stderr);
+    }
+
+    [Fact]
+    public void Check_returns_no_line_for_a_valid_document()
+    {
+        foreach (Tier tier in CommittedTiers)
+        {
+            Assert.Empty(RunFileValidator.Check(RunDocumentFixtures.CommittedFileName(tier), RunDocumentFixtures.CommittedText(tier)));
+        }
+    }
+
+    [Fact]
+    public void Check_names_the_position_of_a_syntax_error_and_echoes_nothing()
+    {
+        const string name = "20260101T000000Z-local.json";
+
+        string line = Assert.Single(RunFileValidator.Check(name, "{\n  \"secret-word\": nope\n}"));
+
+        Assert.Matches("^" + System.Text.RegularExpressions.Regex.Escape(name) + @": \(root\) not valid JSON at line 2, byte \d+$", line);
+        Assert.DoesNotContain("secret-word", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("nope", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_prints_the_empty_location_as_root()
+    {
+        string line = Assert.Single(RunFileValidator.Check("20260101T000000Z-local.json", "[]"));
+
+        Assert.StartsWith("20260101T000000Z-local.json: (root) ", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_lists_one_line_per_failure_with_the_location_then_the_message()
+    {
+        const string name = "20260101T000000Z-local.json";
+        string text = WithCorruptCost(RunDocumentFixtures.CommittedText(Tier.Local));
+        using JsonDocument document = JsonDocument.Parse(text);
+        IReadOnlyList<SchemaFailure> failures = SchemaValidator.Validate(document.RootElement);
+        Assert.NotEmpty(failures);
+
+        IReadOnlyList<string> lines = RunFileValidator.Check(name, text);
+
+        Assert.Equal(failures.Count, lines.Count);
+        for (int index = 0; index < failures.Count; index++)
+        {
+            string location = failures[index].InstanceLocation.Length == 0 ? "(root)" : failures[index].InstanceLocation;
+            Assert.Equal($"{name}: {location} {failures[index].Message}", lines[index]);
+        }
+    }
+
+    [Fact]
+    public void Check_bounds_a_hostile_location_and_message()
+    {
+        const string name = "20260101T000000Z-local.json";
+        string hostile = new string('x', 100_000) + new string((char)0x202E, 1) + new string((char)1, 1) + "\n";
+        string text = RunDocumentFixtures.Edit(RunDocumentFixtures.CommittedText(Tier.Local), root => root["steps"]![0]![hostile] = 1);
+
+        IReadOnlyList<string> lines = RunFileValidator.Check(name, text);
+
+        Assert.NotEmpty(lines);
+        Assert.All(lines, line =>
+        {
+            AssertSafeLine(line);
+            Assert.True(line.Length <= name.Length + 2 + 259 + 1 + 163, $"A failure line is {line.Length} characters long.");
+            Assert.DoesNotContain(new string('x', 300), line, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public void Check_caps_the_lines_of_a_file()
+    {
+        const string name = "20260101T000000Z-local.json";
+        string text = WithManyCorruptSteps(RunDocumentFixtures.CommittedText(Tier.Local));
+        using JsonDocument document = JsonDocument.Parse(text);
+        int total = SchemaValidator.Validate(document.RootElement).Count;
+        Assert.True(total > RunFileValidator.MaxFailureLines);
+
+        IReadOnlyList<string> lines = RunFileValidator.Check(name, text);
+
+        Assert.Equal(RunFileValidator.MaxFailureLines + 1, lines.Count);
+        Assert.Equal($"{name}: (root) and {total - RunFileValidator.MaxFailureLines} more failures", lines[^1]);
+    }
+
+    [Fact]
+    public void Check_reads_the_document_through_the_model_after_the_schema_passed()
+    {
+        const string name = "20260101T000000Z-local.json";
+
+        // A second judge reading of the same step: every element is a valid reading, so the schema passes, and the model refuses the pairing.
+        string text = RunDocumentFixtures.Edit(
+            RunDocumentFixtures.CommittedText(Tier.Local),
+            static root =>
+            {
+                JsonArray judge = root["judge"]!.AsArray();
+                judge.Add(JsonNode.Parse(judge[0]!.ToJsonString()));
+            });
+        using JsonDocument document = JsonDocument.Parse(text);
+        Assert.Empty(SchemaValidator.Validate(document.RootElement));
+        _ = AssertReadFails(text);
+
+        string line = Assert.Single(RunFileValidator.Check(name, text));
+
+        Assert.StartsWith(name + ": (model) ", line, StringComparison.Ordinal);
+        Assert.Contains("judge", line, StringComparison.Ordinal);
+        AssertSafeLine(line);
+    }
+
+    [Fact]
+    public async Task CheckFileAsync_reads_a_file_of_exactly_16_MiB()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        byte[] content = new byte[RunFileValidator.MaxBytes];
+        Array.Fill(content, (byte)' ');
+        byte[] document = Encoding.ASCII.GetBytes(RunDocumentFixtures.CommittedText(Tier.Local));
+        document.CopyTo(content, 0);
+        string path = workspace.WriteFile(name, string.Empty);
+        File.WriteAllBytes(path, content);
+
+        IReadOnlyList<string> lines = await RunFileValidator.CheckFileAsync(path, CancellationToken.None);
+
+        Assert.Empty(lines);
+    }
+
+    [Fact]
+    public async Task CheckFileAsync_reports_a_file_that_is_not_UTF_8_or_cannot_be_read_as_one_line()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string path = workspace.WriteFile(name, string.Empty);
+        File.WriteAllBytes(path, [0x7B, 0xFF, 0xFE, 0x7D]);
+
+        Assert.Equal([$"{name}: (root) is not valid UTF-8"], await RunFileValidator.CheckFileAsync(path, CancellationToken.None));
+
+        string missing = Path.Combine(workspace.Root, "20260101T000000Z-nvidia.json");
+        Assert.Equal(["20260101T000000Z-nvidia.json: (root) could not be read"], await RunFileValidator.CheckFileAsync(missing, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(Tier.Local)]
+    [InlineData(Tier.Nvidia)]
+    [InlineData(Tier.Nebius)]
+    public void Committed_fixture_holds_what_the_pins_say(Tier tier)
+    {
+        RunDocument document = RunDocumentFixtures.Committed(tier);
+        string tierName = tier.ToString().ToLowerInvariant();
+
+        Assert.Equal($"fixture-20260101T000000Z-{tierName}", document.Run.Id);
+        Assert.Equal("fixture", document.Run.GitCommit);
+        Assert.Equal("0.0.0-fixture", document.Run.ToolVersion);
+        Assert.Equal(RunStatus.Completed, document.Run.Status);
+        Assert.Equal(RunDocumentFixtures.CommittedTaskNames, document.Run.Tasks);
+        Assert.Equal(1, document.Run.Repeat);
+        Assert.Equal(12, document.Steps.Count);
+        Assert.Equal(12, document.Judge.Count);
+        Assert.Equal(AgentCatalog.Names, document.Steps.Take(4).Select(static step => step.Agent));
+        for (int index = 0; index < document.Steps.Count; index++)
+        {
+            Assert.Equal(RunDocumentFixtures.CommittedStartUtc.AddSeconds(2 * index), document.Steps[index].StartUtc);
+            Assert.Equal(tier, document.Steps[index].Tier);
+            Assert.Contains("nemotron", document.Steps[index].ModelId, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("-baseline", document.Steps[index].ModelId, StringComparison.Ordinal);
+        }
+
+        Assert.All(document.Judge, reading =>
+        {
+            Assert.Equal(Tier.Nvidia, reading.Tier);
+            Assert.NotNull(reading.JudgedAgent);
+            Assert.Equal(MetricLabel.NotApplicable, reading.GrossJoules.Label);
+            Assert.Equal("hosted-tier", reading.GrossJoules.Reason);
+        });
+
+        // The totals are the ones the assembler computes from the steps, never hand-built numbers.
+        Totals expected = RunAssembler.ComputeTotals(tier, RunMode.Serialized, document.Steps, document.Judge, 24000.0);
+        Assert.Null(ResultsEquality.FirstDifference(expected, document.Totals));
+        Assert.Equal(tier == Tier.Nvidia, document.Run.SelfJudged);
+
+        switch (tier)
+        {
+            case Tier.Local:
+                Assert.NotNull(document.Probe);
+                Assert.NotNull(document.Baseline);
+                Assert.All(document.Steps, static step =>
+                {
+                    Assert.Equal(MetricLabel.Measured, step.GrossJoules.Label);
+                    Assert.Equal(EnergyMethod.Counter, step.Method);
+                    Assert.Equal(MetricLabel.Estimated, step.Cost.Label);
+                    Assert.Equal("EUR", step.Cost.Currency);
+                    Assert.Equal(MetricLabel.ModelJudged, step.JoulesPerQualityPoint.Label);
+                    Assert.Equal(MetricLabel.ModelJudged, step.CostPerQualityPoint.Label);
+                });
+                break;
+            case Tier.Nvidia:
+                Assert.Null(document.Probe);
+                Assert.Null(document.Baseline);
+                Assert.All(document.Steps, static step =>
+                {
+                    Assert.Equal("hosted-tier", step.GrossJoules.Reason);
+                    Assert.Equal(MetricLabel.NotApplicable, step.Cost.Label);
+                    Assert.Equal("free-tier-no-price", step.Cost.Reason);
+                });
+                StepReading failed = Assert.Single(document.Steps, static step => step.Quality.Label == MetricLabel.NotApplicable);
+                Assert.Equal("judge-failed: HttpRequestException", failed.Quality.Reason);
+                break;
+            default:
+                Assert.Null(document.Probe);
+                Assert.Null(document.Baseline);
+                Assert.All(document.Steps, static step =>
+                {
+                    Assert.Equal(MetricLabel.Estimated, step.Cost.Label);
+                    Assert.Equal("USD", step.Cost.Currency);
+                });
+                break;
+        }
+    }
+
+    [Fact]
+    public void CommittedFixtureRunFilesMatchGenerated()
+    {
+        CheckOrUpdateFixtures(
+            CommittedFixtureFolder(),
+            Environment.GetEnvironmentVariable(FixtureUpdateVariable),
+            Environment.GetEnvironmentVariable("CI"));
+    }
+
+    // The drift check of the three committed fixture run files and its update path: an update run (the variable is "1") rewrites the files with the bytes the results writer would produce and never ends green,
+    // and never writes in a CI run, like the schema drift test.
+    private static void CheckOrUpdateFixtures(string folder, string? updateValue, string? ci)
+    {
+        if (string.Equals(updateValue, "1", StringComparison.Ordinal))
+        {
+            if (!string.IsNullOrEmpty(ci))
+            {
+                throw new XunitException(FixtureUpdateRefusedInCi);
+            }
+
+            _ = Directory.CreateDirectory(folder);
+            foreach (Tier tier in CommittedTiers)
+            {
+                File.WriteAllBytes(Path.Combine(folder, RunDocumentFixtures.CommittedFileName(tier)), Encoding.ASCII.GetBytes(RunDocumentFixtures.CommittedText(tier)));
+            }
+
+            throw new XunitException(FixtureUpdateRewrote);
+        }
+
+        foreach (Tier tier in CommittedTiers)
+        {
+            string name = RunDocumentFixtures.CommittedFileName(tier);
+            string path = Path.Combine(folder, name);
+            if (!File.Exists(path))
+            {
+                throw new XunitException($"{RunDocumentFixtures.CommittedFolder}/{name} is missing. {FixtureUpdateHint}");
+            }
+
+            string committed = File.ReadAllText(path);
+            CommittedFileDrift.AssertNoDrift(committed, RunDocumentFixtures.CommittedText(tier), $"{RunDocumentFixtures.CommittedFolder}/{name}", FixtureUpdateHint);
+
+            // The trees are equal; the bytes must be too, so a change of formatting is drift as well.
+            if (!string.Equals(committed, RunDocumentFixtures.CommittedText(tier), StringComparison.Ordinal))
+            {
+                throw new XunitException($"{RunDocumentFixtures.CommittedFolder}/{name} holds the same document in other bytes (formatting or line endings). {FixtureUpdateHint}");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_fixture_update_run_never_writes_in_a_CI_run_and_never_ends_green()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string folder = Path.Combine(workspace.Root, "fixtures");
+
+        Assert.Equal(FixtureUpdateRefusedInCi, Assert.Throws<XunitException>(() => CheckOrUpdateFixtures(folder, "1", "true")).Message);
+        Assert.False(Directory.Exists(folder));
+
+        Assert.Equal(FixtureUpdateRewrote, Assert.Throws<XunitException>(() => CheckOrUpdateFixtures(folder, "1", null)).Message);
+        Assert.Equal(3, Directory.GetFiles(folder).Length);
+
+        // The plain run is green on the rewritten files and a drift failure that names the variable on a stale one.
+        CheckOrUpdateFixtures(folder, null, "true");
+        string stale = Path.Combine(folder, RunDocumentFixtures.CommittedFileName(Tier.Local));
+        File.WriteAllText(stale, "{}\n");
+        XunitException drift = Assert.Throws<XunitException>(() => CheckOrUpdateFixtures(folder, null, null));
+        Assert.Contains(FixtureUpdateVariable, drift.Message, StringComparison.Ordinal);
+
+        // The same document in other bytes (line endings) is drift too.
+        File.WriteAllText(stale, RunDocumentFixtures.CommittedText(Tier.Local).Replace("\n", "\r\n", StringComparison.Ordinal));
+        XunitException formatting = Assert.Throws<XunitException>(() => CheckOrUpdateFixtures(folder, null, null));
+        Assert.Contains("other bytes", formatting.Message, StringComparison.Ordinal);
+        Assert.Contains(FixtureUpdateVariable, formatting.Message, StringComparison.Ordinal);
+        File.Delete(stale);
+        Assert.Contains(FixtureUpdateVariable, Assert.Throws<XunitException>(() => CheckOrUpdateFixtures(folder, null, null)).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Committed_fixtures_validate_against_the_schema_and_read_through_the_model()
+    {
+        foreach (Tier tier in CommittedTiers)
+        {
+            string name = RunDocumentFixtures.CommittedFileName(tier);
+            byte[] bytes = File.ReadAllBytes(Path.Combine(CommittedFixtureFolder(), name));
+            string text = Encoding.UTF8.GetString(bytes);
+
+            Assert.True(bytes.Length > 0 && bytes.All(static value => value < 0x80), $"{name} must be ASCII.");
+            Assert.DoesNotContain((byte)'\r', bytes);
+            Assert.Equal((byte)'\n', bytes[^1]);
+            Assert.NotEqual((byte)'\n', bytes[^2]);
+            Assert.DoesNotContain("://", text, StringComparison.Ordinal);
+
+            using JsonDocument document = JsonDocument.Parse(text);
+            Assert.True(SchemaValidator.Validate(document.RootElement).Count == 0, $"{name}: {Describe(SchemaValidator.Validate(document.RootElement))}");
+            ResultsEquality.AssertEqual(RunDocumentFixtures.Committed(tier), RunDocumentFixtures.Read(text));
+            Assert.Empty(RunFileValidator.Check(name, text));
+        }
+    }
+
+    // ---- AJ-080 fix round -----------------------------------------------------------------------------------------------------------------------------------------------
+
+    private const string LocalFileName = "20260101T000000Z-local.json";
+
+    // The number is written into the text as it is (a JSON tree cannot hold 1e400): the first member of that name gets the raw value.
+    private static string WithRawNumber(string json, string member, string raw)
+    {
+        var pattern = new System.Text.RegularExpressions.Regex("(\"" + member + "\":\\s*)[^,\\r\\n]+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        Assert.Matches(pattern, json);
+        return pattern.Replace(json, "${1}" + raw, 1);
+    }
+
+    // k unknown members spread over the steps: the schema reports each at its own pointer, so the file holds exactly k failures.
+    private static string WithUnknownStepMembers(string json, int count) =>
+        RunDocumentFixtures.Edit(json, root =>
+        {
+            JsonArray steps = root["steps"]!.AsArray();
+            for (int index = 0; index < count; index++)
+            {
+                steps[index % steps.Count]!.AsObject()["unknown" + index.ToString(System.Globalization.CultureInfo.InvariantCulture)] = 1;
+            }
+        });
+
+    private static string FormatFailure(string name, SchemaFailure failure) =>
+        $"{name}: {(failure.InstanceLocation.Length == 0 ? "(root)" : failure.InstanceLocation)} {failure.Message}";
+
+    private static IReadOnlyList<SchemaFailure> SchemaFailuresOf(string text)
+    {
+        using JsonDocument document = JsonDocument.Parse(text);
+        return SchemaValidator.Validate(document.RootElement);
+    }
+
+    [DeniedFolderFact]
+    public async Task A_folder_that_cannot_be_listed_exits_2_naming_the_path_as_given()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Local);
+        string folder = Path.Combine(workspace.Root, ValidateFolder);
+
+        CliRunResult result;
+        using (FolderAccess.DenyListing(folder))
+        {
+            result = await ValidateAsync(workspace, ValidateFolder);
+        }
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.Equal($"error: the folder \"{ValidateFolder}\" could not be read (ConfigurationException)", line);
+        Assert.DoesNotContain(workspace.Root, line, StringComparison.Ordinal);
+        Assert.DoesNotContain("denied", line, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Validated", result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_file_lists_exactly_the_first_20_failures_in_order_and_21_adds_the_count_of_the_rest()
+    {
+        string baseText = RunDocumentFixtures.CommittedText(Tier.Local);
+
+        string twenty = WithUnknownStepMembers(baseText, 20);
+        IReadOnlyList<SchemaFailure> twentyFailures = SchemaFailuresOf(twenty);
+        Assert.Equal(20, twentyFailures.Count);
+        Assert.Equal([.. twentyFailures.Select(failure => FormatFailure(LocalFileName, failure))], RunFileValidator.Check(LocalFileName, twenty));
+
+        string twentyOne = WithUnknownStepMembers(baseText, 21);
+        IReadOnlyList<SchemaFailure> twentyOneFailures = SchemaFailuresOf(twentyOne);
+        Assert.Equal(21, twentyOneFailures.Count);
+        IReadOnlyList<string> lines = RunFileValidator.Check(LocalFileName, twentyOne);
+        Assert.Equal(21, lines.Count);
+        Assert.Equal([.. twentyOneFailures.Take(20).Select(failure => FormatFailure(LocalFileName, failure))], lines.Take(20));
+        Assert.Equal($"{LocalFileName}: (root) and 1 more failures", lines[20]);
+    }
+
+    [Fact]
+    public void A_schema_message_is_cut_to_160_characters()
+    {
+        string text = RunDocumentFixtures.Edit(
+            RunDocumentFixtures.CommittedText(Tier.Local),
+            static root => root["run"]!["flags"] = new JsonArray([.. Enumerable.Range(0, 50).Select(static _ => (JsonNode?)JsonValue.Create(RunFlagNames.All[0]))]));
+        SchemaFailure raw = Assert.Single(SchemaFailuresOf(text), static failure => failure.InstanceLocation == "/run/flags");
+        Assert.True(raw.Message.Length > 160, $"The raw message must be longer than the cut, but is {raw.Message.Length} characters.");
+
+        string line = Assert.Single(RunFileValidator.Check(LocalFileName, text), static candidate => candidate.StartsWith(LocalFileName + ": /run/flags ", StringComparison.Ordinal));
+
+        Assert.Equal(LocalFileName.Length + 2 + "/run/flags".Length + 1 + 163, line.Length);
+        Assert.EndsWith("...", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_lone_surrogate_escape_is_one_failure_line_and_the_scan_goes_on()
+    {
+        string escape = string.Concat(@"\", "uD800");
+        string baseText = RunDocumentFixtures.CommittedText(Tier.Local);
+        string inMemberName = "{\"" + escape + "\":1," + baseText[1..];
+        string inEnumValue = baseText.Replace("\"tier\": \"local\"", "\"tier\": \"" + string.Concat(@"\", "udc00") + "\"", StringComparison.Ordinal);
+        Assert.NotEqual(baseText, inEnumValue);
+
+        foreach (string text in new[] { inMemberName, inEnumValue })
+        {
+            IReadOnlyList<string> lines = RunFileValidator.Check(LocalFileName, text);
+            Assert.Equal([$"{LocalFileName}: (root) The document holds a string the schema checks could not read (for example a lone surrogate escape)."], lines);
+        }
+
+        // In a folder the other files are still validated and the count line is still printed.
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, LocalFileName), inMemberName);
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Nvidia);
+        _ = WriteCommitted(workspace, ValidateFolder, Tier.Nebius);
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([$"{LocalFileName}: (root) The document holds a string the schema checks could not read (for example a lone surrogate escape).", "Validated 3 files"], LinesOf(result.Stdout));
+        Assert.Equal(["error: 1 of 3 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public void A_failure_of_the_checks_themselves_is_one_could_not_be_checked_line()
+    {
+        // The guard is exercised directly: the real checks no longer throw for the inputs known to provoke an exception, so a stand-in check throws.
+        IReadOnlyList<string> lines = RunFileValidator.Guarded(LocalFileName, static () => throw new InvalidOperationException("secret detail"));
+
+        Assert.Equal([$"{LocalFileName}: (root) could not be checked (InvalidOperationException)"], lines);
+        Assert.Throws<OperationCanceledException>(() => RunFileValidator.Guarded(LocalFileName, static () => throw new OperationCanceledException()));
+        Assert.Equal(["a"], RunFileValidator.Guarded(LocalFileName, static () => ["a"]));
+    }
+
+    [Theory]
+    [InlineData("temperature")]
+    [InlineData("modelLoadSeconds")]
+    [InlineData("powerLimitW")]
+    [InlineData("sampleRateHz")]
+    public async Task A_number_that_overflows_a_double_is_a_model_failure_and_exit_2(string member)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string text = WithRawNumber(RunDocumentFixtures.CommittedText(Tier.Local), member, "1e400");
+        _ = workspace.WriteFile(Path.Combine(ValidateFolder, LocalFileName), text);
+
+        CliRunResult result = await ValidateAsync(workspace, ValidateFolder);
+
+        Assert.Equal(2, result.ExitCode);
+        string[] lines = LinesOf(result.Stdout);
+        Assert.Equal(2, lines.Length);
+        Assert.StartsWith(LocalFileName + ": (model) ", lines[0], StringComparison.Ordinal);
+        Assert.Contains(member, lines[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("1e400", lines[0], StringComparison.Ordinal);
+        Assert.Equal("Validated 1 files", lines[1]);
+        Assert.Equal(["error: 1 of 1 run files are invalid (ConfigurationException)"], LinesOf(result.Stderr));
+    }
+
+    [Theory]
+    [InlineData("repeat", "0", "/run/repeat")]
+    [InlineData("gpuOffloadPercent", "150.123", "/environment/gpuOffloadPercent")]
+    [InlineData("gpuOffloadPercent", "-1", "/environment/gpuOffloadPercent")]
+    public void A_range_the_model_enforces_is_a_schema_failure_too(string member, string raw, string location)
+    {
+        string text = WithRawNumber(RunDocumentFixtures.CommittedText(Tier.Local), member, raw);
+
+        IReadOnlyList<string> lines = RunFileValidator.Check(LocalFileName, text);
+
+        Assert.Contains(lines, line => line.StartsWith($"{LocalFileName}: {location} ", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, static line => line.Contains("(model)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_model_refuses_a_number_it_cannot_write_back_or_a_range_it_does_not_allow()
+    {
+        RunDocument document = RunDocumentFixtures.Committed(Tier.Local);
+
+        foreach (double bad in new[] { double.PositiveInfinity, double.NaN })
+        {
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { Temperature = bad });
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { ModelLoadSeconds = bad });
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { GpuOffloadPercent = bad });
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Probe! with { PowerLimitW = bad });
+            _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Probe! with { SampleRateHz = bad });
+        }
+
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { GpuOffloadPercent = 100.5 });
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { GpuOffloadPercent = -0.5 });
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Run with { Repeat = 0 });
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => document.Run with { Repeat = -3 });
+
+        // The edges and the absent value stay allowed, and the message names the member and never the value.
+        Assert.Equal(0.0, (document.Environment with { GpuOffloadPercent = 0.0 }).GpuOffloadPercent);
+        Assert.Equal(100.0, (document.Environment with { GpuOffloadPercent = 100.0 }).GpuOffloadPercent);
+        Assert.Null((document.Environment with { Temperature = null }).Temperature);
+        Assert.Equal(1, (document.Run with { Repeat = 1 }).Repeat);
+        ArgumentOutOfRangeException failure = Assert.Throws<ArgumentOutOfRangeException>(() => document.Environment with { GpuOffloadPercent = 150.123 });
+        Assert.Contains("gpuOffloadPercent", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("150", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Validate_help_names_the_config_value_path()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ValidateAsync(workspace, "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("--config <path>", result.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("--config <config>", result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unknown_option_message_ends_with_a_period()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ValidateAsync(workspace, "--bogus");
+
+        Assert.Equal(["error: Unrecognized command or argument '--bogus'. (ParseError)"], LinesOf(result.Stderr));
+    }
+
+    [Fact]
+    public void Committed_fixtures_hold_what_production_writes_for_an_ok_step()
+    {
+        foreach (Tier tier in CommittedTiers)
+        {
+            RunDocument document = RunDocumentFixtures.Committed(tier);
+            foreach (StepReading step in document.Steps)
+            {
+                Assert.NotNull(step.OutputSha256);
+                Assert.NotNull(step.OutputChars);
+            }
+
+            for (int index = 0; index < document.Judge.Count; index++)
+            {
+                StepReading judge = document.Judge[index];
+                StepReading step = document.Steps[index];
+                DateTimeOffset blockEnd = RunDocumentFixtures.CommittedStartUtc.AddSeconds(8 * ((index / 4) + 1));
+
+                // The judge reading follows its step and ends inside the repeat: the wall time of a repeat is the sum of its steps and holds the judging.
+                Assert.True(judge.StartUtc >= step.EndUtc, $"judge[{index}] starts before its step ends.");
+                Assert.True(judge.EndUtc <= blockEnd, $"judge[{index}] ends after its repeat's wall time.");
+                if (judge.Outcome == StepOutcomes.Ok)
+                {
+                    Assert.Equal(1, judge.OutputChars);
+                    Assert.NotNull(judge.OutputSha256);
+                }
+            }
+        }
+    }
+
+    // ---- AJ-080 last items: the guards that had no test ---------------------------------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckFileAsync_does_not_turn_a_cancellation_into_a_failure_line()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string path = WriteCommitted(workspace, ValidateFolder, Tier.Local);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        // The token is cancelled before the read starts and CheckFileAsync has no check of its own, so the cancellation reaches the read of the file.
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RunFileValidator.CheckFileAsync(path, cancelled.Token));
+    }
+
+    [WindowsFact]
+    public async Task A_folder_that_is_a_dangling_directory_link_exits_2_naming_the_path_as_given()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string target = Path.Combine(workspace.Root, "target");
+        _ = Directory.CreateDirectory(target);
+        _ = workspace.WriteFile(Path.Combine("target", RunDocumentFixtures.CommittedFileName(Tier.Local)), RunDocumentFixtures.CommittedText(Tier.Local));
+
+        CliRunResult result;
+        using (FolderAccess.CreateDirectoryLink(Path.Combine(workspace.Root, "dangling"), target))
+        {
+            // The link stays, its target goes: listing the link fails with an IOException, not an UnauthorizedAccessException.
+            Directory.Delete(target, recursive: true);
+
+            result = await ValidateAsync(workspace, "dangling");
+        }
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string line = Assert.Single(LinesOf(result.Stderr));
+        Assert.Equal("error: the folder \"dangling\" could not be read (ConfigurationException)", line);
+        Assert.DoesNotContain(workspace.Root, line, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("repeat", "0")]
+    [InlineData("repeat", "-7")]
+    [InlineData("gpuOffloadPercent", "150.123")]
+    public void The_model_refuses_a_range_when_a_document_is_read(string member, string raw)
+    {
+        string text = WithRawNumber(RunDocumentFixtures.CommittedText(Tier.Local), member, raw);
+
+        ArgumentOutOfRangeException failure = Assert.Throws<ArgumentOutOfRangeException>(() => RunDocumentFixtures.Read(text));
+
+        AssertNamesTheMemberNotTheValue(failure, member == "repeat" ? "run.repeat" : "environment.gpuOffloadPercent", raw);
+    }
+
+    [Fact]
+    public void The_model_refuses_a_range_when_it_is_constructed()
+    {
+        RunInfo run = RunDocumentFixtures.Committed(Tier.Local).Run;
+        ArgumentOutOfRangeException repeat = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RunInfo(run.Id, run.Tier, run.Tasks, run.Mode, Repeat: -7, run.StartUtc, run.ToolVersion, run.GitCommit, run.Status));
+        AssertNamesTheMemberNotTheValue(repeat, "run.repeat", "-7");
+        _ = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new RunInfo(run.Id, run.Tier, run.Tasks, run.Mode, Repeat: 0, run.StartUtc, run.ToolVersion, run.GitCommit, run.Status));
+
+        EnvironmentInfo e = RunDocumentFixtures.Committed(Tier.Local).Environment;
+        ArgumentOutOfRangeException percent = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new EnvironmentInfo(
+                e.GpuName, e.DriverVersion, e.Os, e.DotnetVersion, e.LocalRuntime, e.RuntimeVersion, 150.123, e.ModelLoadSeconds, e.PowerSource, e.ReasoningMode, e.Temperature, e.Provider, e.InstancePreset, e.Region,
+                e.GpuUuid, e.ContainerImage, e.ContainerDigest, e.Precision, e.CloudCostUsd, e.EnergyScope, e.Assumptions, e.Models, e.CloudCostObservedUtc));
+        AssertNamesTheMemberNotTheValue(percent, "environment.gpuOffloadPercent", "150.123");
+    }
+
+    private static void AssertNamesTheMemberNotTheValue(ArgumentOutOfRangeException failure, string member, string raw)
+    {
+        Assert.Contains(member, failure.Message, StringComparison.Ordinal);
+
+        // A value of 0 would match the digits of a range ("from 0 to 100"), so only the other values are checked for an echo.
+        if (raw != "0")
+        {
+            Assert.DoesNotContain(raw, failure.Message, StringComparison.Ordinal);
+        }
     }
 
     private sealed class Opaque;

@@ -679,14 +679,15 @@ Note (2026-10-23, AJ-079 gates, security L-4): criterion 3's "rewrites the file 
 
 ### AJ-080: Validate run files with `AJ validate`
 Covers: REQ-015
+Note (2026-10-22, AJ-080): feature file `tests/AgentJoules.Specs/Features/Cli/AJ-080-validate-command.feature` (the table's `Validate.feature`, the story block verbatim, cmp exit 0). Pinned readings P-16 to P-21 applied: selection by the run-file name test with probe and calibration files ignored; `RunFileValidator.Check` runs the schema first and reads the model only when the schema passes, one stdout line per failure and the first 20 per file; `results/` is the default path, a folder without run files counts 0, and a missing path or a named non-run file exits 2; `--config` has zero-or-one arity and exits 2 until M4; the three committed fixtures come from `RunDocumentFixtures.Committed`, pulled forward from AJ-086-T2. P-22 (criterion 7) is carried: not run on the real `results/`, which holds only a probe file. Measured (builder, 01:46Z to 02:02Z): the DoD command prints `Validated 3 files` and exits 0; the red run failed 28 of 283 unit tests and 4 of 5 scenarios, and the green run passes 283 of 283 and 5 of 5, exit 0 each; battery 1 (orchestrator, 02:02:25Z to 02:04:12Z) passed the full suite (3885 passed, 0 failed, 2 skipped) and `Spec=REQ-015` (283 passed), exit 0. Deviation D1: an unknown option is rejected by an argument validator, so a path that starts with `-` must be written `./-x` (`--` does not escape the dash; the parse message ends with a period). Deviation D4, delivered in the fix round: an unreadable folder exits 2 with `the folder "<path as given>" could not be read`, naming the path only. Fix-round guards: a lone-surrogate escape is one root failure line, and any other failure of the checks is one `<file>: (root) could not be checked (<exception type>)` line, so one file never aborts a scan (the guard is provable only with a stand-in, since no real input reaches it). Model ranges: non-finite doubles in `environment` and `probe` are model failures, and `environment.gpuOffloadPercent` outside 0 to 100 or `run.repeat` below 1 is rejected by the model and by the schema.
 User story: As a reviewer, I want `AJ validate <path|dir>` to check run files against the schema and print how many were validated, so that I can trust every committed result file mechanically.
 Acceptance criteria:
 1. `AJ validate <dir>` over three valid fixture run files prints `Validated 3 files` and exits 0 (test `Validate_counts_files`).
-2. A corrupted file (an N/A metric with a number) gives one line `<file>: <instanceLocation> <error>` and exit 2.
+2. A corrupted file (an N/A metric with a number) gives one stdout line `<file>: <instanceLocation> <error>` per failure, the error text being the schema's (for example `Required properties ["reason"] are not present`), then `Validated <n> files`, one stderr error line and exit 2; at most the first 20 failures of a file are listed, then `<file>: (root) and <N> more failures`.
 3. Only files matching `^\d{8}T\d{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$` are counted; `probe-*.json` and `calibration-*.json` are ignored by the count.
-4. A path that does not exist or a file that is not JSON exits 2 naming the file; with no argument the default is `results/`.
+4. A path that does not exist or a file that is not JSON exits 2 naming the file; with no argument the default is `results/`; a named file whose name is not a run-file name exits 2; a folder without run files prints `Validated 0 files` and exits 0; a folder that cannot be listed exits 2 with `the folder "<path as given>" could not be read` (added 2026-10-23, AJ-080 gates).
 5. The embedded schema is used, so the command works on a machine without `docs/`.
-6. `validate --config` is registered with zero-or-one arity here and implemented in M4.
+6. `validate --config` is registered with zero-or-one arity; in M3 it exits 2 stating that the check arrives in M4; M4 implements it.
 7. Carried forward: on the real committed results, `AJ validate results/` prints a number equal to the number of committed run files.
 BDD scenarios:
 ```gherkin
@@ -722,17 +723,18 @@ Feature: AJ-080 Validate run files with AJ validate
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-080-T1 | Write the failing BDD feature and unit tests for `validate` | tests/AgentJoules.Specs/Features/Cli/Validate.feature, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-079-T1, AJ-058-T1 |
+| AJ-080-T1 | Write the failing BDD feature and unit tests for `validate` | tests/AgentJoules.Specs/Features/Cli/AJ-080-validate-command.feature, tests/AgentJoules.Specs/Steps/ValidateCommandSteps.cs, tests/AgentJoules.Specs/Support/ValidateCommandContext.cs, tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.5 | AJ-079-T1, AJ-058-T1 |
 | AJ-080-T2 | Implement `ValidateCommand` with the path argument and the `--config` option shape | src/AgentJoules.Cli/Commands/ValidateCommand.cs | 1.0 | AJ-080-T1, AJ-079-T4 |
-| AJ-080-T3 | Implement file selection by name regex and the failure line formatter | src/AgentJoules.Reporting/Results/RunFileName.cs, src/AgentJoules.Reporting/Schema/SchemaValidator.cs | 0.75 | AJ-080-T2 |
-| AJ-080-T4 | Map validation failures to exit 2 | src/AgentJoules.Cli/ExitCodeMapper.cs | 0.25 | AJ-080-T3 |
+| AJ-080-T3 | Implement file selection by name regex and the failure line formatter | src/AgentJoules.Reporting/Results/RunFileValidator.cs | 0.75 | AJ-080-T2 |
+| AJ-080-T4 | Pin exit 2 for a failed validation by test | tests/AgentJoules.UnitTests/SchemaValidationTests.cs | 0.25 | AJ-080-T3 |
 | AJ-080-T5 | Document `validate` usage | README.md | 0.25 | AJ-080-T4 |
-Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`); feature file `tests/AgentJoules.Specs/Features/Cli/Validate.feature`.
+| AJ-080-T6 | Generate and commit the three fixture run files | the three paths | 0.75 | AJ-080-T3 |
+Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`; the validate tests are `Validate_counts_files`, `Corrupted_file_prints_its_location_then_the_count`, `Missing_path_exits_2_naming_it`, `Non_json_run_file_exits_2_naming_it`, `Default_path_is_results`, `Validates_without_config_or_docs`, `Empty_folder_validates_0_files`, `Named_non_run_file_exits_2`, `Config_flag_parses_with_zero_or_one_value`, `Unknown_option_exits_2_through_the_parse_check`, `Committed_fixture_folder_validates_3_files` and `CommittedFixtureRunFilesMatchGenerated`); feature file `tests/AgentJoules.Specs/Features/Cli/AJ-080-validate-command.feature`.
 Docs impact: README section "Validate" (usage, exit codes 0 and 2).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet run --project src/AgentJoules.Cli -- validate tests/AgentJoules.TestSupport/Fixtures/results` prints `Validated 3 files`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `dotnet run --project src/AgentJoules.Cli -- validate tests/AgentJoules.TestSupport/Fixtures/results` prints `Validated 3 files`
 Demo relevance: yes: step 6 of the demo is `AJ validate results/`.
 Conflict: C-04 (design 9.2) - invalid arguments must exit 2 while System.CommandLine returns 1; resolution: the shared `ParseResult.Errors` check from AJ-054 applies to `validate`.
 Conflict: C-05 (design 9.2) - `--config` has two meanings; resolution: on `validate` the option has arity zero-or-one (flag form checks the model IDs in the configuration, implemented in M4); on other commands it is a path option.
@@ -1101,7 +1103,7 @@ Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
 | AJ-086-T1 | Write the failing BDD feature and unit tests for the report command | tests/AgentJoules.Specs/Features/Cli/ReportCommand.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-085-T1, AJ-084-T1 |
-| AJ-086-T2 | Generate and commit the three fixture run files | tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-local.json, tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json, tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nebius.json | 0.75 | AJ-086-T1, AJ-079-T4 |
+| AJ-086-T2 | Confirm the three fixture run files committed in AJ-080 render | tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-local.json, tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json, tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nebius.json | 0.25 | AJ-086-T1, AJ-079-T4 |
 | AJ-086-T3 | Implement `ReportCommand` options and defaults | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-086-T1 |
 | AJ-086-T4 | Wire selector, validator, aggregator and the three renderers | src/AgentJoules.Cli/Commands/ReportCommand.cs, src/AgentJoules.Reporting/Render/ReportAggregator.cs | 1.25 | AJ-086-T3, AJ-081-T3 |
 | AJ-086-T5 | Document `report` usage and its outputs | README.md | 0.25 | AJ-086-T4 |

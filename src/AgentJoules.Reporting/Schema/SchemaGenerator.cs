@@ -166,6 +166,9 @@ public static class SchemaGenerator
                 case "gitCommit":
                     member["minLength"] = 1;
                     break;
+                case "repeat":
+                    member["minimum"] = 1;
+                    break;
                 case "flags":
                     // The run flags may be null on read (the file always holds an array); an element is one of the vocabulary and none repeats.
                     member["items"] = new JsonObject { ["type"] = "string", ["enum"] = Strings(RunFlagNames.All) };
@@ -178,6 +181,12 @@ public static class SchemaGenerator
         else if (declaring == typeof(EnvironmentInfo) && name == "energyScope")
         {
             member["const"] = EnvironmentInfo.GpuBoardOnly;
+        }
+        else if (declaring == typeof(EnvironmentInfo) && name == "gpuOffloadPercent")
+        {
+            // A share; the model also requires it to be finite, which JSON Schema cannot state.
+            member["minimum"] = 0;
+            member["maximum"] = 100;
         }
         else if (declaring == typeof(StepReading))
         {

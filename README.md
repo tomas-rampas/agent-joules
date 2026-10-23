@@ -48,7 +48,7 @@ Filled during the build from docs/nim-local-attempt.md, whichever way the time-b
 
 ## CLI reference
 
-Filled during the build (M6): the commands `report`, `validate` and `calibrate` with their options and the exit-code table; `probe` and `run` are documented below.
+Filled during the build (M6): the commands `report` and `calibrate` with their options and the exit-code table; `probe`, `run` and `validate` are documented below.
 
 ### probe
 
@@ -83,6 +83,24 @@ nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-
 ```
 
 A wrong option value exits 2 before anything runs and prints one stderr line `error: <message> (ParseError)` (several parse errors are joined with `; ` into that one line); the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
+
+### validate
+
+`validate` checks run files against the results schema and then against the results model. It needs no configuration, key or GPU, and builds no host. Usage: `AJ validate [path]`.
+
+- `[path]`: a run file or a folder; with no path the default is `results/` under the working directory. A folder is scanned at its top level only, and only names of the form `<yyyyMMddTHHmmssZ>-<tier>[-baseline].json` are checked; `probe-*.json` and `calibration-*.json` are not counted. A path that does not exist, a named file whose name is not a run-file name, and a folder that cannot be read exit 2 and name the path as given.
+- Checks, in order, for each file: the text is read as strict UTF-8 (at most 16 MiB), parsed as JSON, checked against the embedded schema (`docs/results-schema.json`), and then read through the results model. The model reads only a file the schema accepts.
+- Output: one stdout line per failure, `<file>: <location> <message>`, where the location is a JSON pointer for a schema failure, `(root)` for the whole document, and a serializer path such as `$.run.startUtc` or `(model)` for a failure of the model read; the line holds the file name only. At most the first 20 failures of a file are listed, then `<file>: (root) and <N> more failures`. The last stdout line is always `Validated <N> files`, where N counts the run files checked, valid or not. When any file is invalid, one stderr line `error: <k> of <n> run files are invalid (ConfigurationException)` follows.
+- Exit codes: 0 when every checked file is valid; 2 when a file is invalid, a path is missing or unreadable, a named file is not a run file, or `--config` is given; 5 when the host shuts down during a scan.
+- `--config [<path>]`: accepted with or without a value, and in M3 it exits 2 with a message that the model-ID check arrives in M4. Nothing is checked.
+- An unknown option is a parse error (exit 2, `error: <message> (ParseError)`). A path that starts with `-` must be written `./-x`; `--` does not escape it.
+
+Example, the three committed fixture run files:
+
+```text
+dotnet run --project src/AgentJoules.Cli -- validate tests/AgentJoules.TestSupport/Fixtures/results
+Validated 3 files
+```
 
 ## Keys
 

@@ -23,6 +23,9 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
     /// <summary>The redacting standard-error writer.</summary>
     internal TextWriter Error { get; } = error;
 
+    /// <summary>The directory relative paths resolve against: the working directory of the test overrides, or the current directory.</summary>
+    internal string WorkingDirectory { get; } = overrides?.WorkingDirectory ?? Directory.GetCurrentDirectory();
+
     /// <summary>
     /// Runs <paramref name="action"/> in a started host and returns its exit code, or the code of the failure it threw. An
     /// <see cref="OperationCanceledException"/> while the linked token is cancelled (the caller's token, which System.CommandLine cancels on

@@ -36,7 +36,8 @@
           ]
         },
         "repeat": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 1
         },
         "startUtc": {
           "type": "string",
@@ -140,7 +141,9 @@
           "type": [
             "number",
             "null"
-          ]
+          ],
+          "minimum": 0,
+          "maximum": 100
         },
         "modelLoadSeconds": {
           "type": [

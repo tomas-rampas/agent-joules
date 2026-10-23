@@ -3,12 +3,16 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
+using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Json;
+using AgentJoules.Reporting.Results;
+using AgentJoules.Workflow.Agents;
+using AgentJoules.Workflow.Runs;
 
 namespace AgentJoules.TestSupport;
 
@@ -222,6 +226,189 @@ public static class RunDocumentFixtures
     /// <returns>The document.</returns>
     public static RunDocument Read(string text) =>
         JsonSerializer.Deserialize(text, AgentJoulesJsonContext.Default.RunDocument) ?? throw new JsonException("The results text holds null.");
+
+    /// <summary>The start of the first step of every committed fixture run file; the timestamp their file names carry.</summary>
+    public static readonly DateTimeOffset CommittedStartUtc = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>The task names of the committed fixture run files: the three tasks of the repository.</summary>
+    public static readonly IReadOnlyList<string> CommittedTaskNames = ["incident-brief", "api-migration", "energy-explainer"];
+
+    /// <summary>The repository-relative folder of the committed fixture run files.</summary>
+    public const string CommittedFolder = "tests/AgentJoules.TestSupport/Fixtures/results";
+
+    /// <summary>The model of the judge in the committed fixtures: <c>Judge:ModelId</c> of the shipped configuration.</summary>
+    public const string CommittedJudgeModel = "nvidia/nemotron-nano-3-30b-a3b";
+
+    private const int CommittedStepCount = 12;
+    private const int CommittedFailedJudgeIndex = 5;
+    private const double CommittedWallClockMs = 24000.0;
+
+    /// <summary>The file name of the committed fixture run file of a tier, for example <c>20260101T000000Z-local.json</c>.</summary>
+    /// <param name="tier">The local, nvidia or nebius tier.</param>
+    /// <returns>The file name.</returns>
+    public static string CommittedFileName(Tier tier) => RunFileName.Create(CommittedStartUtc, tier, [CommittedModelId(tier)]);
+
+    /// <summary>
+    /// The bytes of a committed fixture run file in the form the results writer produces: the serialised document and one line feed, ASCII.
+    /// </summary>
+    /// <param name="tier">The local, nvidia or nebius tier.</param>
+    /// <returns>The text of the file.</returns>
+    public static string CommittedText(Tier tier) => Serialise(Committed(tier)) + "\n";
+
+    /// <summary>
+    /// The document behind a committed fixture run file (AJ-080, REQ-015): a completed run of the three committed tasks and the four agents with one repeat, so twelve steps two seconds apart from
+    /// 2026-01-01T00:00:00Z, and twelve judge readings on the nvidia tier. The local document holds a probe, a baseline, measured counter energy and estimated EUR costs; the nvidia document holds N/A
+    /// energy (<c>hosted-tier</c>), N/A costs (<c>free-tier-no-price</c>) and one quality that is N/A <c>judge-failed: HttpRequestException</c>; the nebius document holds estimated USD costs. The totals
+    /// and the derived metrics come from <see cref="RunAssembler"/>, so the document is what the tool would write; nothing in it names an endpoint, a host or a key.
+    /// </summary>
+    /// <param name="tier">The local, nvidia or nebius tier.</param>
+    /// <returns>The document.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not local, nvidia or nebius.</exception>
+    public static RunDocument Committed(Tier tier)
+    {
+        string modelId = CommittedModelId(tier);
+        string tierName = TierOptions.NameOf(tier);
+        var steps = new List<StepReading>();
+        foreach (string task in CommittedTaskNames)
+        {
+            foreach (string agent in AgentCatalog.Names)
+            {
+                steps.Add(CommittedStep(tier, task, agent, modelId, steps.Count));
+            }
+        }
+
+        StepReading[] judge = [.. steps.Select((step, index) => CommittedJudgeReading(tier, step, index))];
+        var run = new RunInfo($"fixture-20260101T000000Z-{tierName}", tier, [.. CommittedTaskNames], RunMode.Serialized, Repeat: 1, CommittedStartUtc, "0.0.0-fixture", "fixture", RunStatus.Completed, SelfJudged: tier == Tier.Nvidia);
+        bool local = tier == Tier.Local;
+
+        return RunAssembler.Assemble(
+            run,
+            CommittedEnvironment(tier, modelId),
+            probe: local ? new ProbeResult(true, "Fixture GPU", "GPU-00000000-0000-0000-0000-000000000000", "555.00", "8.9", "95.00.00.00.01", 300.0, "disabled", true, "counter", 10.0) : null,
+            baseline: local ? new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(1.5, "W"), seconds: 30.0, sampleCount: 300, coefficientOfVariation: 0.05, maxCoefficientOfVariation: 0.1, ReadingFlags.None) : null,
+            steps,
+            judge,
+            CommittedWallClockMs);
+    }
+
+    private static string CommittedModelId(Tier tier) => tier switch
+    {
+        Tier.Local => "nemotron-3-nano:30b",
+        Tier.Nvidia => CommittedJudgeModel,
+        Tier.Nebius => "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+        _ => throw new ArgumentOutOfRangeException(nameof(tier), (int)tier, "The committed fixtures cover the local, nvidia and nebius tiers."),
+    };
+
+    private static EnvironmentInfo CommittedEnvironment(Tier tier, string modelId)
+    {
+        bool local = tier == Tier.Local;
+
+        return new EnvironmentInfo(
+            GpuName: local ? "Fixture GPU" : null,
+            DriverVersion: local ? "555.00" : null,
+            Os: "fixture-os",
+            DotnetVersion: "10.0.0",
+            LocalRuntime: local ? "ollama" : null,
+            RuntimeVersion: local ? "0.0.0" : null,
+            GpuOffloadPercent: local ? 100.0 : null,
+            ModelLoadSeconds: local ? 4.5 : null,
+            PowerSource: null,
+            ReasoningMode: "off",
+            Temperature: 0.0,
+            Provider: RunAssembler.ProviderOf(tier),
+            InstancePreset: null,
+            Region: null,
+            GpuUuid: local ? "GPU-00000000-0000-0000-0000-000000000000" : null,
+            ContainerImage: null,
+            ContainerDigest: null,
+            Precision: local ? "Q4_K_M" : null,
+            CloudCostUsd: Metric.NotApplicable("not-cloudgpu"),
+            EnvironmentInfo.GpuBoardOnly,
+            new EnvironmentAssumptions(Metric.Estimated(0.3, "EUR"), Metric.NotApplicable("not-configured")),
+            [.. AgentCatalog.Names.Select(agent => new EnvironmentModel(agent, modelId, Baseline: false))],
+            CloudCostObservedUtc: null);
+    }
+
+    private static StepReading CommittedStep(Tier tier, string task, string agent, string modelId, int index)
+    {
+        bool local = tier == Tier.Local;
+        DateTimeOffset start = CommittedStartUtc.AddSeconds(2 * index);
+        double gross = 100.0 + index;
+        double net = gross - 30.0;
+        bool judgeFailed = tier == Tier.Nvidia && index == CommittedFailedJudgeIndex;
+
+        // An ok step has output: production sets the length and the hash of it, and the judge never scores a step without output.
+        string output = $"Fixture output of {agent} for {task}.";
+        Metric cost = tier switch
+        {
+            Tier.Local => Metric.Estimated(Math.Round(net * 0.3 / 3_600_000.0, 9), "EUR"),
+            Tier.Nebius => Metric.Estimated(Math.Round(0.00004 + (index * 0.000001), 9), "USD"),
+            _ => Metric.NotApplicable("free-tier-no-price"),
+        };
+
+        return new StepReading(
+            task: task,
+            repeat: 1,
+            agent: agent,
+            modelId: modelId,
+            tier: tier,
+            startUtc: start,
+            endUtc: start.AddSeconds(1),
+            outcome: StepOutcomes.Ok,
+            latencyMs: Metric.Measured(1000.0, "ms"),
+            ttftMs: Metric.Measured(250.0, "ms"),
+            inputTokens: Metric.Measured(120.0 + (3 * index), "tokens"),
+            outputTokens: Metric.Measured(80.0 + index, "tokens"),
+            grossJoules: local ? Metric.Measured(gross, "J") : Metric.NotApplicable("hosted-tier"),
+            netJoules: local ? Metric.Measured(net, "J") : Metric.NotApplicable("hosted-tier"),
+            avgW: local ? Metric.Measured(gross, "W") : Metric.NotApplicable("hosted-tier"),
+            peakW: local ? Metric.Measured(gross + 20.0, "W") : Metric.NotApplicable("hosted-tier"),
+            cost: cost,
+            retries: 0,
+            waitMs: 0,
+            flags: ReadingFlags.None,
+            method: local ? EnergyMethod.Counter : null,
+            quality: judgeFailed ? Metric.NotApplicable("judge-failed: HttpRequestException") : Metric.ModelJudged(3.0 + (index % 3)),
+            qualityReason: judgeFailed ? "not-scored" : null,
+            outputSha256: Sha256Hex(output),
+            outputChars: output.Length);
+    }
+
+    private static StepReading CommittedJudgeReading(Tier tier, StepReading judged, int index)
+    {
+        bool failed = tier == Tier.Nvidia && index == CommittedFailedJudgeIndex;
+
+        // The judge reads its step in the second after the step ended, inside the wall time of the repeat (the steps are one second long and start two seconds apart).
+        DateTimeOffset start = CommittedStartUtc.AddSeconds((2 * index) + 1);
+
+        // What the judge returns is the score digit; a failed call returns nothing.
+        string? reply = failed ? null : ((int)(judged.Quality.Value ?? 0.0)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        return new StepReading(
+            task: judged.Task,
+            repeat: judged.Repeat,
+            agent: "Judge",
+            modelId: CommittedJudgeModel,
+            tier: Tier.Nvidia,
+            startUtc: start,
+            endUtc: start.AddSeconds(1),
+            outcome: failed ? StepOutcomes.Error : StepOutcomes.Ok,
+            latencyMs: Metric.Measured(1000.0, "ms"),
+            ttftMs: Metric.NotApplicable("buffered-call"),
+            inputTokens: failed ? Metric.NotReported("provider-omitted-usage") : Metric.Measured(200.0 + index, "tokens"),
+            outputTokens: failed ? Metric.NotReported("provider-omitted-usage") : Metric.Measured(2.0, "tokens"),
+            grossJoules: Metric.NotApplicable("hosted-tier"),
+            netJoules: Metric.NotApplicable("hosted-tier"),
+            avgW: Metric.NotApplicable("hosted-tier"),
+            peakW: Metric.NotApplicable("hosted-tier"),
+            cost: Metric.NotApplicable("free-tier-no-price"),
+            retries: 0,
+            waitMs: 0,
+            flags: ReadingFlags.None,
+            outputSha256: reply is null ? null : Sha256Hex(reply),
+            outputChars: reply?.Length,
+            judgedAgent: judged.Agent);
+    }
 
     /// <summary>Edits the tree of a serialised document and writes it again.</summary>
     /// <param name="json">The serialised document.</param>

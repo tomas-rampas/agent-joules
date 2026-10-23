@@ -30,7 +30,7 @@ public sealed record RunInfo(
     [property: JsonPropertyOrder(2), JsonConverter(typeof(TierJsonConverter))] Tier Tier,
     IReadOnlyList<string> Tasks,
     [property: JsonPropertyOrder(4), JsonConverter(typeof(RunModeJsonConverter))] RunMode Mode,
-    [property: JsonPropertyOrder(5)] int Repeat,
+    int Repeat,
     [property: JsonPropertyOrder(6)] DateTimeOffset StartUtc,
     string ToolVersion,
     string GitCommit,
@@ -45,6 +45,16 @@ public sealed record RunInfo(
     private const string FlagsParameter = "Flags";
     private const string TasksParameter = "Tasks";
     private const string ToolVersionParameter = "ToolVersion";
+    private const string RepeatMember = "run.repeat";
+
+    /// <summary>The repeats of every task; at least 1, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is below 1 (the message names <c>run.repeat</c>, never the value).</exception>
+    [JsonPropertyOrder(5)]
+    public int Repeat
+    {
+        get;
+        init => field = ModelNumbers.AtLeast(RepeatMember, value, 1);
+    } = ModelNumbers.AtLeast(RepeatMember, Repeat, 1);
     private const string GitCommitParameter = "GitCommit";
 
     /// <summary>

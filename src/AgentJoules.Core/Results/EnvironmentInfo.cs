@@ -35,46 +35,76 @@ namespace AgentJoules.Core.Results;
 /// <param name="CloudCostObservedUtc">When the cloud cost was read from the billing page, or null.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record EnvironmentInfo(
-    string? GpuName,
-    string? DriverVersion,
-    string Os,
-    string DotnetVersion,
-    string? LocalRuntime,
-    string? RuntimeVersion,
+    [property: JsonPropertyOrder(1)] string? GpuName,
+    [property: JsonPropertyOrder(2)] string? DriverVersion,
+    [property: JsonPropertyOrder(3)] string Os,
+    [property: JsonPropertyOrder(4)] string DotnetVersion,
+    [property: JsonPropertyOrder(5)] string? LocalRuntime,
+    [property: JsonPropertyOrder(6)] string? RuntimeVersion,
     double? GpuOffloadPercent,
     double? ModelLoadSeconds,
-    string? PowerSource,
-    string? ReasoningMode,
+    [property: JsonPropertyOrder(9)] string? PowerSource,
+    [property: JsonPropertyOrder(10)] string? ReasoningMode,
     double? Temperature,
-    string? Provider,
-    string? InstancePreset,
-    string? Region,
-    string? GpuUuid,
-    string? ContainerImage,
-    string? ContainerDigest,
-    string? Precision,
-    Metric CloudCostUsd,
-    string EnergyScope,
-    EnvironmentAssumptions Assumptions,
+    [property: JsonPropertyOrder(12)] string? Provider,
+    [property: JsonPropertyOrder(13)] string? InstancePreset,
+    [property: JsonPropertyOrder(14)] string? Region,
+    [property: JsonPropertyOrder(15)] string? GpuUuid,
+    [property: JsonPropertyOrder(16)] string? ContainerImage,
+    [property: JsonPropertyOrder(17)] string? ContainerDigest,
+    [property: JsonPropertyOrder(18)] string? Precision,
+    [property: JsonPropertyOrder(19)] Metric CloudCostUsd,
+    [property: JsonPropertyOrder(20)] string EnergyScope,
+    [property: JsonPropertyOrder(21)] EnvironmentAssumptions Assumptions,
     IReadOnlyList<EnvironmentModel> Models,
-    [property: JsonPropertyOrder(2)] DateTimeOffset? CloudCostObservedUtc = null)
+    [property: JsonPropertyOrder(23)] DateTimeOffset? CloudCostObservedUtc = null)
 {
     /// <summary>The only value of <see cref="EnergyScope"/>: the energy figures cover the GPU board and nothing else.</summary>
     public const string GpuBoardOnly = "GPU-board only";
 
     private const string ModelsParameter = "Models";
+    private const string GpuOffloadPercentMember = "environment.gpuOffloadPercent";
+    private const string ModelLoadSecondsMember = "environment.modelLoadSeconds";
+    private const string TemperatureMember = "environment.temperature";
 
     /// <summary>
     /// The model each agent used. No element is null; the list is a read-only copy, checked on construction, on <c>with</c> and on read. The order attribute keeps the skeleton order (models, then
     /// cloudCostObservedUtc) although this member is declared in the body.
     /// </summary>
     /// <exception cref="ArgumentNullException">The list or an element is null (the message names <c>environment.models[i]</c>, the index only).</exception>
-    [JsonPropertyOrder(1)]
+    [JsonPropertyOrder(22)]
     public IReadOnlyList<EnvironmentModel> Models
     {
         get;
         init => field = CheckedModels(value);
     } = CheckedModels(Models);
+
+    /// <summary>The share of the model offloaded to the GPU, or null; a finite number from 0 to 100, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a finite number from 0 to 100 (the message names <c>environment.gpuOffloadPercent</c>, never the value).</exception>
+    [JsonPropertyOrder(7)]
+    public double? GpuOffloadPercent
+    {
+        get;
+        init => field = ModelNumbers.InRangeOrNull(GpuOffloadPercentMember, value, 0.0, 100.0);
+    } = ModelNumbers.InRangeOrNull(GpuOffloadPercentMember, GpuOffloadPercent, 0.0, 100.0);
+
+    /// <summary>The seconds the unmetered warm-up took to load the model, or null; a finite number, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is infinite or not a number (the message names <c>environment.modelLoadSeconds</c>, never the value).</exception>
+    [JsonPropertyOrder(8)]
+    public double? ModelLoadSeconds
+    {
+        get;
+        init => field = ModelNumbers.FiniteOrNull(ModelLoadSecondsMember, value);
+    } = ModelNumbers.FiniteOrNull(ModelLoadSecondsMember, ModelLoadSeconds);
+
+    /// <summary>The sampling temperature, or null; a finite number, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is infinite or not a number (the message names <c>environment.temperature</c>, never the value).</exception>
+    [JsonPropertyOrder(11)]
+    public double? Temperature
+    {
+        get;
+        init => field = ModelNumbers.FiniteOrNull(TemperatureMember, value);
+    } = ModelNumbers.FiniteOrNull(TemperatureMember, Temperature);
 
     private static ReadOnlyCollection<EnvironmentModel> CheckedModels(IReadOnlyList<EnvironmentModel>? models)
     {
