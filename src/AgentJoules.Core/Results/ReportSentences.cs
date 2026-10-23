@@ -31,4 +31,25 @@ public static class ReportSentences
     /// compares the tiers.
     /// </summary>
     public const string ModelsDifferPrefix = "Models differ across tiers: ";
+
+    /// <summary>
+    /// The disclosure that a tier measured its energy by sampling because the GPU has no energy counter (REQ-016, EDGE-002, AJ-083): the Markdown summary prints it under the bullet of every tier whose <c>ok</c> steps carry
+    /// the <c>sampling-fallback</c> flag. A tier that was forced to sampling shows <c>energy method sampling</c> without it.
+    /// </summary>
+    public const string SamplingFallback = "Energy method: sampling (counter unsupported)";
+
+    /// <summary>The text of a tier without a selectable run file (REQ-016, AJ-083): the summary row reads <c>&lt;tier&gt; | not run</c> and the header bullet <c>&lt;tier&gt;: not run</c>.</summary>
+    public const string NotRun = "not run";
+
+    /// <summary>
+    /// The text of a run file that holds no row (REQ-016, AJ-083): a <c>partial</c> file that stopped before its first step finished still has its header bullet, so the table says in a row of its own that the
+    /// file has nothing to show, instead of omitting the tier. The SVG and HTML renderers reuse it.
+    /// </summary>
+    public const string NoCompletedSteps = "no completed steps";
+
+    /// <summary>
+    /// The disclosure that the cost total of a concurrent run counts overlapping step windows once per step (REQ-013, REQ-016, AJ-087): the cost is summed over steps, not over the union of their windows. The README
+    /// results block of AJ-087 prints it next to <see cref="ConcurrentOverlap"/>; it is defined here with the other report sentences.
+    /// </summary>
+    public const string ConcurrentCostOverlap = "In concurrent mode the cost total counts overlapping step windows once per step.";
 }

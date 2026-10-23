@@ -1,3 +1,5 @@
+using AgentJoules.Core.Results;
+
 namespace AgentJoules.Core.Energy;
 
 /// <summary>What the meter measures with and why: the chosen method, the counter state and whether sampling is a fallback.</summary>
@@ -78,7 +80,7 @@ public sealed record MeterCapabilities
     public string Describe() => (Method, IsFallback) switch
     {
         (EnergyMethod.Sampling, false) => "Energy method: sampling",
-        (EnergyMethod.Sampling, true) => "Energy method: sampling (counter unsupported)",
+        (EnergyMethod.Sampling, true) => ReportSentences.SamplingFallback,
         (EnergyMethod.Counter, false) => "Energy method: counter",
         (EnergyMethod.Unmetered, false) => "Energy method: unmetered (hosted tier)",
         _ => throw new InvalidOperationException("The capabilities are inconsistent."),

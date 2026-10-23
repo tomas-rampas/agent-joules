@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
@@ -408,6 +409,80 @@ public static class RunDocumentFixtures
             outputSha256: reply is null ? null : Sha256Hex(reply),
             outputChars: reply?.Length,
             judgedAgent: judged.Agent);
+    }
+
+    /// <summary>
+    /// A completed nvidia-tier document (AJ-083, EDGE-007) whose one step got a response without usage: both token cells are not-reported (<see cref="TokenCounts.OmittedReason"/>) and the cost is N/A
+    /// (<see cref="CostCalculator.TokensNotReportedReason"/>); the energy cells are N/A (<c>hosted-tier</c>). Built in memory through <see cref="RunAssembler"/>; no committed file backs it.
+    /// </summary>
+    /// <returns>The document.</returns>
+    public static RunDocument HostedNoUsage() =>
+        ReportDocument(
+            Tier.Nvidia,
+            [
+                ReportRunFixtures.Step(
+                    Tier.Nvidia,
+                    inputTokens: Metric.NotReported(TokenCounts.OmittedReason),
+                    outputTokens: Metric.NotReported(TokenCounts.OmittedReason),
+                    cost: Metric.NotApplicable(CostCalculator.TokensNotReportedReason)),
+            ]);
+
+    /// <summary>
+    /// A completed document of <paramref name="tier"/> (AJ-083, EDGE-004) whose <c>run.mode</c> is <c>concurrent</c>: two agents ran in overlapping windows, so both steps carry the <c>shared-window</c> flag.
+    /// </summary>
+    /// <param name="tier">The tier of the run.</param>
+    /// <returns>The document.</returns>
+    public static RunDocument Concurrent(Tier tier) =>
+        ReportDocument(
+            tier,
+            [
+                ReportRunFixtures.Step(tier, flags: ReadingFlags.SharedWindow),
+                ReportRunFixtures.Step(tier, agent: "Writer", flags: ReadingFlags.SharedWindow),
+            ],
+            RunMode.Concurrent);
+
+    /// <summary>A completed local document (AJ-083, EDGE-003) whose one step carries the <c>low-resolution</c> flag: the window was too short for the sampling rate.</summary>
+    /// <returns>The document.</returns>
+    public static RunDocument LowResolution() =>
+        ReportDocument(Tier.Local, [ReportRunFixtures.Step(Tier.Local, flags: ReadingFlags.LowResolution)]);
+
+    /// <summary>
+    /// A completed local document (AJ-083, EDGE-002) on a GPU without the energy counter: the probe says so, the selector fell back to sampling, and the one step carries the <c>sampling-fallback</c> flag with the
+    /// sampling method.
+    /// </summary>
+    /// <returns>The document.</returns>
+    public static RunDocument SamplingFallback() =>
+        ReportDocument(
+            Tier.Local,
+            [ReportRunFixtures.Step(Tier.Local, flags: ReadingFlags.SamplingFallback, method: EnergyMethod.Sampling)],
+            probe: new ProbeResult(true, "Test GPU", "GPU-00000000-0000-0000-0000-000000000000", "555.00", "8.9", "95.00.00.00.01", 300.0, "disabled", false, "sampling", 10.0));
+
+    /// <summary>A <c>partial</c> document of <paramref name="tier"/> (AJ-083): the run stopped early on purpose with one finished step and a stop reason.</summary>
+    /// <param name="tier">The tier of the run.</param>
+    /// <returns>The document.</returns>
+    public static RunDocument Partial(Tier tier) =>
+        ReportDocument(tier, [ReportRunFixtures.Step(tier)], status: RunStatus.Partial, stopReason: "budget-reached");
+
+    // A one-task document of the given tier the way the tool would write it: the totals come from the assembler, the local tier has a probe and a baseline, and no judge ran.
+    private static RunDocument ReportDocument(
+        Tier tier,
+        IReadOnlyList<StepReading> steps,
+        RunMode mode = RunMode.Serialized,
+        RunStatus status = RunStatus.Completed,
+        string? stopReason = null,
+        ProbeResult? probe = null)
+    {
+        bool local = tier == Tier.Local;
+        var run = new RunInfo($"fixture-{TierOptions.NameOf(tier)}", tier, [TaskName], mode, Repeat: 1, CommittedStartUtc, "0.0.0-fixture", "fixture", status, StopReason: stopReason, SelfJudged: false);
+
+        return RunAssembler.Assemble(
+            run,
+            CommittedEnvironment(tier, "model-a"),
+            probe: local ? probe ?? new ProbeResult(true, "Fixture GPU", "GPU-00000000-0000-0000-0000-000000000000", "555.00", "8.9", "95.00.00.00.01", 300.0, "disabled", true, "counter", 10.0) : null,
+            baseline: local ? new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(1.5, "W"), seconds: 30.0, sampleCount: 300, coefficientOfVariation: 0.05, maxCoefficientOfVariation: 0.1, ReadingFlags.None) : null,
+            steps,
+            [],
+            wallClockMs: 10000.0);
     }
 
     /// <summary>Edits the tree of a serialised document and writes it again.</summary>

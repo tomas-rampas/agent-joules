@@ -1,8 +1,9 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 
-using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
@@ -10,8 +11,11 @@ using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Render;
 using AgentJoules.Reporting.Results;
 using AgentJoules.TestSupport;
+using AgentJoules.Workflow.Agents;
 
 using Xunit;
+
+using static AgentJoules.TestSupport.ReportRunFixtures;
 
 namespace AgentJoules.UnitTests;
 
@@ -23,7 +27,7 @@ namespace AgentJoules.UnitTests;
 /// with the range and <c>n</c>, keeps their label, unit and currency, and is N/A or not-reported with a null value when no repeat has one; rows of different tiers or variants are never merged, ranked or compared.
 /// </summary>
 [Trait("Spec", "REQ-016")]
-public sealed class ReportRenderingTests
+public sealed partial class ReportRenderingTests
 {
     private const string Folder = "runs";
     private const string LocalOld = "20261022T093000Z-local.json";
@@ -956,93 +960,6 @@ public sealed class ReportRenderingTests
 
     // ---- the aggregation of repeats into report rows (AJ-082) ----
 
-    private const string Stamp = "20261023T093000Z";
-    private const string TaskName = "summarise";
-    private const string Planner = "Planner";
-
-    private static readonly string[] CrossTierWords = ["ratio", "rank", "best", "winner", "combined", "overall", "versus", "leader"];
-
-    private static string NameOf(Tier tier, RunVariant variant, string stamp = Stamp) =>
-        $"{stamp}-{TierOptions.NameOf(tier)}{(variant == RunVariant.Baseline ? "-baseline" : string.Empty)}.json";
-
-    private static StepReading Step(
-        Tier tier = Tier.Local,
-        string task = TaskName,
-        int repeat = 1,
-        string agent = Planner,
-        string modelId = "model-a",
-        string outcome = StepOutcomes.Ok,
-        Metric? net = null,
-        Metric? inputTokens = null,
-        Metric? latency = null,
-        Metric? cost = null,
-        Metric? quality = null,
-        ReadingFlags flags = ReadingFlags.None,
-        EnergyMethod? method = null,
-        string? judgedAgent = null,
-        Metric? gross = null,
-        Metric? avgW = null,
-        Metric? peakW = null,
-        Metric? outputTokens = null,
-        Metric? ttft = null)
-    {
-        bool hosted = TierKinds.IsHosted(tier);
-        Metric hostedNa = Metric.NotApplicable("hosted-tier");
-        Metric netJoules = net ?? (hosted ? hostedNa : Metric.Measured(60.0, "J"));
-        DateTimeOffset start = StepReadingFixtures.StartUtc.AddSeconds(2 * repeat);
-
-        return new StepReading(
-            task: task,
-            repeat: repeat,
-            agent: agent,
-            modelId: modelId,
-            tier: tier,
-            startUtc: start,
-            endUtc: start.AddSeconds(1),
-            outcome: outcome,
-            latencyMs: latency ?? Metric.Measured(1000.0, "ms"),
-            ttftMs: ttft ?? Metric.Measured(250.0, "ms"),
-            inputTokens: inputTokens ?? Metric.Measured(120.0, "tokens"),
-            outputTokens: outputTokens ?? Metric.Measured(80.0, "tokens"),
-            grossJoules: gross ?? (hosted ? hostedNa : Metric.Measured((netJoules.Value ?? 0.0) + 30.0, "J")),
-            netJoules: netJoules,
-            avgW: avgW ?? (hosted ? hostedNa : Metric.Measured(90.0, "W")),
-            peakW: peakW ?? (hosted ? hostedNa : Metric.Measured(110.0, "W")),
-            cost: cost ?? Metric.NotApplicable("cost-not-configured"),
-            retries: 0,
-            waitMs: 0,
-            flags: flags,
-            method: hosted ? null : method ?? EnergyMethod.Counter,
-            quality: quality,
-            judgedAgent: judgedAgent);
-    }
-
-    // On a hosted tier the energy is N/A whatever the caller asks for, so the values only count the repeats there.
-    private static StepReading[] NetSteps(Tier tier, params double[] values) =>
-        [.. values.Select((value, index) => Step(tier, repeat: index + 1, net: TierKinds.IsHosted(tier) ? null : Metric.Measured(value, "J")))];
-
-    private static SelectedRun RunOf(
-        Tier tier,
-        IReadOnlyList<StepReading> steps,
-        RunVariant variant = RunVariant.Primary,
-        IReadOnlyList<StepReading>? judge = null,
-        IReadOnlyList<string>? tasks = null,
-        Func<RunDocument, RunDocument>? edit = null,
-        string stamp = Stamp)
-    {
-        RunDocument document = RunDocumentFixtures.Document(steps, judge ?? []);
-
-        // The name of a run file starts with the start of the run formatted to the second, and Build checks that.
-        DateTimeOffset startUtc = DateTimeOffset.ParseExact(stamp, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        document = document with { Run = document.Run with { Tier = tier, StartUtc = startUtc, Tasks = tasks ?? [.. steps.Select(step => step.Task).Distinct(StringComparer.Ordinal)] } };
-        if (edit is not null)
-        {
-            document = edit(document);
-        }
-
-        return new SelectedRun(variant, NameOf(tier, variant, stamp), document);
-    }
-
     private static SelectedRun RunOfNet(Tier tier, params double[] values) => RunOf(tier, NetSteps(tier, values));
 
     private static ReportRow OnlyRow(params SelectedRun[] runs) => Assert.Single(ReportAggregator.Build(runs).Rows);
@@ -1958,5 +1875,1379 @@ public sealed class ReportRenderingTests
         TierReport report = Assert.Single(model.Tiers);
         Assert.Equal([EnergyMethod.Counter, EnergyMethod.Sampling], report.EnergyMethods);
         Assert.False(report.SamplingFallback);
+    }
+
+    // ---- the Markdown summary with honest labels (AJ-083) ----
+
+    private const int ColumnCount = 15;
+    private const int TierColumn = 0;
+    private const int TaskColumn = 1;
+    private const int AgentColumn = 2;
+    private const int GrossColumn = 3;
+    private const int NetColumn = 4;
+    private const int AvgWColumn = 5;
+    private const int PeakWColumn = 6;
+    private const int InputTokensColumn = 7;
+    private const int OutputTokensColumn = 8;
+    private const int LatencyColumn = 9;
+    private const int TtftColumn = 10;
+    private const int CostColumn = 11;
+    private const int QualityColumn = 12;
+    private const int LabelsColumn = 13;
+    private const int FlagsColumn = 14;
+
+    private const string TableHeaderRow = "| tier | task | agent | gross J | net J | avg W | peak W | input tokens | output tokens | latency ms | TTFT ms | cost | quality | labels | flags |";
+    private const string Hostile = "|<b>[x](y)![i](j)";
+    private const string HostileEscaped = "\\|\\<b\\>\\[x\\]\\(y\\)\\!\\[i\\]\\(j\\)";
+
+    [GeneratedRegex(@"(?<!\\)\|", RegexOptions.CultureInvariant)]
+    private static partial Regex UnescapedPipe();
+
+    private static string Render(params SelectedRun[] runs) => SummaryMarkdownRenderer.Render(ReportAggregator.Build(runs));
+
+    private static string[] LinesOf(string text) => text.Split('\n');
+
+    private static string[] TableLines(string text) => [.. LinesOf(text).Where(line => line.StartsWith('|'))];
+
+    private static string[] DataRows(string text) => [.. TableLines(text).Skip(2)];
+
+    private static string[] CellsOf(string row) => [.. UnescapedPipe().Split(row).Skip(1).SkipLast(1).Select(cell => cell.Trim())];
+
+    private static string[] OnlyRowCells(string text) => CellsOf(Assert.Single(DataRows(text)));
+
+    private static string NotRunRow(string tier) => $"| {tier} | not run |" + string.Concat(Enumerable.Repeat(" |", ColumnCount - 2));
+
+    private static string[] TierCells(string text) => [.. DataRows(text).Select(row => CellsOf(row)[TierColumn])];
+
+    private static string[] BulletLines(string text) => [.. LinesOf(text).Skip(1).TakeWhile(line => line.Length > 0)];
+
+    private static string[] DisclosureLines(string text) => [.. LinesOf(text).SkipWhile(line => line != string.Empty).Skip(1).TakeWhile(line => line.Length > 0)];
+
+    private static IEnumerable<RunDocument> EveryReportFixture() =>
+    [
+        RunDocumentFixtures.HostedNoUsage(),
+        RunDocumentFixtures.Concurrent(Tier.Local),
+        RunDocumentFixtures.Concurrent(Tier.Nebius),
+        RunDocumentFixtures.LowResolution(),
+        RunDocumentFixtures.SamplingFallback(),
+        RunDocumentFixtures.Partial(Tier.Local),
+        RunDocumentFixtures.Partial(Tier.Nvidia),
+    ];
+
+    // The CultureInfo of the thread is set for the call only.
+    private static string RenderUnder(string culture, params SelectedRun[] runs)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+
+            return Render(runs);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    private static ReportCell Missing(MetricLabel label, params string[] reasons) => new(null, null, null, 0, 1, label, reasons, null, null);
+
+    private static ReportCell Valued(double median, double min, double max, int n, int total, MetricLabel label = MetricLabel.Measured, string? currency = null) =>
+        new(median, min, max, n, total, label, [], null, currency);
+
+    private static string Lone(char value) => $"a{value}b";
+
+    // ---- the formats (AJ-083-T3) ----
+
+    [Theory]
+    [InlineData(12.34, "12.3")]
+    [InlineData(90.0, "90.0")]
+    [InlineData(0.0, "0.0")]
+    [InlineData(1234.56, "1234.6")]
+    [InlineData(-5.04, "-5.0")]
+    public void Joules_and_watts_have_one_decimal(double value, string expected)
+    {
+        Assert.Equal(expected, InvariantFormat.Joules(value));
+        Assert.Equal(expected, InvariantFormat.Watts(value));
+    }
+
+    [Theory]
+    [InlineData(1000.0, "1000")]
+    [InlineData(1000.4, "1000")]
+    [InlineData(0.0, "0")]
+    public void Milliseconds_have_no_decimal(double value, string expected) => Assert.Equal(expected, InvariantFormat.Milliseconds(value));
+
+    [Theory]
+    [InlineData(0.00123, "0.0012")]
+    [InlineData(0.0, "0.0000")]
+    [InlineData(12.0, "12.0000")]
+    public void Cost_has_four_decimals(double value, string expected) => Assert.Equal(expected, InvariantFormat.Cost(value));
+
+    [Theory]
+    [InlineData(4.0, "4")]
+    [InlineData(120.0, "120")]
+    [InlineData(3.5, "3.5")]
+    [InlineData(2.27, "2.3")]
+    public void Count_is_an_integer_unless_the_value_is_not_integral(double value, string expected) => Assert.Equal(expected, InvariantFormat.Count(value));
+
+    [Fact]
+    public void Formats_use_the_invariant_culture()
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+
+            Assert.Equal("1234567.8", InvariantFormat.Joules(1234567.8));
+            Assert.Equal("0.0012", InvariantFormat.Cost(0.00123));
+            Assert.Equal("3.5", InvariantFormat.Count(3.5));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    [Fact]
+    public void A_negative_zero_is_written_as_zero()
+    {
+        double negativeZero = double.NegativeZero;
+
+        Assert.Equal("0.0", InvariantFormat.Joules(negativeZero));
+        Assert.Equal("0.0", InvariantFormat.Watts(negativeZero));
+        Assert.Equal("0", InvariantFormat.Milliseconds(negativeZero));
+        Assert.Equal("0.0000", InvariantFormat.Cost(negativeZero));
+        Assert.Equal("0", InvariantFormat.Count(negativeZero));
+        Assert.Equal("0.0", InvariantFormat.Joules(-0.04));
+        Assert.Equal("-0.5", InvariantFormat.Joules(-0.5));
+    }
+
+    [Fact]
+    public void Cell_prints_median_range_and_count_with_the_value_first()
+    {
+        string text = InvariantFormat.Cell(Valued(12.0, 10.0, 14.0, 3, 3), CellKind.Joules, Escaped);
+
+        Assert.Equal("12.0 [10.0 to 14.0] n=3", text);
+        Assert.StartsWith("12.0", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Cell_of_one_repeat_has_no_range()
+    {
+        Assert.Equal("12.0 n=1", InvariantFormat.Cell(Valued(12.0, 12.0, 12.0, 1, 1), CellKind.Joules, Escaped));
+        Assert.Equal("90.0 n=1", InvariantFormat.Cell(Valued(90.0, 90.0, 90.0, 1, 1), CellKind.Watts, Escaped));
+        Assert.Equal("1000 n=1", InvariantFormat.Cell(Valued(1000.0, 1000.0, 1000.0, 1, 1), CellKind.Milliseconds, Escaped));
+        Assert.Equal("120 n=1", InvariantFormat.Cell(Valued(120.0, 120.0, 120.0, 1, 1), CellKind.Count, Escaped));
+    }
+
+    [Fact]
+    public void Cell_says_of_total_only_when_a_repeat_has_no_value()
+    {
+        Assert.Equal("15.0 [10.0 to 20.0] n=2 of 3", InvariantFormat.Cell(Valued(15.0, 10.0, 20.0, 2, 3), CellKind.Joules, Escaped));
+        Assert.Equal("15.0 [10.0 to 20.0] n=2", InvariantFormat.Cell(Valued(15.0, 10.0, 20.0, 2, 2), CellKind.Joules, Escaped));
+    }
+
+    [Fact]
+    public void Cell_prints_the_currency_after_the_value_and_a_label_other_than_measured_last()
+    {
+        Assert.Equal("0.0012 EUR n=1 estimated", InvariantFormat.Cell(Valued(0.0012, 0.0012, 0.0012, 1, 1, MetricLabel.Estimated, "EUR"), CellKind.Cost, Escaped));
+        Assert.Equal("0.0012 EUR [0.0010 to 0.0014] n=3 estimated", InvariantFormat.Cell(Valued(0.0012, 0.001, 0.0014, 3, 3, MetricLabel.Estimated, "EUR"), CellKind.Cost, Escaped));
+        Assert.Equal("0.0012 USD n=1", InvariantFormat.Cell(Valued(0.0012, 0.0012, 0.0012, 1, 1, MetricLabel.Measured, "USD"), CellKind.Cost, Escaped));
+    }
+
+    [Fact]
+    public void Cell_prints_quality_as_an_integer_or_one_decimal_for_an_even_median_between_integers()
+    {
+        Assert.Equal("4 n=1 model-judged", InvariantFormat.Cell(Valued(4.0, 4.0, 4.0, 1, 1, MetricLabel.ModelJudged), CellKind.Quality, Escaped));
+        Assert.Equal("3.5 [3 to 4] n=2 model-judged", InvariantFormat.Cell(Valued(3.5, 3.0, 4.0, 2, 2, MetricLabel.ModelJudged), CellKind.Quality, Escaped));
+        Assert.Equal("120.5 [120 to 121] n=2", InvariantFormat.Cell(Valued(120.5, 120.0, 121.0, 2, 2), CellKind.Count, Escaped));
+    }
+
+    [Fact]
+    public void Cell_without_a_value_prints_its_label_and_reasons_never_a_number()
+    {
+        Assert.Equal("N/A (hosted-tier)", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable, "hosted-tier"), CellKind.Joules, Escaped));
+        Assert.Equal("not-reported (no-usage)", InvariantFormat.Cell(Missing(MetricLabel.NotReported, "no-usage"), CellKind.Count, Escaped));
+        Assert.Equal("N/A (a; b)", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable, "a", "b"), CellKind.Cost, Escaped));
+        Assert.Equal("N/A", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable), CellKind.Cost, Escaped));
+    }
+
+    [Fact]
+    public void Cell_prints_at_most_three_reasons_then_a_count()
+    {
+        Assert.Equal("N/A (a; b; c)", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable, "a", "b", "c"), CellKind.Joules, Escaped));
+        Assert.Equal("N/A (a; b; c; +1 more)", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable, "a", "b", "c", "d"), CellKind.Joules, Escaped));
+        Assert.Equal("not-reported (a; b; c; +7 more)", InvariantFormat.Cell(Missing(MetricLabel.NotReported, [.. Enumerable.Range(0, 10).Select(index => ((char)('a' + index)).ToString())]), CellKind.Joules, Escaped));
+    }
+
+    [Fact]
+    public void Cell_escapes_the_reasons_and_the_currency_but_not_the_numbers_or_the_label()
+    {
+        static string Angle(string text) => $"<{text}>";
+
+        Assert.Equal("N/A (<r1>; <r2>)", InvariantFormat.Cell(Missing(MetricLabel.NotApplicable, "r1", "r2"), CellKind.Joules, Angle));
+        Assert.Equal("0.0012 <EUR> n=1 estimated", InvariantFormat.Cell(Valued(0.0012, 0.0012, 0.0012, 1, 1, MetricLabel.Estimated, "EUR"), CellKind.Cost, Angle));
+        Assert.Equal("12.0 [10.0 to 14.0] n=3", InvariantFormat.Cell(Valued(12.0, 10.0, 14.0, 3, 3), CellKind.Joules, Angle));
+    }
+
+    [Fact]
+    public void Cell_minimum_of_negative_zero_prints_zero()
+    {
+        string text = InvariantFormat.Cell(Valued(0.5, double.NegativeZero, 1.0, 2, 2), CellKind.Joules, Escaped);
+
+        Assert.Equal("0.5 [0.0 to 1.0] n=2", text);
+        Assert.DoesNotContain("-", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Cell_refuses_null_arguments_and_an_undefined_kind()
+    {
+        ReportCell cell = Valued(1.0, 1.0, 1.0, 1, 1);
+
+        _ = Assert.Throws<ArgumentNullException>(() => InvariantFormat.Cell(null!, CellKind.Joules, Escaped));
+        _ = Assert.Throws<ArgumentNullException>(() => InvariantFormat.Cell(cell, CellKind.Joules, null!));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => InvariantFormat.Cell(cell, (CellKind)99, Escaped));
+    }
+
+    [Fact]
+    public void Metric_formats_one_totals_value_with_its_label_and_reason()
+    {
+        Assert.Equal("360.0", InvariantFormat.Metric(Metric.Measured(360.0, "J"), CellKind.Joules, Escaped));
+        Assert.Equal("160", InvariantFormat.Metric(Metric.Measured(160.0, "tokens"), CellKind.Count, Escaped));
+        Assert.Equal("0.0012 USD estimated", InvariantFormat.Metric(Metric.Estimated(0.0012, "USD"), CellKind.Cost, Escaped));
+        Assert.Equal("N/A (missing-step-costs)", InvariantFormat.Metric(Metric.NotApplicable("missing-step-costs"), CellKind.Cost, Escaped));
+        Assert.Equal("not-reported (provider-omitted-usage)", InvariantFormat.Metric(Metric.NotReported("provider-omitted-usage"), CellKind.Count, Escaped));
+        Assert.Equal("N/A (<a|b>)", InvariantFormat.Metric(Metric.NotApplicable("a|b"), CellKind.Count, text => $"<{text}>"));
+    }
+
+    private static string Escaped(string text) => text;
+
+    // ---- the escaping (AJ-083, P-18) ----
+
+    [Fact]
+    public void ReportText_replaces_lone_surrogate()
+    {
+        Assert.Equal("a?b", ReportText.Clean(Lone((char)0xD800), ReportText.NameMaxLength));
+        Assert.Equal("a?b", ReportText.Clean(Lone((char)0xDC00), ReportText.NameMaxLength));
+        Assert.Equal("a?b", ReportText.Clean(Lone((char)0xFFFE), ReportText.NameMaxLength));
+        Assert.Equal("a?b", ReportText.Clean(Lone((char)0xFFFF), ReportText.NameMaxLength));
+        Assert.Equal("a??b", ReportText.Clean("a" + (char)0xDC00 + (char)0xD800 + "b", ReportText.NameMaxLength));
+    }
+
+    [Fact]
+    public void ReportText_keeps_a_valid_surrogate_pair_and_replaces_controls_and_bidi_marks()
+    {
+        string pair = char.ConvertFromUtf32(0x1F600);
+
+        Assert.Equal("a" + pair + "b", ReportText.Clean("a" + pair + "b", ReportText.NameMaxLength));
+        Assert.Equal("a?b?c", ReportText.Clean("a\nb" + (char)0x202E + "c", ReportText.NameMaxLength));
+    }
+
+    [Fact]
+    public void ReportText_cuts_to_the_limit_and_marks_the_cut()
+    {
+        string cut = ReportText.Clean(new string('a', 500), ReportText.ReasonMaxLength);
+
+        Assert.Equal(new string('a', ReportText.ReasonMaxLength) + "...", cut);
+        Assert.Equal(128, ReportText.NameMaxLength);
+        Assert.Equal(80, ReportText.ReasonMaxLength);
+        _ = Assert.Throws<ArgumentNullException>(() => ReportText.Clean(null!, 10));
+    }
+
+    [Theory]
+    [InlineData('\\')]
+    [InlineData('`')]
+    [InlineData('*')]
+    [InlineData('_')]
+    [InlineData('~')]
+    [InlineData('[')]
+    [InlineData(']')]
+    [InlineData('(')]
+    [InlineData(')')]
+    [InlineData('<')]
+    [InlineData('>')]
+    [InlineData('!')]
+    [InlineData('|')]
+    [InlineData('&')]
+    [InlineData('#')]
+    [InlineData('$')]
+    public void MarkdownText_puts_a_backslash_before_each_special_character(char special) =>
+        Assert.Equal($"a\\{special}b", MarkdownText.Escape($"a{special}b"));
+
+    [Fact]
+    public void MarkdownText_leaves_plain_text_and_cuts_at_the_given_length()
+    {
+        Assert.Equal("model-a 1.5: x=y, z/w + 4 @ 5%", MarkdownText.Escape("model-a 1.5: x=y, z/w + 4 @ 5%"));
+        Assert.Equal(new string('a', ReportText.ReasonMaxLength) + "...", MarkdownText.Escape(new string('a', 200), ReportText.ReasonMaxLength));
+        Assert.Equal("a?b", MarkdownText.Escape(Lone((char)0xD800)));
+    }
+
+    // ---- the fixtures (AJ-083-T2) ----
+
+    [Fact]
+    public void Report_fixtures_pass_the_run_file_validator()
+    {
+        foreach (RunDocument document in EveryReportFixture())
+        {
+            string text = RunDocumentFixtures.Serialise(document);
+
+            Assert.Empty(RunFileValidator.Check(NameOf(document.Run.Tier, RunVariant.Primary), text));
+        }
+    }
+
+    [Fact]
+    public void Report_fixtures_describe_the_case_they_are_named_for()
+    {
+        RunDocument noUsage = RunDocumentFixtures.HostedNoUsage();
+        StepReading hostedStep = Assert.Single(noUsage.Steps);
+        Assert.Equal(Tier.Nvidia, noUsage.Run.Tier);
+        Assert.Equal(MetricLabel.NotReported, hostedStep.InputTokens.Label);
+        Assert.Equal(MetricLabel.NotReported, hostedStep.OutputTokens.Label);
+        Assert.Equal(MetricLabel.NotApplicable, hostedStep.Cost.Label);
+        Assert.Equal(MetricLabel.NotApplicable, hostedStep.GrossJoules.Label);
+
+        Assert.Equal(RunMode.Concurrent, RunDocumentFixtures.Concurrent(Tier.Local).Run.Mode);
+        Assert.Equal(Tier.Nebius, RunDocumentFixtures.Concurrent(Tier.Nebius).Run.Tier);
+        Assert.All(RunDocumentFixtures.LowResolution().Steps, step => Assert.True(step.Flags.HasFlag(ReadingFlags.LowResolution)));
+
+        RunDocument fallback = RunDocumentFixtures.SamplingFallback();
+        Assert.All(fallback.Steps, step => Assert.True(step.Flags.HasFlag(ReadingFlags.SamplingFallback) && step.Method == EnergyMethod.Sampling));
+        Assert.False(fallback.Probe!.EnergyCounterSupported);
+
+        RunDocument partial = RunDocumentFixtures.Partial(Tier.Nvidia);
+        Assert.Equal(RunStatus.Partial, partial.Run.Status);
+        Assert.False(string.IsNullOrWhiteSpace(partial.Run.StopReason));
+        Assert.Equal(Tier.Nvidia, partial.Run.Tier);
+    }
+
+    [Fact]
+    public void Report_fixtures_build_a_model_the_aggregator_accepts()
+    {
+        foreach (RunDocument document in EveryReportFixture())
+        {
+            ReportModel model = ReportAggregator.Build([Wrap(document)]);
+
+            Assert.NotEmpty(model.Rows);
+            Assert.All(model.Rows, row => Assert.Equal(document.Run.Tier, row.Tier));
+        }
+    }
+
+    // ---- the header (AJ-083-T5) ----
+
+    [Fact]
+    public void Header_and_honesty_sentence()
+    {
+        string models = string.Join(", ", AgentCatalog.Names.Select(agent => $"{agent}=model-a"));
+
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)), Wrap(RunDocumentFixtures.HostedNoUsage()));
+        string[] lines = LinesOf(text);
+
+        Assert.Equal("# Agent Joules results", lines[0]);
+        Assert.Equal(
+            "- local: file 20261023T093000Z-local.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU Test GPU; driver 555.00; local runtime ollama 0.1.0; precision Q4\\_K\\_M; reasoning mode off; power source N/A; models Planner=model-a, Writer=model-b; judge none; self-judging no; energy method counter",
+            lines[1]);
+        Assert.Equal("- cloudgpu: not run", lines[2]);
+        Assert.Equal(
+            $"- nvidia: file 20261023T093000Z-nvidia.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU N/A; driver N/A; local runtime N/A; precision N/A; reasoning mode off; power source N/A; models {models}; judge none; self-judging no; energy method N/A",
+            lines[3]);
+        Assert.Equal("- nebius: not run", lines[4]);
+        Assert.Equal(string.Empty, lines[5]);
+        Assert.Equal(ReportSentences.GpuBoardOnly, lines[6]);
+        Assert.Equal("Energy is GPU-board energy only.", ReportSentences.GpuBoardOnly);
+    }
+
+    [Fact]
+    public void The_honesty_sentence_follows_the_header_facts_and_precedes_the_table()
+    {
+        string[] lines = LinesOf(Render(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0))));
+
+        int lastBullet = Array.FindLastIndex(lines, line => line.StartsWith("- ", StringComparison.Ordinal));
+        int sentence = Array.IndexOf(lines, ReportSentences.GpuBoardOnly);
+        int table = Array.IndexOf(lines, TableHeaderRow);
+
+        Assert.True(lastBullet > 0);
+        Assert.True(sentence > lastBullet);
+        Assert.True(table > sentence);
+        Assert.Equal(string.Empty, lines[table - 1]);
+    }
+
+    [Fact]
+    public void Header_shows_a_missing_fact_as_NA_and_a_runtime_without_a_version_alone()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            NetSteps(Tier.Local, 1.0),
+            edit: document => document with { Environment = document.Environment with { GpuName = null, DriverVersion = null, RuntimeVersion = null, Precision = null, ReasoningMode = null, PowerSource = "nvml" } });
+
+        string bullet = Assert.Single(BulletLines(Render(run)), line => line.StartsWith("- local:", StringComparison.Ordinal));
+
+        Assert.Contains("; GPU N/A; driver N/A; local runtime ollama; precision N/A; reasoning mode N/A; power source nvml;", bullet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Header_formats_the_run_date_in_utc_to_the_second()
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { StartUtc = new DateTimeOffset(2026, 10, 23, 9, 30, 0, 900, TimeSpan.Zero) } });
+
+        Assert.Contains("; run date 2026-10-23T09:30:00Z;", Render(run), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tier_without_a_run_file_is_shown_as_not_run()
+    {
+        string text = Render(Wrap(RunDocumentFixtures.HostedNoUsage()));
+
+        string[] rows = DataRows(text);
+        Assert.Equal(NotRunRow("local"), rows[0]);
+        Assert.Equal(NotRunRow("cloudgpu"), rows[1]);
+        Assert.Equal(NotRunRow("nebius"), rows[3]);
+        Assert.Equal(4, rows.Length);
+        Assert.Equal(["local", "cloudgpu", "nvidia", "nebius"], TierCells(text));
+        Assert.StartsWith("| local | not run | |", rows[0], StringComparison.Ordinal);
+        Assert.Equal(ColumnCount + 1, rows[0].Count(character => character == '|'));
+        Assert.Equal(ReportSentences.NotRun, "not run");
+        Assert.Contains("- local: not run", BulletLines(text));
+        Assert.Contains("- nebius: not run", BulletLines(text));
+    }
+
+    [Fact]
+    public void Not_run_rows_and_bullets_take_the_place_of_their_tier()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)), RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0)));
+
+        Assert.Equal(["local", "cloudgpu", "nvidia", "nebius"], TierCells(text));
+        string[] bullets = BulletLines(text);
+        Assert.Equal(4, bullets.Length);
+        Assert.StartsWith("- local: file", bullets[0], StringComparison.Ordinal);
+        Assert.Equal("- cloudgpu: not run", bullets[1]);
+        Assert.Equal("- nvidia: not run", bullets[2]);
+        Assert.StartsWith("- nebius: file", bullets[3], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_baseline_only_tier_lists_its_not_run_line_before_its_baseline_rows()
+    {
+        string text = Render(RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), RunVariant.Baseline));
+
+        Assert.Equal(["local", "cloudgpu", "nvidia", "nebius", "nebius baseline"], TierCells(text));
+        string[] rows = DataRows(text);
+        Assert.Equal(NotRunRow("nebius"), rows[3]);
+        string[] bullets = BulletLines(text);
+        Assert.Equal("- nebius: not run", bullets[3]);
+        Assert.StartsWith("- nebius baseline: file 20261023T093000Z-nebius-baseline.json; ", bullets[4], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Baseline_rows_say_tier_baseline_and_follow_the_rows_of_their_tier()
+    {
+        string text = Render(
+            RunOf(Tier.Local, NetSteps(Tier.Local, 40.0), RunVariant.Baseline),
+            RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)),
+            RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0)));
+
+        Assert.Equal(["local", "local baseline", "cloudgpu", "nvidia", "nebius"], TierCells(text));
+        string[] rows = DataRows(text);
+        Assert.Equal("11.0 [10.0 to 12.0] n=2", CellsOf(rows[0])[NetColumn]);
+        Assert.Equal("40.0 n=1", CellsOf(rows[1])[NetColumn]);
+        string[] bullets = BulletLines(text);
+        Assert.StartsWith("- local: file 20261023T093000Z-local.json; ", bullets[0], StringComparison.Ordinal);
+        Assert.StartsWith("- local baseline: file 20261023T093000Z-local-baseline.json; ", bullets[1], StringComparison.Ordinal);
+    }
+
+    // ---- the table (AJ-083-T4) ----
+
+    [Fact]
+    public void The_table_has_fifteen_columns_in_the_pinned_order()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)), Wrap(RunDocumentFixtures.HostedNoUsage()));
+        string[] table = TableLines(text);
+
+        Assert.Equal(TableHeaderRow, table[0]);
+        Assert.Equal("|" + string.Concat(Enumerable.Repeat("---|", ColumnCount)), table[1]);
+        Assert.All(table, row => Assert.Equal(ColumnCount, CellsOf(row).Length));
+        Assert.Equal(ColumnCount, CellsOf(TableHeaderRow).Length);
+    }
+
+    [Fact]
+    public void A_row_prints_every_cell_in_the_grammar_with_one_decimal_for_energy_and_none_for_latency()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 60.0)));
+        string[] row = RowOfTask(text);
+
+        Assert.Equal("local", row[TierColumn]);
+        Assert.Equal(TaskName, row[TaskColumn]);
+        Assert.Equal(Planner, row[AgentColumn]);
+        Assert.Equal("90.0 n=1", row[GrossColumn]);
+        Assert.Equal("60.0 n=1", row[NetColumn]);
+        Assert.Equal("90.0 n=1", row[AvgWColumn]);
+        Assert.Equal("110.0 n=1", row[PeakWColumn]);
+        Assert.Equal("120 n=1", row[InputTokensColumn]);
+        Assert.Equal("80 n=1", row[OutputTokensColumn]);
+        Assert.Equal("1000 n=1", row[LatencyColumn]);
+        Assert.Equal("250 n=1", row[TtftColumn]);
+        Assert.Equal("N/A (cost-not-configured)", row[CostColumn]);
+        Assert.Equal("N/A (not-scored)", row[QualityColumn]);
+        Assert.Equal("measured, N/A", row[LabelsColumn]);
+        Assert.Equal(string.Empty, row[FlagsColumn]);
+    }
+
+    [Fact]
+    public void A_row_with_repeats_shows_median_range_and_n()
+    {
+        string[] row = RowOfTask(Render(RunOfNet(Tier.Local, 10.0, 12.0, 14.0)));
+
+        Assert.Equal("12.0 [10.0 to 14.0] n=3", row[NetColumn]);
+        Assert.Equal("42.0 [40.0 to 44.0] n=3", row[GrossColumn]);
+        Assert.Equal("120 [120 to 120] n=3", row[InputTokensColumn]);
+    }
+
+    [Fact]
+    public void A_row_with_a_repeat_that_has_no_value_says_n_of_total_and_prints_no_reason()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, net: Metric.Measured(10.0, "J")),
+            Step(repeat: 2, net: Metric.Measured(20.0, "J")),
+            Step(repeat: 3, net: Metric.NotReported("sampler-unavailable")),
+        ];
+
+        string[] row = RowOfTask(Render(RunOf(Tier.Local, steps)));
+
+        Assert.Equal("15.0 [10.0 to 20.0] n=2 of 3", row[NetColumn]);
+        Assert.DoesNotContain("sampler-unavailable", string.Join('|', row), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Estimated_cost_and_model_judged_quality_keep_their_label_and_not_reported_keeps_its_reason()
+    {
+        StepReading step = Step(
+            cost: Metric.Estimated(0.0012, "EUR"),
+            quality: Metric.ModelJudged(4.0),
+            inputTokens: Metric.NotReported(TokenCounts.OmittedReason),
+            ttft: Metric.NotApplicable("buffered-call"));
+
+        string[] row = RowOfTask(Render(RunOf(Tier.Local, [step])));
+
+        Assert.Equal("0.0012 EUR n=1 estimated", row[CostColumn]);
+        Assert.Equal("4 n=1 model-judged", row[QualityColumn]);
+        Assert.Equal("not-reported (provider-omitted-usage)", row[InputTokensColumn]);
+        Assert.Equal("N/A (buffered-call)", row[TtftColumn]);
+        Assert.Equal("measured, estimated, model-judged, N/A, not-reported", row[LabelsColumn]);
+    }
+
+    [Fact]
+    public void Quality_of_an_even_count_between_two_integers_prints_one_decimal()
+    {
+        StepReading[] steps = [Step(repeat: 1, quality: Metric.ModelJudged(3.0)), Step(repeat: 2, quality: Metric.ModelJudged(4.0))];
+
+        string[] row = RowOfTask(Render(RunOf(Tier.Local, steps)));
+
+        Assert.Equal("3.5 [3 to 4] n=2 model-judged", row[QualityColumn]);
+    }
+
+    [Fact]
+    public void The_flags_column_lists_row_flags_run_flags_partial_and_the_failed_repeats()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, flags: ReadingFlags.LowResolution),
+            Step(repeat: 2, outcome: StepOutcomes.Error),
+            Step(repeat: 3, outcome: StepOutcomes.Cancelled),
+            Step(repeat: 4, outcome: StepOutcomes.Incomplete),
+            Step(repeat: 5, outcome: StepOutcomes.Incomplete),
+        ];
+        SelectedRun run = RunOf(
+            Tier.Local,
+            steps,
+            edit: document => document with { Run = document.Run with { Status = RunStatus.Partial, Flags = [RunFlagNames.PartialOffload] } });
+
+        string[] row = RowOfTask(Render(run));
+
+        Assert.Equal("low-resolution, partial-offload, partial, 1 cancelled, 1 error, 2 incomplete", row[FlagsColumn]);
+    }
+
+    [Fact]
+    public void Partial_run_says_partial()
+    {
+        string text = Render(Wrap(RunDocumentFixtures.Partial(Tier.Local)));
+
+        string bullet = Assert.Single(BulletLines(text), line => line.StartsWith("- local:", StringComparison.Ordinal));
+        Assert.Contains("; status partial;", bullet, StringComparison.Ordinal);
+        Assert.Contains("partial", RowOfTask(text)[FlagsColumn].Split(", "));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-003")]
+    public void Low_resolution_flag_stays_visible_in_the_row_of_the_value()
+    {
+        string text = Render(Wrap(RunDocumentFixtures.LowResolution()));
+
+        string row = Assert.Single(DataRows(text), line => line.Contains("low-resolution", StringComparison.Ordinal));
+        string[] cells = CellsOf(row);
+        Assert.Equal("low-resolution", cells[FlagsColumn]);
+        Assert.Equal("60.0 n=1", cells[NetColumn]);
+        Assert.Equal("local", cells[TierColumn]);
+        Assert.True(row.IndexOf("60.0", StringComparison.Ordinal) < row.IndexOf("low-resolution", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-002")]
+    public void Sampling_fallback_header()
+    {
+        string text = Render(Wrap(RunDocumentFixtures.SamplingFallback()));
+
+        string[] lines = LinesOf(text);
+        int bullet = Array.FindIndex(lines, line => line.StartsWith("- local:", StringComparison.Ordinal));
+        Assert.EndsWith("; energy method sampling", lines[bullet], StringComparison.Ordinal);
+        Assert.Equal("  - Energy method: sampling (counter unsupported)", lines[bullet + 1]);
+        Assert.Equal("Energy method: sampling (counter unsupported)", ReportSentences.SamplingFallback);
+        Assert.Equal(1, text.Split(ReportSentences.SamplingFallback).Length - 1);
+        Assert.Contains("sampling-fallback", RowOfTask(text)[FlagsColumn], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_sampling_fallback_line_follows_the_fallback_of_ok_steps_and_not_the_energy_methods()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]);
+        TierReport report = Assert.Single(model.Tiers);
+
+        string forced = SummaryMarkdownRenderer.Render(model with { Tiers = [report with { EnergyMethods = [EnergyMethod.Sampling], SamplingFallback = false }] });
+        string fallback = SummaryMarkdownRenderer.Render(model with { Tiers = [report with { EnergyMethods = [EnergyMethod.Counter], SamplingFallback = true }] });
+
+        Assert.Contains("; energy method sampling", forced, StringComparison.Ordinal);
+        Assert.DoesNotContain(ReportSentences.SamplingFallback, forced, StringComparison.Ordinal);
+        Assert.Contains("; energy method counter", fallback, StringComparison.Ordinal);
+        Assert.Contains(ReportSentences.SamplingFallback, fallback, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Both_energy_methods_are_listed_in_order()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]);
+        TierReport report = Assert.Single(model.Tiers);
+
+        string text = SummaryMarkdownRenderer.Render(model with { Tiers = [report with { EnergyMethods = [EnergyMethod.Counter, EnergyMethod.Sampling] }] });
+
+        Assert.Contains("; energy method counter, sampling", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-004")]
+    public void Concurrent_sentence()
+    {
+        string concurrent = Render(Wrap(RunDocumentFixtures.Concurrent(Tier.Local)));
+        string serialized = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)));
+
+        Assert.Equal("Per-step energy overlaps in concurrent mode and does not sum to the run total.", ReportSentences.ConcurrentOverlap);
+        Assert.Equal(1, concurrent.Split(ReportSentences.ConcurrentOverlap).Length - 1);
+        Assert.Contains(ReportSentences.ConcurrentOverlap, DisclosureLines(concurrent));
+        Assert.Contains("; mode concurrent;", concurrent, StringComparison.Ordinal);
+        Assert.DoesNotContain(ReportSentences.ConcurrentOverlap, serialized, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_new_sentences_are_the_pinned_text()
+    {
+        Assert.Equal("In concurrent mode the cost total counts overlapping step windows once per step.", ReportSentences.ConcurrentCostOverlap);
+        Assert.Equal("not run", ReportSentences.NotRun);
+        Assert.Equal("Energy method: sampling (counter unsupported)", ReportSentences.SamplingFallback);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-007")]
+    public void Usage_free_row_shows_not_reported_and_NA()
+    {
+        string[] row = RowOfTask(Render(Wrap(RunDocumentFixtures.HostedNoUsage())));
+
+        Assert.StartsWith("not-reported", row[InputTokensColumn], StringComparison.Ordinal);
+        Assert.StartsWith("not-reported", row[OutputTokensColumn], StringComparison.Ordinal);
+        Assert.Equal("not-reported (provider-omitted-usage)", row[InputTokensColumn]);
+        Assert.StartsWith("N/A", row[CostColumn], StringComparison.Ordinal);
+        Assert.Equal("N/A (tokens-not-reported)", row[CostColumn]);
+        Assert.Equal("measured, N/A, not-reported", row[LabelsColumn]);
+    }
+
+    [Fact]
+    public void Hosted_energy_is_NA_and_never_0()
+    {
+        string[] row = RowOfTask(Render(Wrap(RunDocumentFixtures.HostedNoUsage())));
+
+        string[] energy = [row[GrossColumn], row[NetColumn], row[AvgWColumn], row[PeakWColumn]];
+        Assert.All(energy, cell => Assert.Equal("N/A (hosted-tier)", cell));
+        Assert.All(energy, cell => Assert.DoesNotContain("0.0", cell, StringComparison.Ordinal));
+        Assert.Equal("nvidia", row[TierColumn]);
+    }
+
+    [Fact]
+    public void Every_cost_shows_its_currency_code()
+    {
+        StepReading step = Step(Tier.Nebius, cost: Metric.Estimated(0.00004, "USD"));
+
+        string[] row = RowOfTask(Render(RunOf(Tier.Nebius, [step])));
+
+        Assert.Equal("0.000040 USD n=1 estimated", row[CostColumn]);
+    }
+
+    [Fact]
+    public void Self_judged_disclosed()
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { SelfJudged = true } });
+        string text = Render(run);
+
+        Assert.Contains("; self-judging yes;", text, StringComparison.Ordinal);
+        Assert.Equal(1, text.Split(ReportSentences.SelfJudged).Length - 1);
+        Assert.Contains(ReportSentences.SelfJudged, DisclosureLines(text));
+    }
+
+    [Fact]
+    public void Self_judging_is_no_when_false_and_not_judged_when_unknown()
+    {
+        string no = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)));
+        string unknown = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { SelfJudged = null } }));
+
+        Assert.Contains("; self-judging no;", no, StringComparison.Ordinal);
+        Assert.DoesNotContain(ReportSentences.SelfJudged, no, StringComparison.Ordinal);
+        Assert.Contains("; self-judging not judged;", unknown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void No_judge_reading_prints_judge_none()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)));
+
+        Assert.Contains("; judge none;", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Judge_models_are_listed_by_id()
+    {
+        StepReading[] steps = [Step(repeat: 1), Step(repeat: 1, agent: "Writer")];
+        StepReading[] oneJudge = [RunDocumentFixtures.JudgeReading("Planner")];
+        StepReading[] twoJudges = [RunDocumentFixtures.JudgeReading("Planner"), Step(Tier.Nvidia, agent: "Judge", modelId: "judge-b", judgedAgent: "Writer")];
+
+        string one = Render(RunOf(Tier.Local, steps, judge: oneJudge));
+        string two = Render(RunOf(Tier.Local, steps, judge: twoJudges));
+
+        Assert.Contains("; judge judge-model;", one, StringComparison.Ordinal);
+        Assert.Contains("; judge judge-b, judge-model;", two, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Disclosures_are_printed_in_model_order_one_per_line_with_the_constants_unchanged()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1") with { Run = document.Run with { SelfJudged = true, Mode = RunMode.Concurrent } });
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2"));
+        ReportModel model = ReportAggregator.Build([local, nebius]);
+
+        string[] lines = DisclosureLines(SummaryMarkdownRenderer.Render(model));
+
+        Assert.Equal(model.Disclosures.Count, lines.Length);
+        Assert.Equal(ReportSentences.GpuBoardOnly, lines[0]);
+        Assert.Equal(ReportSentences.JudgeExcluded, lines[1]);
+        Assert.Equal(ReportSentences.SelfJudged, lines[2]);
+        Assert.Equal(ReportSentences.ConcurrentOverlap, lines[3]);
+        Assert.StartsWith(ReportSentences.ModelsDifferPrefix, lines[4], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Models_differ_disclosed_without_ratio()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2"));
+
+        string text = Render(local, nebius);
+
+        Assert.Contains("Models differ across tiers", text, StringComparison.Ordinal);
+        Assert.Contains("Models differ across tiers: local=m1 \\(Q4\\_K\\_M\\), nebius=m2 \\(FP8\\)", DisclosureLines(text));
+        Assert.DoesNotMatch(@"\d\s*x\b|x-fold|fold\b", text);
+        foreach (string word in new[] { "%", "ratio", "better", "greener", "than", "faster", "cheaper" })
+        {
+            Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void Same_models_at_the_same_precision_print_no_models_differ_line()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+        SelectedRun same = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+
+        Assert.DoesNotContain("Models differ", Render(local, same), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rendered_text_has_no_cross_tier_figure_or_ranking_word()
+    {
+        string text = Render(
+            RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0), edit: document => WithModels(document, "Q4_K_M", "m1")),
+            RunOf(Tier.CloudGpu, NetSteps(Tier.CloudGpu, 20.0)),
+            RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)),
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2")),
+            RunOf(Tier.Local, NetSteps(Tier.Local, 40.0), RunVariant.Baseline));
+
+        foreach (string word in CrossTierWords)
+        {
+            Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public void Summary_prints_no_run_total_judge_total_or_cost_map()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)));
+
+        // The hand-built totals of the fixture document hold 360.0 J gross, 160 tokens, 4000 ms and a USD cost; none of them reaches the summary.
+        Assert.DoesNotContain("360.0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("4000", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("USD", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("missing-step-costs", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Output_is_deterministic_with_lf_newlines_and_no_clock()
+    {
+        SelectedRun[] runs = [RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0, 14.0)), Wrap(RunDocumentFixtures.HostedNoUsage())];
+
+        string first = Render(runs);
+        string second = Render(runs);
+        string german = RenderUnder("de-DE", runs);
+
+        Assert.Equal(first, second);
+        Assert.Equal(first, german);
+        Assert.DoesNotContain('\r', first);
+        Assert.EndsWith("|\n", first, StringComparison.Ordinal);
+        Assert.False(first.EndsWith("\n\n", StringComparison.Ordinal));
+        Assert.All(first, character => Assert.True(character < 128));
+        Assert.Matches(@"^# Agent Joules results\n", first);
+    }
+
+    [Fact]
+    public void Empty_model_renders_four_not_run_rows_and_the_two_standing_sentences()
+    {
+        string text = Render();
+
+        Assert.Equal([NotRunRow("local"), NotRunRow("cloudgpu"), NotRunRow("nvidia"), NotRunRow("nebius")], DataRows(text));
+        Assert.Equal([ReportSentences.GpuBoardOnly, ReportSentences.JudgeExcluded], DisclosureLines(text));
+        Assert.Equal(["- local: not run", "- cloudgpu: not run", "- nvidia: not run", "- nebius: not run"], BulletLines(text));
+    }
+
+    [Fact]
+    public void Render_refuses_null()
+    {
+        _ = Assert.Throws<ArgumentNullException>(() => SummaryMarkdownRenderer.Render(null!));
+        _ = Assert.Throws<ArgumentNullException>(() => ReportHeader.Lines(null!, Escaped));
+        _ = Assert.Throws<ArgumentNullException>(() => ReportHeader.Lines(ReportAggregator.Build([]), null!));
+    }
+
+    [Fact]
+    public void Header_lines_are_the_bullets_one_empty_line_and_the_disclosures()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]);
+
+        IReadOnlyList<string> lines = ReportHeader.Lines(model, Escaped);
+
+        Assert.StartsWith("- local: file ", lines[0], StringComparison.Ordinal);
+        Assert.Equal("- cloudgpu: not run", lines[1]);
+        Assert.Equal("- nebius: not run", lines[3]);
+        Assert.Equal(string.Empty, lines[4]);
+        Assert.Equal(model.Disclosures, [.. lines.Skip(5)]);
+    }
+
+    // ---- hostile text (AJ-083, P-18, AJ-082 L-3) ----
+
+    [Fact]
+    public void Hostile_model_id_keeps_fifteen_cells()
+    {
+        const string hostileId = "a|b [x](y) ![i](j) <b>";
+        StepReading step = Step(agent: hostileId, task: hostileId, modelId: hostileId);
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [step],
+            edit: document => document with { Environment = document.Environment with { Models = [new EnvironmentModel(hostileId, hostileId, Baseline: false)] } });
+
+        string text = Render(run);
+
+        Assert.All(TableLines(text), row => Assert.Equal(ColumnCount, CellsOf(row).Length));
+        Assert.DoesNotContain("<b>", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("[x](y)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("![i]", text, StringComparison.Ordinal);
+        string[] row = RowOfTask(text, "a\\|b");
+        Assert.Equal("a\\|b \\[x\\]\\(y\\) \\!\\[i\\]\\(j\\) \\<b\\>", row[AgentColumn]);
+        Assert.All(BulletLines(text).Concat(DisclosureLines(text)), line => Assert.DoesNotMatch(@"(?<!\\)\|", line));
+    }
+
+    [Fact]
+    public void Quality_reason_with_pipe_is_escaped()
+    {
+        StepReading step = Step(quality: Metric.NotApplicable("judge-failed: a|b"));
+
+        string text = Render(RunOf(Tier.Local, [step]));
+
+        string[] row = RowOfTask(text);
+        Assert.Equal("N/A (judge-failed: a\\|b)", row[QualityColumn]);
+        Assert.All(TableLines(text), line => Assert.Equal(ColumnCount, CellsOf(line).Length));
+    }
+
+    [Fact]
+    public void Reasons_are_cut_to_eighty_characters_and_capped_per_cell()
+    {
+        string longReason = new('r', 300);
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]);
+        ReportRow row = Assert.Single(model.Rows);
+        ReportCell cell = Missing(MetricLabel.NotApplicable, longReason, "b" + (char)0x202E, "c", "d", "e", "f");
+
+        string text = SummaryMarkdownRenderer.Render(model with { Rows = [row with { NetJoules = cell }] });
+
+        string net = RowOfTask(text)[NetColumn];
+        Assert.Equal($"N/A ({new string('r', ReportText.ReasonMaxLength)}...; b?; c; +3 more)", net);
+    }
+
+    [Fact]
+    public void A_minimum_of_negative_zero_prints_as_zero_in_the_row()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0, 2.0))]);
+        ReportRow row = Assert.Single(model.Rows);
+
+        string text = SummaryMarkdownRenderer.Render(model with { Rows = [row with { NetJoules = Valued(0.5, double.NegativeZero, 1.0, 2, 2) }] });
+
+        Assert.Equal("0.5 [0.0 to 1.0] n=2", RowOfTask(text)[NetColumn]);
+    }
+
+    [Fact]
+    public void Every_string_member_of_the_model_and_every_disclosure_is_escaped()
+    {
+        ReportModel built = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), judge: [RunDocumentFixtures.JudgeReading("Planner")])]);
+        TierReport tier = Assert.Single(built.Tiers);
+        ReportRow row = Assert.Single(built.Rows);
+        static ReportCell WithHostile(ReportCell cell) => cell with { Reasons = [Hostile], Unit = Hostile, Currency = Hostile };
+        ReportModel model = built with
+        {
+            Tiers =
+            [
+                tier with
+                {
+                    GpuName = Hostile,
+                    DriverVersion = Hostile,
+                    LocalRuntime = Hostile,
+                    RuntimeVersion = Hostile,
+                    Precision = Hostile,
+                    ReasoningMode = Hostile,
+                    PowerSource = Hostile,
+                    Models = [new EnvironmentModel(Hostile, Hostile, Baseline: false)],
+                    JudgeModelIds = [Hostile, Hostile + "2"],
+                },
+            ],
+            Rows =
+            [
+                row with
+                {
+                    Task = Hostile,
+                    Agent = Hostile,
+                    ModelIds = [Hostile],
+                    GrossJoules = WithHostile(row.GrossJoules),
+                    NetJoules = Valued(1.0, 1.0, 1.0, 1, 1, MetricLabel.Estimated, Hostile),
+                    Cost = WithHostile(row.Cost),
+                    Quality = Missing(MetricLabel.NotReported, Hostile),
+                },
+            ],
+            Disclosures = [.. built.Disclosures, Hostile, ReportSentences.ModelsDifferPrefix + "local=" + Hostile + " (" + Hostile + "), nvidia=" + Hostile],
+        };
+
+        string text = SummaryMarkdownRenderer.Render(model);
+
+        Assert.DoesNotContain("<b>", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("[x](y)", text, StringComparison.Ordinal);
+        Assert.Contains(HostileEscaped, text, StringComparison.Ordinal);
+        Assert.All(TableLines(text), line => Assert.Equal(ColumnCount, CellsOf(line).Length));
+        Assert.All(BulletLines(text).Concat(DisclosureLines(text)), line => Assert.DoesNotMatch(@"(?<!\\)\|", line));
+        Assert.Contains(HostileEscaped, DisclosureLines(text));
+        Assert.Contains(DisclosureLines(text), line => line.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal) && line.Contains("local=" + HostileEscaped + " \\(" + HostileEscaped + "\\)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_forged_models_differ_text_is_not_parsed_or_printed()
+    {
+        ReportModel built = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]);
+        string forged = ReportSentences.ModelsDifferPrefix + "local=m1\n# heading, nvidia=" + (char)0x202E + "<script>";
+
+        string text = SummaryMarkdownRenderer.Render(built with { Disclosures = [forged] });
+
+        string line = Assert.Single(DisclosureLines(text));
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=model-a+model-b \\(Q4\\_K\\_M\\)", line);
+        Assert.DoesNotContain("script", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("heading", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Render_does_not_mutate_the_model_it_is_given()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0))]);
+        int rows = model.Rows.Count;
+        string[] disclosures = [.. model.Disclosures];
+
+        _ = SummaryMarkdownRenderer.Render(model);
+
+        Assert.Equal(rows, model.Rows.Count);
+        Assert.Equal(disclosures, model.Disclosures);
+    }
+
+    // The data row of the one task of a fixture (the not-run rows have no task); the first row whose task starts with the given text.
+    private static string[] RowOfTask(string text, string taskStart = TaskName) =>
+        DataRows(text).Select(CellsOf).First(cells => cells[TaskColumn].StartsWith(taskStart, StringComparison.Ordinal));
+
+    // ---- the fix round of AJ-083 (gates: spec, security, code review) ----
+
+    // A key built at run time, with underscores: the escape of Markdown would put a backslash inside it and hide it from a secret scan.
+    private static string FakeKey() => string.Concat("nvapi", "-", "Zq9_xK3", "_mP7w");
+
+    private static string NoCompletedStepsRow(string tier, string flags) =>
+        $"| {tier} | no completed steps |" + string.Concat(Enumerable.Repeat(" |", ColumnCount - 3)) + (flags.Length == 0 ? " |" : $" {flags} |");
+
+    private static ReportModel ModelWithDisclosures(params string[] disclosures) =>
+        ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))]) with { Disclosures = disclosures };
+
+    [Fact]
+    public void ReportText_masks_a_key_before_the_cut_and_the_replacement()
+    {
+        string key = FakeKey();
+
+        Assert.Equal("x nvapi-**** y", ReportText.Clean($"x {key} y", ReportText.NameMaxLength));
+
+        // Cut first would leave "nvapi-Zq" of the key in front of the cut marker; mask first leaves only the mask.
+        string cut = ReportText.Clean(new string('a', 72) + key, ReportText.ReasonMaxLength);
+
+        Assert.Equal(new string('a', 72) + "nvapi-**...", cut);
+        Assert.DoesNotContain("Zq", cut, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_key_in_a_quality_reason_is_masked_in_the_whole_summary()
+    {
+        string key = FakeKey();
+        StepReading step = Step(quality: Metric.NotApplicable("judge-failed: " + key));
+
+        string text = Render(RunOf(Tier.Local, [step], edit: document => document with { Environment = document.Environment with { GpuName = "gpu " + key } }));
+
+        Assert.Equal("N/A (judge-failed: nvapi-\\*\\*\\*\\*)", RowOfTask(text)[QualityColumn]);
+        Assert.Contains("; GPU gpu nvapi-\\*\\*\\*\\*;", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Zq9", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("xK3", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReportText_replaces_supplementary_format_characters()
+    {
+        string tag = char.ConvertFromUtf32(0xE0041);
+        string musical = char.ConvertFromUtf32(0x1D173);
+        string nonCharacter = char.ConvertFromUtf32(0x1FFFE);
+
+        Assert.Equal("a?b", ReportText.Clean("a" + tag + "b", ReportText.NameMaxLength));
+        Assert.Equal("a?b", ReportText.Clean("a" + musical + "b", ReportText.NameMaxLength));
+        Assert.Equal("a?b", ReportText.Clean("a" + nonCharacter + "b", ReportText.NameMaxLength));
+        Assert.Equal("a" + char.ConvertFromUtf32(0x1F600) + "b", ReportText.Clean("a" + char.ConvertFromUtf32(0x1F600) + "b", ReportText.NameMaxLength));
+    }
+
+    [Fact]
+    public void MarkdownText_escapes_the_dollar_sign()
+    {
+        Assert.Equal("\\$x\\$ costs \\$\\$", MarkdownText.Escape("$x$ costs $$"));
+    }
+
+    [Fact]
+    public void The_models_differ_split_bounds_the_line_whatever_the_model_id_holds()
+    {
+        string hostile = string.Concat(Enumerable.Repeat("m, ", 33_333));
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", hostile));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2"));
+
+        string line = Assert.Single(DisclosureLines(Render(local, nebius)), candidate => candidate.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+
+        // At most one entry per known tier, each cut at the name limit plus the cut marker, plus the prefix and the separators.
+        Assert.True(line.Length <= ReportSentences.ModelsDifferPrefix.Length + (4 * (ReportText.NameMaxLength + 3 + 2)) + (3 * 2), $"The line has {line.Length} characters.");
+    }
+
+    [Fact]
+    public void A_real_four_tier_models_differ_line_is_not_cut()
+    {
+        string text = Render(
+            RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "nemotron-3-nano:30b")),
+            RunOf(Tier.CloudGpu, NetSteps(Tier.CloudGpu, 1.0), edit: document => WithModels(document, "FP8", "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8")),
+            RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "nvidia/nemotron-nano-3-30b-a3b")),
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, null, "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B")));
+
+        string line = Assert.Single(DisclosureLines(text), candidate => candidate.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+
+        Assert.EndsWith(", nebius=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B \\(N/A\\)", line, StringComparison.Ordinal);
+        Assert.Equal(
+            ReportSentences.ModelsDifferPrefix
+            + "local=nemotron-3-nano:30b \\(Q4\\_K\\_M\\), cloudgpu=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 \\(FP8\\), nvidia=nvidia/nemotron-nano-3-30b-a3b \\(N/A\\), nebius=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B \\(N/A\\)",
+            line);
+    }
+
+    [Theory]
+    [InlineData("- item", "\\- item")]
+    [InlineData("+ item", "\\+ item")]
+    [InlineData("= item", "\\= item")]
+    [InlineData("* item", "\\* item")]
+    [InlineData("1. item", "1\\. item")]
+    [InlineData("12) item", "12\\) item")]
+    [InlineData("--- item", "\\--- item")]
+    [InlineData("=== item", "\\=== item")]
+    [InlineData("   - item", "\\- item")]
+    [InlineData("# item", "\\# item")]
+    [InlineData("$x$ item", "\\$x\\$ item")]
+    public void A_disclosure_that_is_not_a_sentence_cannot_start_a_list_or_a_heading(string line, string expected)
+    {
+        string text = SummaryMarkdownRenderer.Render(ModelWithDisclosures(line));
+
+        Assert.Equal(expected, Assert.Single(DisclosureLines(text)));
+    }
+
+    [Theory]
+    [InlineData("- item", "\\- item")]
+    [InlineData("+ item", "\\+ item")]
+    [InlineData("* item", "\\* item")]
+    [InlineData("7. item", "7\\. item")]
+    [InlineData("7) item", "7\\) item")]
+    [InlineData("77x item", "77x item")]
+    [InlineData("item - item", "item - item")]
+    public void The_leading_marker_is_escaped_whatever_the_escape_of_the_surface_does(string line, string expected)
+    {
+        IReadOnlyList<string> lines = ReportHeader.Lines(ModelWithDisclosures(line), Escaped);
+
+        Assert.Equal(expected, lines[^1]);
+    }
+
+    [Fact]
+    public void A_disclosure_equal_to_a_sentence_is_printed_unchanged_and_any_other_text_goes_through_the_escape()
+    {
+        string[] sentences =
+        [
+            ReportSentences.GpuBoardOnly,
+            ReportSentences.JudgeExcluded,
+            ReportSentences.SelfJudged,
+            ReportSentences.ConcurrentOverlap,
+            ReportSentences.ConcurrentCostOverlap,
+            ReportSentences.SamplingFallback,
+        ];
+
+        IReadOnlyList<string> lines = ReportHeader.Lines(ModelWithDisclosures([.. sentences, "other text"]), text => "X" + text);
+
+        Assert.Equal([.. sentences, "Xother text"], [.. lines.Skip(lines.Count - sentences.Length - 1)]);
+    }
+
+    [Fact]
+    public void A_long_task_and_a_long_gpu_name_are_cut_at_the_name_limit()
+    {
+        string task = new('t', 300);
+        string gpu = new('g', 300);
+
+        string text = Render(RunOf(Tier.Local, [Step(task: task)], edit: document => document with { Environment = document.Environment with { GpuName = gpu } }));
+
+        Assert.Equal(new string('t', 128) + "...", RowOfTask(text, "ttt")[TaskColumn]);
+        Assert.Contains("; GPU " + new string('g', 128) + "...; driver", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Latency_has_no_decimal_and_tokens_have_one_when_the_median_is_between_integers()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, latency: Metric.Measured(1000.6, "ms"), inputTokens: Metric.Measured(120.0, "tokens")),
+            Step(repeat: 2, latency: Metric.Measured(1000.6, "ms"), inputTokens: Metric.Measured(121.0, "tokens")),
+        ];
+
+        string[] row = RowOfTask(Render(RunOf(Tier.Local, steps)));
+
+        Assert.Equal("1001 [1001 to 1001] n=2", row[LatencyColumn]);
+        Assert.Equal("120.5 [120 to 121] n=2", row[InputTokensColumn]);
+    }
+
+    [Fact]
+    public void An_empty_fact_prints_NA()
+    {
+        string text = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Environment = document.Environment with { GpuName = string.Empty } }));
+
+        Assert.Contains("; GPU N/A; driver", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_file_without_rows_gets_a_no_completed_steps_row_and_the_not_run_row_is_unchanged()
+    {
+        static RunDocument Stopped(RunDocument document) => document with { Run = document.Run with { Status = RunStatus.Partial, StopReason = "budget-reached" } };
+        SelectedRun local = RunOf(Tier.Local, [], tasks: [TaskName], edit: Stopped);
+        SelectedRun nebiusBaseline = RunOf(Tier.Nebius, [], RunVariant.Baseline, tasks: [TaskName], edit: Stopped);
+
+        string text = Render(local, nebiusBaseline);
+
+        Assert.Equal(["local", "cloudgpu", "nvidia", "nebius", "nebius baseline"], TierCells(text));
+        string[] rows = DataRows(text);
+        Assert.Equal(NoCompletedStepsRow("local", "partial"), rows[0]);
+        Assert.Equal(NotRunRow("cloudgpu"), rows[1]);
+        Assert.Equal(NotRunRow("nvidia"), rows[2]);
+        Assert.Equal(NotRunRow("nebius"), rows[3]);
+        Assert.Equal(NoCompletedStepsRow("nebius baseline", "partial"), rows[4]);
+        Assert.All(TableLines(text), row => Assert.Equal(ColumnCount, CellsOf(row).Length));
+        Assert.Contains(BulletLines(text), line => line.StartsWith("- local: file ", StringComparison.Ordinal) && line.Contains("; status partial;", StringComparison.Ordinal));
+        Assert.Equal("no completed steps", ReportSentences.NoCompletedSteps);
+
+        // An empty primary file is judged by its own variant (the baseline file of its tier has rows) and ranks as a primary file.
+        string primaryEmpty = Render(local, RunOf(Tier.Local, NetSteps(Tier.Local, 5.0), RunVariant.Baseline));
+        Assert.Equal(["local", "local baseline", "cloudgpu", "nvidia", "nebius"], TierCells(primaryEmpty));
+        Assert.Equal(NoCompletedStepsRow("local", "partial"), DataRows(primaryEmpty)[0]);
+        Assert.Equal("5.0 n=1", CellsOf(DataRows(primaryEmpty)[1])[NetColumn]);
+
+        // An empty baseline file is judged by its own variant (the primary file has rows) and ranks as a baseline file, after the rows of its primary file.
+        SelectedRun baselineEmpty = RunOf(Tier.Local, [], RunVariant.Baseline, tasks: [TaskName], edit: Stopped);
+        string baselineOnly = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 5.0)), baselineEmpty);
+        Assert.Equal(["local", "local baseline", "cloudgpu", "nvidia", "nebius"], TierCells(baselineOnly));
+        Assert.Equal("5.0 n=1", CellsOf(DataRows(baselineOnly)[0])[NetColumn]);
+        Assert.Equal(NoCompletedStepsRow("local baseline", "partial"), DataRows(baselineOnly)[1]);
+    }
+
+    [Fact]
+    public void A_file_with_rows_gets_no_no_completed_steps_row()
+    {
+        Assert.DoesNotContain("no completed steps", Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0))), StringComparison.Ordinal);
+    }
+
+    // ---- the cost format (AJ-083 fix round: criterion 2 amended) ----
+
+    [Theory]
+    [InlineData(0.0, "0.0000")]
+    [InlineData(0.00004, "0.000040")]
+    [InlineData(0.000019, "0.000019")]
+    [InlineData(0.0000058, "0.0000058")]
+    [InlineData(0.00009996, "0.0001")]
+    [InlineData(0.0001, "0.0001")]
+    [InlineData(0.0012, "0.0012")]
+    [InlineData(0.25, "0.2500")]
+    [InlineData(-0.000019, "-0.000019")]
+    [InlineData(9.9996e-6, "0.000010")]
+    [InlineData(9.99999e-7, "0.0000010")]
+    [InlineData(9.9996e-16, "0.0000000000000010")]
+    public void Cost_keeps_four_decimals_from_a_ten_thousandth_and_two_significant_digits_below(double value, string expected) =>
+        Assert.Equal(expected, InvariantFormat.Cost(value));
+
+    [Fact]
+    public void Cost_below_a_ten_thousandth_never_uses_an_exponent_and_a_range_applies_the_rule_to_each_bound()
+    {
+        Assert.Equal("0.0000000012", InvariantFormat.Cost(0.0000000012));
+        Assert.DoesNotContain("E", InvariantFormat.Cost(1.2e-12), StringComparison.Ordinal);
+        Assert.Equal(
+            "0.000019 EUR [0.000012 to 0.0006] n=3 estimated",
+            InvariantFormat.Cell(Valued(0.000019, 0.000012, 0.00058, 3, 3, MetricLabel.Estimated, "EUR"), CellKind.Cost, Escaped));
+    }
+
+    [Fact]
+    public void No_cost_cell_of_the_committed_local_or_nebius_fixture_prints_a_zero()
+    {
+        foreach (Tier tier in new[] { Tier.Local, Tier.Nebius })
+        {
+            string text = Render(Wrap(RunDocumentFixtures.Committed(tier)));
+            string[] costs = [.. DataRows(text).Select(CellsOf).Where(cells => cells[TaskColumn] != ReportSentences.NotRun).Select(cells => cells[CostColumn])];
+
+            Assert.NotEmpty(costs);
+            Assert.All(costs, cost => Assert.DoesNotMatch(@"^0\.0000 ", cost));
+            Assert.All(costs, cost => Assert.Matches(@"^0\.0000\d+ (EUR|USD) n=1 estimated$", cost));
+        }
+    }
+
+    [Fact]
+    public void The_no_completed_steps_row_shows_the_run_flags_of_its_file_like_every_other_row()
+    {
+        SelectedRun flagged = RunOf(
+            Tier.Local,
+            [],
+            tasks: [TaskName],
+            edit: document => document with { Run = document.Run with { Status = RunStatus.Partial, StopReason = "budget-reached", Flags = [RunFlagNames.PartialOffload] } });
+        SelectedRun completed = RunOf(Tier.Nebius, [], tasks: [TaskName]);
+
+        string text = Render(flagged, completed);
+
+        string[] rows = DataRows(text);
+        Assert.Equal(NoCompletedStepsRow("local", "partial-offload, partial"), rows[0]);
+        Assert.Equal(NoCompletedStepsRow("nebius", string.Empty), rows[3]);
+        Assert.Equal("partial-offload, partial", CellsOf(rows[0])[FlagsColumn]);
+    }
+
+    [Theory]
+    [InlineData(9e-15)]
+    [InlineData(1e-15)]
+    [InlineData(1e-20)]
+    [InlineData(1e-300)]
+    [InlineData(double.Epsilon)]
+    public void Cost_of_any_positive_double_prints_two_significant_digits_in_fixed_notation_and_never_throws(double value)
+    {
+        string text = InvariantFormat.Cost(value);
+
+        Assert.DoesNotContain("E", text, StringComparison.Ordinal);
+        Assert.Matches(@"^0\.0+[1-9][0-9]$", text);
+        Assert.Equal(text, InvariantFormat.Cost(-value).TrimStart('-'));
+    }
+
+    [Fact]
+    public void A_cost_below_ten_to_the_minus_fourteen_that_the_validator_accepts_renders_in_the_summary()
+    {
+        foreach (double value in new[] { 9e-15, 1e-15, 1e-20, 1e-14 })
+        {
+            string[] row = RowOfTask(Render(RunOf(Tier.Local, [Step(cost: Metric.Estimated(value, "EUR"))])));
+
+            Assert.Matches(@"^0\.0+[1-9][0-9] EUR n=1 estimated$", row[CostColumn]);
+        }
+
+        Assert.Equal("0.000000000000010 EUR n=1 estimated", RowOfTask(Render(RunOf(Tier.Local, [Step(cost: Metric.Estimated(1e-14, "EUR"))])))[CostColumn]);
+        Assert.True(InvariantFormat.Cost(double.Epsilon).Length < 400);
+    }
+
+    private static string ModelsDifferLineOf(params SelectedRun[] runs) =>
+        Assert.Single(DisclosureLines(Render(runs)), candidate => candidate.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+
+    [Fact]
+    public void A_model_id_with_forged_separators_cannot_hide_a_real_models_differ_entry()
+    {
+        string forged = "a, b, c, " + new string('z', 120);
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", forged));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "nv-model"));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "nb-model"));
+
+        string line = ModelsDifferLineOf(local, nvidia, nebius);
+
+        Assert.StartsWith(ReportSentences.ModelsDifferPrefix + "local=a, b, c, zzz", line, StringComparison.Ordinal);
+        Assert.EndsWith("..." + " \\(Q4\\_K\\_M\\), nvidia=nv-model \\(N/A\\), nebius=nb-model \\(FP8\\)", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_model_id_that_looks_like_an_entry_stays_inside_its_own_entry()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "x, nvidia=fake (FP16)"));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "real-model"));
+
+        string line = ModelsDifferLineOf(local, nvidia);
+
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=x, nvidia=fake \\(FP16\\) \\(Q4\\_K\\_M\\), nvidia=real-model \\(N/A\\)", line);
+    }
+
+    [Fact]
+    public void The_models_differ_line_prints_NA_for_a_tier_without_models_or_precision_and_joins_duplicates_once_in_order()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, null));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m1", "z1", "m1", "b1"));
+
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=N/A \\(N/A\\), nebius=b1+m1+z1 \\(FP8\\)", ModelsDifferLineOf(local, nebius));
+    }
+
+    [Fact]
+    public void The_models_differ_line_lists_primary_tiers_only()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+        SelectedRun localBaseline = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), RunVariant.Baseline, edit: document => WithModels(document, "FP8", "base-model"));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2"));
+
+        string line = ModelsDifferLineOf(local, localBaseline, nebius);
+
+        Assert.DoesNotContain("base-model", line, StringComparison.Ordinal);
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=m1 \\(Q4\\_K\\_M\\), nebius=m2 \\(FP8\\)", line);
     }
 }

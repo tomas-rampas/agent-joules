@@ -1,13 +1,9 @@
-using System.Globalization;
 using System.Reflection;
 
-using AgentJoules.Core.Configuration;
-using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Render;
-using AgentJoules.Reporting.Results;
 using AgentJoules.TestSupport;
 
 namespace AgentJoules.Specs.Support;
@@ -19,12 +15,6 @@ namespace AgentJoules.Specs.Support;
 /// </summary>
 public sealed class AggregationContext
 {
-    private const string TaskName = "summarise";
-    private const string AgentName = "Planner";
-    private const string Stamp = "20261023T093000Z";
-
-    private static readonly string[] CrossTierWords = ["ratio", "rank", "best", "winner", "combined", "overall", "versus", "leader"];
-
     private readonly List<SelectedRun> _runs = [];
 
     /// <summary>The model the When step built, or null before it.</summary>
@@ -40,7 +30,7 @@ public sealed class AggregationContext
             .. types
                 .SelectMany(type => type.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
                 .Select(member => member.Name)
-                .Where(name => CrossTierWords.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)))
+                .Where(name => ReportRunFixtures.CrossTierWords.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase)))
                 .Distinct(StringComparer.Ordinal),
         ];
     }
@@ -70,40 +60,8 @@ public sealed class AggregationContext
     /// <summary>Runs the real aggregator over the files added so far.</summary>
     public void Aggregate() => Model = ReportAggregator.Build(_runs);
 
-    private void AddRun(Tier tier, StepReading[] steps)
-    {
-        RunDocument document = RunDocumentFixtures.Document(steps, []);
-        DateTimeOffset startUtc = DateTimeOffset.ParseExact(Stamp, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        document = document with { Run = document.Run with { Tier = tier, StartUtc = startUtc, Tasks = [TaskName] } };
-        _runs.Add(new SelectedRun(RunVariant.Primary, $"{Stamp}-{TierOptions.NameOf(tier)}.json", document));
-    }
+    private void AddRun(Tier tier, StepReading[] steps) => _runs.Add(ReportRunFixtures.RunOf(tier, steps));
 
-    private static StepReading Step(Tier tier, string modelId, int repeat, Metric netJoules, ReadingFlags flags = ReadingFlags.None)
-    {
-        bool hosted = TierKinds.IsHosted(tier);
-        DateTimeOffset start = StepReadingFixtures.StartUtc.AddSeconds(2 * repeat);
-
-        return new StepReading(
-            task: TaskName,
-            repeat: repeat,
-            agent: AgentName,
-            modelId: modelId,
-            tier: tier,
-            startUtc: start,
-            endUtc: start.AddSeconds(1),
-            outcome: StepOutcomes.Ok,
-            latencyMs: Metric.Measured(1000.0, "ms"),
-            ttftMs: Metric.Measured(250.0, "ms"),
-            inputTokens: Metric.Measured(120.0, "tokens"),
-            outputTokens: Metric.Measured(80.0, "tokens"),
-            grossJoules: hosted ? Metric.NotApplicable("hosted-tier") : Metric.Measured((netJoules.Value ?? 0.0) + 30.0, "J"),
-            netJoules: netJoules,
-            avgW: hosted ? Metric.NotApplicable("hosted-tier") : Metric.Measured(90.0, "W"),
-            peakW: hosted ? Metric.NotApplicable("hosted-tier") : Metric.Measured(110.0, "W"),
-            cost: Metric.NotApplicable("cost-not-configured"),
-            retries: 0,
-            waitMs: 0,
-            flags: flags,
-            method: hosted ? null : EnergyMethod.Counter);
-    }
+    private static StepReading Step(Tier tier, string modelId, int repeat, Metric netJoules, ReadingFlags flags = ReadingFlags.None) =>
+        ReportRunFixtures.Step(tier, repeat: repeat, modelId: modelId, net: netJoules, flags: flags);
 }
