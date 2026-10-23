@@ -17,4 +17,18 @@ public static class ReportSentences
     /// once per <c>run</c> command, before the first step line.
     /// </summary>
     public const string GpuBoardOnly = "Energy is GPU-board energy only.";
+
+    /// <summary>
+    /// The scope of the workflow figures (REQ-016, AJ-082): the judge calls are summed apart from the workflow, so no row and no workflow total includes them. Every report surface prints it.
+    /// </summary>
+    public const string JudgeExcluded = "Judge calls are excluded from workflow totals.";
+
+    /// <summary>The disclosure of a self-judged run (REQ-016, AJ-082): the judge model is also one of the workflow models, so the quality scores are not independent of the model under test.</summary>
+    public const string SelfJudged = "Self-judging: the judge model is also a workflow model.";
+
+    /// <summary>
+    /// The start of the disclosure that the tiers ran different models or precisions (REQ-016, AJ-082, P-15). The report appends one <c>tier=models (precision)</c> entry per primary tier; it states a fact and never
+    /// compares the tiers.
+    /// </summary>
+    public const string ModelsDifferPrefix = "Models differ across tiers: ";
 }

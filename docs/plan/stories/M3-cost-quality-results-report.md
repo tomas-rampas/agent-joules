@@ -803,13 +803,14 @@ Note (2026-10-23, AJ-081, as delivered): the pinned readings P-1 to P-4 and P-25
 
 ### AJ-082: Aggregate repeats into report rows without merging tiers
 Covers: REQ-016
+Note (2026-10-22, AJ-082): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-082-aggregation.feature` (the story table's `Aggregation.feature`, the story block verbatim, cmp exit 0 checked by the docs writer); pinned readings P-4 to P-10, P-14 and P-15 and the kept pins P-a to P-d applied (the row key carries the variant, only `ok` steps enter cells, the median and `n` over the valued repeats, no cross-tier member). Measured: 131 ReportRenderingTests and 5 AJ-S082 scenarios green (battery 1 `Spec=REQ-016` 131 passed, 1 skipped, exit 0); deviations: criteria 1, 4 and 5 amended per S-3, S-4 and S-5 and the design per S-11.
 User story: As a reader of the report, I want one row per tier, task and agent showing the median with its range and the number of repeats, so that variation is visible and laptop and cloud numbers are never mixed.
 Acceptance criteria:
-1. A report row is `(tier, task, agent)`; each value cell holds the median with `[min-max]` and `n` over the repeats (test `Median_min_max_n`; fixture repeats 10, 12, 14 give median 12 and range 10-14, n 3).
+1. A report row is `(tier, variant, task, agent)` (variant: the latest file or the `-baseline` file); each value cell holds the median with `[min to max]` and `n` over the `ok` repeats that have a value (`total`: the `ok` repeats) (test `Median_min_max_n`; fixture repeats 10, 12, 14 give median 12 and range 10-14, n 3).
 2. Rows of different tiers are never merged or averaged, including `local` and `cloudgpu` with equal model IDs; nothing is ranked and no ratio between tiers is computed.
 3. A cell whose repeats are all N/A or not-reported keeps that label with a null value; N/A is never averaged as zero (test `All_NA_cell_stays_NA`).
-4. Assumption to confirm: when some repeats lack a value, the median is taken over the repeats that have one and `n` counts only those.
-5. A label other than `measured` and every flag found on any repeat is carried to the aggregate cell (for example `low-resolution`).
+4. When some repeats lack a value, the median is taken over the repeats that have one, `n` counts only those, the cell keeps their label and shows `n=<n> of <total>` (confirmed 2026-10-22, M3 kickoff).
+5. The cell keeps the label of its valued repeats, so a label other than `measured` is carried to the aggregate cell; every flag found on any `ok` repeat, and the file's baseline flags, are carried to the aggregate row (flags column) (for example `low-resolution`).
 6. Cost cells keep their currency code; quality cells keep the `model-judged` label.
 BDD scenarios:
 ```gherkin
@@ -844,19 +845,21 @@ Feature: AJ-082 Aggregate repeats into report rows without merging tiers
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-082-T1 | Write the failing BDD feature and unit tests for aggregation | tests/AgentJoules.Specs/Features/Reporting/Aggregation.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-081-T1 |
+| AJ-082-T1 | Write the failing BDD feature and unit tests for aggregation | tests/AgentJoules.Specs/Features/Reporting/AJ-082-aggregation.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-081-T1 |
 | AJ-082-T2 | Create the report model records | src/AgentJoules.Reporting/Render/ReportModel.cs | 0.75 | AJ-082-T1 |
 | AJ-082-T3 | Implement median, min, max and n over repeats with label handling | src/AgentJoules.Reporting/Render/ReportAggregator.cs | 1.5 | AJ-082-T2 |
 | AJ-082-T4 | Carry labels, flags and currency to aggregate cells | src/AgentJoules.Reporting/Render/ReportAggregator.cs | 0.75 | AJ-082-T3 |
 | AJ-082-T5 | Record the row definition and the mixed-label assumption in the build log | docs/build-log.md | 0.25 | AJ-082-T4 |
-Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/Aggregation.feature`.
+Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-082-aggregation.feature`.
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the median rule (written in M4).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] the mixed-label assumption in criterion 4 is confirmed or replaced and the outcome noted in `docs/build-log.md`
+- [x] the mixed-label assumption in criterion 4 is confirmed or replaced and the outcome noted in `docs/build-log.md`
 Demo relevance: yes: every table and chart row in the demo is one aggregate row.
 Conflict: C-07 (design 9.2) - the page requirement of one row per step conflicts with the median over repeats; resolution: a row is the aggregate of one `(tier, task, agent)` over its repeats.
+
+Note (2026-10-23, AJ-082, as delivered): builder choices 1 to 5 as delivered: 1 the model IDs of a row and the energy methods of a tier read every step of the key or file (only the sampling-fallback fact reads ok steps), accepted by the spec review 2026-10-23: no AJ-082 criterion names which steps feed the row model IDs or the tier energy methods; 2 valued repeats of one cell with more than one label or more than one unit throw `ArgumentException` (the mixed-currency check runs first and gives N/A without throwing); 3 `ModelsText` prints N/A when a file names no model; 4 `Build` refuses a step whose tier differs from the run tier, naming `runs[i].Document.Steps[j]`, because neither the model nor the schema checks it and the fix round added the check (the row tier is `Document.Run.Tier`); 5 `Build` refuses a null list, a null element or a null document with `ArgumentNullException`, and the name, tier and variant rules with `ArgumentException`, and `Build` of an empty list is valid (no rows, all four tiers not run, two disclosures). Fix round (2026-10-23, 04:46Z to 04:53Z): the rows are grouped in one pass over `steps[]` (2,000 distinct-key steps in 101 ms, 84.3 s before the round); a located throw names `runs[i].Document.Steps[j].<member>` with ParamName `runs`; `Build` refuses a run whose status is not `completed` or `partial`, a run whose flags hold `non-publishable`, and a file name whose timestamp is not `run.startUtc` to the UTC second (the name comes from the same instant the writer records). This makes the `SelectedRun` contract stricter for AJ-083 to AJ-086; every file the tool writes and the committed fixtures satisfy it.
 
 ### AJ-083: Render the Markdown summary with honest labels
 Covers: REQ-016, EDGE-003, EDGE-002, EDGE-004, EDGE-007

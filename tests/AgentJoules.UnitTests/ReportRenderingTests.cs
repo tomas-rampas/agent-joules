@@ -1,7 +1,13 @@
+using System.Globalization;
+using System.Reflection;
 using System.Text;
 
+using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Energy;
+using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
+using AgentJoules.Reporting.Render;
 using AgentJoules.Reporting.Results;
 using AgentJoules.TestSupport;
 
@@ -13,6 +19,8 @@ namespace AgentJoules.UnitTests;
 /// AJ-081 (REQ-016): the run files a report may use. The header reader returns the tier, the status and the flags of the <c>run</c> object and one reason token for a header it cannot read; the selector
 /// returns, per tier and per variant, the newest file by name whose header is accepted (completed or partial, not <c>non-publishable</c>), never opens a probe, calibration or non-matching file, reads only the
 /// header, and reports an unreadable header or a tier that differs from the name as a problem, never as a tier that was not run.
+/// AJ-082 (REQ-016): the aggregation of repeats into report rows. A row is (tier, variant, task, agent) over the <c>ok</c> steps of one run file; each value cell holds the median of the repeats that have a value
+/// with the range and <c>n</c>, keeps their label, unit and currency, and is N/A or not-reported with a null value when no repeat has one; rows of different tiers or variants are never merged, ranked or compared.
 /// </summary>
 [Trait("Spec", "REQ-016")]
 public sealed class ReportRenderingTests
@@ -944,5 +952,1011 @@ public sealed class ReportRenderingTests
         public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    // ---- the aggregation of repeats into report rows (AJ-082) ----
+
+    private const string Stamp = "20261023T093000Z";
+    private const string TaskName = "summarise";
+    private const string Planner = "Planner";
+
+    private static readonly string[] CrossTierWords = ["ratio", "rank", "best", "winner", "combined", "overall", "versus", "leader"];
+
+    private static string NameOf(Tier tier, RunVariant variant, string stamp = Stamp) =>
+        $"{stamp}-{TierOptions.NameOf(tier)}{(variant == RunVariant.Baseline ? "-baseline" : string.Empty)}.json";
+
+    private static StepReading Step(
+        Tier tier = Tier.Local,
+        string task = TaskName,
+        int repeat = 1,
+        string agent = Planner,
+        string modelId = "model-a",
+        string outcome = StepOutcomes.Ok,
+        Metric? net = null,
+        Metric? inputTokens = null,
+        Metric? latency = null,
+        Metric? cost = null,
+        Metric? quality = null,
+        ReadingFlags flags = ReadingFlags.None,
+        EnergyMethod? method = null,
+        string? judgedAgent = null,
+        Metric? gross = null,
+        Metric? avgW = null,
+        Metric? peakW = null,
+        Metric? outputTokens = null,
+        Metric? ttft = null)
+    {
+        bool hosted = TierKinds.IsHosted(tier);
+        Metric hostedNa = Metric.NotApplicable("hosted-tier");
+        Metric netJoules = net ?? (hosted ? hostedNa : Metric.Measured(60.0, "J"));
+        DateTimeOffset start = StepReadingFixtures.StartUtc.AddSeconds(2 * repeat);
+
+        return new StepReading(
+            task: task,
+            repeat: repeat,
+            agent: agent,
+            modelId: modelId,
+            tier: tier,
+            startUtc: start,
+            endUtc: start.AddSeconds(1),
+            outcome: outcome,
+            latencyMs: latency ?? Metric.Measured(1000.0, "ms"),
+            ttftMs: ttft ?? Metric.Measured(250.0, "ms"),
+            inputTokens: inputTokens ?? Metric.Measured(120.0, "tokens"),
+            outputTokens: outputTokens ?? Metric.Measured(80.0, "tokens"),
+            grossJoules: gross ?? (hosted ? hostedNa : Metric.Measured((netJoules.Value ?? 0.0) + 30.0, "J")),
+            netJoules: netJoules,
+            avgW: avgW ?? (hosted ? hostedNa : Metric.Measured(90.0, "W")),
+            peakW: peakW ?? (hosted ? hostedNa : Metric.Measured(110.0, "W")),
+            cost: cost ?? Metric.NotApplicable("cost-not-configured"),
+            retries: 0,
+            waitMs: 0,
+            flags: flags,
+            method: hosted ? null : method ?? EnergyMethod.Counter,
+            quality: quality,
+            judgedAgent: judgedAgent);
+    }
+
+    // On a hosted tier the energy is N/A whatever the caller asks for, so the values only count the repeats there.
+    private static StepReading[] NetSteps(Tier tier, params double[] values) =>
+        [.. values.Select((value, index) => Step(tier, repeat: index + 1, net: TierKinds.IsHosted(tier) ? null : Metric.Measured(value, "J")))];
+
+    private static SelectedRun RunOf(
+        Tier tier,
+        IReadOnlyList<StepReading> steps,
+        RunVariant variant = RunVariant.Primary,
+        IReadOnlyList<StepReading>? judge = null,
+        IReadOnlyList<string>? tasks = null,
+        Func<RunDocument, RunDocument>? edit = null,
+        string stamp = Stamp)
+    {
+        RunDocument document = RunDocumentFixtures.Document(steps, judge ?? []);
+
+        // The name of a run file starts with the start of the run formatted to the second, and Build checks that.
+        DateTimeOffset startUtc = DateTimeOffset.ParseExact(stamp, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        document = document with { Run = document.Run with { Tier = tier, StartUtc = startUtc, Tasks = tasks ?? [.. steps.Select(step => step.Task).Distinct(StringComparer.Ordinal)] } };
+        if (edit is not null)
+        {
+            document = edit(document);
+        }
+
+        return new SelectedRun(variant, NameOf(tier, variant, stamp), document);
+    }
+
+    private static SelectedRun RunOfNet(Tier tier, params double[] values) => RunOf(tier, NetSteps(tier, values));
+
+    private static ReportRow OnlyRow(params SelectedRun[] runs) => Assert.Single(ReportAggregator.Build(runs).Rows);
+
+    private static ReportCell[] ValueCells(ReportRow row) =>
+        [row.GrossJoules, row.NetJoules, row.AvgW, row.PeakW, row.InputTokens, row.OutputTokens, row.LatencyMs, row.TtftMs, row.Cost, row.Quality];
+
+    private static RunDocument WithModels(RunDocument document, string? precision, params string[] modelIds) =>
+        document with { Environment = RunDocumentFixtures.Environment([.. modelIds.Select(id => new EnvironmentModel(Planner, id, Baseline: false))]) with { Precision = precision } };
+
+    [Fact]
+    public void Median_min_max_n()
+    {
+        ReportRow row = OnlyRow(RunOfNet(Tier.Local, 10.0, 12.0, 14.0));
+
+        Assert.Equal(Tier.Local, row.Tier);
+        Assert.Equal(RunVariant.Primary, row.Variant);
+        Assert.Equal(TaskName, row.Task);
+        Assert.Equal(Planner, row.Agent);
+        Assert.Equal(3, row.Repeats);
+        ReportCell cell = row.NetJoules;
+        Assert.Equal(12.0, cell.Median);
+        Assert.Equal(10.0, cell.Min);
+        Assert.Equal(14.0, cell.Max);
+        Assert.Equal(3, cell.N);
+        Assert.Equal(3, cell.Total);
+        Assert.Equal(MetricLabel.Measured, cell.Label);
+        Assert.Equal("J", cell.Unit);
+        Assert.Null(cell.Currency);
+        Assert.Empty(cell.Reasons);
+    }
+
+    [Fact]
+    public void Median_sorts_the_values()
+    {
+        ReportCell cell = OnlyRow(RunOfNet(Tier.Local, 14.0, 10.0, 12.0)).NetJoules;
+
+        Assert.Equal(12.0, cell.Median);
+        Assert.Equal(10.0, cell.Min);
+        Assert.Equal(14.0, cell.Max);
+    }
+
+    [Theory]
+    [InlineData(11.0, 10.0, 12.0)]
+    [InlineData(2.5, 1.0, 2.0, 3.0, 10.0)]
+    [InlineData(5.0, 5.0, 5.0)]
+    public void Even_n_median_is_mean_of_middles(double expected, params double[] values)
+    {
+        ReportCell cell = OnlyRow(RunOfNet(Tier.Local, values)).NetJoules;
+
+        Assert.Equal(expected, cell.Median);
+        Assert.Equal(values.Length, cell.N);
+    }
+
+    [Fact]
+    public void Zero_is_a_value_not_a_missing_value()
+    {
+        ReportCell cell = OnlyRow(RunOfNet(Tier.Local, 0.0)).NetJoules;
+
+        Assert.Equal(0.0, cell.Median);
+        Assert.Equal(1, cell.N);
+        Assert.Equal(MetricLabel.Measured, cell.Label);
+    }
+
+    [Fact]
+    public void Mixed_cell_keeps_valued_label_and_total()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, net: Metric.Measured(10.0, "J")),
+            Step(repeat: 2, net: Metric.NotReported("sampler-unavailable")),
+            Step(repeat: 3, net: Metric.Measured(14.0, "J")),
+        ];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).NetJoules;
+
+        Assert.Equal(12.0, cell.Median);
+        Assert.Equal(10.0, cell.Min);
+        Assert.Equal(14.0, cell.Max);
+        Assert.Equal(2, cell.N);
+        Assert.Equal(3, cell.Total);
+        Assert.Equal(MetricLabel.Measured, cell.Label);
+        Assert.Empty(cell.Reasons);
+    }
+
+    [Fact]
+    public void All_NA_cell_stays_NA()
+    {
+        StepReading[] steps = [.. Enumerable.Range(1, 3).Select(repeat => Step(Tier.Nvidia, repeat: repeat))];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Nvidia, steps));
+
+        foreach (ReportCell cell in new[] { row.GrossJoules, row.NetJoules, row.AvgW, row.PeakW })
+        {
+            Assert.Equal(MetricLabel.NotApplicable, cell.Label);
+            Assert.Null(cell.Median);
+            Assert.Null(cell.Min);
+            Assert.Null(cell.Max);
+            Assert.Equal(0, cell.N);
+            Assert.Equal(3, cell.Total);
+            Assert.Equal(["hosted-tier"], cell.Reasons);
+            Assert.Null(cell.Unit);
+        }
+
+        Assert.Equal(MetricLabel.Measured, row.InputTokens.Label);
+        Assert.Equal(120.0, row.InputTokens.Median);
+    }
+
+    [Fact]
+    public void All_not_reported_cell_keeps_not_reported()
+    {
+        StepReading[] steps = [.. Enumerable.Range(1, 3).Select(repeat => Step(repeat: repeat, net: Metric.NotReported("sampler-unavailable")))];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).NetJoules;
+
+        Assert.Equal(MetricLabel.NotReported, cell.Label);
+        Assert.Null(cell.Median);
+        Assert.Equal(0, cell.N);
+        Assert.Equal(["sampler-unavailable"], cell.Reasons);
+    }
+
+    [Fact]
+    public void NA_wins_over_not_reported_when_no_repeat_has_a_value_and_reasons_are_distinct_and_ordinal()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, cost: Metric.NotReported("not-priced")),
+            Step(repeat: 2, cost: Metric.NotApplicable("cost-not-configured")),
+            Step(repeat: 3, cost: Metric.NotReported("not-priced")),
+        ];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).Cost;
+
+        Assert.Equal(MetricLabel.NotApplicable, cell.Label);
+        Assert.Null(cell.Median);
+        Assert.Equal(["cost-not-configured", "not-priced"], cell.Reasons);
+    }
+
+    [Fact]
+    public void Mixed_currency_cost_is_NA()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, cost: Metric.Estimated(0.5, "EUR")),
+            Step(repeat: 2, cost: Metric.Estimated(0.7, "USD")),
+        ];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).Cost;
+
+        Assert.Equal(MetricLabel.NotApplicable, cell.Label);
+        Assert.Null(cell.Median);
+        Assert.Null(cell.Min);
+        Assert.Null(cell.Max);
+        Assert.Equal(0, cell.N);
+        Assert.Equal(2, cell.Total);
+        Assert.Equal([ReportAggregator.MixedCurrencyReason], cell.Reasons);
+        Assert.Null(cell.Currency);
+    }
+
+    [Fact]
+    public void Cost_cell_keeps_currency_and_estimated_label()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, cost: Metric.Estimated(0.2, "EUR")),
+            Step(repeat: 2, cost: Metric.Estimated(0.6, "EUR")),
+            Step(repeat: 3, cost: Metric.Estimated(0.4, "EUR")),
+        ];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).Cost;
+
+        Assert.Equal(0.4, cell.Median);
+        Assert.Equal("EUR", cell.Currency);
+        Assert.Equal(MetricLabel.Estimated, cell.Label);
+        Assert.Null(cell.Unit);
+    }
+
+    [Fact]
+    public void Quality_cell_keeps_model_judged_label_over_the_scored_repeats()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, quality: Metric.ModelJudged(3.0)),
+            Step(repeat: 2, quality: Metric.NotApplicable("judge-failed: HttpRequestException")),
+            Step(repeat: 3, quality: Metric.ModelJudged(5.0)),
+        ];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).Quality;
+
+        Assert.Equal(4.0, cell.Median);
+        Assert.Equal(2, cell.N);
+        Assert.Equal(3, cell.Total);
+        Assert.Equal(MetricLabel.ModelJudged, cell.Label);
+    }
+
+    // The bad run is the third input but sorts second (local, cloudgpu, nebius), so the message must carry the input index; its second row starts at steps[2]. The task and agent names must never reach the message.
+    private static ArgumentException BuildWithBadSecondRow(Func<int, StepReading> bad)
+    {
+        StepReading[] badSteps =
+        [
+            Step(Tier.CloudGpu, task: "first-task", repeat: 1),
+            Step(Tier.CloudGpu, task: "first-task", repeat: 2),
+            bad(3),
+            bad(4),
+        ];
+        SelectedRun badRun = RunOf(Tier.CloudGpu, badSteps);
+        SelectedRun nebiusRun = RunOfNet(Tier.Nebius, 1.0);
+        SelectedRun localRun = RunOfNet(Tier.Local, 1.0);
+
+        return Assert.Throws<ArgumentException>(() => ReportAggregator.Build([nebiusRun, localRun, badRun]));
+    }
+
+    [Fact]
+    public void Valued_repeats_with_two_labels_throw_naming_the_run_step_and_member()
+    {
+        ArgumentException failure = BuildWithBadSecondRow(repeat => Step(
+            Tier.CloudGpu,
+            task: "secret-task",
+            agent: "secret-agent",
+            repeat: repeat,
+            inputTokens: repeat == 3 ? Metric.Measured(100.0, "tokens") : Metric.EstimatedQuantity(100.0, "tokens")));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith("runs[2].Document.Steps[2].inputTokens: the valued repeats of its row hold more than one label.", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Valued_repeats_with_two_units_throw_naming_the_run_step_and_member()
+    {
+        ArgumentException failure = BuildWithBadSecondRow(repeat => Step(
+            Tier.CloudGpu,
+            task: "secret-task",
+            agent: "secret-agent",
+            repeat: repeat,
+            latency: Metric.Measured(1.0, repeat == 3 ? "ms" : "s")));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith("runs[2].Document.Steps[2].latencyMs: the valued repeats of its row hold more than one unit.", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Every_cell_member_holds_its_own_field_of_the_step()
+    {
+        StepReading step = Step(
+            gross: Metric.Measured(101.0, "J"),
+            net: Metric.Measured(61.0, "J"),
+            avgW: Metric.Measured(92.0, "W"),
+            peakW: Metric.Measured(113.0, "W"),
+            inputTokens: Metric.Measured(124.0, "tokens"),
+            outputTokens: Metric.Measured(85.0, "tokens"),
+            latency: Metric.Measured(1006.0, "ms"),
+            ttft: Metric.Measured(257.0, "ms"),
+            cost: Metric.Estimated(0.8, "EUR"),
+            quality: Metric.ModelJudged(4.0));
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, [step]));
+
+        Assert.Equal(101.0, row.GrossJoules.Median);
+        Assert.Equal(61.0, row.NetJoules.Median);
+        Assert.Equal(92.0, row.AvgW.Median);
+        Assert.Equal(113.0, row.PeakW.Median);
+        Assert.Equal(124.0, row.InputTokens.Median);
+        Assert.Equal(85.0, row.OutputTokens.Median);
+        Assert.Equal(1006.0, row.LatencyMs.Median);
+        Assert.Equal(257.0, row.TtftMs.Median);
+        Assert.Equal(0.8, row.Cost.Median);
+        Assert.Equal(4.0, row.Quality.Median);
+        Assert.Equal("W", row.AvgW.Unit);
+        Assert.Equal("tokens", row.OutputTokens.Unit);
+    }
+
+    [Fact]
+    public void Median_of_two_huge_values_does_not_overflow()
+    {
+        const double huge = 1.7e308;
+        StepReading[] steps = [Step(repeat: 1, latency: Metric.Measured(huge, "ms")), Step(repeat: 2, latency: Metric.Measured(huge, "ms"))];
+
+        ReportCell cell = OnlyRow(RunOf(Tier.Local, steps)).LatencyMs;
+
+        Assert.Equal(huge, cell.Median);
+        Assert.Equal(2, cell.N);
+    }
+
+    [Fact]
+    public void A_large_run_with_a_distinct_task_and_agent_per_step_builds_in_linear_time()
+    {
+        const int count = 2000;
+        StepReading[] steps = [.. Enumerable.Range(0, count).Select(index => Step(task: $"task-{index:D5}", agent: $"agent-{index:D5}"))];
+        SelectedRun run = RunOf(Tier.Local, steps);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        ReportModel model = ReportAggregator.Build([run]);
+
+        clock.Stop();
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"Build took {clock.Elapsed.TotalSeconds:F1} s for {count} steps.");
+        Assert.Equal(count, model.Rows.Count);
+        Assert.Equal(steps.Select(step => (step.Task, step.Agent)), model.Rows.Select(row => (row.Task, row.Agent)));
+    }
+
+    [Fact]
+    public void Error_repeat_is_excluded_and_counted()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, net: Metric.Measured(10.0, "J")),
+            Step(repeat: 2, outcome: StepOutcomes.Error, net: Metric.Measured(1000.0, "J")),
+            Step(repeat: 3, net: Metric.Measured(14.0, "J")),
+        ];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, steps));
+
+        Assert.Equal(3, row.Repeats);
+        Assert.Equal(1, row.Errors);
+        Assert.Equal(0, row.Cancelled);
+        Assert.Equal(0, row.Incomplete);
+        Assert.Equal(12.0, row.NetJoules.Median);
+        Assert.Equal(14.0, row.NetJoules.Max);
+        Assert.Equal(2, row.NetJoules.N);
+        Assert.Equal(2, row.NetJoules.Total);
+    }
+
+    [Fact]
+    public void Cancelled_and_incomplete_repeats_are_counted_apart()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1),
+            Step(repeat: 2, outcome: StepOutcomes.Cancelled),
+            Step(repeat: 3, outcome: StepOutcomes.Incomplete),
+            Step(repeat: 4, outcome: StepOutcomes.Incomplete),
+            Step(repeat: 5, outcome: StepOutcomes.Error),
+        ];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, steps));
+
+        Assert.Equal(5, row.Repeats);
+        Assert.Equal(1, row.Cancelled);
+        Assert.Equal(2, row.Incomplete);
+        Assert.Equal(1, row.Errors);
+        Assert.Equal(1, row.NetJoules.N);
+        Assert.Equal(1, row.NetJoules.Total);
+    }
+
+    [Fact]
+    public void All_non_ok_row_is_NA_no_ok_step()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, outcome: StepOutcomes.Error),
+            Step(repeat: 2, outcome: StepOutcomes.Cancelled),
+        ];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, steps));
+
+        Assert.Equal(2, row.Repeats);
+        Assert.Equal(1, row.Errors);
+        Assert.Equal(1, row.Cancelled);
+        Assert.Equal(ReadingFlags.None, row.Flags);
+        foreach (ReportCell cell in ValueCells(row))
+        {
+            Assert.Equal(MetricLabel.NotApplicable, cell.Label);
+            Assert.Null(cell.Median);
+            Assert.Null(cell.Min);
+            Assert.Null(cell.Max);
+            Assert.Equal(0, cell.N);
+            Assert.Equal(0, cell.Total);
+            Assert.Equal([ReportAggregator.NoOkStepReason], cell.Reasons);
+        }
+    }
+
+    [Fact]
+    public void Judge_readings_never_enter_a_row()
+    {
+        StepReading[] steps = NetSteps(Tier.Local, 10.0, 12.0, 14.0);
+        StepReading[] judge = [.. steps.Select(step => Step(Tier.Nvidia, repeat: step.Repeat, agent: "Judge", latency: Metric.Measured(999999.0, "ms"), judgedAgent: Planner))];
+
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, steps, judge: judge)]);
+
+        ReportRow row = Assert.Single(model.Rows);
+        Assert.Equal(Planner, row.Agent);
+        Assert.Equal(3, row.Repeats);
+        Assert.Equal(1000.0, row.LatencyMs.Max);
+        Assert.Equal(["model-a"], row.ModelIds);
+    }
+
+    [Fact]
+    public void Flag_on_one_repeat_reaches_row()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1),
+            Step(repeat: 2, flags: ReadingFlags.LowResolution),
+            Step(repeat: 3),
+        ];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, steps));
+
+        Assert.Equal(ReadingFlags.LowResolution, row.Flags);
+        Assert.Contains("low-resolution", ReadingFlagNames.ToStrings(row.Flags));
+        Assert.Equal(MetricLabel.Measured, row.NetJoules.Label);
+    }
+
+    [Fact]
+    public void Flags_of_the_ok_repeats_are_united_and_those_of_other_repeats_are_not()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, flags: ReadingFlags.LowResolution),
+            Step(repeat: 2, flags: ReadingFlags.SharedWindow),
+            Step(repeat: 3, outcome: StepOutcomes.Error, flags: ReadingFlags.MaxTokensExceeded),
+        ];
+
+        ReportRow row = OnlyRow(RunOf(Tier.Local, steps));
+
+        Assert.Equal(ReadingFlags.LowResolution | ReadingFlags.SharedWindow, row.Flags);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Baseline_unstable_reaches_every_row(bool unstable)
+    {
+        StepReading[] steps = [Step(agent: "Planner"), Step(agent: "Writer")];
+        BaselineResult baseline = unstable
+            ? new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(6.0, "W"), seconds: 5.0, sampleCount: 50, coefficientOfVariation: 0.2, maxCoefficientOfVariation: 0.1, ReadingFlags.BaselineUnstable)
+            : new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(1.5, "W"), seconds: 5.0, sampleCount: 50, coefficientOfVariation: 0.05, maxCoefficientOfVariation: 0.1, ReadingFlags.None);
+
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, steps, edit: document => document with { Baseline = baseline })]);
+
+        Assert.Equal(2, model.Rows.Count);
+        Assert.All(model.Rows, row => Assert.Equal(unstable, row.Flags.HasFlag(ReadingFlags.BaselineUnstable)));
+    }
+
+    [Fact]
+    public void Rows_of_different_tiers_are_not_merged()
+    {
+        ReportModel model = ReportAggregator.Build(
+        [
+            RunOf(Tier.CloudGpu, [Step(Tier.CloudGpu, modelId: "shared-model", net: Metric.Measured(20.0, "J"))]),
+            RunOf(Tier.Local, [Step(Tier.Local, modelId: "shared-model", net: Metric.Measured(10.0, "J"))]),
+        ]);
+
+        Assert.Equal(2, model.Rows.Count);
+        Assert.Equal([Tier.Local, Tier.CloudGpu], model.Rows.Select(row => row.Tier));
+        Assert.Equal([10.0, 20.0], model.Rows.Select(row => row.NetJoules.Median));
+        Assert.All(model.Rows, row => Assert.Equal(1, row.Repeats));
+        Assert.All(model.Rows, row => Assert.Equal(["shared-model"], row.ModelIds));
+    }
+
+    [Fact]
+    public void Model_has_no_cross_tier_member()
+    {
+        Type[] types = [typeof(SelectedRun), typeof(ReportCell), typeof(ReportRow), typeof(TierReport), typeof(ReportModel), typeof(ReportAggregator)];
+
+        string[] offending =
+        [
+            .. types
+                .SelectMany(type => type.GetMembers(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+                .Select(member => $"{member.DeclaringType!.Name}.{member.Name}")
+                .Where(name => CrossTierWords.Any(word => name.Contains(word, StringComparison.OrdinalIgnoreCase))),
+        ];
+
+        Assert.Empty(offending);
+    }
+
+    [Fact]
+    public void Primary_and_baseline_rows_of_a_tier_are_separate_rows()
+    {
+        ReportModel model = ReportAggregator.Build(
+        [
+            RunOf(Tier.Local, NetSteps(Tier.Local, 40.0), RunVariant.Baseline),
+            RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0)),
+        ]);
+
+        Assert.Equal(2, model.Rows.Count);
+        Assert.Equal([RunVariant.Primary, RunVariant.Baseline], model.Rows.Select(row => row.Variant));
+        Assert.Equal([11.0, 40.0], model.Rows.Select(row => row.NetJoules.Median));
+        Assert.Equal([2, 1], model.Rows.Select(row => row.Repeats));
+        Assert.Equal([RunVariant.Primary, RunVariant.Baseline], model.Tiers.Select(report => report.Variant));
+        Assert.Equal([NameOf(Tier.Local, RunVariant.Primary), NameOf(Tier.Local, RunVariant.Baseline)], model.Tiers.Select(report => report.FileName));
+    }
+
+    [Fact]
+    public void Tiers_and_rows_are_ordered_by_tier_with_the_baseline_right_after_its_primary()
+    {
+        ReportModel model = ReportAggregator.Build(
+        [
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), RunVariant.Baseline),
+            RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), RunVariant.Baseline),
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0)),
+            RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)),
+            RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)),
+        ]);
+
+        (Tier, RunVariant)[] expected =
+        [
+            (Tier.Local, RunVariant.Primary),
+            (Tier.Local, RunVariant.Baseline),
+            (Tier.Nvidia, RunVariant.Primary),
+            (Tier.Nebius, RunVariant.Primary),
+            (Tier.Nebius, RunVariant.Baseline),
+        ];
+        Assert.Equal(expected, model.Rows.Select(row => (row.Tier, row.Variant)));
+        Assert.Equal(expected, model.Tiers.Select(report => (report.Tier, report.Variant)));
+    }
+
+    [Fact]
+    public void Tiers_not_run_lists_the_known_tiers_without_a_primary_file()
+    {
+        ReportModel model = ReportAggregator.Build(
+        [
+            RunOfNet(Tier.Local, 1.0),
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), RunVariant.Baseline),
+        ]);
+
+        Assert.Equal([Tier.CloudGpu, Tier.Nvidia, Tier.Nebius], model.TiersNotRun);
+        Assert.Equal(2, model.Rows.Count);
+    }
+
+    [Fact]
+    public void No_files_give_an_empty_report_with_all_tiers_not_run()
+    {
+        ReportModel model = ReportAggregator.Build([]);
+
+        Assert.Empty(model.Tiers);
+        Assert.Empty(model.Rows);
+        Assert.Equal([Tier.Local, Tier.CloudGpu, Tier.Nvidia, Tier.Nebius], model.TiersNotRun);
+        Assert.Equal([ReportSentences.GpuBoardOnly, ReportSentences.JudgeExcluded], model.Disclosures);
+    }
+
+    [Fact]
+    public void Tasks_follow_the_run_order_then_ordinal_and_agents_follow_first_appearance()
+    {
+        StepReading[] steps =
+        [
+            Step(task: "a", agent: "Writer"),
+            Step(task: "b", agent: "Writer"),
+            Step(task: "z", agent: "Writer"),
+            Step(task: "c", agent: "Writer"),
+            Step(task: "b", agent: "Planner"),
+            Step(task: "a", agent: "Planner"),
+        ];
+
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, steps, tasks: ["b", "a"])]);
+
+        Assert.Equal(
+            [("b", "Writer"), ("b", "Planner"), ("a", "Writer"), ("a", "Planner"), ("c", "Writer"), ("z", "Writer")],
+            model.Rows.Select(row => (row.Task, row.Agent)));
+    }
+
+    [Fact]
+    public void Agents_follow_their_first_appearance_across_all_tasks()
+    {
+        StepReading[] steps =
+        [
+            Step(task: "a", agent: "Planner"),
+            Step(task: "a", agent: "Writer"),
+            Step(task: "b", agent: "Writer"),
+            Step(task: "b", agent: "Planner"),
+        ];
+
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, steps)]);
+
+        Assert.Equal([("a", "Planner"), ("a", "Writer"), ("b", "Planner"), ("b", "Writer")], model.Rows.Select(row => (row.Task, row.Agent)));
+    }
+
+    [Fact]
+    public void A_listed_task_without_steps_gives_no_row_in_a_partial_run()
+    {
+        StepReading[] steps = [Step(task: "first", agent: "Planner"), Step(task: "first", agent: "Writer")];
+        SelectedRun run = RunOf(
+            Tier.Local,
+            steps,
+            tasks: ["first", "second", "third"],
+            edit: document => document with { Run = document.Run with { Status = RunStatus.Partial } });
+
+        ReportModel model = ReportAggregator.Build([run]);
+
+        Assert.Equal([("first", "Planner"), ("first", "Writer")], model.Rows.Select(row => (row.Task, row.Agent)));
+        Assert.Equal(RunStatus.Partial, Assert.Single(model.Tiers).Status);
+    }
+
+    [Fact]
+    public void Row_model_ids_are_distinct_and_ordinal()
+    {
+        StepReading[] steps = [Step(repeat: 1, modelId: "z-model"), Step(repeat: 2, modelId: "a-model"), Step(repeat: 3, modelId: "z-model")];
+
+        Assert.Equal(["a-model", "z-model"], OnlyRow(RunOf(Tier.Local, steps)).ModelIds);
+    }
+
+    [Fact]
+    public void Build_refuses_a_null_list_and_a_null_element()
+    {
+        Assert.Throws<ArgumentNullException>(() => ReportAggregator.Build(null!));
+        Assert.Throws<ArgumentNullException>(() => ReportAggregator.Build([null!]));
+    }
+
+    [Fact]
+    public void Build_refuses_two_runs_with_the_same_tier_and_variant()
+    {
+        SelectedRun first = RunOfNet(Tier.Local, 1.0);
+        SelectedRun second = RunOf(Tier.Local, NetSteps(Tier.Local, 2.0), stamp: "20261024T093000Z");
+
+        Assert.Throws<ArgumentException>(() => ReportAggregator.Build([first, second]));
+    }
+
+    [Theory]
+    [InlineData("report.json")]
+    [InlineData("probe-20261019T205344Z.json")]
+    [InlineData("20261023T093000Z-local.json.partial")]
+    [InlineData("runs\\20261023T093000Z-local.json")]
+    [InlineData("")]
+    public void Build_refuses_a_file_name_that_is_not_a_run_file_name(string name)
+    {
+        SelectedRun run = RunOfNet(Tier.Local, 1.0) with { FileName = name };
+
+        Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+    }
+
+    [Fact]
+    public void Build_refuses_a_name_whose_tier_differs_from_the_document()
+    {
+        SelectedRun run = RunOfNet(Tier.Local, 1.0) with { FileName = NameOf(Tier.Nebius, RunVariant.Primary) };
+
+        Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+    }
+
+    [Theory]
+    [InlineData(RunVariant.Primary, "20261023T093000Z-local-baseline.json")]
+    [InlineData(RunVariant.Baseline, "20261023T093000Z-local.json")]
+    public void Build_refuses_a_name_whose_suffix_differs_from_the_variant(RunVariant variant, string name)
+    {
+        SelectedRun run = RunOfNet(Tier.Local, 1.0) with { Variant = variant, FileName = name };
+
+        Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+    }
+
+    [Fact]
+    public void Build_refuses_an_undefined_variant_and_a_null_document()
+    {
+        SelectedRun undefinedVariant = RunOfNet(Tier.Local, 1.0) with { Variant = (RunVariant)0 };
+        SelectedRun nullDocument = RunOfNet(Tier.Local, 1.0) with { Document = null! };
+
+        Assert.Throws<ArgumentException>(() => ReportAggregator.Build([undefinedVariant]));
+        Assert.Throws<ArgumentNullException>(() => ReportAggregator.Build([nullDocument]));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Build_refuses_a_step_of_another_tier_than_the_run(int mismatched)
+    {
+        StepReading[] steps = [.. Enumerable.Range(0, 3).Select(index => Step(index == mismatched ? Tier.Nvidia : Tier.Local, repeat: index + 1))];
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => ReportAggregator.Build([RunOf(Tier.Local, steps)]));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith($"runs[0].Document.Steps[{mismatched}].Tier differs from the run tier.", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(RunStatus.Running)]
+    [InlineData(RunStatus.Failed)]
+    [InlineData(RunStatus.Incomplete)]
+    public void Build_refuses_a_run_that_is_not_completed_or_partial(RunStatus status)
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { Status = status } });
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith("runs[0].Document.Run.Status is not completed or partial", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(RunStatus.Completed)]
+    [InlineData(RunStatus.Partial)]
+    public void Build_accepts_a_completed_or_partial_run(RunStatus status)
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { Status = status } });
+
+        Assert.Equal(status, Assert.Single(ReportAggregator.Build([run]).Tiers).Status);
+    }
+
+    [Fact]
+    public void Build_refuses_a_non_publishable_run()
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { Flags = [RunFlagNames.PartialOffload, RunFlagNames.NonPublishable] } });
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith("runs[0].Document.Run.Flags holds non-publishable", failure.Message, StringComparison.Ordinal);
+    }
+
+    // The run starts at 2026-10-23 09:30:00 UTC: another day and one second later are both another timestamp.
+    [Theory]
+    [InlineData("20261024T093000Z")]
+    [InlineData("20261023T093001Z")]
+    public void Build_refuses_a_name_whose_timestamp_is_not_the_start_of_the_run(string stamp)
+    {
+        SelectedRun run = RunOfNet(Tier.Local, 1.0) with { FileName = NameOf(Tier.Local, RunVariant.Primary, stamp) };
+
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => ReportAggregator.Build([run]));
+
+        Assert.Equal("runs", failure.ParamName);
+        Assert.StartsWith("runs[0].FileName has another timestamp than run.startUtc", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_takes_the_timestamp_of_the_name_from_the_start_of_the_run_to_the_second_in_utc()
+    {
+        // 09:30:00.9 at +02:00 is 07:30:00 UTC: the name carries the UTC second, the fraction is dropped.
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { StartUtc = new DateTimeOffset(2026, 10, 23, 9, 30, 0, 900, TimeSpan.FromHours(2)) } }, stamp: "20261023T073000Z");
+
+        Assert.Single(ReportAggregator.Build([run]).Tiers);
+    }
+
+    [Fact]
+    public void Totals_are_the_totals_of_each_file_and_never_summed()
+    {
+        SelectedRun local = RunOfNet(Tier.Local, 1.0);
+        SelectedRun nvidia = RunOfNet(Tier.Nvidia, 1.0);
+
+        ReportModel model = ReportAggregator.Build([local, nvidia]);
+
+        Assert.Same(local.Document.Totals, model.Tiers[0].Totals);
+        Assert.Same(nvidia.Document.Totals, model.Tiers[1].Totals);
+    }
+
+    [Fact]
+    public void Tier_report_carries_the_facts_of_the_file()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            NetSteps(Tier.Local, 1.0),
+            edit: document => document with { Run = document.Run with { Status = RunStatus.Partial, Mode = RunMode.Concurrent, Flags = [RunFlagNames.PartialOffload], SelfJudged = null } });
+
+        TierReport report = Assert.Single(ReportAggregator.Build([run]).Tiers);
+
+        Assert.Equal(Tier.Local, report.Tier);
+        Assert.Equal(RunVariant.Primary, report.Variant);
+        Assert.Equal(NameOf(Tier.Local, RunVariant.Primary), report.FileName);
+        Assert.Equal(run.Document.Run.StartUtc, report.StartUtc);
+        Assert.Equal(RunStatus.Partial, report.Status);
+        Assert.Equal(RunMode.Concurrent, report.Mode);
+        Assert.Equal("Test GPU", report.GpuName);
+        Assert.Equal("555.00", report.DriverVersion);
+        Assert.Equal("ollama", report.LocalRuntime);
+        Assert.Equal("0.1.0", report.RuntimeVersion);
+        Assert.Equal("Q4_K_M", report.Precision);
+        Assert.Equal("off", report.ReasoningMode);
+        Assert.Null(report.PowerSource);
+        Assert.Equal(run.Document.Environment.Models, report.Models);
+        Assert.Equal([RunFlagNames.PartialOffload], report.RunFlags);
+        Assert.Null(report.SelfJudged);
+    }
+
+    [Fact]
+    public void Tier_report_lists_judge_models_energy_methods_and_the_sampling_fallback()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, method: EnergyMethod.Sampling),
+            Step(repeat: 2, method: EnergyMethod.Counter),
+            Step(repeat: 3, method: EnergyMethod.Sampling),
+        ];
+        StepReading[] judge = [.. steps.Select(step => Step(Tier.Nvidia, repeat: step.Repeat, agent: "Judge", modelId: step.Repeat == 2 ? "b-judge" : "a-judge", judgedAgent: Planner))];
+
+        TierReport report = Assert.Single(ReportAggregator.Build([RunOf(Tier.Local, steps, judge: judge)]).Tiers);
+
+        Assert.Equal(["a-judge", "b-judge"], report.JudgeModelIds);
+        Assert.Equal([EnergyMethod.Counter, EnergyMethod.Sampling], report.EnergyMethods);
+        Assert.False(report.SamplingFallback);
+    }
+
+    [Theory]
+    [InlineData(StepOutcomes.Ok, true)]
+    [InlineData(StepOutcomes.Error, false)]
+    public void Sampling_fallback_counts_only_ok_steps(string outcome, bool expected)
+    {
+        StepReading[] steps = [Step(repeat: 1), Step(repeat: 2, outcome: outcome, flags: ReadingFlags.SamplingFallback, method: EnergyMethod.Sampling)];
+
+        TierReport report = Assert.Single(ReportAggregator.Build([RunOf(Tier.Local, steps)]).Tiers);
+
+        Assert.Equal(expected, report.SamplingFallback);
+    }
+
+    [Fact]
+    public void Disclosure_sentences_are_verbatim()
+    {
+        Assert.Equal("Judge calls are excluded from workflow totals.", ReportSentences.JudgeExcluded);
+        Assert.Equal("Self-judging: the judge model is also a workflow model.", ReportSentences.SelfJudged);
+        Assert.Equal("Models differ across tiers: ", ReportSentences.ModelsDifferPrefix);
+    }
+
+    [Fact]
+    public void Disclosures_hold_the_two_fixed_sentences_for_a_plain_run()
+    {
+        ReportModel model = ReportAggregator.Build([RunOfNet(Tier.Local, 1.0)]);
+
+        Assert.Equal([ReportSentences.GpuBoardOnly, ReportSentences.JudgeExcluded], model.Disclosures);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(null, false)]
+    public void Self_judged_sentence_follows_the_run_flag(bool? selfJudged, bool expected)
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { SelfJudged = selfJudged } });
+
+        ReportModel model = ReportAggregator.Build([run]);
+
+        Assert.Equal(expected, model.Disclosures.Contains(ReportSentences.SelfJudged));
+        Assert.Equal(selfJudged, Assert.Single(model.Tiers).SelfJudged);
+    }
+
+    [Fact]
+    public void Concurrent_sentence_follows_the_mode_of_any_tier()
+    {
+        SelectedRun serialized = RunOfNet(Tier.Local, 1.0);
+        SelectedRun concurrent = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => document with { Run = document.Run with { Mode = RunMode.Concurrent } });
+
+        Assert.DoesNotContain(ReportSentences.ConcurrentOverlap, ReportAggregator.Build([serialized]).Disclosures);
+        Assert.Contains(ReportSentences.ConcurrentOverlap, ReportAggregator.Build([serialized, concurrent]).Disclosures);
+    }
+
+    [Fact]
+    public void Models_differ_line_lists_models_and_precision_per_primary_tier_in_tier_order()
+    {
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "nv-model"));
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "z-model", "a-model"));
+
+        ReportModel model = ReportAggregator.Build([nvidia, local]);
+
+        Assert.Equal(
+            [ReportSentences.GpuBoardOnly, ReportSentences.JudgeExcluded, "Models differ across tiers: local=a-model+z-model (Q4_K_M), nvidia=nv-model (N/A)"],
+            model.Disclosures);
+    }
+
+    [Fact]
+    public void Disclosures_keep_their_order_and_appear_once()
+    {
+        SelectedRun local = RunOf(
+            Tier.Local,
+            NetSteps(Tier.Local, 1.0),
+            edit: document => WithModels(document, "Q4_K_M", "m1") with { Run = document.Run with { SelfJudged = true, Mode = RunMode.Concurrent } });
+        SelectedRun nebius = RunOf(
+            Tier.Nebius,
+            NetSteps(Tier.Nebius, 1.0),
+            edit: document => WithModels(document, "FP8", "m2") with { Run = document.Run with { SelfJudged = true, Mode = RunMode.Concurrent } });
+
+        IReadOnlyList<string> disclosures = ReportAggregator.Build([nebius, local]).Disclosures;
+
+        Assert.Equal(
+            [
+                ReportSentences.GpuBoardOnly,
+                ReportSentences.JudgeExcluded,
+                ReportSentences.SelfJudged,
+                ReportSentences.ConcurrentOverlap,
+                "Models differ across tiers: local=m1 (Q4_K_M), nebius=m2 (FP8)",
+            ],
+            disclosures);
+        Assert.Equal(disclosures.Count, disclosures.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void Models_differ_line_is_absent_for_one_primary_tier_equal_tiers_and_baseline_files()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+        SelectedRun localBaseline = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), RunVariant.Baseline, edit: document => WithModels(document, "FP8", "other"));
+        SelectedRun same = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+
+        Assert.DoesNotContain(ReportAggregator.Build([local]).Disclosures, line => line.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+        Assert.DoesNotContain(ReportAggregator.Build([local, localBaseline]).Disclosures, line => line.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+        Assert.DoesNotContain(ReportAggregator.Build([local, same]).Disclosures, line => line.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Models_differ_line_appears_when_only_the_precision_differs()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m1"));
+        SelectedRun cloud = RunOf(Tier.CloudGpu, NetSteps(Tier.CloudGpu, 1.0), edit: document => WithModels(document, "FP8", "m1"));
+
+        Assert.Contains("Models differ across tiers: local=m1 (Q4_K_M), cloudgpu=m1 (FP8)", ReportAggregator.Build([local, cloud]).Disclosures);
+    }
+
+    [Fact]
+    public void Models_differ_line_prints_NA_for_a_tier_without_models_or_precision()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, null));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), edit: document => WithModels(document, "FP8", "m2"));
+
+        Assert.Contains("Models differ across tiers: local=N/A (N/A), nebius=m2 (FP8)", ReportAggregator.Build([local, nebius]).Disclosures);
+    }
+
+    [Fact]
+    public void A_non_ok_repeat_counts_for_model_ids_and_energy_methods_but_not_for_the_sampling_fallback()
+    {
+        StepReading[] steps =
+        [
+            Step(repeat: 1, modelId: "model-a", method: EnergyMethod.Counter),
+            Step(repeat: 2, outcome: StepOutcomes.Error, modelId: "model-z", method: EnergyMethod.Sampling, flags: ReadingFlags.SamplingFallback),
+        ];
+
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, steps)]);
+
+        Assert.Equal(["model-a", "model-z"], Assert.Single(model.Rows).ModelIds);
+        TierReport report = Assert.Single(model.Tiers);
+        Assert.Equal([EnergyMethod.Counter, EnergyMethod.Sampling], report.EnergyMethods);
+        Assert.False(report.SamplingFallback);
     }
 }
