@@ -463,25 +463,63 @@ public static class RunDocumentFixtures
     public static RunDocument Partial(Tier tier) =>
         ReportDocument(tier, [ReportRunFixtures.Step(tier)], status: RunStatus.Partial, stopReason: "budget-reached");
 
-    // A one-task document of the given tier the way the tool would write it: the totals come from the assembler, the local tier has a probe and a baseline, and no judge ran.
+    /// <summary>
+    /// A <c>partial</c> document of the cloudgpu tier (AJ-087, EDGE-002): the run stopped early with one finished step, the energy method is <c>sampling</c> because it was forced (the step carries no
+    /// <c>sampling-fallback</c> flag), the energy is measured and the cost is an estimate in USD (the observed VM cost of the environment is a USD value too, measured because the schema types environment.cloudCostUsd as a measured metric).
+    /// </summary>
+    /// <returns>The document.</returns>
+    public static RunDocument CloudGpuPartialSampling() =>
+        ReportDocument(
+            Tier.CloudGpu,
+            [ReportRunFixtures.Step(Tier.CloudGpu, method: EnergyMethod.Sampling, cost: Metric.Estimated(0.0012, "USD"))],
+            status: RunStatus.Partial,
+            stopReason: "budget-reached",
+            environment: environment => environment with
+            {
+                GpuName = "Cloud GPU",
+                DriverVersion = "555.00",
+                Precision = "FP8",
+                CloudCostUsd = Metric.Measured(0.45, "USD"),
+                CloudCostObservedUtc = CommittedStartUtc.AddHours(1),
+            });
+
+    /// <summary>
+    /// A completed document of <paramref name="tier"/> (AJ-087, REQ-016) whose judge model is also the model of its workflow step: <c>run.selfJudged</c> is true and the judge reading names the same model ID
+    /// as the step. The judge reading is always on the nvidia tier, where the judge runs.
+    /// </summary>
+    /// <param name="tier">The tier of the run.</param>
+    /// <returns>The document.</returns>
+    public static RunDocument SelfJudged(Tier tier) =>
+        ReportDocument(
+            tier,
+            [ReportRunFixtures.Step(tier, quality: Metric.ModelJudged(4.0))],
+            judge: [ReportRunFixtures.Step(Tier.Nvidia, agent: "Judge", modelId: "model-a", judgedAgent: ReportRunFixtures.Planner)],
+            selfJudged: true);
+
+    // A one-task document of the given tier the way the tool would write it: the totals come from the assembler, a measured tier has a probe and a baseline, and no judge ran unless the caller gives readings.
     private static RunDocument ReportDocument(
         Tier tier,
         IReadOnlyList<StepReading> steps,
         RunMode mode = RunMode.Serialized,
         RunStatus status = RunStatus.Completed,
         string? stopReason = null,
-        ProbeResult? probe = null)
+        ProbeResult? probe = null,
+        IReadOnlyList<StepReading>? judge = null,
+        bool selfJudged = false,
+        Func<EnvironmentInfo, EnvironmentInfo>? environment = null)
     {
         bool local = tier == Tier.Local;
-        var run = new RunInfo($"fixture-{TierOptions.NameOf(tier)}", tier, [TaskName], mode, Repeat: 1, CommittedStartUtc, "0.0.0-fixture", "fixture", status, StopReason: stopReason, SelfJudged: false);
+        bool measured = TierKinds.IsMeasured(tier);
+        var run = new RunInfo($"fixture-{TierOptions.NameOf(tier)}", tier, [TaskName], mode, Repeat: 1, CommittedStartUtc, "0.0.0-fixture", "fixture", status, StopReason: stopReason, SelfJudged: selfJudged);
+        EnvironmentInfo info = CommittedEnvironment(tier, "model-a");
 
         return RunAssembler.Assemble(
             run,
-            CommittedEnvironment(tier, "model-a"),
-            probe: local ? probe ?? new ProbeResult(true, "Fixture GPU", "GPU-00000000-0000-0000-0000-000000000000", "555.00", "8.9", "95.00.00.00.01", 300.0, "disabled", true, "counter", 10.0) : null,
-            baseline: local ? new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(1.5, "W"), seconds: 30.0, sampleCount: 300, coefficientOfVariation: 0.05, maxCoefficientOfVariation: 0.1, ReadingFlags.None) : null,
+            environment is null ? info : environment(info),
+            probe: measured ? probe ?? new ProbeResult(true, local ? "Fixture GPU" : "Cloud GPU", "GPU-00000000-0000-0000-0000-000000000000", "555.00", "8.9", "95.00.00.00.01", 300.0, "disabled", true, "counter", 10.0) : null,
+            baseline: measured ? new BaselineResult(Metric.Measured(30.0, "W"), Metric.Measured(1.5, "W"), seconds: 30.0, sampleCount: 300, coefficientOfVariation: 0.05, maxCoefficientOfVariation: 0.1, ReadingFlags.None) : null,
             steps,
-            [],
+            judge ?? [],
             wallClockMs: 10000.0);
     }
 

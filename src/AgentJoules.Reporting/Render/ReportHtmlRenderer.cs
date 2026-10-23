@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 
 using AgentJoules.Core.Configuration;
-using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
@@ -39,19 +38,6 @@ public static class ReportHtmlRenderer
     private const string ReadmeFragment = "#readme";
     private const string BulletPrefix = "- ";
     private const string NestedPrefix = "  - ";
-    private const string Partial = "partial";
-    private const int Columns = 15;
-
-    private static readonly string[] Headers =
-    [
-        "tier", "task", "agent", "gross J", "net J", "avg W", "peak W", "input tokens", "output tokens", "latency ms", "TTFT ms", "cost", "quality", "labels", "flags",
-    ];
-
-    // The order of the labels in the labels column: the vocabulary of the results schema (the order of the Markdown summary).
-    private static readonly MetricLabel[] LabelOrder =
-    [
-        MetricLabel.Measured, MetricLabel.Estimated, MetricLabel.ModelJudged, MetricLabel.NotApplicable, MetricLabel.NotReported,
-    ];
 
     // The only style of the page; the page writes StyleContent between its style tags. No rule names a class of the chart (bar, marker, value, title, scope, axis, row, row-label, group-label, notice) and the image has no width rule: it keeps its own size
     // inside a box that scrolls sideways, so the 10 to 12 px labels of the chart stay legible.
@@ -159,8 +145,6 @@ public static class ReportHtmlRenderer
 
     private static string Reason(string text) => ReportText.Clean(text, ReportText.ReasonMaxLength);
 
-    private static string TierName(Tier tier, RunVariant variant) => TierOptions.NameOf(tier) + (variant == RunVariant.Baseline ? " baseline" : string.Empty);
-
     // The header lines come from ReportHeader, so the page and the summary cannot drift: the bullets carry their facts already encoded by Name, the sampling-fallback sentence is a nested item, and a disclosure
     // is a paragraph. The models-differ line is the one ReportHeader builds per tier; any other disclosure is encoded here whole, because the lines of ReportHeader escape a leading list marker with a backslash
     // for Markdown, which an HTML page would show as a character.
@@ -197,7 +181,7 @@ public static class ReportHtmlRenderer
 
     private static void AppendTable(StringBuilder page, ReportModel model)
     {
-        page.Append("<div class=\"scroll\">\n<table>\n<thead>\n").Append(Row(Headers.Select(header => $"<th>{header}</th>"))).Append("\n</thead>\n<tbody>\n");
+        page.Append("<div class=\"scroll\">\n<table>\n<thead>\n").Append(Row(ReportTable.Headers.Select(header => $"<th>{header}</th>"))).Append("\n</thead>\n<tbody>\n");
         foreach (string row in AggregateRows(model))
         {
             page.Append(row).Append('\n');
@@ -210,7 +194,7 @@ public static class ReportHtmlRenderer
             page.Append("<tbody class=\"not-run\">\n");
             foreach (Tier tier in notRun)
             {
-                page.Append(Row([Cell(TierOptions.NameOf(tier)), $"<td colspan=\"{(Columns - 1).ToString(CultureInfo.InvariantCulture)}\">{ReportSentences.NotRun}</td>"])).Append('\n');
+                page.Append(Row([Cell(TierOptions.NameOf(tier)), $"<td colspan=\"{(ReportTable.Columns - 1).ToString(CultureInfo.InvariantCulture)}\">{ReportSentences.NotRun}</td>"])).Append('\n');
             }
 
             page.Append("</tbody>\n");
@@ -236,10 +220,10 @@ public static class ReportHtmlRenderer
         {
             string[] cells =
             [
-                Cell(TierName(report.Tier, report.Variant)),
+                Cell(ReportTable.TierName(report.Tier, report.Variant)),
                 Cell(ReportSentences.NoCompletedSteps),
-                .. Enumerable.Repeat(Cell(string.Empty), Columns - 3),
-                Cell(Encode(string.Join(", ", RunFlagsOf(report)))),
+                .. Enumerable.Repeat(Cell(string.Empty), ReportTable.Columns - 3),
+                Cell(Encode(string.Join(", ", ReportTable.RunFlags(report, CleanFlag)))),
             ];
             entries.Add((ReportHeader.Rank(report.Tier, report.Variant), Row(cells)));
         }
@@ -253,67 +237,20 @@ public static class ReportHtmlRenderer
         return entries.OrderBy(entry => entry.Rank).Select(entry => entry.Line);
     }
 
-    private static string DataRow(ReportRow row, TierReport? report)
-    {
-        ReportCell[] cells = [row.GrossJoules, row.NetJoules, row.AvgW, row.PeakW, row.InputTokens, row.OutputTokens, row.LatencyMs, row.TtftMs, row.Cost, row.Quality];
-        CellKind[] kinds = [CellKind.Joules, CellKind.Joules, CellKind.Watts, CellKind.Watts, CellKind.Count, CellKind.Count, CellKind.Milliseconds, CellKind.Milliseconds, CellKind.Cost, CellKind.Quality];
-
-        return Row(
+    // The cells come from ReportTable as plain text: a cell that holds text from a document is encoded here, once; the tier, the labels and the fixed words need no encoding. The run flags are cleaned, and the
+    // whole flags cell is encoded afterwards.
+    private static string DataRow(ReportRow row, TierReport? report) =>
+        Row(
         [
-            Cell(TierName(row.Tier, row.Variant)),
+            Cell(ReportTable.TierName(row.Tier, row.Variant)),
             Cell(Name(row.Task)),
             Cell(Name(row.Agent)),
-            .. cells.Select((cell, index) => Cell(Encode(InvariantFormat.Cell(cell, kinds[index], Reason)))),
-            Cell(LabelsOf(cells)),
-            Cell(Encode(FlagsOf(row, report))),
+            .. ReportTable.CellTexts(row, Reason).Select(text => Cell(Encode(text))),
+            Cell(ReportTable.Labels(row)),
+            Cell(Encode(ReportTable.Flags(row, report, CleanFlag))),
         ]);
-    }
 
-    private static string LabelsOf(ReportCell[] cells)
-    {
-        HashSet<MetricLabel> present = [.. cells.Select(cell => cell.Label)];
-
-        return string.Join(", ", LabelOrder.Where(present.Contains).Select(MetricLabelText.Of));
-    }
-
-    // The flags of the ok repeats and of the baseline, then the flags of the run, then the word partial, then the repeats that did not finish: everything that qualifies the numbers of the row, in its row.
-    // The text is returned raw (cleaned, not encoded); the caller encodes the whole cell once.
-    private static string FlagsOf(ReportRow row, TierReport? report)
-    {
-        List<string> flags = [.. ReadingFlagNames.ToStrings(row.Flags)];
-        if (report is not null)
-        {
-            flags.AddRange(RunFlagsOf(report));
-        }
-
-        AddCount(flags, row.Cancelled, "cancelled");
-        AddCount(flags, row.Errors, "error");
-        AddCount(flags, row.Incomplete, "incomplete");
-
-        return string.Join(", ", flags);
-    }
-
-    // What qualifies every row of a file: its run flags, then the word partial when the run stopped early. A file without rows shows them in its one row.
-    private static IEnumerable<string> RunFlagsOf(TierReport report)
-    {
-        foreach (string flag in report.RunFlags)
-        {
-            yield return ReportText.Clean(flag, ReportText.NameMaxLength);
-        }
-
-        if (report.Status == RunStatus.Partial)
-        {
-            yield return Partial;
-        }
-    }
-
-    private static void AddCount(List<string> flags, int count, string outcome)
-    {
-        if (count > 0)
-        {
-            flags.Add($"{count.ToString(CultureInfo.InvariantCulture)} {outcome}");
-        }
-    }
+    private static string CleanFlag(string flag) => ReportText.Clean(flag, ReportText.NameMaxLength);
 
     // The html of a cell: its text is already encoded, or is a fixed word.
     private static string Cell(string html) => $"<td>{html}</td>";

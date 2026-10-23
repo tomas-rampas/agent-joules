@@ -180,7 +180,7 @@ public static class ReportHeader
         return digits > 0 && digits < text.Length && text[digits] is '.' or ')' ? text[..digits] + "\\" + text[digits..] : text;
     }
 
-    private static string Status(RunStatus status) => status switch
+    internal static string Status(RunStatus status) => status switch
     {
         RunStatus.Running => "running",
         RunStatus.Completed => "completed",
