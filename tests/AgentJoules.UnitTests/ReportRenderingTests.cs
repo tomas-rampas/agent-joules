@@ -3,9 +3,11 @@ using System.Net;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
+using AgentJoules.Cli;
 using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
@@ -4963,5 +4965,1207 @@ public sealed partial class ReportRenderingTests
         Assert.StartsWith("\nbody {", style, StringComparison.Ordinal);
         Assert.EndsWith("}\n", style, StringComparison.Ordinal);
         Assert.Equal(1, Occurrences(html, "<style>"));
+    }
+
+    // ---- AJ-086 (REQ-016, REQ-030): the report command ----
+    // Every test runs the real command line through the harness with an empty TempWorkspace as the working directory; the committed fixture folder is read in place by its absolute path and is never copied
+    // into the repository's output. Nothing is written under docs/report or results of the repository.
+
+    private static ReadOnlySpan<byte> ByteOrderMark => [0xEF, 0xBB, 0xBF];
+
+    private static readonly string[] ReportOutputNames = ["summary.md", "joules-per-step.svg", "index.html"];
+
+    private static string FixtureFolder() => Path.Combine(ConfigurationFixtures.RepositoryRoot(), RunDocumentFixtures.CommittedFolder);
+
+    private static Task<CliRunResult> ReportAsync(TempWorkspace workspace, params string[] arguments) =>
+        CliHarness.RunTokensAsync(["report", .. arguments], new CliHostOverrides(WorkingDirectory: workspace.Root));
+
+    private static string[] OutputLines(string text) => [.. text.Split('\n').Select(static line => line.TrimEnd('\r')).Where(static line => line.Length > 0)];
+
+    private static string[] ReportSums(string folder) =>
+        [.. ReportOutputNames.Select(name => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(Path.Combine(folder, name)))))];
+
+    // The committed text of a tier, written into a folder of the workspace under its committed file name.
+    private static string PutCommitted(TempWorkspace workspace, string folder, Tier tier) =>
+        Put(workspace, RunDocumentFixtures.CommittedFileName(tier), RunDocumentFixtures.CommittedText(tier), folder);
+
+    private static string RepositoryText(string path = "owner/repo") => string.Concat(Uri.UriSchemeHttps, "://", "example.test/", path);
+
+    private static string ReportConfigJson(string url) =>
+        new JsonObject { ["AgentJoules"] = new JsonObject { ["Report"] = new JsonObject { ["RepositoryUrl"] = url } } }.ToJsonString();
+
+    private static void AssertNothingWritten(TempWorkspace workspace, string outFolder)
+    {
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, outFolder)), "the output folder was created");
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")), "the docs folder was created");
+    }
+
+    private static void AssertNoPathShown(TempWorkspace workspace, CliRunResult result)
+    {
+        string shown = result.Stdout + result.Stderr;
+
+        Assert.DoesNotContain(workspace.Root, shown, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(ConfigurationFixtures.RepositoryRoot(), shown, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [GeneratedRegex("<text[^>]*>N/A</text>")]
+    private static partial Regex NotAvailableMarker();
+
+    [GeneratedRegex("<text[^>]*>not run</text>")]
+    private static partial Regex NotRunMarker();
+
+    [GeneratedRegex(@"\S{8,}")]
+    private static partial Regex NonSpaceRun();
+
+    [GeneratedRegex("[A-Za-z][A-Za-z0-9-]{9,}")]
+    private static partial Regex WordRun();
+
+    [GeneratedRegex(@"^\s{2}(--[a-z-]+)", RegexOptions.Multiline)]
+    private static partial Regex HelpOption();
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task The_report_command_writes_the_three_files_from_the_fixtures()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stderr);
+        Assert.Equal(["Report written to out: summary.md, joules-per-step.svg, index.html"], OutputLines(result.Stdout));
+        Assert.Equal(ReportOutputNames.Order(StringComparer.Ordinal), Directory.GetFiles(Path.Combine(workspace.Root, "out")).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal));
+        Assert.All(ReportOutputNames, name => Assert.True(new FileInfo(Path.Combine(workspace.Root, "out", name)).Length > 0, name));
+        AssertNoPathShown(workspace, result);
+
+        // docs does not exist, so no marker is created and no docs folder appears.
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Fixture_report_has_24_NA_markers()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out")).ExitCode);
+
+        string svg = File.ReadAllText(Path.Combine(workspace.Root, "out", "joules-per-step.svg"));
+        string html = File.ReadAllText(Path.Combine(workspace.Root, "out", "index.html"));
+
+        // Twelve groups (three tasks, four agents); the nvidia and nebius slots of each carry one N/A marker per metric-less cell, the cloudgpu slot is not run.
+        Assert.Equal(12, SvgGroups(XDocument.Parse(svg)).Length);
+        Assert.Equal(24, NotAvailableMarker().Count(svg));
+        Assert.Equal(12, NotRunMarker().Count(svg));
+        Assert.Equal(0, Occurrences(svg, "<script"));
+        Assert.Equal(0, Occurrences(html, "<script"));
+        Assert.True(Occurrences(html, ReportHtmlRenderer.ChartFileName) >= 1);
+        Assert.True(Occurrences(html, ReportSentences.GpuBoardOnly) >= 1);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Hosted_slots_have_no_rect()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out")).ExitCode);
+
+        XElement[] groups = SvgGroups(XDocument.Load(Path.Combine(workspace.Root, "out", "joules-per-step.svg")));
+
+        Assert.Equal(12, groups.Length);
+        foreach (XElement group in groups)
+        {
+            Assert.Single(SlotOfGroup(group, "local").Elements(SvgNs + "rect"));
+            foreach (string hosted in new[] { "nvidia", "nebius" })
+            {
+                XElement slot = SlotOfGroup(group, hosted);
+
+                Assert.Empty(slot.Elements(SvgNs + "rect"));
+                Assert.Equal(["N/A"], SvgTexts(slot, "marker"));
+            }
+
+            XElement cloud = SlotOfGroup(group, "cloudgpu");
+            Assert.Empty(cloud.Elements(SvgNs + "rect"));
+            Assert.Equal(["not run"], SvgTexts(cloud, "marker"));
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Two_runs_identical_sha256()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "first")).ExitCode);
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "second")).ExitCode);
+        string[] first = ReportSums(Path.Combine(workspace.Root, "first"));
+        string[] second = ReportSums(Path.Combine(workspace.Root, "second"));
+
+        // A third run over the same folder replaces the files and leaves the same bytes.
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "first")).ExitCode);
+
+        Assert.Equal(3, first.Length);
+        Assert.Equal(first, second);
+        Assert.Equal(first, ReportSums(Path.Combine(workspace.Root, "first")));
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(workspace.Root, "first")).Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Help_lists_in_out_config_only()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult help = await ReportAsync(workspace, "--help");
+
+        Assert.Equal(0, help.ExitCode);
+        Assert.DoesNotContain("(default results)", help.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("(default docs/report)", help.Stdout, StringComparison.Ordinal);
+        Assert.Equal(["--config", "--in", "--out"], HelpOption().Matches(help.Stdout).Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
+        foreach (string later in new[] { "--update-readme", "--verify-readme", "--render-content" })
+        {
+            Assert.DoesNotContain(later, help.Stdout, StringComparison.Ordinal);
+
+            CliRunResult refused = await ReportAsync(workspace, later);
+
+            Assert.Equal(2, refused.ExitCode);
+            Assert.Contains("(ParseError)", refused.Stderr, StringComparison.Ordinal);
+        }
+
+        AssertNothingWritten(workspace, "docs");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task In_takes_one_value_per_occurrence()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        string[][] refused = [["--in", FixtureFolder(), FixtureFolder()], ["--in"]];
+        foreach (string[] arguments in refused)
+        {
+            CliRunResult result = await ReportAsync(workspace, arguments);
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("(ParseError)", result.Stderr, StringComparison.Ordinal);
+        }
+
+        AssertNothingWritten(workspace, "docs");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Missing_in_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult named = await ReportAsync(workspace, "--in", "no-such-folder", "--out", "out");
+        CliRunResult byDefault = await ReportAsync(workspace, "--out", "out");
+
+        Assert.Equal(2, named.ExitCode);
+        Assert.Single(named.ErrorLines);
+        Assert.Contains("\"no-such-folder\"", named.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Equal(2, byDefault.ExitCode);
+        Assert.Contains("\"results\"", byDefault.ErrorLines[0], StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, named);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Schema_invalid_file_exits_2_naming_it_and_writes_nothing()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string text = RunDocumentFixtures.Edit(RunDocumentFixtures.CommittedText(Tier.Local), root =>
+        {
+            JsonObject cost = root["steps"]![0]!["cost"]!.AsObject();
+            cost["label"] = "N/A";
+            cost["value"] = 0.5;
+        });
+        _ = Put(workspace, name, text);
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains(OutputLines(result.Stdout), line => line.StartsWith(name + ": /steps/0/cost", StringComparison.Ordinal));
+        Assert.Single(result.ErrorLines);
+        Assert.Contains("report: 1 run file failed validation", result.ErrorLines[0], StringComparison.Ordinal);
+        Assert.DoesNotContain("(ParseError)", result.Stderr, StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Only_the_selected_files_are_validated()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, Folder, Tier.Local);
+
+        // An older file of the tier is never opened, so a broken one cannot fail the report.
+        _ = Put(workspace, "20251231T000000Z-local.json", Text(tail: ",\"steps\":[{\"bogus\":1}]"));
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(string.Empty, result.Stderr);
+        Assert.Equal(["Report written to out: summary.md, joules-per-step.svg, index.html"], OutputLines(result.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Problem_header_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Nvidia);
+        _ = PutCommitted(workspace, Folder, Tier.Local);
+        _ = Put(workspace, name, "not json");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Single(OutputLines(result.Stdout));
+        Assert.StartsWith(name + ": ", OutputLines(result.Stdout)[0], StringComparison.Ordinal);
+        Assert.Equal("error: report: 1 run file cannot be used (ConfigurationException)", Assert.Single(result.ErrorLines));
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task The_same_file_name_in_two_inputs_is_a_problem()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, "a", Tier.Local);
+        _ = PutCommitted(workspace, "b", Tier.Local);
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+
+        CliRunResult result = await ReportAsync(workspace, "--in", "a", "--in", "b", "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([name + ": duplicate-file-name"], OutputLines(result.Stdout));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Repeated_in_combines()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, "a", Tier.Local);
+        _ = PutCommitted(workspace, "b", Tier.Nvidia);
+        _ = PutCommitted(workspace, "b", Tier.Nebius);
+
+        CliRunResult combined = await ReportAsync(workspace, "--in", "a", "--in", "b", "--out", "combined");
+        CliRunResult once = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "once");
+        CliRunResult twice = await ReportAsync(workspace, "--in", FixtureFolder(), "--in", FixtureFolder(), "--out", "twice");
+        string summary = File.ReadAllText(Path.Combine(workspace.Root, "combined", "summary.md"));
+
+        int[] exitCodes = [combined.ExitCode, once.ExitCode, twice.ExitCode];
+        Assert.Equal([0, 0, 0], exitCodes);
+        Assert.Contains("| cloudgpu | not run |", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("| local | not run |", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("| nvidia | not run |", summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("| nebius | not run |", summary, StringComparison.Ordinal);
+        Assert.Equal(ReportSums(Path.Combine(workspace.Root, "once")), ReportSums(Path.Combine(workspace.Root, "combined")));
+        Assert.Equal(ReportSums(Path.Combine(workspace.Root, "once")), ReportSums(Path.Combine(workspace.Root, "twice")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_named_run_file_is_read_and_a_file_that_is_not_a_run_file_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string local = Path.Combine(FixtureFolder(), RunDocumentFixtures.CommittedFileName(Tier.Local));
+        _ = Put(workspace, "notes.json", "{}");
+
+        CliRunResult single = await ReportAsync(workspace, "--in", local, "--out", "out");
+        CliRunResult notRun = await ReportAsync(workspace, "--in", "runs/notes.json", "--out", "other");
+        CliRunResult stray = await ReportAsync(workspace, "--in", Path.Combine(workspace.Root, "runs", "notes.json"), "--out", "other");
+        string summary = File.ReadAllText(Path.Combine(workspace.Root, "out", "summary.md"));
+
+        Assert.Equal(0, single.ExitCode);
+        Assert.DoesNotContain("| local | not run |", summary, StringComparison.Ordinal);
+        Assert.Contains("| nvidia | not run |", summary, StringComparison.Ordinal);
+        Assert.Equal(2, notRun.ExitCode);
+        Assert.Equal(2, stray.ExitCode);
+        Assert.Contains("notes.json", notRun.ErrorLines[0], StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "other")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Empty_folder_renders_four_not_run()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Directory.CreateDirectory(FolderOf(workspace));
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+        string summary = File.ReadAllText(Path.Combine(workspace.Root, "out", "summary.md"));
+        string svg = File.ReadAllText(Path.Combine(workspace.Root, "out", "joules-per-step.svg"));
+        string html = File.ReadAllText(Path.Combine(workspace.Root, "out", "index.html"));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Report written to out: summary.md, joules-per-step.svg, index.html"], OutputLines(result.Stdout));
+        foreach (string tier in new[] { "local", "cloudgpu", "nvidia", "nebius" })
+        {
+            Assert.Contains($"| {tier} | not run |", summary, StringComparison.Ordinal);
+        }
+
+        Assert.Equal(4, NotRunMarker().Count(svg));
+        Assert.True(Occurrences(html, ReportSentences.NotRun) >= 4);
+        Assert.Equal(0, NotAvailableMarker().Count(svg));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Skipped_files_are_listed_before_the_written_line_and_capped_at_20()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, Folder, Tier.Local);
+        string[] names = [.. Enumerable.Range(1, 25).Select(day => $"202602{day:D2}T000000Z-local.json")];
+        foreach (string name in names)
+        {
+            _ = Put(workspace, name, Text(status: "failed"));
+        }
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+        string[] lines = OutputLines(result.Stdout);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(22, lines.Length);
+        Assert.Equal([.. names.Take(20).Select(name => $"Skipped {name}: status-failed")], lines[..20]);
+        Assert.Equal("Skipped 5 more files", lines[20]);
+        Assert.Equal("Report written to out: summary.md, joules-per-step.svg, index.html", lines[21]);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_run_file_that_disagrees_with_its_name_exits_2_and_writes_nothing()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        // The document starts at 2026-01-01T00:00:00Z; the name says another second.
+        _ = Put(workspace, "20260101T000001Z-local.json", RunDocumentFixtures.CommittedText(Tier.Local));
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("error: report: 1 run file cannot be used (ConfigurationException)", Assert.Single(result.ErrorLines));
+        string line = Assert.Single(OutputLines(result.Stdout));
+        Assert.StartsWith("20260101T000001Z-local.json: ", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("(Parameter", line + result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("runs[", line, StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Explicit_missing_config_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Directory.CreateDirectory(Path.Combine(workspace.Root, "config-folder"));
+
+        CliRunResult missing = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out", "--config", "nope.json");
+        CliRunResult folder = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out", "--config", "config-folder");
+
+        Assert.Equal(2, missing.ExitCode);
+        Assert.Single(missing.ErrorLines);
+        Assert.Contains("nope.json", missing.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Equal(2, folder.ExitCode);
+        Assert.Contains("config-folder", folder.ErrorLines[0], StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, missing);
+        AssertNoPathShown(workspace, folder);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Out_is_a_file_exits_2()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string file = workspace.WriteFile("out", "keep");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Single(result.ErrorLines);
+        Assert.Contains("\"out\"", result.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Equal("keep", File.ReadAllText(file));
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task The_written_files_are_utf8_without_bom_with_lf_and_other_files_are_left_alone()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string keep = workspace.WriteFile(Path.Combine("out", "keep.txt"), "keep");
+        _ = workspace.WriteFile(Path.Combine("out", "summary.md"), "old");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("keep", File.ReadAllText(keep));
+        Assert.Equal(["index.html", "joules-per-step.svg", "keep.txt", "summary.md"], Directory.GetFiles(Path.Combine(workspace.Root, "out")).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal));
+        foreach (string name in ReportOutputNames)
+        {
+            byte[] bytes = File.ReadAllBytes(Path.Combine(workspace.Root, "out", name));
+
+            Assert.False(bytes.AsSpan().StartsWith(ByteOrderMark), name + " starts with a byte order mark");
+            Assert.DoesNotContain((byte)'\r', bytes);
+            Assert.Equal((byte)'\n', bytes[^1]);
+            Assert.NotEqual((byte)'\n', bytes[^2]);
+            _ = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+
+        // The page and the chart are ASCII by construction.
+        foreach (string name in ReportOutputNames.Skip(1))
+        {
+            Assert.All(File.ReadAllBytes(Path.Combine(workspace.Root, "out", name)), value => Assert.True(value < 0x80, name));
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_write_failure_exits_1_naming_the_file_only()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        // A folder where the summary belongs: the move onto it fails.
+        _ = Directory.CreateDirectory(Path.Combine(workspace.Root, "out", "summary.md"));
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Single(result.ErrorLines);
+        Assert.Contains("summary.md", result.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Empty(Directory.GetFiles(Path.Combine(workspace.Root, "out")));
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task Default_out_writes_docs_report_and_the_nojekyll_marker()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (Tier tier in new[] { Tier.Local, Tier.Nvidia, Tier.Nebius })
+        {
+            _ = PutCommitted(workspace, "results", tier);
+        }
+
+        CliRunResult result = await ReportAsync(workspace);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Report written to docs/report: summary.md, joules-per-step.svg, index.html"], OutputLines(result.Stdout));
+        Assert.All(ReportOutputNames, name => Assert.True(File.Exists(Path.Combine(workspace.Root, "docs", "report", name)), name));
+        Assert.Equal(0, new FileInfo(Path.Combine(workspace.Root, "docs", NoJekyllWriter.FileName)).Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task The_nojekyll_marker_follows_the_docs_folder_whatever_out_is()
+    {
+        using TempWorkspace without = TempWorkspace.CreateEmpty();
+        using TempWorkspace existing = TempWorkspace.CreateEmpty();
+        _ = Directory.CreateDirectory(Path.Combine(existing.Root, "docs"));
+        string kept = existing.WriteFile(Path.Combine("docs", ".nojekyll"), string.Empty);
+        File.SetLastWriteTimeUtc(kept, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        using TempWorkspace created = TempWorkspace.CreateEmpty();
+        _ = Directory.CreateDirectory(Path.Combine(created.Root, "docs"));
+
+        Assert.Equal(0, (await ReportAsync(without, "--in", FixtureFolder(), "--out", "elsewhere")).ExitCode);
+        Assert.Equal(0, (await ReportAsync(existing, "--in", FixtureFolder(), "--out", "elsewhere")).ExitCode);
+        Assert.Equal(0, (await ReportAsync(created, "--in", FixtureFolder(), "--out", "elsewhere")).ExitCode);
+
+        Assert.False(Directory.Exists(Path.Combine(without.Root, "docs")));
+        Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(kept));
+        Assert.Equal(0, new FileInfo(Path.Combine(created.Root, "docs", NoJekyllWriter.FileName)).Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_nojekyll_marker_that_cannot_be_created_exits_2_after_the_files_are_written()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Directory.CreateDirectory(Path.Combine(workspace.Root, "docs", NoJekyllWriter.FileName));
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Single(result.ErrorLines);
+        Assert.Contains(NoJekyllWriter.FileName, result.ErrorLines[0], StringComparison.Ordinal);
+        Assert.All(ReportOutputNames, name => Assert.True(File.Exists(Path.Combine(workspace.Root, "out", name)), name));
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task The_repository_link_comes_from_the_default_or_the_named_configuration_file()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string link = "href=\"" + RepositoryText() + "#readme\">" + ReportHtmlRenderer.RepositoryLinkText + "</a>";
+
+        // No configuration file at all: no link and the sentence that says so.
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "none")).ExitCode);
+        string none = File.ReadAllText(Path.Combine(workspace.Root, "none", "index.html"));
+
+        _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), ReportConfigJson(RepositoryText()));
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "default")).ExitCode);
+        string byDefault = File.ReadAllText(Path.Combine(workspace.Root, "default", "index.html"));
+
+        _ = workspace.WriteFile(Path.Combine("elsewhere", "settings.json"), ReportConfigJson(RepositoryText("other/repo")));
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "named", "--config", Path.Combine("elsewhere", "settings.json"))).ExitCode);
+        string named = File.ReadAllText(Path.Combine(workspace.Root, "named", "index.html"));
+
+        Assert.Contains(ReportHtmlRenderer.RepositoryNotConfigured, none, StringComparison.Ordinal);
+        Assert.DoesNotContain("<a href", none, StringComparison.Ordinal);
+        Assert.Contains(link, byDefault, StringComparison.Ordinal);
+        Assert.DoesNotContain(ReportHtmlRenderer.RepositoryNotConfigured, byDefault, StringComparison.Ordinal);
+        Assert.Contains("other/repo#readme", named, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task An_environment_variable_sets_the_link_only_when_the_overrides_include_the_process_environment()
+    {
+        const string variableName = "AGENTJOULES__Report__RepositoryUrl";
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string? before = Environment.GetEnvironmentVariable(variableName);
+        try
+        {
+            Environment.SetEnvironmentVariable(variableName, RepositoryText("from/env"));
+
+            CliRunResult isolated = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "isolated");
+            CliRunResult included = await CliHarness.RunTokensAsync(
+                ["report", "--in", FixtureFolder(), "--out", "included"],
+                new CliHostOverrides(IncludeProcessEnvironment: true, WorkingDirectory: workspace.Root));
+
+            Assert.Equal(0, isolated.ExitCode);
+            Assert.Equal(0, included.ExitCode);
+            Assert.DoesNotContain("from/env", File.ReadAllText(Path.Combine(workspace.Root, "isolated", "index.html")), StringComparison.Ordinal);
+            Assert.Contains("from/env#readme", File.ReadAllText(Path.Combine(workspace.Root, "included", "index.html")), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, before);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task An_invalid_repository_url_exits_2_naming_the_key_never_the_value()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string key = FakeKey();
+        string[] values =
+        [
+            string.Concat(Uri.UriSchemeHttp, "://", "example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "user:", key, "@example.test/owner/repo"),
+            RepositoryText("owner/repo?token=" + key),
+            RepositoryText("owner/repo?"),
+            RepositoryText("owner/repo#" + key),
+            "owner/" + key,
+            string.Concat(Uri.UriSchemeFtp, "://", "example.test/", key),
+        ];
+
+        foreach (string value in values)
+        {
+            _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), ReportConfigJson(value));
+
+            CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Single(result.ErrorLines);
+            Assert.Contains("Report:RepositoryUrl", result.ErrorLines[0], StringComparison.Ordinal);
+            Assert.DoesNotContain(key, result.Stdout + result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("example.test", result.Stdout + result.Stderr, StringComparison.Ordinal);
+            AssertNothingWritten(workspace, "out");
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task The_configuration_file_is_read_for_the_report_section_only()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        // A rate below 10 Hz and a judge tier that Tiers does not hold fail the run command's checks; report does not make them.
+        _ = workspace.WriteFile(
+            Path.Combine("config", "appsettings.json"),
+            new JsonObject { ["AgentJoules"] = new JsonObject { ["Meter"] = new JsonObject { ["SampleRateHz"] = 1 }, ["Judge"] = new JsonObject { ["Tier"] = "bogus" } } }.ToJsonString());
+        CliRunResult accepted = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        // A key the options do not have is still refused by the shape check.
+        _ = workspace.WriteFile(
+            Path.Combine("config", "appsettings.json"),
+            new JsonObject { ["AgentJoules"] = new JsonObject { ["Report"] = new JsonObject { ["Bogus"] = "x" } } }.ToJsonString());
+        CliRunResult unknown = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "other");
+
+        // A file that is not JSON is refused naming the file, never the path.
+        _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), "{ not json");
+        CliRunResult broken = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "third");
+
+        Assert.Equal(0, accepted.ExitCode);
+        Assert.Equal(2, unknown.ExitCode);
+        Assert.Contains("Report:Bogus", unknown.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Equal(2, broken.ExitCode);
+        Assert.Contains("appsettings.json", broken.ErrorLines[0], StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "other")));
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "third")));
+        AssertNoPathShown(workspace, broken);
+    }
+
+    // ---- AJ-086 fix round: keys, staging, echoes, configuration bounds, counts ----
+
+    private const string KeyVariable = "NEBIUS_API_KEY";
+    private const string KeyAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+
+    // A runtime-built value the process knows as a key: registered through the overrides, the way the keys of the environment are.
+    private static Task<CliRunResult> ReportWithKeyAsync(TempWorkspace workspace, string key, params string[] arguments) =>
+        CliHarness.RunTokensAsync(
+            ["report", .. arguments],
+            new CliHostOverrides(Configuration: new Dictionary<string, string?> { [KeyVariable] = key }, WorkingDirectory: workspace.Root));
+
+    private static string LongKey(int length) => string.Concat(Enumerable.Range(0, length).Select(index => KeyAlphabet[((index * index) + (7 * index) + (index / 5)) % KeyAlphabet.Length]));
+
+    private static void AssertNoKeyRun(string shown, string key)
+    {
+        for (int start = 0; start + 20 <= key.Length; start++)
+        {
+            Assert.DoesNotContain(key.Substring(start, 20), shown, StringComparison.Ordinal);
+        }
+    }
+
+    private static string RunFileWithGpuName(Tier tier, string gpuName) =>
+        RunDocumentFixtures.Edit(RunDocumentFixtures.CommittedText(tier), root => root["environment"]!["gpuName"] = gpuName);
+
+    private static string CorruptedCostText(Tier tier) =>
+        RunDocumentFixtures.Edit(RunDocumentFixtures.CommittedText(tier), root =>
+        {
+            JsonObject cost = root["steps"]![0]!["cost"]!.AsObject();
+            cost["label"] = "N/A";
+            cost["value"] = 0.5;
+        });
+
+    private sealed class CancellingWriter(CancellationTokenSource source) : StringWriter
+    {
+        public override void Write(char value)
+        {
+            base.Write(value);
+            source.Cancel();
+        }
+
+        public override void Write(string? value)
+        {
+            base.Write(value);
+            source.Cancel();
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_run_file_that_holds_a_registered_key_exits_2_naming_it_and_writes_nothing()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string key = ProviderClientFixtures.FakeKey();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        _ = PutCommitted(workspace, Folder, Tier.Nvidia);
+        _ = Put(workspace, name, RunFileWithGpuName(Tier.Local, "GPU " + key));
+
+        CliRunResult result = await ReportWithKeyAsync(workspace, key, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([name + ": (root) holds a registered key"], OutputLines(result.Stdout));
+        Assert.Equal("error: report: 1 run file failed validation (ConfigurationException)", Assert.Single(result.ErrorLines));
+        Assert.DoesNotContain(key, result.Stdout + result.Stderr, StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_registered_key_with_an_underscore_is_refused_before_markdown_could_escape_it()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string key = string.Concat("zk7w", "_2qm9", "xv4t", "j8hd");
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        _ = Put(workspace, name, RunFileWithGpuName(Tier.Local, "GPU " + key));
+
+        CliRunResult result = await ReportWithKeyAsync(workspace, key, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([name + ": (root) holds a registered key"], OutputLines(result.Stdout));
+        Assert.DoesNotContain(key, result.Stdout + result.Stderr, StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_run_file_without_a_registered_key_is_rendered_byte_for_byte_whatever_keys_are_registered()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult plain = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "plain");
+        CliRunResult keyed = await ReportWithKeyAsync(workspace, string.Concat("qh4m", "x9tz", "p2vc"), "--in", FixtureFolder(), "--out", "keyed");
+
+        int[] exits = [plain.ExitCode, keyed.ExitCode];
+        Assert.Equal([0, 0], exits);
+        Assert.Equal(ReportSums(Path.Combine(workspace.Root, "plain")), ReportSums(Path.Combine(workspace.Root, "keyed")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_page_that_would_carry_a_registered_value_is_refused_not_masked()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "plain")).ExitCode);
+        string page = File.ReadAllText(Path.Combine(workspace.Root, "plain", "index.html"));
+
+        // A value of the constant style of the page: no run file holds it, and the rendered page does.
+        string style = page[(page.IndexOf("<style>", StringComparison.Ordinal) + "<style>".Length)..page.IndexOf("</style>", StringComparison.Ordinal)];
+        string value = NonSpaceRun().Matches(style).Select(match => match.Value).OrderByDescending(text => text.Length).First();
+
+        CliRunResult result = await ReportWithKeyAsync(workspace, value, "--in", FixtureFolder(), "--out", "keyed");
+
+        Assert.Equal(2, result.ExitCode);
+        string error = Assert.Single(result.ErrorLines);
+        Assert.Matches(@"^error: report: (summary\.md|joules-per-step\.svg|index\.html) holds a registered key; nothing written \(ConfigurationException\)$", error);
+        Assert.Equal(string.Empty, result.Stdout);
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "keyed")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_blocked_third_partial_leaves_the_old_files_intact_and_exits_1()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (string name in ReportOutputNames)
+        {
+            _ = workspace.WriteFile(Path.Combine("out", name), "old " + name);
+        }
+
+        _ = workspace.WriteFile(Path.Combine("out", "index.html.partial", "keep.txt"), "x");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains("index.html", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+        Assert.All(ReportOutputNames, name => Assert.Equal("old " + name, File.ReadAllText(Path.Combine(workspace.Root, "out", name))));
+        Assert.False(File.Exists(Path.Combine(workspace.Root, "out", "summary.md.partial")));
+        Assert.False(File.Exists(Path.Combine(workspace.Root, "out", "joules-per-step.svg.partial")));
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_stale_partial_file_is_replaced()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "fresh")).ExitCode);
+        foreach (string name in ReportOutputNames)
+        {
+            _ = workspace.WriteFile(Path.Combine("out", name + ".partial"), "junk");
+        }
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(ReportOutputNames.Order(StringComparer.Ordinal), Directory.GetFiles(Path.Combine(workspace.Root, "out")).Select(static file => Path.GetFileName(file)).Order(StringComparer.Ordinal));
+        Assert.Equal(ReportSums(Path.Combine(workspace.Root, "fresh")), ReportSums(Path.Combine(workspace.Root, "out")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Out_under_a_file_exits_1_without_a_path()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile("plainfile", "x");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", Path.Combine("plainfile", "sub"));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("error: report: the output folder could not be created (AgentJoulesException)", Assert.Single(result.ErrorLines));
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_registered_key_in_a_path_is_masked_before_the_echo_is_cut()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string key = LongKey(300);
+        string shortKey = LongKey(100);
+        string prefix = new('d', 30);
+
+        // --in and --config name a path that is not there; the echo of 256 characters would cut a key of 300 characters at offset 30.
+        CliRunResult input = await ReportWithKeyAsync(workspace, key, "--in", prefix + key, "--out", "out");
+        CliRunResult config = await ReportWithKeyAsync(workspace, key, "--in", FixtureFolder(), "--out", "out", "--config", prefix + key);
+
+        // --out is echoed on success.
+        CliRunResult output = await ReportWithKeyAsync(workspace, shortKey, "--in", FixtureFolder(), "--out", prefix + shortKey);
+
+        // validate echoes its path argument in the same way.
+        CliRunResult validate = await CliHarness.RunTokensAsync(
+            ["validate", prefix + key],
+            new CliHostOverrides(Configuration: new Dictionary<string, string?> { [KeyVariable] = key }, WorkingDirectory: workspace.Root));
+
+        int[] exits = [input.ExitCode, config.ExitCode, output.ExitCode, validate.ExitCode];
+        Assert.Equal([2, 2, 0, 2], exits);
+        AssertNoKeyRun(input.Stdout + input.Stderr, key);
+        AssertNoKeyRun(config.Stdout + config.Stderr, key);
+        AssertNoKeyRun(output.Stdout + output.Stderr, shortKey);
+        AssertNoKeyRun(validate.Stdout + validate.Stderr, key);
+        Assert.Contains("does not exist", input.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Contains("does not exist", config.ErrorLines[0], StringComparison.Ordinal);
+        Assert.Contains("Report written to " + prefix + "****: ", output.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task The_refusal_of_the_builder_names_the_refused_file_not_the_first()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, Folder, Tier.Local);
+
+        // The second file in file order is the one the builder refuses: its name says another second than run.startUtc.
+        _ = Put(workspace, "20260101T000001Z-nvidia.json", RunDocumentFixtures.CommittedText(Tier.Nvidia));
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(["20260101T000001Z-nvidia.json: FileName has another timestamp than run.startUtc."], OutputLines(result.Stdout));
+        Assert.Equal("error: report: 1 run file cannot be used (ConfigurationException)", Assert.Single(result.ErrorLines));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_repository_url_that_holds_a_registered_key_is_refused_before_any_run_file_is_read()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string key = ProviderClientFixtures.FakeKey();
+        _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), ReportConfigJson(RepositoryText("owner/" + key)));
+
+        // The input is a path that is not there: its own line would be the first failure if the run files were looked at before the URL.
+        CliRunResult result = await ReportWithKeyAsync(workspace, key, "--in", "no-such-folder", "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal($"error: {AgentJoules.Core.Configuration.ReportOptions.RepositoryUrlMessage} (ConfigurationException)", Assert.Single(result.ErrorLines));
+        Assert.DoesNotContain("no-such-folder", result.Stdout + result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(key, result.Stdout + result.Stderr, StringComparison.Ordinal);
+        Assert.Equal(string.Empty, result.Stdout);
+        AssertNothingWritten(workspace, "out");
+
+        // Without the key registered the same URL is a plain path and the report goes on to the input.
+        CliRunResult unregistered = await ReportAsync(workspace, "--in", "no-such-folder", "--out", "out");
+
+        Assert.Contains("no-such-folder", Assert.Single(unregistered.ErrorLines), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_configuration_file_with_a_lone_surrogate_is_exit_2_naming_the_file()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), "{\"AgentJoules\":{\"Report\":{\"RepositoryUrl\":\"\\ud800\"}}}");
+
+        CliRunResult result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Contains("appsettings.json", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_configuration_file_of_exactly_one_mebibyte_is_read_and_one_byte_more_is_refused()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        const string body = "{\"AgentJoules\":{}}";
+        const int cap = 1024 * 1024;
+        _ = workspace.WriteFile("exact.json", body + new string(' ', cap - body.Length));
+        _ = workspace.WriteFile("over.json", body + new string(' ', cap - body.Length + 1));
+
+        CliRunResult exact = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "exact", "--config", "exact.json");
+        CliRunResult over = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "over", "--config", "over.json");
+
+        Assert.Equal(0, exact.ExitCode);
+        Assert.Equal(2, over.ExitCode);
+        Assert.Equal("error: the configuration file \"over.json\" is larger than 1048576 bytes (ConfigurationException)", Assert.Single(over.ErrorLines));
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "over")));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task A_configuration_file_that_cannot_be_opened_is_exit_2_naming_the_file_only()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string config = workspace.WriteFile(Path.Combine("config", "appsettings.json"), ReportConfigJson(RepositoryText()));
+        CliRunResult result;
+        using (new FileStream(config, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            result = await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "out");
+        }
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal("error: the configuration file \"appsettings.json\" could not be read (ConfigurationException)", Assert.Single(result.ErrorLines));
+        AssertNothingWritten(workspace, "out");
+        AssertNoPathShown(workspace, result);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public async Task The_environment_overrides_the_configuration_file()
+    {
+        const string variableName = "AGENTJOULES__Report__RepositoryUrl";
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), ReportConfigJson(RepositoryText("from/file")));
+        string? before = Environment.GetEnvironmentVariable(variableName);
+        try
+        {
+            Environment.SetEnvironmentVariable(variableName, RepositoryText("from/env"));
+
+            CliRunResult result = await CliHarness.RunTokensAsync(
+                ["report", "--in", FixtureFolder(), "--out", "out"],
+                new CliHostOverrides(IncludeProcessEnvironment: true, WorkingDirectory: workspace.Root));
+            string page = File.ReadAllText(Path.Combine(workspace.Root, "out", "index.html"));
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("from/env#readme", page, StringComparison.Ordinal);
+            Assert.DoesNotContain("from/file", page, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variableName, before);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Every_repository_url_the_rule_accepts_is_accepted_by_the_page_renderer()
+    {
+        ReportModel model = ReportAggregator.Build([]);
+        string[] candidates =
+        [
+            RepositoryText(),
+            RepositoryText("owner/repo/"),
+            RepositoryText("owner/repo.git"),
+            RepositoryText("o%20w/r%2Fx"),
+            RepositoryText("\u00e4/\u00fc"),
+            string.Concat(Uri.UriSchemeHttps, "://", "EXAMPLE.test:8443/Owner/Repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "b\u00fccher.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "[::1]/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "127.0.0.1/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "localhost/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "ex_ample.test/owner/repo"),
+        ];
+
+        int accepted = 0;
+        foreach (string candidate in candidates)
+        {
+            if (AgentJoules.Core.Configuration.ReportOptions.IsRepositoryUrl(candidate, out Uri? uri))
+            {
+                accepted++;
+                string html = ReportHtmlRenderer.Render(model, uri);
+
+                Assert.Contains("#readme", html, StringComparison.Ordinal);
+            }
+        }
+
+        // The renderer's own refusal is therefore not reachable through the command: the configuration rule is the same check, and it runs first.
+        Assert.True(accepted >= 5, "the rule accepts the plain forms");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(25)]
+    [Trait("Spec", "REQ-016")]
+    public async Task Problem_lines_are_capped_at_20_and_the_tail_counts_the_rest(int count)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string[] names = [.. Enumerable.Range(1, count).Select(day => $"202602{day:D2}T000000Z-local.json")];
+        foreach (string name in names)
+        {
+            _ = Put(workspace, name, "not json");
+        }
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+        string[] lines = OutputLines(result.Stdout);
+        int rest = count - 20;
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(Math.Min(count, 20) + (rest > 0 ? 1 : 0), lines.Length);
+        Assert.Equal([.. names.Order(StringComparer.Ordinal).Take(20).Select(name => name + ": header-not-json")], lines[..Math.Min(count, 20)]);
+        if (rest > 0)
+        {
+            Assert.Equal(rest == 1 ? "1 more file cannot be used" : $"{rest} more files cannot be used", lines[^1]);
+        }
+
+        Assert.Equal($"error: report: {count} run {(count == 1 ? "file" : "files")} cannot be used (ConfigurationException)", Assert.Single(result.ErrorLines));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(21)]
+    [InlineData(22)]
+    [Trait("Spec", "REQ-016")]
+    public async Task Skipped_lines_are_capped_at_20_and_the_tail_counts_the_rest(int count)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = PutCommitted(workspace, Folder, Tier.Local);
+        string[] names = [.. Enumerable.Range(1, count).Select(day => $"202602{day:D2}T000000Z-local.json")];
+        foreach (string name in names)
+        {
+            _ = Put(workspace, name, Text(status: "failed"));
+        }
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+        string[] lines = OutputLines(result.Stdout);
+        int rest = count - 20;
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(Math.Min(count, 20) + (rest > 0 ? 1 : 0) + 1, lines.Length);
+        Assert.Equal([.. names.Take(20).Select(name => $"Skipped {name}: status-failed")], lines[..Math.Min(count, 20)]);
+        if (rest > 0)
+        {
+            Assert.Equal(rest == 1 ? "Skipped 1 more file" : $"Skipped {rest} more files", lines[^2]);
+        }
+
+        Assert.Equal("Report written to out: summary.md, joules-per-step.svg, index.html", lines[^1]);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Every_failing_file_is_listed_in_ordinal_order_of_the_file_name()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (Tier tier in new[] { Tier.Nvidia, Tier.Local })
+        {
+            _ = Put(workspace, RunDocumentFixtures.CommittedFileName(tier), CorruptedCostText(tier));
+        }
+
+        _ = PutCommitted(workspace, Folder, Tier.Nebius);
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+        string[] lines = OutputLines(result.Stdout);
+
+        Assert.Equal(2, result.ExitCode);
+        string local = RunDocumentFixtures.CommittedFileName(Tier.Local) + ": ";
+        string nvidia = RunDocumentFixtures.CommittedFileName(Tier.Nvidia) + ": ";
+        int lastLocal = Array.FindLastIndex(lines, line => line.StartsWith(local, StringComparison.Ordinal));
+        int firstNvidia = Array.FindIndex(lines, line => line.StartsWith(nvidia, StringComparison.Ordinal));
+        Assert.True(lastLocal >= 0 && firstNvidia > lastLocal, "the lines of the files are in ordinal order of the file name");
+        Assert.All(lines, line => Assert.True(line.StartsWith(local, StringComparison.Ordinal) || line.StartsWith(nvidia, StringComparison.Ordinal), line));
+        Assert.Contains(lines, line => line.StartsWith(local + "/steps/0/cost", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.StartsWith(nvidia + "/steps/0/cost", StringComparison.Ordinal));
+        Assert.Equal("error: report: 2 run files failed validation (ConfigurationException)", Assert.Single(result.ErrorLines));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(1, 2)]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_run_file_is_read_up_to_16_MiB_and_one_byte_more_is_refused(int extra, int expectedExit)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        byte[] text = Encoding.UTF8.GetBytes(RunDocumentFixtures.CommittedText(Tier.Local));
+        byte[] padded = new byte[RunFileValidator.MaxBytes + extra];
+        Array.Fill(padded, (byte)' ');
+        text.CopyTo(padded, 0);
+        string path = Path.Combine(workspace.Root, Folder, name);
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, padded);
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(16777216, RunFileValidator.MaxBytes);
+        Assert.Equal(expectedExit, result.ExitCode);
+        if (extra > 0)
+        {
+            Assert.Equal([name + ": (root) is larger than 16777216 bytes"], OutputLines(result.Stdout));
+            AssertNothingWritten(workspace, "out");
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task A_run_file_that_is_not_valid_utf8_is_refused_naming_it()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string name = RunDocumentFixtures.CommittedFileName(Tier.Local);
+        string text = RunFileWithGpuName(Tier.Local, "GPU XYZ");
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        bytes[text.IndexOf("GPU XYZ", StringComparison.Ordinal) + 4] = 0xFF;
+        string path = Path.Combine(workspace.Root, Folder, name);
+        _ = Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, bytes);
+
+        CliRunResult result = await ReportAsync(workspace, "--in", Folder, "--out", "out");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal([name + ": (root) is not valid UTF-8"], OutputLines(result.Stdout));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-016")]
+    public async Task Cancellation_while_the_files_are_read_exits_5_and_the_next_file_is_never_read()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        foreach (Tier tier in new[] { Tier.Nvidia, Tier.Local })
+        {
+            _ = Put(workspace, RunDocumentFixtures.CommittedFileName(tier), CorruptedCostText(tier));
+        }
+
+        using var caller = new CancellationTokenSource();
+        using var writer = new CancellingWriter(caller);
+
+        // The writer cancels the token on the first line the command prints, which is a line of the first file in file order.
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["report", "--in", Folder, "--out", "out"],
+            new CliHostOverrides(WorkingDirectory: workspace.Root),
+            stdout: writer,
+            cancellationToken: caller.Token);
+
+        Assert.Equal(5, result.ExitCode);
+        Assert.Equal("error: interrupted by shutdown (OperationCanceledException)", Assert.Single(result.ErrorLines));
+        Assert.All(OutputLines(writer.ToString()), line => Assert.StartsWith(RunDocumentFixtures.CommittedFileName(Tier.Local) + ": ", line, StringComparison.Ordinal));
+        AssertNothingWritten(workspace, "out");
+    }
+
+    [Theory]
+    [InlineData("summary.md")]
+    [InlineData("joules-per-step.svg")]
+    [InlineData("index.html")]
+    [Trait("Spec", "REQ-030")]
+    public async Task Each_rendered_file_that_would_carry_a_registered_value_is_refused_not_masked(string target)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        Assert.Equal(0, (await ReportAsync(workspace, "--in", FixtureFolder(), "--out", "plain")).ExitCode);
+        string Read(string name) => File.ReadAllText(Path.Combine(workspace.Root, "plain", name));
+        string others = string.Concat(ReportOutputNames.Where(name => name != target).Select(Read))
+            + string.Concat(Directory.GetFiles(FixtureFolder()).Select(file => File.ReadAllText(file)));
+
+        // A word or a line that only this rendered file holds: no run file and none of the other two texts contains it.
+        string content = Read(target);
+        string value = WordRun().Matches(content)
+            .Select(match => match.Value)
+            .Concat(content.Split('\n').Select(static line => line.Trim()))
+            .Where(piece => piece.Length >= 10 && !piece.Contains('*', StringComparison.Ordinal) && !others.Contains(piece, StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .First();
+
+        CliRunResult result = await ReportWithKeyAsync(workspace, value, "--in", FixtureFolder(), "--out", "keyed");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal($"error: report: {target} holds a registered key; nothing written (ConfigurationException)", Assert.Single(result.ErrorLines));
+        Assert.False(Directory.Exists(Path.Combine(workspace.Root, "keyed")));
     }
 }

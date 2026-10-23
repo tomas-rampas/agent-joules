@@ -9,7 +9,7 @@ namespace AgentJoules.Core.Configuration;
 
 /// <summary>
 /// Checks what annotations cannot: that <c>Meter:Method</c> is a known name, the 10 Hz rule (a rate below 10 Hz is valid only when
-/// <c>Meter:AllowBelowMinRate</c> is true), and the <c>Tiers</c> and <c>Judge</c> sections.
+/// <c>Meter:AllowBelowMinRate</c> is true), the <c>Tiers</c> and <c>Judge</c> sections, and <c>Report:RepositoryUrl</c> (an absolute https URL without user info, query, fragment or surrounding space, and without an <c>nvapi-</c> key; the rule and its message are <see cref="ReportOptions.IsRepositoryUrl"/> and <see cref="ReportOptions.RepositoryUrlMessage"/>).
 /// </summary>
 /// <remarks>
 /// Every failure is reported, one line each, and the checks do not stop at the first one. A rate of 0 or less, NaN or infinity, which
@@ -59,6 +59,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         }
 
         ValidateJudge(options, failures);
+        ValidateReport(options.Report, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
@@ -178,6 +179,15 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         else if (options.Tiers.Keys.Any(IsKnownTierName) && !options.Tiers.ContainsKey(judgeTier))
         {
             failures.Add("Judge:Tier names a tier that Tiers does not hold");
+        }
+    }
+
+    // Report:RepositoryUrl (AJ-086) is optional; a value that is set is the link of the page, so it must pass ReportOptions.IsRepositoryUrl: an absolute https URL without user information, query, fragment or surrounding space, and without an nvapi- key. The failure is ReportOptions.RepositoryUrlMessage; the value is never shown: it can hold a key.
+    private static void ValidateReport(ReportOptions report, List<string> failures)
+    {
+        if (report.RepositoryUrl is not null && !ReportOptions.IsRepositoryUrl(report.RepositoryUrl, out _))
+        {
+            failures.Add(ReportOptions.RepositoryUrlMessage);
         }
     }
 

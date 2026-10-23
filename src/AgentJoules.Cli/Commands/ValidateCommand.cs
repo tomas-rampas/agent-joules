@@ -5,6 +5,7 @@ using AgentJoules.Cli.Hosting;
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Security;
 using AgentJoules.Reporting.Results;
 
 namespace AgentJoules.Cli.Commands;
@@ -59,7 +60,7 @@ internal static class ValidateCommand
             throw new ConfigurationException("validate --config: the model-ID check arrives in M4; nothing was checked");
         }
 
-        string[] files = Select(host.WorkingDirectory, given ?? DefaultPath);
+        string[] files = Select(host.WorkingDirectory, given ?? DefaultPath, host.Redactor);
         int invalid = 0;
         try
         {
@@ -93,9 +94,9 @@ internal static class ValidateCommand
     }
 
     // The run files to check: the named file, or the files of the folder whose name is a run file name, in ordinal order of the name.
-    private static string[] Select(string workingDirectory, string given)
+    private static string[] Select(string workingDirectory, string given, SecretRedactor redactor)
     {
-        string echo = TextEcho.ForMessage(given, PathEchoLength);
+        string echo = TextEcho.ForMessage(redactor.Redact(given), PathEchoLength);
         if (string.IsNullOrWhiteSpace(given))
         {
             throw new ConfigurationException("the path argument must not be blank");

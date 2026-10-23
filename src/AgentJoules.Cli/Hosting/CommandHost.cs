@@ -1,5 +1,6 @@
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
+using AgentJoules.Core.Security;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,12 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
 
     /// <summary>The directory relative paths resolve against: the working directory of the test overrides, or the current directory.</summary>
     internal string WorkingDirectory { get; } = overrides?.WorkingDirectory ?? Directory.GetCurrentDirectory();
+
+    /// <summary>True in production and when the test overrides opt in: the process environment is a configuration source, as it is for the host of the other commands.</summary>
+    internal bool IncludeProcessEnvironment { get; } = overrides is null || overrides.IncludeProcessEnvironment;
+
+    /// <summary>The masker of the keys this process knows; a command that writes text to a file passes it through this before the file is written.</summary>
+    internal SecretRedactor Redactor { get; } = keys.Redactor;
 
     /// <summary>
     /// Runs <paramref name="action"/> in a started host and returns its exit code, or the code of the failure it threw. An

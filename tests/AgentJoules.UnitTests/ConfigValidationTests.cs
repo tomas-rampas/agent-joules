@@ -977,4 +977,99 @@ public sealed class ConfigValidationTests
         Assert.All(codes, code => Assert.True(CostOptions.IsCurrencyCode(code), code));
         Assert.All(notCodes, code => Assert.False(CostOptions.IsCurrencyCode(code)));
     }
+
+    // ---- AJ-086 (REQ-030): Report:RepositoryUrl ----
+
+
+    private static string ReportUrl(string rest) => string.Concat(Uri.UriSchemeHttps, "://", "example.test/", rest);
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void TheShippedFileSetsTheRepositoryUrlOfTheProject()
+    {
+        AgentJoulesOptions options = ConfigurationFixtures.ShippedOptions();
+
+        Assert.Equal(string.Concat(Uri.UriSchemeHttps, "://", "github.com/tomas-rampas/agent-joules"), options.Report.RepositoryUrl);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ThereIsNoRepositoryUrlUnlessOneIsConfigured()
+    {
+        AgentJoulesOptions options = Load();
+
+        Assert.Null(options.Report.RepositoryUrl);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void AnAbsoluteHttpsRepositoryUrlIsAccepted()
+    {
+        string[] urls = [ReportUrl("owner/repo"), ReportUrl(string.Empty), string.Concat(Uri.UriSchemeHttps, "://", "example.test:8443/owner/repo")];
+
+        Assert.All(urls, url => Assert.Equal(url, Load(("Report:RepositoryUrl", url)).Report.RepositoryUrl));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ARepositoryUrlThatIsNotAbsoluteHttpsWithoutUserInfoQueryOrFragmentIsRefusedWithoutShowingIt()
+    {
+        string secret = string.Concat("nvapi", "-", "Zq9_xK3", "_mP7w");
+        string[] refused =
+        [
+            string.Concat(Uri.UriSchemeHttp, "://", "example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeFtp, "://", "example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "user:", secret, "@example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", secret, "@example.test/owner/repo"),
+            ReportUrl("owner/repo?a=1"),
+            ReportUrl("owner/repo?"),
+            ReportUrl("owner/repo#top"),
+            ReportUrl("owner/repo#"),
+            "owner/repo",
+            "example.test/owner/repo",
+            "   ",
+            "/owner/repo",
+        ];
+
+        foreach (string url in refused)
+        {
+            ConfigurationException failure = Rejected(("Report:RepositoryUrl", url));
+
+            Assert.Equal(ReportOptions.RepositoryUrlMessage, failure.Message);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ARepositoryUrlWithAKeyInThePathOrSurroundingSpaceIsRefusedHere()
+    {
+        string key = string.Concat("nvapi", "-", "Zq9xK3mP7wAbCdEf");
+        string[] refused =
+        [
+            ReportUrl("owner/" + key),
+            ReportUrl(key + "/repo"),
+            " " + ReportUrl("owner/repo"),
+            ReportUrl("owner/repo") + " ",
+            ReportUrl("owner/repo") + "\t",
+        ];
+
+        foreach (string url in refused)
+        {
+            ConfigurationException failure = Rejected(("Report:RepositoryUrl", url));
+
+            Assert.Equal(ReportOptions.RepositoryUrlMessage, failure.Message);
+            Assert.DoesNotContain(key, failure.Message, StringComparison.Ordinal);
+            Assert.False(ReportOptions.IsRepositoryUrl(url, out Uri? uri));
+            Assert.Null(uri);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void TheReportSectionHoldsNoOtherKey()
+    {
+        ConfigurationException failure = Rejected(("Report:Other", "x"));
+
+        Assert.Equal("Report:Other is not a known option; check the spelling", failure.Message);
+    }
 }

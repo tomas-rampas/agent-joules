@@ -46,4 +46,7 @@ public sealed class AgentJoulesOptions
 
     /// <summary>Section <c>Paths</c>: the files a run reads, relative to the content root; every key has a default.</summary>
     public PathsOptions Paths { get; set; } = new();
+
+    /// <summary>Section <c>Report</c>: the settings of the <c>report</c> command; checked by <see cref="CrossFieldValidator"/>.</summary>
+    public ReportOptions Report { get; set; } = new();
 }
