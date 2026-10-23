@@ -131,7 +131,7 @@ public static class ReportHeader
 
     // A disclosure is printed unchanged only when it is one of the sentences of ReportSentences. A line that starts with the models-differ prefix is only the trigger: the printed line is built here, from the
     // primary tier reports of the model, one "tier=models (precision)" entry per tier with each model ID and the precision cleaned and escaped on its own, so the structure of the line is the renderer's and a
-    // model ID cannot forge an entry (its separators and "tier=" stay inside its own entry as escaped text) or push a real entry out of the line. Any other text is escaped whole and, as it stands at the start of
+    // model ID cannot hide or drop a real entry (every tier keeps its own entry); a model ID that contains ", <tier>=" still reads like an extra entry, an accepted residual. Any other text is escaped whole and, as it stands at the start of
     // a line, has a leading list or setext marker backslash-escaped, because the escape of a surface covers the inline characters only.
     private static string Disclosure(string line, ReportModel model, Func<string, string> escape)
     {

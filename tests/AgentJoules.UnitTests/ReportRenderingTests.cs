@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
@@ -3249,5 +3250,886 @@ public sealed partial class ReportRenderingTests
 
         Assert.DoesNotContain("base-model", line, StringComparison.Ordinal);
         Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=m1 \\(Q4\\_K\\_M\\), nebius=m2 \\(FP8\\)", line);
+    }
+
+    // ---- the SVG chart with N/A as a text marker (AJ-084) ----
+
+    private const double PlotTopPixels = 84.0;
+    private const double PlotHeightPixels = 240.0;
+    private const double RowPitchPixels = 430.0;
+    private const double FirstRowTopPixels = 44.0;
+
+    private static readonly XNamespace SvgNs = "http://www.w3.org/2000/svg";
+    private static readonly string[] SvgTierOrder = ["local", "cloudgpu", "nvidia", "nebius"];
+    private static readonly string[] SvgElementNames = ["svg", "text", "line", "g", "rect"];
+
+    [GeneratedRegex("<text[^>]*>N/A</text>", RegexOptions.CultureInvariant)]
+    private static partial Regex NaMarkerText();
+
+    private static string RenderSvg(params SelectedRun[] runs) => JoulesSvgRenderer.Render(ReportAggregator.Build(runs));
+
+    private static string RenderSvgUnder(string culture, params SelectedRun[] runs)
+    {
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(culture);
+
+            return RenderSvg(runs);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+    }
+
+    private static string? ClassOf(XElement element) => (string?)element.Attribute("class");
+
+    private static XElement[] SvgGroups(XDocument document) => [.. document.Descendants(SvgNs + "g").Where(element => ClassOf(element) == "group")];
+
+    private static XElement[] SlotsOfGroup(XElement group) => [.. group.Elements(SvgNs + "g").Where(element => ClassOf(element) == "slot")];
+
+    private static XElement SlotOfGroup(XElement group, string tier, string variant = "primary") =>
+        Assert.Single(SlotsOfGroup(group), slot => (string?)slot.Attribute("data-tier") == tier && (string?)slot.Attribute("data-variant") == variant);
+
+    private static string[] SvgTexts(XElement parent, string cssClass) =>
+        [.. parent.Elements(SvgNs + "text").Where(element => ClassOf(element) == cssClass).Select(element => element.Value)];
+
+    private static XElement[] SvgBars(XDocument document) => [.. document.Descendants(SvgNs + "rect")];
+
+    private static XElement SvgAxis(XDocument document)
+    {
+        Assert.Single(document.Descendants(SvgNs + "line"));
+
+        return Assert.Single(document.Descendants(SvgNs + "line"), element => ClassOf(element) == "axis");
+    }
+
+    private static XElement[] SvgAxes(XDocument document) => [.. document.Descendants(SvgNs + "line").Where(element => ClassOf(element) == "axis")];
+
+    private static XElement[] SvgRows(XDocument document) => [.. document.Descendants(SvgNs + "g").Where(element => ClassOf(element) == "row")];
+
+    private static double Pixels(XElement element, string name) =>
+        double.Parse((string?)element.Attribute(name) ?? throw new InvalidOperationException($"No {name} attribute."), NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    private static SelectedRun LocalSteps(params (string Task, double Net)[] steps) =>
+        RunOf(Tier.Local, [.. steps.Select(step => Step(Tier.Local, task: step.Task, net: Metric.Measured(step.Net, "J"), flags: step.Net < 0.0 ? ReadingFlags.BelowBaseline : ReadingFlags.None))]);
+
+    private static string AttributeDump(XDocument document) =>
+        string.Join('\n', document.Descendants().SelectMany(element => element.Attributes().Select(attribute => $"{element.Name.LocalName}.{attribute.Name.LocalName}={attribute.Value}")));
+
+    [Fact]
+    public void The_chart_is_well_formed_svg_with_the_svg_namespace_on_the_root()
+    {
+        string svg = RenderSvg(LocalSteps((TaskName, 12.3)));
+
+        XDocument document = XDocument.Parse(svg);
+
+        Assert.Equal(SvgNs + "svg", document.Root!.Name);
+        Assert.StartsWith("<svg xmlns=\"http://www.w3.org/2000/svg\"", svg, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrEmpty((string?)document.Root.Attribute("viewBox")));
+        Assert.True(Pixels(document.Root, "width") > 0.0);
+        Assert.True(Pixels(document.Root, "height") > 0.0);
+        Assert.DoesNotContain("<?xml", svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_chart_text_is_lf_only_ascii_with_one_final_line_feed()
+    {
+        string svg = RenderSvg(LocalSteps((TaskName, 12.3)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)));
+
+        Assert.DoesNotContain('\r', svg);
+        Assert.All(svg, character => Assert.True(character < 128, "The chart holds a character outside ASCII."));
+        Assert.EndsWith("</svg>\n", svg, StringComparison.Ordinal);
+        Assert.False(svg.EndsWith("\n\n", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Render_refuses_a_null_model()
+    {
+        _ = Assert.Throws<ArgumentNullException>(() => JoulesSvgRenderer.Render(null!));
+    }
+
+    [Fact]
+    public void A_measured_median_is_one_rect_with_its_label()
+    {
+        string svg = RenderSvg(LocalSteps((TaskName, 12.3)));
+        XDocument document = XDocument.Parse(svg);
+
+        XElement group = Assert.Single(SvgGroups(document));
+        XElement slot = SlotOfGroup(group, "local");
+        XElement bar = Assert.Single(SvgBars(document));
+
+        Assert.Same(slot, bar.Parent);
+        Assert.Equal("bar", ClassOf(bar));
+        Assert.Equal(["12.3"], SvgTexts(slot, "value"));
+        Assert.Empty(SvgTexts(slot, "marker"));
+        Assert.Equal(PlotHeightPixels, Pixels(bar, "height"), precision: 2);
+    }
+
+    [Fact]
+    public void The_value_label_is_the_invariant_joules_text_of_the_median_under_any_culture()
+    {
+        SelectedRun run = LocalSteps((TaskName, 1234.56));
+
+        foreach (string culture in new[] { "de-DE", "tr-TR", "fr-FR" })
+        {
+            XDocument document = XDocument.Parse(RenderSvgUnder(culture, run));
+
+            Assert.Equal([InvariantFormat.Joules(1234.56)], SvgTexts(SlotOfGroup(Assert.Single(SvgGroups(document)), "local"), "value"));
+        }
+
+        Assert.Equal("1234.6", InvariantFormat.Joules(1234.56));
+    }
+
+    [Fact]
+    public void The_bar_of_a_row_is_the_median_of_its_repeats_and_there_is_one_bar_per_row()
+    {
+        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0, 100.0));
+
+        XDocument document = XDocument.Parse(RenderSvg(run));
+
+        XElement slot = SlotOfGroup(Assert.Single(SvgGroups(document)), "local");
+        Assert.Single(SvgBars(document));
+        Assert.Equal(["12.0"], SvgTexts(slot, "value"));
+    }
+
+    [Fact]
+    public void Bars_share_one_scale_the_largest_value_fills_the_plot_height()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps(("alpha", 10.0), ("beta", 20.0))));
+
+        XElement[] groups = SvgGroups(document);
+        XElement small = Assert.Single(SlotOfGroup(groups[0], "local").Elements(SvgNs + "rect"));
+        XElement large = Assert.Single(SlotOfGroup(groups[1], "local").Elements(SvgNs + "rect"));
+        XElement[] axes = SvgAxes(document);
+
+        // Two rows, one axis each, one scale for the chart: 20 J fills the plot, 10 J fills half of it, in rows one pitch apart.
+        Assert.Equal(2, axes.Length);
+        Assert.Equal(PlotHeightPixels, Pixels(large, "height"), precision: 2);
+        Assert.Equal(PlotHeightPixels / 2.0, Pixels(small, "height"), precision: 2);
+        Assert.Equal(PlotTopPixels + PlotHeightPixels, Pixels(axes[0], "y1"), precision: 2);
+        Assert.Equal(PlotTopPixels + PlotHeightPixels + RowPitchPixels, Pixels(axes[1], "y1"), precision: 2);
+        Assert.Equal(Pixels(axes[0], "y1"), Pixels(small, "y") + Pixels(small, "height"), precision: 2);
+        Assert.Equal(Pixels(axes[1], "y1"), Pixels(large, "y") + Pixels(large, "height"), precision: 2);
+    }
+
+    [Fact]
+    public void Negative_bar_below_axis()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps(("alpha", 10.0), ("beta", -2.0))));
+
+        XElement[] groups = SvgGroups(document);
+        XElement positive = Assert.Single(SlotOfGroup(groups[0], "local").Elements(SvgNs + "rect"));
+        XElement negativeSlot = SlotOfGroup(groups[1], "local");
+        XElement negative = Assert.Single(negativeSlot.Elements(SvgNs + "rect"));
+        XElement[] axes = SvgAxes(document);
+
+        // scale = 240 / (10 + 2) = 20 px per joule; in every row the axis is 10 * 20 = 200 px below the top of the plot, and the rows are one pitch apart.
+        Assert.Equal(2, axes.Length);
+        double axisY = PlotTopPixels + 200.0;
+        double secondAxisY = axisY + RowPitchPixels;
+        Assert.Equal(axisY, Pixels(axes[0], "y1"), precision: 2);
+        Assert.Equal(secondAxisY, Pixels(axes[1], "y1"), precision: 2);
+        Assert.All(axes, axis => Assert.Equal(Pixels(axis, "y1"), Pixels(axis, "y2")));
+        Assert.Equal(PlotTopPixels, Pixels(positive, "y"), precision: 2);
+        Assert.Equal(200.0, Pixels(positive, "height"), precision: 2);
+        Assert.Equal(secondAxisY, Pixels(negative, "y"), precision: 2);
+        Assert.Equal(40.0, Pixels(negative, "height"), precision: 2);
+        Assert.Equal(["-2.0"], SvgTexts(negativeSlot, "value"));
+        XElement label = Assert.Single(negativeSlot.Elements(SvgNs + "text"), element => ClassOf(element) == "value");
+        Assert.True(Pixels(label, "y") > Pixels(negative, "y") + Pixels(negative, "height"));
+    }
+
+    [Fact]
+    public void A_negative_value_flagged_below_baseline_is_drawn_below_the_axis_and_the_flag_is_not_drawn()
+    {
+        SelectedRun run = RunOf(Tier.Local, [Step(Tier.Local, net: Metric.Measured(-2.0, "J"), flags: ReadingFlags.BelowBaseline)]);
+
+        string svg = RenderSvg(run);
+        XDocument document = XDocument.Parse(svg);
+
+        XElement bar = Assert.Single(SvgBars(document));
+        XElement axis = SvgAxis(document);
+        Assert.Equal(Pixels(axis, "y1"), Pixels(bar, "y"), precision: 2);
+        Assert.Equal(PlotTopPixels, Pixels(axis, "y1"), precision: 2);
+        Assert.Equal(PlotHeightPixels, Pixels(bar, "height"), precision: 2);
+        Assert.DoesNotContain("below-baseline", svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_measured_zero_is_a_rect_of_height_zero_with_its_label_and_not_a_marker()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps(("alpha", 0.0), ("beta", 10.0))));
+
+        XElement zeroSlot = SlotOfGroup(SvgGroups(document)[0], "local");
+        XElement bar = Assert.Single(zeroSlot.Elements(SvgNs + "rect"));
+
+        Assert.Equal(0.0, Pixels(bar, "height"));
+        Assert.Equal(Pixels(SvgAxes(document)[0], "y1"), Pixels(bar, "y"), precision: 2);
+        Assert.Equal(["0.0"], SvgTexts(zeroSlot, "value"));
+        Assert.Empty(SvgTexts(zeroSlot, "marker"));
+    }
+
+    [Fact]
+    public void Only_zero_values_draw_height_zero_bars_on_an_axis_at_the_bottom_of_the_plot()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps((TaskName, 0.0))));
+
+        XElement bar = Assert.Single(SvgBars(document));
+
+        Assert.Equal(0.0, Pixels(bar, "height"));
+        Assert.Equal(PlotTopPixels + PlotHeightPixels, Pixels(SvgAxis(document), "y1"), precision: 2);
+        Assert.Equal(Pixels(SvgAxis(document), "y1"), Pixels(bar, "y"), precision: 2);
+        Assert.Equal(["0.0"], SvgTexts(SlotOfGroup(Assert.Single(SvgGroups(document)), "local"), "value"));
+    }
+
+    [Fact]
+    public void A_negative_zero_reading_prints_without_a_sign()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps((TaskName, -0.0))));
+
+        Assert.Equal(["0.0"], SvgTexts(SlotOfGroup(Assert.Single(SvgGroups(document)), "local"), "value"));
+        Assert.Equal(0.0, Pixels(Assert.Single(SvgBars(document)), "height"));
+    }
+
+    [Fact]
+    public void NA_step_has_no_rect()
+    {
+        string svg = RenderSvg(RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)));
+        XDocument document = XDocument.Parse(svg);
+
+        XElement slot = SlotOfGroup(Assert.Single(SvgGroups(document)), "nvidia");
+
+        Assert.Equal(["N/A"], SvgTexts(slot, "marker"));
+        Assert.Empty(SvgBars(document));
+        Assert.Empty(SvgTexts(slot, "value"));
+        Assert.Equal(1, NaMarkerText().Count(svg));
+    }
+
+    [Fact]
+    public void The_hosted_marker_appears_once_per_row_never_once_per_repeat()
+    {
+        string svg = RenderSvg(RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0, 2.0, 3.0)));
+
+        Assert.Equal(1, NaMarkerText().Count(svg));
+        Assert.Empty(XDocument.Parse(svg).Descendants(SvgNs + "rect"));
+    }
+
+    [Fact]
+    public void Not_reported_marker_text()
+    {
+        SelectedRun run = RunOf(Tier.Local, [Step(Tier.Local, net: Metric.NotReported("sensor-missing"))]);
+
+        string svg = RenderSvg(run);
+        XDocument document = XDocument.Parse(svg);
+        XElement slot = SlotOfGroup(Assert.Single(SvgGroups(document)), "local");
+
+        Assert.Equal(["not-reported"], SvgTexts(slot, "marker"));
+        Assert.Empty(SvgBars(document));
+        Assert.Equal(0, NaMarkerText().Count(svg));
+        Assert.DoesNotContain("sensor-missing", svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_cell_without_a_value_follows_its_label_na_when_any_repeat_is_na()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [
+                Step(Tier.Local, repeat: 1, net: Metric.NotReported("sensor-missing")),
+                Step(Tier.Local, repeat: 2, net: Metric.NotApplicable("no-counter")),
+            ]);
+
+        XDocument document = XDocument.Parse(RenderSvg(run));
+
+        Assert.Equal(["N/A"], SvgTexts(SlotOfGroup(Assert.Single(SvgGroups(document)), "local"), "marker"));
+        Assert.Empty(SvgBars(document));
+    }
+
+    [Fact]
+    public void A_hosted_marker_and_a_measured_bar_stand_in_the_same_group_without_a_rect_for_the_marker()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps((TaskName, 40.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0))));
+
+        XElement group = Assert.Single(SvgGroups(document));
+
+        Assert.Single(SlotOfGroup(group, "local").Elements(SvgNs + "rect"));
+        Assert.Empty(SlotOfGroup(group, "nvidia").Elements(SvgNs + "rect"));
+        Assert.Equal(["N/A"], SvgTexts(SlotOfGroup(group, "nvidia"), "marker"));
+        Assert.Single(SvgBars(document));
+    }
+
+    [Fact]
+    public void Every_value_label_has_its_rect_and_every_marker_has_none()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps(("alpha", 5.0), ("beta", -1.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0))));
+
+        foreach (XElement slot in SvgGroups(document).SelectMany(SlotsOfGroup))
+        {
+            int rects = slot.Elements(SvgNs + "rect").Count();
+            int values = SvgTexts(slot, "value").Length;
+            int markers = SvgTexts(slot, "marker").Length;
+
+            Assert.Equal(rects, values);
+            Assert.Equal(1, rects + markers);
+            Assert.Single(SvgTexts(slot, "slot-label"));
+        }
+    }
+
+    [Fact]
+    public void Tier_without_a_run_file_is_labelled_not_run()
+    {
+        SelectedRun[] runs = [RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)), RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0))];
+
+        XDocument document = XDocument.Parse(RenderSvg(runs));
+
+        XElement slot = SlotOfGroup(Assert.Single(SvgGroups(document)), "cloudgpu");
+        Assert.Equal(["not run"], SvgTexts(slot, "marker"));
+        Assert.Empty(slot.Elements(SvgNs + "rect"));
+        Assert.Equal(["cloudgpu"], SvgTexts(slot, "slot-label"));
+    }
+
+    [Fact]
+    public void Empty_model_draws_four_not_run_slots()
+    {
+        string svg = JoulesSvgRenderer.Render(ReportAggregator.Build([]));
+        XDocument document = XDocument.Parse(svg);
+
+        XElement group = Assert.Single(SvgGroups(document));
+        XElement[] slots = SlotsOfGroup(group);
+
+        Assert.Equal(SvgTierOrder, slots.Select(slot => (string?)slot.Attribute("data-tier")));
+        Assert.All(slots, slot => Assert.Equal(["not run"], SvgTexts(slot, "marker")));
+        Assert.Empty(SvgBars(document));
+        Assert.Equal([string.Empty], SvgTexts(group, "group-label"));
+        Assert.Equal([string.Empty], SvgTexts(Assert.Single(SvgRows(document)), "row-label"));
+        Assert.Equal(0, NaMarkerText().Count(svg));
+        Assert.Equal(ReportSentences.GpuBoardOnly, Assert.Single(document.Descendants(SvgNs + "text"), element => ClassOf(element) == "scope").Value);
+        Assert.Equal(PlotTopPixels + PlotHeightPixels, Pixels(SvgAxis(document), "y1"), precision: 2);
+        Assert.All(slots.Select(slot => Assert.Single(slot.Elements(SvgNs + "text"), element => ClassOf(element) == "marker")), marker => Assert.Equal(PlotTopPixels + PlotHeightPixels - 8.0, Pixels(marker, "y"), precision: 2));
+    }
+
+    [Fact]
+    public void A_file_without_rows_prints_no_completed_steps_in_every_group_and_a_tier_with_rows_keeps_its_bar()
+    {
+        SelectedRun empty = RunOf(Tier.Local, [], tasks: [TaskName]);
+        SelectedRun cloud = RunOf(Tier.CloudGpu, NetSteps(Tier.CloudGpu, 30.0));
+
+        XDocument document = XDocument.Parse(RenderSvg(empty, cloud));
+
+        XElement group = Assert.Single(SvgGroups(document));
+        Assert.Equal([ReportSentences.NoCompletedSteps], SvgTexts(SlotOfGroup(group, "local"), "marker"));
+        Assert.Equal(["not run"], SvgTexts(SlotOfGroup(group, "nvidia"), "marker"));
+        Assert.Single(SlotOfGroup(group, "cloudgpu").Elements(SvgNs + "rect"));
+        Assert.DoesNotContain(SvgBars(document), bar => bar.Parent == SlotOfGroup(group, "local"));
+    }
+
+    [Fact]
+    public void A_tier_with_rows_but_none_for_a_group_prints_na_for_that_group_and_nothing_else()
+    {
+        SelectedRun local = LocalSteps(("alpha", 10.0), ("beta", 20.0));
+        SelectedRun cloud = RunOf(Tier.CloudGpu, [Step(Tier.CloudGpu, task: "alpha", net: Metric.Measured(5.0, "J"))]);
+
+        XDocument document = XDocument.Parse(RenderSvg(local, cloud));
+
+        XElement[] groups = SvgGroups(document);
+        Assert.Single(SlotOfGroup(groups[0], "cloudgpu").Elements(SvgNs + "rect"));
+        Assert.Equal(["N/A"], SvgTexts(SlotOfGroup(groups[1], "cloudgpu"), "marker"));
+        Assert.Empty(SlotOfGroup(groups[1], "cloudgpu").Elements(SvgNs + "rect"));
+    }
+
+    [Fact]
+    public void Slots_in_tier_order_with_baseline_after_its_tier()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0));
+        SelectedRun localBaseline = RunOf(Tier.Local, NetSteps(Tier.Local, 7.0), RunVariant.Baseline);
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0));
+        SelectedRun nebiusBaseline = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0), RunVariant.Baseline);
+
+        XDocument document = XDocument.Parse(RenderSvg(nebiusBaseline, nebius, localBaseline, local));
+
+        XElement group = Assert.Single(SvgGroups(document));
+        XElement[] slots = SlotsOfGroup(group);
+        Assert.Equal(
+            [("local", "primary"), ("local", "baseline"), ("cloudgpu", "primary"), ("nvidia", "primary"), ("nebius", "primary"), ("nebius", "baseline")],
+            slots.Select(slot => ((string)slot.Attribute("data-tier")!, (string)slot.Attribute("data-variant")!)));
+        Assert.Equal(
+            ["local", "local baseline", "cloudgpu", "nvidia", "nebius", "nebius baseline"],
+            slots.Select(slot => Assert.Single(SvgTexts(slot, "slot-label"))));
+        Assert.Equal(["7.0"], SvgTexts(SlotOfGroup(group, "local", "baseline"), "value"));
+        Assert.Equal(["10.0"], SvgTexts(SlotOfGroup(group, "local"), "value"));
+    }
+
+    [Fact]
+    public void The_four_tiers_stand_in_the_fixed_order_in_every_group()
+    {
+        SelectedRun[] runs = [.. new[] { Tier.Nebius, Tier.Nvidia, Tier.CloudGpu, Tier.Local }.Select(tier => RunOf(tier, NetSteps(tier, 10.0)))];
+
+        XDocument document = XDocument.Parse(RenderSvg(runs));
+
+        foreach (XElement group in SvgGroups(document))
+        {
+            Assert.Equal(SvgTierOrder, SlotsOfGroup(group).Select(slot => (string?)slot.Attribute("data-tier")));
+        }
+    }
+
+    [Fact]
+    public void A_partial_file_marks_its_slot_label_and_no_other_flag_is_drawn()
+    {
+        SelectedRun partial = Wrap(RunDocumentFixtures.Partial(Tier.Local));
+        SelectedRun flagged = RunOf(Tier.CloudGpu, [Step(Tier.CloudGpu, flags: ReadingFlags.SharedWindow | ReadingFlags.LowResolution)]);
+
+        string svg = RenderSvg(partial, flagged);
+        XElement group = Assert.Single(SvgGroups(XDocument.Parse(svg)));
+
+        Assert.Equal(["local (partial)"], SvgTexts(SlotOfGroup(group, "local"), "slot-label"));
+        Assert.Equal(["cloudgpu"], SvgTexts(SlotOfGroup(group, "cloudgpu"), "slot-label"));
+        Assert.DoesNotContain("shared-window", svg, StringComparison.Ordinal);
+        Assert.DoesNotContain("low-resolution", svg, StringComparison.Ordinal);
+        Assert.DoesNotContain("sampling-fallback", svg, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_chart_carries_the_gpu_board_sentence_once_as_a_text_element()
+    {
+        string svg = RenderSvg(LocalSteps((TaskName, 12.3)));
+
+        XElement scope = Assert.Single(XDocument.Parse(svg).Descendants(SvgNs + "text"), element => ClassOf(element) == "scope");
+
+        Assert.Equal(ReportSentences.GpuBoardOnly, scope.Value);
+        Assert.Equal("Energy is GPU-board energy only.", scope.Value);
+        Assert.Equal(1, svg.Split(ReportSentences.GpuBoardOnly).Length - 1);
+    }
+
+    [Fact]
+    public void The_chart_names_no_figure_across_tiers_and_makes_no_comparison()
+    {
+        string svg = RenderSvg(LocalSteps(("alpha", 10.0), ("beta", -2.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)), RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0)));
+
+        foreach (string word in CrossTierWords)
+        {
+            Assert.DoesNotContain(word, svg, StringComparison.OrdinalIgnoreCase);
+        }
+
+        Assert.DoesNotMatch(@"\d\s*x\b|x-fold|%", XDocument.Parse(svg).Root!.Value);
+        Assert.DoesNotContain("cost", svg, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("quality", svg, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_chart_uses_only_the_elements_of_a_plain_drawing_and_no_script_style_image_or_link()
+    {
+        string svg = RenderSvg(LocalSteps(("alpha", 10.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)));
+        XDocument document = XDocument.Parse(svg);
+
+        Assert.All(document.Descendants(), element => Assert.Contains(element.Name.LocalName, SvgElementNames));
+        Assert.All(document.Descendants(), element => Assert.Equal(SvgNs, element.Name.Namespace));
+        Assert.DoesNotContain("href", svg, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script", svg, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<style", svg, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<image", svg, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("url(", svg, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, svg.Split("http").Length - 1);
+        Assert.All(document.Descendants(SvgNs + "text"), element => Assert.False(element.HasElements));
+        Assert.All(document.Descendants(SvgNs + "rect"), element => Assert.True(element.IsEmpty));
+        Assert.All(document.Descendants(SvgNs + "line"), element => Assert.True(element.IsEmpty));
+    }
+
+    [Fact]
+    public void Two_renders_identical()
+    {
+        SelectedRun[] runs = [LocalSteps(("alpha", 10.0), ("beta", -2.0)), RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0)), RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 3.0), RunVariant.Baseline)];
+
+        string first = RenderSvg(runs);
+
+        Assert.Equal(first, RenderSvg(runs));
+        Assert.Equal(first, RenderSvgUnder("de-DE", runs));
+        Assert.Equal(first, RenderSvgUnder("tr-TR", runs));
+        Assert.Equal(first, JoulesSvgRenderer.Render(ReportAggregator.Build(runs)));
+    }
+
+    [Fact]
+    public void The_order_of_the_input_files_does_not_change_the_chart()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0));
+
+        Assert.Equal(RenderSvg(local, nvidia), RenderSvg(nvidia, local));
+    }
+
+    [Fact]
+    public void The_chart_of_the_fixture_documents_renders_and_every_na_is_a_text_marker()
+    {
+        foreach (RunDocument document in EveryReportFixture())
+        {
+            string svg = RenderSvg(Wrap(document));
+            XDocument parsed = XDocument.Parse(svg);
+
+            Assert.All(SvgBars(parsed), bar => Assert.Single(bar.Parent!.Elements(SvgNs + "text"), element => ClassOf(element) == "value"));
+            Assert.Equal(parsed.Descendants(SvgNs + "rect").Count(), parsed.Descendants(SvgNs + "text").Count(element => ClassOf(element) == "value"));
+        }
+
+        Assert.True(NaMarkerText().Count(RenderSvg(Wrap(RunDocumentFixtures.HostedNoUsage()))) >= 1);
+    }
+
+    // The payloads are passed by index: xUnit cannot tell two lone surrogates apart as theory data.
+    private static readonly string[] HostilePayloads =
+    [
+        "a&b",
+        "a<b",
+        "a>b",
+        "a\"b",
+        "a'b",
+        "&amp;",
+        "&#x0;",
+        "&lt;script&gt;",
+        "<script>alert(1)</script>",
+        "\"/><script>alert(1)</script>",
+        "</text><rect class=\"bar\"/>",
+        "' onload='x",
+        "]]>",
+        "<![CDATA[x]]>",
+        "<!-- x -->",
+        "<?pi x?>",
+        "<!DOCTYPE x [<!ENTITY e \"y\">]>&e;",
+        "<g class=\"slot\"/>",
+        "xmlns=\"x\"",
+        "javascript:alert(1)",
+        "a\tb\nc\rd",
+        "a" + (char)0x01 + "b",
+        "a" + (char)0x1F + "b",
+        "a" + (char)0xD800 + "b",
+        "a" + (char)0xDC00 + "b",
+        "a" + (char)0xFFFE + "b",
+        "a" + (char)0xFFFF + "b",
+        "a" + (char)0x202E + "b",
+        "a" + (char)0x2028 + "b",
+        "a" + (char)0x85 + "b",
+        "a" + char.ConvertFromUtf32(0xE0041) + "b",
+        "a" + char.ConvertFromUtf32(0x1F600) + "b",
+        "a" + (char)0xE9 + "b",
+        "nvapi-" + new string('K', 30),
+        new string('x', 400),
+    ];
+
+    public static TheoryData<int> InjectionPayloads()
+    {
+        var indexes = new TheoryData<int>();
+        for (int index = 0; index < HostilePayloads.Length; index++)
+        {
+            indexes.Add(index);
+        }
+
+        return indexes;
+    }
+
+    [Theory]
+    [MemberData(nameof(InjectionPayloads))]
+    public void Hostile_ids_parse(int index)
+    {
+        string payload = HostilePayloads[index];
+        SelectedRun hostile = RunOf(
+            Tier.Local,
+            [Step(Tier.Local, task: payload, agent: payload, modelId: payload, net: Metric.Measured(5.0, "J"))],
+            edit: document => document with { Environment = document.Environment with { Models = [new EnvironmentModel(payload, payload, Baseline: false)] } });
+        SelectedRun plain = RunOf(Tier.Local, [Step(Tier.Local, task: "task", agent: "agent", net: Metric.Measured(5.0, "J"))]);
+
+        string svg = RenderSvg(hostile, RunOf(Tier.Nvidia, [Step(Tier.Nvidia, task: payload, agent: payload, modelId: payload)]));
+        XDocument document = XDocument.Parse(svg);
+
+        // The names reach the chart as text nodes, cleaned and then escaped by the writer, so the parsed text is the cleaned text.
+        XElement row = Assert.Single(SvgRows(document));
+        XElement group = Assert.Single(SvgGroups(document));
+        string cleaned = ReportText.Clean(payload, ReportText.NameMaxLength);
+        Assert.Equal(cleaned, Assert.Single(SvgTexts(row, "row-label")));
+        Assert.Equal(cleaned, Assert.Single(SvgTexts(group, "group-label")));
+
+        // Nothing that came from the document is an element or an attribute: the structure and every attribute equal those of a plain render.
+        Assert.Single(SvgBars(document));
+        Assert.All(document.Descendants(), element => Assert.Contains(element.Name.LocalName, SvgElementNames));
+        string plainSvg = RenderSvg(plain, RunOf(Tier.Nvidia, [Step(Tier.Nvidia, task: "task", agent: "agent")]));
+        Assert.Equal(AttributeDump(XDocument.Parse(plainSvg)), AttributeDump(document));
+        Assert.Equal(XDocument.Parse(plainSvg).Descendants().Count(), document.Descendants().Count());
+        Assert.DoesNotContain("nvapi-" + new string('K', 30), svg, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', svg);
+        Assert.All(svg, character => Assert.True(character < 128));
+    }
+
+    [Fact]
+    public void Characters_outside_ascii_are_written_as_character_references_and_round_trip()
+    {
+        string name = "caf" + (char)0xE9 + char.ConvertFromUtf32(0x1F600);
+        SelectedRun run = RunOf(Tier.Local, [Step(Tier.Local, task: name, agent: name, net: Metric.Measured(5.0, "J"))]);
+
+        string svg = RenderSvg(run);
+
+        Assert.All(svg, character => Assert.True(character < 128));
+        XDocument document = XDocument.Parse(svg);
+        Assert.Equal(name, Assert.Single(SvgTexts(Assert.Single(SvgRows(document)), "row-label")));
+        Assert.Equal(name, Assert.Single(SvgTexts(Assert.Single(SvgGroups(document)), "group-label")));
+    }
+
+    [Fact]
+    public void The_chart_does_not_grow_a_rect_for_a_long_task_name_and_cuts_the_name()
+    {
+        string name = new('n', 500);
+
+        XDocument document = XDocument.Parse(RenderSvg(RunOf(Tier.Local, [Step(Tier.Local, task: name, agent: "Planner")])));
+
+        string label = Assert.Single(SvgTexts(Assert.Single(SvgRows(document)), "row-label"));
+        Assert.Equal(ReportText.Clean(name, ReportText.NameMaxLength), label);
+        Assert.EndsWith("...", label, StringComparison.Ordinal);
+        Assert.Equal(["Planner"], SvgTexts(Assert.Single(SvgGroups(document)), "group-label"));
+    }
+
+    [Fact]
+    public void The_drawing_width_grows_with_the_groups_and_the_slots_stay_inside_it()
+    {
+        SelectedRun many = RunOf(Tier.Local, [.. Enumerable.Range(1, 12).Select(index => Step(Tier.Local, task: $"task-{index:D2}", net: Metric.Measured(index, "J")))]);
+
+        XDocument document = XDocument.Parse(RenderSvg(many, RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), RunVariant.Baseline)));
+
+        double width = Pixels(document.Root!, "width");
+        Assert.Equal(13, SvgGroups(document).Length);
+        Assert.Equal(13, SvgRows(document).Length);
+        Assert.Equal(FirstRowTopPixels + (13 * RowPitchPixels), Pixels(document.Root!, "height"), precision: 2);
+        Assert.Equal($"0 0 {width.ToString("0.##", CultureInfo.InvariantCulture)} {Pixels(document.Root!, "height").ToString("0.##", CultureInfo.InvariantCulture)}", (string?)document.Root!.Attribute("viewBox"));
+        Assert.All(SvgBars(document), bar => Assert.InRange(Pixels(bar, "x") + Pixels(bar, "width"), 0.0, width));
+        Assert.All(SvgBars(document), bar => Assert.True(Pixels(bar, "x") >= 0.0));
+    }
+
+    // ---- the SVG chart: one row per task (AJ-084 fix round) ----
+
+    private const string ChartTitle = "Measured net energy per step in joules (J), median of the repeats of each bar";
+
+    private static SelectedRun LocalAgents(string task, int count, Func<int, double>? net = null) =>
+        RunOf(Tier.Local, [.. Enumerable.Range(0, count).Select(index => Step(Tier.Local, task: task, agent: $"a{index:D4}", net: Metric.Measured(net?.Invoke(index) ?? 1.0, "J")))]);
+
+    [Fact]
+    public void The_chart_has_one_row_per_task_in_the_order_of_the_rows_of_the_model_each_with_its_label_and_its_axis()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [
+                Step(Tier.Local, task: "gamma", agent: "Planner"),
+                Step(Tier.Local, task: "alpha", agent: "Writer"),
+                Step(Tier.Local, task: "alpha", agent: "Planner"),
+                Step(Tier.Local, task: "beta", agent: "Planner"),
+            ]);
+        SelectedRun nebius = RunOf(Tier.Nebius, [Step(Tier.Nebius, task: "gamma", agent: "Planner")]);
+        ReportModel model = ReportAggregator.Build([run, nebius]);
+
+        XDocument document = XDocument.Parse(JoulesSvgRenderer.Render(model));
+
+        // One row per distinct task in the order the tasks first appear in the rows of the model; the groups of a row are the agents of its task in the same order.
+        string[] tasks = [.. model.Rows.Select(row => row.Task).Distinct()];
+        XElement[] rows = SvgRows(document);
+        Assert.Equal(3, tasks.Length);
+        Assert.Equal("gamma", tasks[0]);
+        Assert.NotEqual([.. tasks.Order(StringComparer.Ordinal)], tasks);
+        Assert.Equal(tasks, rows.Select(row => Assert.Single(SvgTexts(row, "row-label"))));
+        for (int index = 0; index < rows.Length; index++)
+        {
+            string[] agents = [.. model.Rows.Where(row => row.Task == tasks[index]).Select(row => row.Agent).Distinct()];
+            Assert.Equal(agents, rows[index].Elements(SvgNs + "g").Where(element => ClassOf(element) == "group").Select(group => Assert.Single(SvgTexts(group, "group-label"))));
+            XElement axis = Assert.Single(rows[index].Elements(SvgNs + "line"));
+            Assert.Equal("axis", ClassOf(axis));
+            Assert.Equal(PlotTopPixels + PlotHeightPixels + (index * RowPitchPixels), Pixels(axis, "y1"), precision: 2);
+            Assert.Equal(24.0, Pixels(Assert.Single(rows[index].Elements(SvgNs + "text"), element => ClassOf(element) == "row-label"), "x"));
+        }
+
+        Assert.Equal(FirstRowTopPixels + (3 * RowPitchPixels), Pixels(document.Root!, "height"), precision: 2);
+        Assert.Equal(3, SvgAxes(document).Length);
+    }
+
+    [Fact]
+    public void The_row_label_is_the_cleaned_task_name_as_a_text_node_and_the_group_label_is_the_agent_name_only()
+    {
+        const string task = "task-name-one";
+        const string agent = "agent-name-one";
+
+        XDocument document = XDocument.Parse(RenderSvg(RunOf(Tier.Local, [Step(Tier.Local, task: task, agent: agent)])));
+
+        XElement row = Assert.Single(SvgRows(document));
+        XElement group = Assert.Single(SvgGroups(document));
+        Assert.Equal([task], SvgTexts(row, "row-label"));
+        Assert.Equal([agent], SvgTexts(group, "group-label"));
+        Assert.DoesNotContain(" / ", document.Root!.Value, StringComparison.Ordinal);
+        Assert.All(document.Descendants().SelectMany(element => element.Attributes()), attribute => Assert.DoesNotContain("name-one", attribute.Value, StringComparison.Ordinal));
+        Assert.DoesNotContain(row.Elements(SvgNs + "text"), element => ClassOf(element) == "group-label");
+    }
+
+    [Fact]
+    public void Pairs_that_would_join_to_the_same_text_render_as_different_rows_and_groups()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [
+                Step(Tier.Local, task: "a / b", agent: "c"),
+                Step(Tier.Local, task: "a", agent: "b / c"),
+            ]);
+
+        XDocument document = XDocument.Parse(RenderSvg(run));
+
+        XElement[] rows = SvgRows(document);
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(["a / b", "a"], rows.Select(row => Assert.Single(SvgTexts(row, "row-label"))));
+        Assert.Equal(["c", "b / c"], SvgGroups(document).Select(group => Assert.Single(SvgTexts(group, "group-label"))));
+        Assert.Equal(["c"], SvgTexts(Assert.Single(rows[0].Elements(SvgNs + "g"), element => ClassOf(element) == "group"), "group-label"));
+        Assert.Equal(["b / c"], SvgTexts(Assert.Single(rows[1].Elements(SvgNs + "g"), element => ClassOf(element) == "group"), "group-label"));
+    }
+
+    [Fact]
+    public void A_group_that_exists_only_in_a_baseline_file_sits_in_the_row_of_its_task()
+    {
+        SelectedRun primary = RunOf(Tier.Local, [Step(Tier.Local, task: "alpha", agent: "Planner"), Step(Tier.Local, task: "beta", agent: "Planner")]);
+        SelectedRun baseline = RunOf(Tier.Local, [Step(Tier.Local, task: "alpha", agent: "Writer", net: Metric.Measured(7.0, "J"))], RunVariant.Baseline);
+
+        XDocument document = XDocument.Parse(RenderSvg(primary, baseline));
+
+        XElement[] rows = SvgRows(document);
+        Assert.Equal(["alpha", "beta"], rows.Select(row => Assert.Single(SvgTexts(row, "row-label"))));
+        XElement[] alpha = [.. rows[0].Elements(SvgNs + "g").Where(element => ClassOf(element) == "group")];
+        Assert.Equal(["Planner", "Writer"], alpha.Select(group => Assert.Single(SvgTexts(group, "group-label"))));
+        Assert.Equal(["7.0"], SvgTexts(SlotOfGroup(alpha[1], "local", "baseline"), "value"));
+        Assert.Single(rows[1].Elements(SvgNs + "g"), element => ClassOf(element) == "group");
+    }
+
+    [Fact]
+    public void The_drawing_is_as_wide_as_its_widest_row_and_as_high_as_its_rows_stacked()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [
+                Step(Tier.Local, task: "beta", agent: "B1"),
+                Step(Tier.Local, task: "alpha", agent: "A1"),
+                Step(Tier.Local, task: "alpha", agent: "A2"),
+                Step(Tier.Local, task: "alpha", agent: "A3"),
+            ]);
+
+        XDocument document = XDocument.Parse(RenderSvg(run));
+
+        // Four slots of 80 px per group, 32 px between groups, 24 px on the left and 130 px on the right: the widest row has three groups.
+        double widest = 24.0 + (3 * 320.0) + (2 * 32.0) + 130.0;
+        Assert.Equal(widest, Pixels(document.Root!, "width"), precision: 2);
+        Assert.Equal(FirstRowTopPixels + (2 * RowPitchPixels), Pixels(document.Root!, "height"), precision: 2);
+        XElement[] axes = SvgAxes(document);
+        Assert.Equal(24.0 + 320.0, Pixels(axes[0], "x2"), precision: 2);
+        Assert.Equal(24.0 + (3 * 320.0) + (2 * 32.0), Pixels(axes[1], "x2"), precision: 2);
+        Assert.All(axes, axis => Assert.Equal(24.0, Pixels(axis, "x1"), precision: 2));
+    }
+
+    [Fact]
+    public void The_twelve_committed_groups_fit_in_three_rows_of_four_groups()
+    {
+        SelectedRun[] runs = [.. new[] { Tier.Local, Tier.Nvidia, Tier.Nebius }.Select(tier => Wrap(RunDocumentFixtures.Committed(tier)))];
+
+        XDocument document = XDocument.Parse(RenderSvg(runs));
+
+        XElement[] rows = SvgRows(document);
+        Assert.Equal(3, rows.Length);
+        Assert.All(rows, row => Assert.Equal(4, row.Elements(SvgNs + "g").Count(element => ClassOf(element) == "group")));
+        Assert.Equal(12, SvgGroups(document).Length);
+        Assert.InRange(Pixels(document.Root!, "width"), 1200.0, 1700.0);
+        Assert.Equal(3, SvgAxes(document).Length);
+    }
+
+    [Fact]
+    public void The_title_says_the_values_are_measured_net_joules_and_the_chart_has_one_title()
+    {
+        XElement title = Assert.Single(XDocument.Parse(RenderSvg(LocalSteps((TaskName, 12.3)))).Descendants(SvgNs + "text"), element => ClassOf(element) == "title");
+
+        Assert.Equal(ChartTitle, title.Value);
+        Assert.Equal("Measured net energy per step in joules (J), median of the repeats of each bar", title.Value);
+    }
+
+    [Fact]
+    public void A_chart_of_markers_only_puts_its_axis_at_the_bottom_of_the_plot_and_the_markers_just_above_it()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0))));
+
+        double axisY = Pixels(SvgAxis(document), "y1");
+
+        Assert.Equal(PlotTopPixels + PlotHeightPixels, axisY, precision: 2);
+        Assert.All(document.Descendants(SvgNs + "text").Where(element => ClassOf(element) == "marker"), marker => Assert.Equal(axisY - 8.0, Pixels(marker, "y"), precision: 2));
+    }
+
+    [Fact]
+    public void Huge_medians_keep_their_heights_because_the_scale_does_not_overflow()
+    {
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps(("a", double.MaxValue), ("b", -double.MaxValue), ("c", 1e308))));
+
+        XElement[] bars = SvgBars(document);
+        XElement[] axes = SvgAxes(document);
+
+        // maxPos = maxNeg = MaxValue: the scale is 240 / (2 * MaxValue) = 120 px per MaxValue, the axis is 120 px below the top of each plot, and 1e308 is 0.5563 of MaxValue.
+        Assert.Equal(3, bars.Length);
+        Assert.Equal(120.0, Pixels(bars[0], "height"), precision: 2);
+        Assert.Equal(120.0, Pixels(bars[1], "height"), precision: 2);
+        Assert.Equal(66.75, Pixels(bars[2], "height"), precision: 2);
+        for (int index = 0; index < 3; index++)
+        {
+            Assert.Equal(PlotTopPixels + 120.0 + (index * RowPitchPixels), Pixels(axes[index], "y1"), precision: 2);
+        }
+
+        Assert.Equal(PlotTopPixels, Pixels(bars[0], "y"), precision: 2);
+        Assert.Equal(Pixels(axes[1], "y1"), Pixels(bars[1], "y"), precision: 2);
+        Assert.Equal(Pixels(axes[2], "y1") - 66.75, Pixels(bars[2], "y"), precision: 2);
+    }
+
+    [Fact]
+    public void The_cap_is_one_thousand_groups_and_the_notice_sentence_names_it()
+    {
+        Assert.Equal(1000, JoulesSvgRenderer.MaxGroups);
+        Assert.Equal("The chart shows the first 1000 task and agent groups; summary.md lists every row.", ReportSentences.ChartTruncated);
+        Assert.Contains(JoulesSvgRenderer.MaxGroups.ToString(CultureInfo.InvariantCulture), ReportSentences.ChartTruncated, StringComparison.Ordinal);
+        Assert.All(ReportSentences.ChartTruncated, character => Assert.True(character < 128));
+    }
+
+    [Fact]
+    public void Exactly_one_thousand_groups_are_drawn_without_a_notice()
+    {
+        string svg = RenderSvg(LocalAgents("alpha", 1000));
+        XDocument document = XDocument.Parse(svg);
+
+        Assert.Equal(1000, SvgGroups(document).Length);
+        Assert.DoesNotContain(document.Descendants(SvgNs + "g"), element => ClassOf(element) == "notice");
+        Assert.DoesNotContain(ReportSentences.ChartTruncated, svg, StringComparison.Ordinal);
+        Assert.Equal(FirstRowTopPixels + RowPitchPixels, Pixels(document.Root!, "height"), precision: 2);
+    }
+
+    [Fact]
+    public void The_one_thousand_and_first_group_is_cut_and_the_notice_is_drawn_once_in_a_final_row()
+    {
+        string svg = RenderSvg(LocalAgents("alpha", 1001, index => index == 1000 ? 1000.0 : 1.0));
+        XDocument document = XDocument.Parse(svg);
+
+        XElement[] groups = SvgGroups(document);
+        XElement notice = Assert.Single(document.Descendants(SvgNs + "g"), element => ClassOf(element) == "notice");
+        XElement marker = Assert.Single(notice.Elements(SvgNs + "text"));
+        Assert.Equal(1000, groups.Length);
+        Assert.Equal("a0999", SvgTexts(groups[^1], "group-label").Single());
+        Assert.DoesNotContain("a1000", svg, StringComparison.Ordinal);
+        Assert.Equal("notice", ClassOf(marker));
+        Assert.Equal(ReportSentences.ChartTruncated, marker.Value);
+        Assert.DoesNotContain(document.Descendants(SvgNs + "text"), element => ClassOf(element) == "marker" && element.Value == ReportSentences.ChartTruncated);
+        Assert.Equal(3000, document.Descendants(SvgNs + "text").Count(element => ClassOf(element) == "marker"));
+        Assert.Equal(1, svg.Split(ReportSentences.ChartTruncated).Length - 1);
+        Assert.Empty(notice.Descendants(SvgNs + "rect"));
+        Assert.True(Pixels(marker, "y") > FirstRowTopPixels + RowPitchPixels);
+        Assert.Equal(FirstRowTopPixels + RowPitchPixels + 40.0, Pixels(document.Root!, "height"), precision: 2);
+
+        // The scale is that of the groups drawn: the 1000 J of the cut group does not shrink the bars that are drawn.
+        Assert.All(SvgBars(document), bar => Assert.Equal(PlotHeightPixels, Pixels(bar, "height"), precision: 2));
+        Assert.Equal(1000, SvgBars(document).Length);
+    }
+
+    [Fact]
+    public void A_chart_below_the_cap_has_no_notice_element_and_no_notice_text()
+    {
+        string svg = RenderSvg(LocalSteps((TaskName, 12.3)));
+
+        Assert.DoesNotContain(XDocument.Parse(svg).Descendants(SvgNs + "g"), element => ClassOf(element) == "notice");
+        Assert.DoesNotContain("first 1000", svg, StringComparison.Ordinal);
     }
 }

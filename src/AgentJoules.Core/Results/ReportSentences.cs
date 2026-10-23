@@ -52,4 +52,10 @@ public static class ReportSentences
     /// results block of AJ-087 prints it next to <see cref="ConcurrentOverlap"/>; it is defined here with the other report sentences.
     /// </summary>
     public const string ConcurrentCostOverlap = "In concurrent mode the cost total counts overlapping step windows once per step.";
+
+    /// <summary>
+    /// The notice of a chart that drew only the first 1000 groups (REQ-016, AJ-084): the SVG caps the number of (task, agent) groups it draws so a hostile or huge results file cannot make it grow without bound, and says so in a
+    /// final row. The Markdown summary is not capped and lists every row. The number is the value of <c>JoulesSvgRenderer.MaxGroups</c>; a test keeps the two equal.
+    /// </summary>
+    public const string ChartTruncated = "The chart shows the first 1000 task and agent groups; summary.md lists every row.";
 }
