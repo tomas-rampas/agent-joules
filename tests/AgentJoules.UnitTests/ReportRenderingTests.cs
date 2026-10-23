@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Net;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -4131,5 +4133,835 @@ public sealed partial class ReportRenderingTests
 
         Assert.DoesNotContain(XDocument.Parse(svg).Descendants(SvgNs + "g"), element => ClassOf(element) == "notice");
         Assert.DoesNotContain("first 1000", svg, StringComparison.Ordinal);
+    }
+
+    // ---- the static HTML page (AJ-085) ----
+
+    private const string ChartFile = "joules-per-step.svg";
+    private const string PageDoctype = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n";
+    private static readonly string[] GenericChartClasses = ["bar", "marker", "value", "title", "scope", "axis", "row", "row-label", "group-label", "notice"];
+
+    [GeneratedRegex("<[^<>]*>")]
+    private static partial Regex HtmlTag();
+
+    [GeneratedRegex("<tr>(.*?)</tr>", RegexOptions.Singleline)]
+    private static partial Regex HtmlRow();
+
+    [GeneratedRegex("<td(?: colspan=\"14\")?>(.*?)</td>", RegexOptions.Singleline)]
+    private static partial Regex HtmlCell();
+
+    [GeneratedRegex("<th>(.*?)</th>", RegexOptions.Singleline)]
+    private static partial Regex HtmlHeading();
+
+    [GeneratedRegex("<tbody(?: class=\"not-run\")?>(.*?)</tbody>", RegexOptions.Singleline)]
+    private static partial Regex HtmlBody();
+
+    [GeneratedRegex(@"\ssrc\s*=\s*(""[^""]*""|'[^']*'|[^\s>]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex HtmlSrc();
+
+    [GeneratedRegex("<style>(.*?)</style>", RegexOptions.Singleline)]
+    private static partial Regex HtmlStyle();
+
+    [GeneratedRegex("<li>(.*?)</li>", RegexOptions.Singleline)]
+    private static partial Regex HtmlItem();
+
+    [GeneratedRegex("<p>(.*?)</p>", RegexOptions.Singleline)]
+    private static partial Regex HtmlParagraph();
+
+    [GeneratedRegex("<tbody.*?</tbody>", RegexOptions.Singleline)]
+    private static partial Regex HtmlAnyBody();
+
+    private static Uri RepositoryUri(string path = "owner/repo") => new(string.Concat(Uri.UriSchemeHttps, "://", "example.test/", path));
+
+    private static string RenderHtml(params SelectedRun[] runs) => ReportHtmlRenderer.Render(ReportAggregator.Build(runs), repositoryUrl: null);
+
+    private static int Occurrences(string text, string needle) => text.Split(needle).Length - 1;
+
+    private static string[] BodiesOf(string html) => [.. HtmlBody().Matches(html).Select(match => match.Groups[1].Value)];
+
+    private static string[] RowsOfBody(string body) => [.. HtmlRow().Matches(body).Select(match => match.Groups[1].Value)];
+
+    // The decoded text of the cells of one row; the colspan cell of a not-run row counts as one cell.
+    private static string[] CellsOfHtmlRow(string row) => [.. HtmlCell().Matches(row).Select(match => WebUtility.HtmlDecode(match.Groups[1].Value))];
+
+    private static string[] HeadingsOf(string html) => [.. HtmlHeading().Matches(html).Select(match => match.Groups[1].Value)];
+
+    private static string[] TagsOf(string html) => [.. HtmlTag().Matches(html).Select(match => match.Value)];
+
+    private static string[][] AggregateCells(string html) => [.. RowsOfBody(BodiesOf(html)[0]).Select(CellsOfHtmlRow)];
+
+    private static string[] BulletsOf(string html) =>
+        [.. HtmlItem().Matches(html).Select(match => match.Groups[1].Value)];
+
+    private static string[] ParagraphsOf(string html) =>
+        [.. HtmlParagraph().Matches(html).Select(match => match.Groups[1].Value)];
+
+    private static SelectedRun[] CommittedRuns() => [Wrap(RunDocumentFixtures.Committed(Tier.Local)), Wrap(RunDocumentFixtures.Committed(Tier.Nvidia)), Wrap(RunDocumentFixtures.Committed(Tier.Nebius))];
+
+    // Every text member of a document that the page prints carries the value.
+    private static SelectedRun[] RunsWithEveryTextMember(string value) =>
+    [
+        RunOf(
+            Tier.Local,
+            [Step(Tier.Local, task: value, agent: value, modelId: value, net: Metric.Measured(5.0, "J"), quality: Metric.NotApplicable(value))],
+            judge: [Step(Tier.Nvidia, task: value, agent: "Judge", modelId: value, judgedAgent: value)],
+            edit: document => document with
+            {
+                Environment = document.Environment with
+                {
+                    GpuName = value,
+                    DriverVersion = value,
+                    LocalRuntime = value,
+                    RuntimeVersion = value,
+                    Precision = value,
+                    ReasoningMode = value,
+                    PowerSource = value,
+                    Models = [new EnvironmentModel(value, value, Baseline: false)],
+                },
+            }),
+        RunOf(Tier.Nvidia, [Step(Tier.Nvidia, task: value, agent: value, modelId: value)]),
+    ];
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Page_has_the_table_the_chart_reference_and_the_sentence()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 10.0));
+
+        string html = RenderHtml(local, nvidia);
+
+        Assert.StartsWith(PageDoctype + "<meta charset=\"utf-8\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"", html, StringComparison.Ordinal);
+        Assert.Contains("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Agent Joules results</title>\n<style>\n", html, StringComparison.Ordinal);
+        Assert.Contains("<body>\n<h1>Agent Joules results</h1>\n", html, StringComparison.Ordinal);
+        Assert.Equal(1, Occurrences(html, "<table>"));
+        Assert.Equal(1, Occurrences(html, "</table>"));
+        Assert.Equal(1, Occurrences(html, "<img "));
+        Assert.Equal(1, Occurrences(html, ChartFile));
+        Assert.Contains(ReportSentences.GpuBoardOnly, html, StringComparison.Ordinal);
+        Assert.Contains("GPU-board energy only", html, StringComparison.Ordinal);
+        Assert.Equal(0, Occurrences(html, "<script"));
+        Assert.EndsWith("</body>\n</html>\n", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_page_prints_the_header_fields_of_every_run_file_and_the_tiers_that_were_not_run()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0), edit: document => WithModels(document, "Q4_K_M", "model-a", "model-b"));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 10.0));
+        EnvironmentInfo environment = local.Document.Environment;
+
+        string[] bullets = BulletsOf(RenderHtml(local, nebius));
+
+        string bullet = Assert.Single(bullets, line => line.StartsWith("local: file ", StringComparison.Ordinal));
+        Assert.Contains($"run date {local.Document.Run.StartUtc.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)};", bullet, StringComparison.Ordinal);
+        Assert.Contains($"GPU {WebUtility.HtmlEncode(environment.GpuName!)};", bullet, StringComparison.Ordinal);
+        Assert.Contains($"driver {WebUtility.HtmlEncode(environment.DriverVersion!)};", bullet, StringComparison.Ordinal);
+        Assert.Contains($"local runtime {WebUtility.HtmlEncode(environment.LocalRuntime!)} {WebUtility.HtmlEncode(environment.RuntimeVersion!)};", bullet, StringComparison.Ordinal);
+        Assert.Contains("models Planner=model-a, Planner=model-b;", bullet, StringComparison.Ordinal);
+        Assert.Single(bullets, line => line.StartsWith("nebius: file ", StringComparison.Ordinal));
+        Assert.Contains("cloudgpu: not run", bullets);
+        Assert.Contains("nvidia: not run", bullets);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Html_has_one_row_per_aggregate()
+    {
+        string[] tasks = ["alpha", "beta", "gamma"];
+        string[] agents = ["Planner", "Researcher", "Writer", "Reviewer"];
+        SelectedRun run = RunOf(Tier.Local, [.. tasks.SelectMany(task => agents.Select(agent => Step(Tier.Local, task: task, agent: agent)))]);
+
+        string html = RenderHtml(run);
+
+        string[] bodies = BodiesOf(html);
+        Assert.Equal(2, bodies.Length);
+        string[] rows = RowsOfBody(bodies[0]);
+        Assert.Equal(12, rows.Length);
+        Assert.All(rows, row => Assert.Equal(ColumnCount, CellsOfHtmlRow(row).Length));
+        Assert.Equal(tasks.SelectMany(task => agents.Select(agent => $"{task}/{agent}")), rows.Select(row => CellsOfHtmlRow(row)).Select(cells => $"{cells[TaskColumn]}/{cells[AgentColumn]}"));
+        Assert.All(rows, row => Assert.Equal("local", CellsOfHtmlRow(row)[TierColumn]));
+        Assert.Equal(3, RowsOfBody(bodies[1]).Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Repeats_collapse_into_one_row_per_task_and_agent_per_tier()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 10.0, 12.0, 14.0));
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 1.0, 2.0));
+
+        string[][] rows = AggregateCells(RenderHtml(local, nebius));
+
+        Assert.Equal(2, rows.Length);
+        Assert.Equal(["local", "nebius"], rows.Select(cells => cells[TierColumn]));
+        Assert.Equal("12.0 [10.0 to 14.0] n=3", rows[0][NetColumn]);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Rows_carry_the_cells_of_the_summary_in_the_same_order()
+    {
+        SelectedRun[] runs = CommittedRuns();
+        ReportModel model = ReportAggregator.Build(runs);
+
+        string[][] markdown = [.. DataRows(SummaryMarkdownRenderer.Render(model)).Select(CellsOf).Where(cells => cells[TaskColumn] != ReportSentences.NotRun)];
+        string[][] html = AggregateCells(ReportHtmlRenderer.Render(model, repositoryUrl: null));
+
+        Assert.Equal(36, html.Length);
+        Assert.Equal(markdown.Length, html.Length);
+        for (int index = 0; index < markdown.Length; index++)
+        {
+            Assert.Equal(markdown[index], html[index]);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_headings_are_the_headings_of_the_summary()
+    {
+        ReportModel model = ReportAggregator.Build(CommittedRuns());
+
+        string[] headings = HeadingsOf(ReportHtmlRenderer.Render(model, repositoryUrl: null));
+
+        Assert.Equal(ColumnCount, headings.Length);
+        Assert.Equal(CellsOf(TableLines(SummaryMarkdownRenderer.Render(model))[0]), headings);
+        Assert.Contains("<thead>\n<tr><th>tier</th>", ReportHtmlRenderer.Render(model, repositoryUrl: null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_tier_without_a_run_file_is_a_not_run_row_in_a_second_table_body()
+    {
+        string html = RenderHtml(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)));
+
+        string[] bodies = BodiesOf(html);
+        Assert.Equal(2, bodies.Length);
+        Assert.Contains("<tbody class=\"not-run\">\n", html, StringComparison.Ordinal);
+        Assert.Single(RowsOfBody(bodies[0]));
+        Assert.Equal(
+            [
+                "<td>cloudgpu</td><td colspan=\"14\">not run</td>",
+                "<td>nvidia</td><td colspan=\"14\">not run</td>",
+                "<td>nebius</td><td colspan=\"14\">not run</td>",
+            ],
+            RowsOfBody(bodies[1]));
+        Assert.True(html.IndexOf("<tbody>", StringComparison.Ordinal) < html.IndexOf("<tbody class=\"not-run\">", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Without_a_missing_tier_there_is_no_second_table_body()
+    {
+        string html = RenderHtml(
+            RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)),
+            RunOf(Tier.CloudGpu, NetSteps(Tier.CloudGpu, 10.0)),
+            RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 10.0)),
+            RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 10.0)));
+
+        Assert.Single(BodiesOf(html));
+        Assert.DoesNotContain("<tbody class=\"not-run\">", html, StringComparison.Ordinal);
+        Assert.Equal(4, RowsOfBody(BodiesOf(html)[0]).Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void An_empty_input_prints_four_not_run_bullets_the_disclosures_an_empty_body_and_four_not_run_rows()
+    {
+        ReportModel model = ReportAggregator.Build([]);
+
+        string html = ReportHtmlRenderer.Render(model, repositoryUrl: null);
+
+        Assert.Equal(["local: not run", "cloudgpu: not run", "nvidia: not run", "nebius: not run"], BulletsOf(html));
+        Assert.Equal(model.Disclosures.Select(WebUtility.HtmlEncode), ParagraphsOf(html).Take(model.Disclosures.Count));
+        string[] bodies = BodiesOf(html);
+        Assert.Equal(2, bodies.Length);
+        Assert.Empty(RowsOfBody(bodies[0]));
+        Assert.Equal(4, RowsOfBody(bodies[1]).Length);
+        Assert.Equal(1, Occurrences(html, "<table>"));
+        Assert.Equal(1, Occurrences(html, "<img "));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_baseline_file_follows_its_tier_and_a_file_without_rows_has_a_no_completed_steps_row()
+    {
+        static RunDocument Stopped(RunDocument document) => document with { Run = document.Run with { Status = RunStatus.Partial, StopReason = "budget-reached", Flags = [RunFlagNames.PartialOffload] } };
+        SelectedRun empty = RunOf(Tier.Local, [], tasks: [TaskName], edit: Stopped);
+        SelectedRun baseline = RunOf(Tier.Local, NetSteps(Tier.Local, 5.0), RunVariant.Baseline);
+        SelectedRun nebius = RunOf(Tier.Nebius, NetSteps(Tier.Nebius, 5.0));
+        ReportModel model = ReportAggregator.Build([empty, baseline, nebius]);
+
+        string html = ReportHtmlRenderer.Render(model, repositoryUrl: null);
+
+        string[][] rows = AggregateCells(html);
+        Assert.Equal(["local", "local baseline", "nebius"], rows.Select(cells => cells[TierColumn]));
+        Assert.All(rows, cells => Assert.Equal(ColumnCount, cells.Length));
+        Assert.Equal(ReportSentences.NoCompletedSteps, rows[0][TaskColumn]);
+        Assert.Equal("partial-offload, partial", rows[0][FlagsColumn]);
+        Assert.All(rows[0].Skip(2).Take(12), cell => Assert.Empty(cell));
+        string[][] markdown = [.. DataRows(SummaryMarkdownRenderer.Render(model)).Select(CellsOf).Where(cells => cells[TaskColumn] != ReportSentences.NotRun)];
+        Assert.Equal(markdown, rows);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Page_links_repository_readme()
+    {
+        Uri url = RepositoryUri();
+
+        string html = ReportHtmlRenderer.Render(ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 10.0))]), url);
+
+        Assert.Equal(1, Occurrences(html, "<a "));
+        Assert.Contains($"<p><a href=\"{url.AbsoluteUri}#readme\">Repository README</a></p>\n", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("not configured", html, StringComparison.Ordinal);
+        Assert.Equal(1, Occurrences(html, "href="));
+        Assert.EndsWith("</p>\n</body>\n</html>\n", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Page_without_url_has_no_link()
+    {
+        string html = RenderHtml(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)));
+
+        Assert.Equal(0, Occurrences(html, "<a "));
+        Assert.Equal(0, Occurrences(html, "href"));
+        Assert.Equal(0, Occurrences(html, "http:"));
+        Assert.Equal(0, Occurrences(html, "https:"));
+        Assert.Contains("<p>Repository link not configured (Report:RepositoryUrl).</p>\n", html, StringComparison.Ordinal);
+        Assert.Equal("Repository link not configured (Report:RepositoryUrl).", ReportHtmlRenderer.RepositoryNotConfigured);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-030")]
+    [InlineData("http", "example.test/owner/repo")]
+    [InlineData("ftp", "example.test/owner/repo")]
+    [InlineData("file", "/owner/repo")]
+    [InlineData("https", "user:secret@example.test/owner/repo")]
+    public void Non_https_url_is_rejected(string scheme, string rest)
+    {
+        ReportModel model = ReportAggregator.Build([]);
+
+        ArgumentException error = Assert.Throws<ArgumentException>(() => ReportHtmlRenderer.Render(model, new Uri(scheme + "://" + rest)));
+
+        Assert.Equal("repositoryUrl", error.ParamName);
+        Assert.DoesNotContain("secret", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_relative_url_is_rejected_and_a_null_model_is_refused()
+    {
+        ReportModel model = ReportAggregator.Build([]);
+
+        _ = Assert.Throws<ArgumentException>(() => ReportHtmlRenderer.Render(model, new Uri("/owner/repo", UriKind.Relative)));
+        _ = Assert.Throws<ArgumentNullException>(() => ReportHtmlRenderer.Render(null!, repositoryUrl: null));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_chart_is_an_image_of_the_sibling_file_shown_at_its_own_size_in_a_scrolling_box()
+    {
+        string html = RenderHtml(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)));
+
+        Assert.Contains($"<div class=\"chart\">\n<img src=\"{ChartFile}\" alt=\"Net joules per step and tier; N/A where no GPU-board energy was measured\">\n</div>\n", html, StringComparison.Ordinal);
+        Assert.Equal(ChartFile, ReportHtmlRenderer.ChartFileName);
+        Assert.Equal("Net joules per step and tier; N/A where no GPU-board energy was measured", ReportHtmlRenderer.ChartAlt);
+        Assert.Equal(0, Occurrences(html, "<object"));
+        Assert.Equal(0, Occurrences(html, "<embed"));
+        Assert.Equal(0, Occurrences(html, "<iframe"));
+        Assert.Equal(0, Occurrences(html, "<svg"));
+        Assert.Equal(1, Occurrences(html, "<style>"));
+        string style = HtmlStyle().Match(html).Groups[1].Value;
+        Assert.Contains("overflow-x: auto", style, StringComparison.Ordinal);
+        Assert.DoesNotContain("max-width", style, StringComparison.Ordinal);
+        Assert.DoesNotContain("width: 100%", style, StringComparison.Ordinal);
+        Assert.DoesNotContain("@import", style, StringComparison.Ordinal);
+        Assert.DoesNotContain("url(", style, StringComparison.Ordinal);
+        Assert.All(GenericChartClasses, name => Assert.DoesNotMatch($@"\.{Regex.Escape(name)}(?![\w-])", style));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_page_has_the_parts_in_order()
+    {
+        string html = ReportHtmlRenderer.Render(ReportAggregator.Build(CommittedRuns()), RepositoryUri());
+
+        int[] positions =
+        [
+            html.IndexOf("<h1>", StringComparison.Ordinal),
+            html.IndexOf("<ul>", StringComparison.Ordinal),
+            html.IndexOf("<p>" + ReportSentences.GpuBoardOnly + "</p>", StringComparison.Ordinal),
+            html.IndexOf("<table>", StringComparison.Ordinal),
+            html.IndexOf("<img ", StringComparison.Ordinal),
+            html.IndexOf("<a href=", StringComparison.Ordinal),
+        ];
+        Assert.All(positions, position => Assert.True(position > 0));
+        Assert.Equal(positions.Order(), positions);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Page_has_no_script_no_link_and_no_resource_but_the_sibling_svg()
+    {
+        IEnumerable<SelectedRun> fixtures = EveryReportFixture().Select(document => Wrap(document));
+        foreach (SelectedRun fixture in fixtures.Concat(CommittedRuns()))
+        {
+            string html = RenderHtml(fixture);
+
+            Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("<link", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("http:", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("https:", html, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("href", html, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(1, Occurrences(html.ToLowerInvariant(), "http-equiv"));
+            Assert.Contains("default-src 'none'; img-src 'self'; style-src 'sha256-", html, StringComparison.Ordinal);
+            Assert.Equal([ChartFile], HtmlSrc().Matches(html).Select(match => match.Groups[1].Value.Trim('"')));
+            Assert.Equal(1, Occurrences(html, "<table>"));
+            Assert.Equal(1, Occurrences(html, "<img "));
+            Assert.Contains("GPU-board energy only", html, StringComparison.Ordinal);
+        }
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-030")]
+    [MemberData(nameof(InjectionPayloads))]
+    public void Hostile_strings_cannot_add_markup_to_the_page(int index)
+    {
+        string payload = HostilePayloads[index];
+        string plain = ReportHtmlRenderer.Render(ReportAggregator.Build(RunsWithEveryTextMember("p")), repositoryUrl: null);
+
+        string html = ReportHtmlRenderer.Render(ReportAggregator.Build(RunsWithEveryTextMember(payload)), repositoryUrl: null);
+
+        Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
+
+        // Every angle bracket is one of the page's own tags, and the tags (names and attributes) are those of a page with plain names: nothing from a document became markup.
+        string[] tags = TagsOf(html);
+        Assert.Equal(TagsOf(plain), tags);
+        Assert.Equal(tags.Length, html.Count(character => character == '<'));
+        Assert.Equal(tags.Length, html.Count(character => character == '>'));
+
+        // The decoded cells hold the cleaned text, once.
+        string cleaned = ReportText.Clean(payload, ReportText.NameMaxLength);
+        string[] first = AggregateCells(html)[0];
+        Assert.Equal(cleaned, first[TaskColumn]);
+        Assert.Equal(cleaned, first[AgentColumn]);
+        Assert.Contains($"GPU {WebUtility.HtmlEncode(cleaned)};", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("nvapi-" + new string('K', 30), html, StringComparison.Ordinal);
+        Assert.DoesNotContain('\r', html);
+        Assert.DoesNotContain('\\', html);
+        Assert.All(html, character => Assert.True(character < 128));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Text_from_a_document_is_encoded_once()
+    {
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [Step(Tier.Local, task: "t&u", agent: "a<b", modelId: "m&n", quality: Metric.NotApplicable("x&y<z>\"'"))],
+            edit: document => document with { Environment = document.Environment with { GpuName = "G&T <x>" } });
+
+        string html = RenderHtml(run);
+
+        Assert.Contains("<td>t&amp;u</td><td>a&lt;b</td>", html, StringComparison.Ordinal);
+        Assert.Contains("N/A (x&amp;y&lt;z&gt;&quot;&#39;)", html, StringComparison.Ordinal);
+        Assert.Contains("GPU G&amp;T &lt;x&gt;;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("&amp;amp;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("&amp;lt;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("&amp;#", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("&amp;quot;", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Disclosures_are_paragraphs_in_the_order_of_the_model_and_a_leading_marker_is_not_escaped_with_a_backslash()
+    {
+        string[] disclosures =
+        [
+            ReportSentences.GpuBoardOnly,
+            ReportSentences.JudgeExcluded,
+            ReportSentences.SelfJudged,
+            ReportSentences.ConcurrentOverlap,
+            ReportSentences.ConcurrentCostOverlap,
+            "- item <b>&",
+            "1. item",
+            "# head",
+            "= setext",
+        ];
+
+        string html = ReportHtmlRenderer.Render(ModelWithDisclosures(disclosures), repositoryUrl: null);
+
+        string[] paragraphs = ParagraphsOf(html);
+        Assert.Equal(
+            [.. disclosures.Take(5), "- item &lt;b&gt;&amp;", "1. item", "# head", "= setext"],
+            paragraphs.Take(disclosures.Length));
+        Assert.DoesNotContain('\\', html);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_models_differ_line_is_built_per_tier_and_each_text_is_encoded_on_its_own()
+    {
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", "m2", "m1"));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "nv<1>&"));
+        ReportModel model = ReportAggregator.Build([local, nvidia]);
+
+        string html = ReportHtmlRenderer.Render(model, repositoryUrl: null);
+
+        string line = Assert.Single(ParagraphsOf(html), paragraph => paragraph.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=m1+m2 (Q4_K_M), nvidia=nv&lt;1&gt;&amp; (N/A)", line);
+        Assert.DoesNotContain('\\', html);
+
+        // The line is the one of the summary, up to the escape of the surface.
+        string markdownLine = ModelsDifferLineOf(local, nvidia).Replace("\\", string.Empty, StringComparison.Ordinal);
+        Assert.Equal(WebUtility.HtmlDecode(line), markdownLine);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_sampling_fallback_sentence_is_nested_under_the_bullet_of_its_tier()
+    {
+        string html = RenderHtml(Wrap(RunDocumentFixtures.SamplingFallback()));
+
+        Assert.Equal(1, Occurrences(html, "<ul><li>" + ReportSentences.SamplingFallback + "</li></ul></li>"));
+        Assert.Matches("<li>local: file [^\n]*<ul><li>", html);
+        Assert.Equal(2, Occurrences(html, "<ul>"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_page_is_deterministic_ascii_with_lf_and_one_final_line_feed_whatever_the_culture()
+    {
+        SelectedRun[] runs = CommittedRuns();
+        Uri url = RepositoryUri();
+
+        string first = ReportHtmlRenderer.Render(ReportAggregator.Build(runs), url);
+        string second = ReportHtmlRenderer.Render(ReportAggregator.Build(runs), url);
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            string german = ReportHtmlRenderer.Render(ReportAggregator.Build(runs), url);
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
+            string turkish = ReportHtmlRenderer.Render(ReportAggregator.Build(runs), url);
+
+            Assert.Equal(first, german);
+            Assert.Equal(first, turkish);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+
+        Assert.Equal(first, second);
+        Assert.All(first, character => Assert.True(character < 128));
+        Assert.DoesNotContain('\r', first);
+        Assert.EndsWith("</html>\n", first, StringComparison.Ordinal);
+        Assert.False(first.EndsWith("\n\n", StringComparison.Ordinal));
+        Assert.StartsWith("<!DOCTYPE html>\n", first, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_page_ranks_nothing_and_compares_no_tiers()
+    {
+        string html = RenderHtml(CommittedRuns());
+
+        // The words that name a figure across tiers appear nowhere outside the names of the rows (a task such as api-migration contains "ratio"): not in the style, the header, the disclosures, the headings or the link text.
+        string outside = HtmlStyle().Replace(html, string.Empty);
+        outside = HtmlAnyBody().Replace(outside, string.Empty);
+        string text = WebUtility.HtmlDecode(HtmlTag().Replace(outside, " "));
+        Assert.All(CrossTierWords, word => Assert.DoesNotContain(word, text, StringComparison.OrdinalIgnoreCase));
+        Assert.All(CrossTierWords, word => Assert.DoesNotContain(HeadingsOf(html), heading => heading.Contains(word, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void NoJekyll_is_created_empty_when_absent_and_left_alone_afterwards()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string docs = Path.Combine(workspace.Root, "docs");
+        _ = Directory.CreateDirectory(docs);
+        string marker = Path.Combine(docs, ".nojekyll");
+
+        bool created = NoJekyllWriter.EnsureExists(docs);
+
+        Assert.True(created);
+        Assert.Equal(0, new FileInfo(marker).Length);
+        Assert.Equal(".nojekyll", NoJekyllWriter.FileName);
+        Assert.False(NoJekyllWriter.EnsureExists(docs));
+        Assert.Equal(0, new FileInfo(marker).Length);
+        Assert.Equal([marker], Directory.GetFileSystemEntries(docs));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void An_existing_NoJekyll_keeps_its_bytes()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string marker = workspace.WriteFile(Path.Combine("docs", ".nojekyll"), "known content\n");
+        DateTime written = new FileInfo(marker).LastWriteTimeUtc;
+
+        bool created = NoJekyllWriter.EnsureExists(Path.Combine(workspace.Root, "docs"));
+
+        Assert.False(created);
+        Assert.Equal("known content\n", File.ReadAllText(marker));
+        Assert.Equal(written, new FileInfo(marker).LastWriteTimeUtc);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void An_existing_NoJekyll_that_is_read_only_is_not_opened_for_writing()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string marker = workspace.WriteFile(Path.Combine("docs", ".nojekyll"), "known content\n");
+        File.SetAttributes(marker, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.False(NoJekyllWriter.EnsureExists(Path.Combine(workspace.Root, "docs")));
+            Assert.Equal("known content\n", File.ReadAllText(marker));
+        }
+        finally
+        {
+            File.SetAttributes(marker, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void No_docs_folder_creates_nothing()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string docs = Path.Combine(workspace.Root, "docs");
+
+        bool created = NoJekyllWriter.EnsureExists(docs);
+
+        Assert.False(created);
+        Assert.False(Directory.Exists(docs));
+        Assert.Empty(Directory.GetFileSystemEntries(workspace.Root));
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-030")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void NoJekyll_refuses_a_blank_folder(string? folder) => _ = Assert.ThrowsAny<ArgumentException>(() => NoJekyllWriter.EnsureExists(folder!));
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_committed_NoJekyll_is_an_empty_file_beside_the_report_folder()
+    {
+        string marker = Path.Combine(ConfigurationFixtures.RepositoryRoot(), "docs", ".nojekyll");
+
+        Assert.True(File.Exists(marker));
+        Assert.Equal(0, new FileInfo(marker).Length);
+    }
+
+    // ---- the fix round of AJ-085: drift against the summary, ASCII by construction, the link, the policy ----
+
+    // The Markdown escape is a backslash before a character; the summary cell of a name or a reason is compared with the page cell after it is taken off.
+    private static string UnescapeMarkdown(string cell) => MarkdownBackslash().Replace(cell, "$1");
+
+    [GeneratedRegex(@"\\(.)", RegexOptions.CultureInvariant)]
+    private static partial Regex MarkdownBackslash();
+
+    // The decoded cells of the page, row by row, equal the unescaped cells of summary.md for the same model (the not-run rows of the summary are the rows of the second body of the page).
+    private static void AssertPageRowsEqualSummaryRows(params SelectedRun[] runs)
+    {
+        ReportModel model = ReportAggregator.Build(runs);
+        string[][] markdown =
+        [
+            .. DataRows(SummaryMarkdownRenderer.Render(model))
+                .Select(CellsOf)
+                .Where(cells => cells[TaskColumn] != ReportSentences.NotRun)
+                .Select(cells => cells.Select(UnescapeMarkdown).ToArray()),
+        ];
+
+        string[][] html = AggregateCells(ReportHtmlRenderer.Render(model, repositoryUrl: null));
+
+        Assert.Equal(markdown.Length, html.Length);
+        for (int index = 0; index < markdown.Length; index++)
+        {
+            Assert.Equal(markdown[index], html[index]);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Every_report_fixture_has_the_cells_of_the_summary_row_by_row()
+    {
+        foreach (RunDocument document in EveryReportFixture())
+        {
+            AssertPageRowsEqualSummaryRows(Wrap(document));
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Rich_rows_have_the_cells_of_the_summary_flags_labels_counts_and_all()
+    {
+        StepReading[] steps =
+        [
+            Step(Tier.Local, repeat: 1, flags: ReadingFlags.SharedWindow | ReadingFlags.LowResolution, latency: Metric.Measured(1000.25, "ms"), ttft: Metric.Measured(250.25, "ms"), inputTokens: Metric.Measured(121.0, "tokens")),
+            Step(Tier.Local, repeat: 2, flags: ReadingFlags.SharedWindow, latency: Metric.Measured(1003.25, "ms"), inputTokens: Metric.Measured(124.0, "tokens"), quality: Metric.ModelJudged(3.0)),
+            Step(Tier.Local, repeat: 3, outcome: StepOutcomes.Cancelled),
+            Step(Tier.Local, repeat: 4, outcome: StepOutcomes.Incomplete),
+            Step(Tier.Local, repeat: 5, outcome: StepOutcomes.Error),
+            Step(Tier.Local, repeat: 1, agent: "Writer", inputTokens: Metric.NotReported("provider-omitted-usage"), cost: Metric.NotApplicable("cost-not-configured")),
+            Step(Tier.Local, repeat: 1, agent: "Reviewer", quality: Metric.NotApplicable(new string('q', 200)), inputTokens: Metric.NotApplicable("a"), outputTokens: Metric.NotReported("b")),
+        ];
+        SelectedRun local = RunOf(Tier.Local, steps, edit: document => document with { Run = document.Run with { Status = RunStatus.Partial, StopReason = "budget-reached", Flags = [RunFlagNames.PartialOffload] } });
+        SelectedRun nebius = RunOf(Tier.Nebius, [Step(Tier.Nebius, inputTokens: Metric.NotReported("provider-omitted-usage"))]);
+
+        AssertPageRowsEqualSummaryRows(local, nebius);
+
+        // The row of the first agent shows what the comparison is meant to guard: the flags, the counts of the repeats that did not finish and the non-integral latency.
+        string[] planner = AggregateCells(RenderHtml(local, nebius)).First(cells => cells[AgentColumn] == Planner && cells[TierColumn] == "local");
+        Assert.NotEmpty(planner[FlagsColumn]);
+        Assert.Contains("partial-offload, partial, 1 cancelled, 1 error, 1 incomplete", planner[FlagsColumn], StringComparison.Ordinal);
+        Assert.StartsWith("1002 [1000 to 1003] n=2", planner[LatencyColumn], StringComparison.Ordinal);
+        Assert.Contains("N/A, not-reported", AggregateCells(RenderHtml(local, nebius)).First(cells => cells[AgentColumn] == "Reviewer")[LabelsColumn], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void An_empty_later_tier_file_sorts_after_the_rows_of_the_earlier_tiers_as_in_the_summary()
+    {
+        static RunDocument Stopped(RunDocument document) => document with { Run = document.Run with { Status = RunStatus.Partial, StopReason = "budget-reached" } };
+        SelectedRun emptyNebius = RunOf(Tier.Nebius, [], tasks: [TaskName], edit: Stopped);
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 5.0));
+        SelectedRun localBaseline = RunOf(Tier.Local, NetSteps(Tier.Local, 6.0), RunVariant.Baseline);
+
+        AssertPageRowsEqualSummaryRows(emptyNebius, localBaseline, local);
+
+        string[][] rows = AggregateCells(RenderHtml(emptyNebius, localBaseline, local));
+        Assert.Equal(["local", "local baseline", "nebius"], rows.Select(cells => cells[TierColumn]));
+        Assert.Equal(ReportSentences.NoCompletedSteps, rows[2][TaskColumn]);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_long_reason_is_cut_at_eighty_characters_in_the_cells()
+    {
+        string reason = new('r', 200);
+        SelectedRun run = RunOf(Tier.Local, [Step(Tier.Local, quality: Metric.NotApplicable(reason))]);
+
+        string[] cells = AggregateCells(RenderHtml(run))[0];
+
+        Assert.Equal("N/A (" + ReportText.Clean(reason, ReportText.ReasonMaxLength) + ")", cells[QualityColumn]);
+        Assert.Equal(5 + 80 + 3 + 1, cells[QualityColumn].Length);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_committed_models_differ_paragraph_is_the_exact_per_tier_line_and_is_not_cut()
+    {
+        const string expected = "Models differ across tiers: local=nemotron-3-nano:30b (Q4_K_M), nvidia=nvidia/nemotron-nano-3-30b-a3b (N/A), nebius=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B (N/A)";
+
+        string html = RenderHtml(CommittedRuns());
+
+        string line = Assert.Single(ParagraphsOf(html), paragraph => paragraph.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+        Assert.Equal(159, line.Length);
+        Assert.Equal(expected, line);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_models_differ_line_longer_than_the_name_limit_is_not_cut()
+    {
+        string longId = "org/" + new string('m', 100);
+        SelectedRun local = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => WithModels(document, "Q4_K_M", longId));
+        SelectedRun nvidia = RunOf(Tier.Nvidia, NetSteps(Tier.Nvidia, 1.0), edit: document => WithModels(document, null, "nvidia/other-model"));
+
+        string html = ReportHtmlRenderer.Render(ReportAggregator.Build([local, nvidia]), repositoryUrl: null);
+
+        string line = Assert.Single(ParagraphsOf(html), paragraph => paragraph.StartsWith(ReportSentences.ModelsDifferPrefix, StringComparison.Ordinal));
+        Assert.True(line.Length > ReportText.NameMaxLength);
+        Assert.Equal(ReportSentences.ModelsDifferPrefix + "local=" + longId + " (Q4_K_M), nvidia=nvidia/other-model (N/A)", line);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void Characters_outside_ascii_are_written_as_numeric_references_and_the_page_stays_ascii()
+    {
+        string name = "price " + (char)0x20AC + " " + (char)0x65E5 + (char)0x672C + " " + (char)0x416 + " e" + (char)0x301 + " " + char.ConvertFromUtf32(0x1F600);
+        SelectedRun run = RunOf(
+            Tier.Local,
+            [Step(Tier.Local, task: name, agent: name, modelId: name, quality: Metric.NotApplicable(name))],
+            edit: document => document with { Environment = document.Environment with { GpuName = name, Models = [new EnvironmentModel(name, name, Baseline: false)] } });
+        Uri url = new(string.Concat(Uri.UriSchemeHttps, "://", "b" + (char)0xFC + "cher.example/owner/repo"));
+
+        string html = ReportHtmlRenderer.Render(ReportAggregator.Build([run]), url);
+
+        Assert.All(html, character => Assert.True(character < 128));
+        string cleaned = ReportText.Clean(name, ReportText.NameMaxLength);
+        string[] cells = AggregateCells(html)[0];
+        Assert.Equal(cleaned, cells[TaskColumn]);
+        Assert.Equal(cleaned, cells[AgentColumn]);
+        Assert.Equal("N/A (" + ReportText.Clean(name, ReportText.ReasonMaxLength) + ")", cells[QualityColumn]);
+        Assert.Contains("GPU " + cleaned + ";", WebUtility.HtmlDecode(BulletsOf(html)[0]), StringComparison.Ordinal);
+        Assert.Contains("&#8364;", html, StringComparison.Ordinal);
+        Assert.Contains("&#128512;", html, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"" + Uri.UriSchemeHttps + "://xn--bcher-kva.example/owner/repo#readme\">", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_link_drops_a_fragment_keeps_a_port_and_is_encoded_as_an_attribute_value()
+    {
+        ReportModel model = ReportAggregator.Build([RunOf(Tier.Local, NetSteps(Tier.Local, 10.0))]);
+
+        string withFragment = ReportHtmlRenderer.Render(model, RepositoryUri("owner/repo#top"));
+        string withPort = ReportHtmlRenderer.Render(model, new Uri(string.Concat(Uri.UriSchemeHttps, "://", "example.test:8443/owner/repo")));
+        string quoted = ReportHtmlRenderer.Render(model, RepositoryUri("o'wner/re\"po"));
+
+        Assert.Contains("href=\"" + RepositoryUri("owner/repo").AbsoluteUri + "#readme\"", withFragment, StringComparison.Ordinal);
+        Assert.DoesNotContain("#top", withFragment, StringComparison.Ordinal);
+        Assert.Contains(":8443/owner/repo#readme\"", withPort, StringComparison.Ordinal);
+        Assert.Equal(1, Occurrences(quoted, "href="));
+        Assert.Equal(1, Occurrences(quoted, "<a "));
+        Assert.Equal(0, Occurrences(quoted, "\"po"));
+        Assert.Contains("o&#39;wner", quoted, StringComparison.Ordinal);
+        Assert.Contains("#readme\">Repository README</a>", quoted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void A_url_with_a_query_or_a_key_is_refused_without_echoing_it()
+    {
+        ReportModel model = ReportAggregator.Build([]);
+        string key = FakeKey();
+
+        foreach (string rest in new[] { "owner/repo?a=1", "owner/repo?token=" + key, "owner/" + key, "owner/repo#" + key })
+        {
+            Uri url = RepositoryUri(rest);
+
+            ArgumentException error = Assert.Throws<ArgumentException>(() => ReportHtmlRenderer.Render(model, url));
+
+            Assert.Equal("repositoryUrl", error.ParamName);
+            Assert.DoesNotContain(key, error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("example.test", error.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void The_page_carries_a_content_security_policy_whose_style_hash_is_that_of_the_emitted_style()
+    {
+        string html = RenderHtml(RunOf(Tier.Local, NetSteps(Tier.Local, 10.0)));
+
+        string style = HtmlStyle().Match(html).Groups[1].Value;
+        string hash = Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(style)));
+        string policy = $"<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src 'self'; style-src 'sha256-{hash}'; base-uri 'none'; form-action 'none'\">\n";
+        Assert.StartsWith(PageDoctype + "<meta charset=\"utf-8\">\n" + policy, html, StringComparison.Ordinal);
+        Assert.Equal(1, Occurrences(html, "http-equiv"));
+        Assert.StartsWith("\nbody {", style, StringComparison.Ordinal);
+        Assert.EndsWith("}\n", style, StringComparison.Ordinal);
+        Assert.Equal(1, Occurrences(html, "<style>"));
     }
 }
