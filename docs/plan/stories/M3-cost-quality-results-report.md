@@ -741,11 +741,12 @@ Conflict: C-05 (design 9.2) - `--config` has two meanings; resolution: on `valid
 
 ### AJ-081: Select the run files a report may use
 Covers: REQ-016
+Note (2026-10-22, AJ-081): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-081-run-file-selection.feature` (the story table's `RunFileSelection.feature`, the story block verbatim); pinned readings applied: P-1 the selector API (`RunFileSelector.Select`, `Latest`, `LatestBaseline`, `RunHeaderReader.Read`), P-2 an unreadable header is a Problem with one reason token, P-3 one accept rule for both variants with `tier-mismatch` as a Problem, P-4 baseline rows keyed (Tier, Variant, Task, Agent) and drawn by the renderers (AJ-082 to AJ-084), P-25 the command resolves and checks each `--in` (AJ-086); measured: battery 1 `Spec=REQ-016` 59 passed 0 failed, `dotnet test --no-build` 3972 passed 0 failed 1 skipped, builder `Category=AJ-S081` 6 of 6 green; deviations D1 to D7 are listed in the dated note under this section.
 User story: As a reader of the report, I want only completed run files of the right shape considered, with the newest per tier chosen, so that failed, partial-write or probe files never produce numbers.
 Acceptance criteria:
-1. `RunFileSelector.Latest(dir, tier)` returns the newest file by name among files matching the run-file regex without the `-baseline` suffix whose `run.status` is `completed` or `partial` and whose `run.flags` does not contain `non-publishable` (the flag of a run made with a baseline shorter than 30 s).
+1. `RunFileSelector.Latest(dir, tier)` returns the newest file by name among files matching the run-file regex without the `-baseline` suffix whose `run.status` is `completed` or `partial` and whose `run.flags` does not contain `non-publishable` (the flag of a run made with a baseline shorter than 30 s); `RunFileSelector.Select(inputs)` applies the same rule to files and folders together and reports an unreadable header or a tier that differs from the file name as a problem (exit 2 in `report`), never as `not run`; `Latest` and `LatestBaseline` throw `InvalidDataException` (`<file>: <reason>`) when a file of that tier newer than the winner is a problem.
 2. Files with status `running`, `failed` or `incomplete`, `probe-*.json`, `calibration-*.json` and names not matching the regex are never selected.
-3. `LatestBaseline(dir, tier)` returns the newest `-baseline` file of a tier; the report shows it as extra rows labelled `baseline`.
+3. `LatestBaseline(dir, tier)` returns the newest `-baseline` file of a tier accepted by the same status and `non-publishable` rule as `Latest`; the report shows its rows after the tier's rows with the tier cell `<tier> baseline`.
 4. `--in` accepts files, directories, or both; a tier with no selectable file is reported as `not run`.
 5. Selection reads only the run header, not the whole document (test `Selector_reads_header_only`: a file whose body after the header is invalid JSON is still selected).
 BDD scenarios:
@@ -786,17 +787,19 @@ Feature: AJ-081 Select the run files a report may use
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-081-T1 | Write the failing BDD feature and unit tests for file selection | tests/AgentJoules.Specs/Features/Reporting/RunFileSelection.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-080-T1 |
+| AJ-081-T1 | Write the failing BDD feature and unit tests for file selection | tests/AgentJoules.Specs/Features/Reporting/AJ-081-run-file-selection.feature, tests/AgentJoules.UnitTests/ReportRenderingTests.cs | 0.5 | AJ-080-T1 |
 | AJ-081-T2 | Implement the run header reader (status and flags) | src/AgentJoules.Reporting/Results/RunHeaderReader.cs | 0.75 | AJ-081-T1 |
 | AJ-081-T3 | Implement `RunFileSelector.Latest` and `LatestBaseline` | src/AgentJoules.Reporting/Results/RunFileSelector.cs | 1.0 | AJ-081-T2 |
 | AJ-081-T4 | Record the selection rules in the build log | docs/build-log.md | 0.25 | AJ-081-T3 |
-Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/RunFileSelection.feature`.
+Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`); feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-081-run-file-selection.feature`.
 Docs impact: `docs/build-log.md`.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] selection never returns a probe, calibration, failed or running file
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] selection never returns a probe, calibration, failed or running file
 Demo relevance: no.
+
+Note (2026-10-23, AJ-081, as delivered): the pinned readings P-1 to P-4 and P-25 are applied as in the note under the Covers line; the builder deviations as delivered: D1 `Select` stops at the first accepted file per tier and variant, newest first, so `Skipped` and `Problems` list only the files newer than the winner (every file when none is accepted), except name-level problems (`duplicate-file-name`, an unreadable folder), which are decided before any header is read and reported whatever their age; D2 `Select` throws `ArgumentException` for a blank input or a name that fails `RunFileName.IsValid` and `ArgumentNullException` for a null list, a valid-named missing file or an unlistable folder is `unreadable`, and relative paths resolve against the process directory, so AJ-086 passes absolute paths; D3 `Latest` and `LatestBaseline` read only the requested tier and throw `InvalidDataException` with `<file>: <reason>` for the first Problem of that tier; D4 the header reader treats a non-object `run` as `run-missing`, a non-string `tier` or `status` as `tier-unknown` or `status-unknown`, takes the last of duplicate `tier`, `status` or `flags` members inside `run`, and the first of duplicate top-level `run` members, maps invalid UTF-8 and JSON errors to `header-not-json`, and probes one byte past 64 KiB to tell `header-too-long` apart; D5 the values of `Latest` and `LatestBaseline` are full paths, and `Skipped` and `Problems` carry the file name only, ordinal by file name, then reason; D6 the tier-mismatch check runs before the status rule; D7 the Specs steps run the real selector on TempWorkspace files built from the committed fixture text, and one unit test reads the committed fixtures folder in place. Fix round (2026-10-23): every input must be a fully qualified path (`ArgumentException` otherwise, the input echoed bounded); a non-regular file is refused without blocking (a stream that cannot seek is `unreadable` on Windows; on Unix a size-0 entry is `header-not-json` before any open, so a FIFO reads as a problem and never blocks, and the two fix-round deviations are D9 and D10 in the build-log entry); one pooled buffer is rented per `Select`, `Latest` or `LatestBaseline` call and returned cleared. The Docs impact is now complete: the design (the Run files bullet and the AJ-081 amendment) and this story (criteria 1 and 3, the test mapping, T1 and this note) carry the changes, so the DoD box "docs listed above updated" is ticked.
 
 ### AJ-082: Aggregate repeats into report rows without merging tiers
 Covers: REQ-016
