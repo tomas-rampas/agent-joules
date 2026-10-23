@@ -3258,10 +3258,10 @@ public sealed partial class ReportRenderingTests
 
     // ---- the SVG chart with N/A as a text marker (AJ-084) ----
 
-    private const double PlotTopPixels = 84.0;
+    private const double PlotTopPixels = 102.0;
     private const double PlotHeightPixels = 240.0;
     private const double RowPitchPixels = 430.0;
-    private const double FirstRowTopPixels = 44.0;
+    private const double FirstRowTopPixels = 62.0;
 
     private static readonly XNamespace SvgNs = "http://www.w3.org/2000/svg";
     private static readonly string[] SvgTierOrder = ["local", "cloudgpu", "nvidia", "nebius"];
@@ -4045,6 +4045,23 @@ public sealed partial class ReportRenderingTests
 
         Assert.Equal(ChartTitle, title.Value);
         Assert.Equal("Measured net energy per step in joules (J), median of the repeats of each bar", title.Value);
+    }
+
+    [Fact]
+    public void The_title_the_scope_sentence_and_the_first_row_label_do_not_overlap_vertically_and_leave_a_visible_gap()
+    {
+        // A conservative line box of a text: an ascent of nine tenths of an em above the baseline and a descent of a quarter em below it, from the emitted y and font-size attributes.
+        static (double Top, double Bottom) Box(XElement text) => (Pixels(text, "y") - (0.9 * Pixels(text, "font-size")), Pixels(text, "y") + (0.25 * Pixels(text, "font-size")));
+
+        XDocument document = XDocument.Parse(RenderSvg(LocalSteps((TaskName, 12.3))));
+
+        (_, double titleBottom) = Box(Assert.Single(document.Descendants(SvgNs + "text"), element => ClassOf(element) == "title"));
+        (double scopeTop, double scopeBottom) = Box(Assert.Single(document.Descendants(SvgNs + "text"), element => ClassOf(element) == "scope"));
+        (double labelTop, _) = Box(Assert.Single(document.Descendants(SvgNs + "text"), element => ClassOf(element) == "row-label"));
+
+        Assert.True(titleBottom + 4.0 <= scopeTop, $"title bottom {titleBottom} and scope top {scopeTop} leave less than 4 px");
+        Assert.True(scopeBottom + 8.0 <= labelTop, $"scope bottom {scopeBottom} and row label top {labelTop} leave less than 8 px");
+        Assert.Equal(FirstRowTopPixels, Pixels(Assert.Single(SvgRows(document)).Elements(SvgNs + "text").Single(element => ClassOf(element) == "row-label"), "y") - 14.0, precision: 2);
     }
 
     [Fact]

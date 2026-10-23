@@ -59,7 +59,9 @@ internal sealed record SvgRow(string Label, double LabelY, double PlotTop, doubl
 /// </summary>
 internal sealed class SvgLayout
 {
-    internal const double FirstRowTop = 44.0;
+    // The header is the title (baseline 26, 16 px) and the scope sentence (baseline 48, 12 px); the first row label (13 px) sits at FirstRowTop + RowLabelGap. With a descent of a quarter em under the scope sentence
+    // and an ascent of nine tenths of an em over the row label, the sentence ends at 51 and the label starts at 64.3: a clear gap of 13.3 px (at FirstRowTop 44 the two boxes overlapped by 4.7 px).
+    internal const double FirstRowTop = 62.0;
     internal const double RowHeaderHeight = 40.0;
     internal const double PlotHeight = 240.0;
     internal const double BarWidth = 48.0;
