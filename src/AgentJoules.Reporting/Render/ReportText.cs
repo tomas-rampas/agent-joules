@@ -1,7 +1,3 @@
-using System.Buffers;
-using System.Globalization;
-using System.Text;
-
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Security;
 
@@ -38,29 +34,6 @@ public static class ReportText
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        string echoed = TextEcho.ForMessage(KeyMask.Redact(text), maxLength);
-        var clean = new StringBuilder(echoed.Length);
-        ReadOnlySpan<char> rest = echoed;
-        while (!rest.IsEmpty)
-        {
-            OperationStatus status = Rune.DecodeFromUtf16(rest, out Rune rune, out int consumed);
-            if (status == OperationStatus.Done && !IsUnsafe(rune))
-            {
-                clean.Append(rune);
-            }
-            else
-            {
-                clean.Append('?');
-            }
-
-            rest = rest[consumed..];
-        }
-
-        return clean.ToString();
+        return UnsafeText.Replace(TextEcho.ForMessage(KeyMask.Redact(text), maxLength));
     }
-
-    // The same classes TextEcho replaces in the BMP, for every plane, and the non-characters U+FFFE and U+FFFF of every plane.
-    private static bool IsUnsafe(Rune rune) =>
-        (rune.Value & 0xFFFE) == 0xFFFE
-        || Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
 }

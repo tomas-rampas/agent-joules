@@ -35,7 +35,6 @@ public static class ReportHtmlRenderer
     public const string ChartAlt = "Net joules per step and tier; N/A where no GPU-board energy was measured";
 
     private const string Title = "Agent Joules results";
-    private const string ReadmeFragment = "#readme";
     private const string BulletPrefix = "- ";
     private const string NestedPrefix = "  - ";
 
@@ -61,9 +60,6 @@ public static class ReportHtmlRenderer
         + Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(StyleContent)))
         + "'; base-uri 'none'; form-action 'none'\">\n";
 
-    // The key mask of the report: the only text of the page that does not pass ReportText is the link, so it is checked with the same pattern.
-    private static readonly SecretRedactor KeyMask = new();
-
     /// <summary>
     /// Renders the page.
     /// </summary>
@@ -79,7 +75,7 @@ public static class ReportHtmlRenderer
     public static string Render(ReportModel model, Uri? repositoryUrl)
     {
         ArgumentNullException.ThrowIfNull(model);
-        string? readme = repositoryUrl is null ? null : ReadmeHref(repositoryUrl);
+        string? readme = repositoryUrl is null ? null : RepositoryLink.ReadmeHref(repositoryUrl);
 
         var page = new StringBuilder(16384);
         page.Append("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n")
@@ -97,28 +93,6 @@ public static class ReportHtmlRenderer
         page.Append("</body>\n</html>\n");
 
         return page.ToString();
-    }
-
-    // The link is published as it stands, so it is the one string of the page that is not cleaned: it is refused when it could carry a secret (a user name, a password, a query, an nvapi- key) and is otherwise
-    // rebuilt from its parts with the host in punycode, the path as the URI class escapes it, and no fragment. The message names the rule and never the URL. The scheme of a relative URI cannot be read, so the
-    // check for an absolute URI comes first in the chain.
-    private static string ReadmeHref(Uri repositoryUrl)
-    {
-        string? refusal = !repositoryUrl.IsAbsoluteUri || repositoryUrl.Scheme != Uri.UriSchemeHttps || repositoryUrl.UserInfo.Length > 0
-            ? "The repository URL must be an absolute https URL without a user name or a password."
-            : repositoryUrl.Query.Length > 0
-                ? "The repository URL must have no query: the link is published as it stands."
-                : !string.Equals(KeyMask.Redact(repositoryUrl.AbsoluteUri), repositoryUrl.AbsoluteUri, StringComparison.Ordinal)
-                    ? "The repository URL must not contain an nvapi- key: the link is published as it stands."
-                    : null;
-        if (refusal is not null)
-        {
-            throw new ArgumentException(refusal, nameof(repositoryUrl));
-        }
-
-        var link = new UriBuilder(Uri.UriSchemeHttps, repositoryUrl.IdnHost, repositoryUrl.IsDefaultPort ? -1 : repositoryUrl.Port, repositoryUrl.AbsolutePath);
-
-        return link.Uri.AbsoluteUri + ReadmeFragment;
     }
 
     // A text that comes from a document: cleaned (key masked, cut, unsafe characters replaced) and then encoded, once.

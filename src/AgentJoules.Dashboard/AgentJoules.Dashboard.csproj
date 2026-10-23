@@ -9,4 +9,8 @@
     <ProjectReference Include="..\AgentJoules.Metering\AgentJoules.Metering.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot/index.html" LogicalName="AgentJoules.Dashboard.index.html" />
+  </ItemGroup>
+
 </Project>

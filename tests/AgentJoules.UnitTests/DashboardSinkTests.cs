@@ -131,7 +131,7 @@ public sealed class DashboardSinkTests
     public async Task Connection_buffer_keeps_newest_1000()
     {
         var time = new FakeTimeProvider(Origin);
-        await using var sink = new DashboardSink(new RecordingLogger(), time);
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         using DashboardConnection connection = sink.Connect();
 
         for (int batch = 0; batch < 3; batch++)
@@ -153,7 +153,7 @@ public sealed class DashboardSinkTests
     public async Task A_published_reading_reaches_a_connection_as_one_step_completed_event()
     {
         var time = new FakeTimeProvider(Origin);
-        await using var sink = new DashboardSink(new RecordingLogger(), time);
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         using DashboardConnection connection = sink.Connect();
 
         sink.Publish(StepReadingFixtures.Metered());
@@ -167,7 +167,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task Publish_refuses_a_null_reading()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
 
         _ = Assert.Throws<ArgumentNullException>(() => sink.Publish(null!));
     }
@@ -176,7 +176,7 @@ public sealed class DashboardSinkTests
     public async Task A_connection_receives_only_events_applied_after_its_snapshot_without_loss_or_doubling()
     {
         const int count = 500;
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         using var started = new ManualResetEventSlim();
         Task emitter = Task.Run(() =>
         {
@@ -204,7 +204,7 @@ public sealed class DashboardSinkTests
     public async Task The_snapshot_of_a_connection_is_a_snapshot_envelope()
     {
         var time = new FakeTimeProvider(Origin);
-        await using var sink = new DashboardSink(new RecordingLogger(), time);
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         time.Advance(TimeSpan.FromSeconds(3));
 
         using DashboardConnection connection = sink.Connect();
@@ -220,7 +220,7 @@ public sealed class DashboardSinkTests
     public async Task Emit_returns_while_pump_faulted()
     {
         var logger = new RecordingLogger();
-        await using var sink = new DashboardSink(logger, new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
         using DashboardConnection connection = sink.Connect();
 
         // The pump cannot apply an event type it does not know: that event is its fault, and the nine after it still arrive.
@@ -255,7 +255,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task A_throwing_logger_neither_ends_the_pump_nor_reaches_the_disposer()
     {
-        var sink = new DashboardSink(new ThrowingLogger(), new FakeTimeProvider(Origin));
+        var sink = DashboardFixtures.NewSink(new ThrowingLogger(), new FakeTimeProvider(Origin));
         using DashboardConnection connection = sink.Connect();
 
         sink.Emit(new UnknownEvent(Origin));
@@ -287,7 +287,7 @@ public sealed class DashboardSinkTests
     public async Task The_pump_runs_on_another_thread_than_the_emitter()
     {
         var logger = new ThreadRecordingLogger();
-        await using var sink = new DashboardSink(logger, new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
         int emitter = 0;
         var thread = new Thread(() =>
         {
@@ -306,7 +306,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task A_flush_covers_an_event_the_caller_emitted_while_a_second_writer_runs()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         using var stop = new CancellationTokenSource();
 
         // The second writer stays well below the ingress capacity (a flush every 100 emits), so nothing it writes can push the caller's event out.
@@ -338,20 +338,33 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task A_flush_covers_every_returned_emit_under_stress()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         Lock gate = (Lock)typeof(DashboardSink).GetField("_lock", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(sink)!;
         var snapshot = (DashboardSnapshot)typeof(DashboardSink).GetField("_snapshot", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(sink)!;
         long violations = 0;
         long checks = 0;
         var elapsed = Stopwatch.StartNew();
+
+        // The state tracks a fixed number of agents (AJ-090), so each writer owns one tracked agent (at most eight writers, the four configured agents and eight more) and alternates a step start and a
+        // step completion for it. After its own flush, the status of that agent must be the one its own last event set: an event that returned before the flush began is applied by the time it completes.
+        int writerCount = Math.Min(Environment.ProcessorCount, 8);
         Task[] writers =
         [
-            .. Enumerable.Range(0, Environment.ProcessorCount).Select(writer => Task.Run(async () =>
+            .. Enumerable.Range(0, writerCount).Select(writer => Task.Run(async () =>
             {
+                string agent = $"w{writer}";
                 for (int i = 0; elapsed.Elapsed < TimeSpan.FromSeconds(2); i++)
                 {
-                    string agent = $"a{writer}-{i}";
-                    sink.Emit(new StepStartedEvent(Origin, false, new StepIdentity(agent, "m", Tier.Local, "t", 1, IsJudge: false), 0.0));
+                    bool start = i % 2 == 0;
+                    if (start)
+                    {
+                        sink.Emit(new StepStartedEvent(Origin, false, new StepIdentity(agent, "m", Tier.Local, "t", 1, IsJudge: false), 0.0));
+                    }
+                    else
+                    {
+                        sink.Publish(StepReadingFixtures.Metered(agent: agent));
+                    }
+
                     await sink.FlushAsync(CancellationToken.None).ConfigureAwait(false);
                     string status;
                     using (gate.EnterScope())
@@ -360,7 +373,7 @@ public sealed class DashboardSinkTests
                     }
 
                     _ = Interlocked.Increment(ref checks);
-                    if (status != DashboardSnapshot.RunningStatus)
+                    if (status != (start ? DashboardSnapshot.RunningStatus : StepOutcomes.Ok))
                     {
                         _ = Interlocked.Increment(ref violations);
                     }
@@ -371,7 +384,7 @@ public sealed class DashboardSinkTests
         await Task.WhenAll(writers).WaitAsync(HangGuard);
 
         Assert.True(Interlocked.Read(ref checks) > 0);
-        Assert.Equal(0, Interlocked.Read(ref violations));
+        Assert.True(Interlocked.Read(ref violations) == 0, $"{violations} of {checks} checks saw another event in place of the writer's own");
     }
 
     // ---- the two-phase first fault (the gatekeeper's round-2 probes) ----
@@ -383,7 +396,7 @@ public sealed class DashboardSinkTests
         DashboardSink? sink = null;
         bool connected = false;
         var logger = new CallbackLogger(() => connected = Task.Run(() => sink!.Connect().Dispose()).Wait(TimeSpan.FromSeconds(5)));
-        sink = new DashboardSink(logger, new FakeTimeProvider(Origin));
+        sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
 
         sink.Emit(new UnknownEvent(Origin));
         sink.Emit(Power(1));
@@ -391,6 +404,33 @@ public sealed class DashboardSinkTests
 
         Assert.Equal(1, logger.Calls);
         Assert.True(connected, "Connect blocked while the first fault was logged.");
+        await sink.DisposeAsync();
+    }
+
+    // The lock is free while the degraded-snapshot warning (event 302) is logged: the logger connects from another thread while it records, and that connect must return at once.
+    [Fact]
+    public async Task The_lock_is_free_while_the_degraded_snapshot_is_logged()
+    {
+        DashboardSink? sink = null;
+        bool connected = false;
+        var logger = new EventCallbackLogger(302, () => connected = Task.Run(() => sink!.Connect().Dispose()).Wait(TimeSpan.FromSeconds(5)));
+        sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
+        sink.Emit(RunStarted());
+
+        // A sample time that is not a number cannot be written, so every snapshot after it is the smaller form, and the first one is logged.
+        sink.Emit(new PowerEvent(Origin, false, Metric.Measured(40.0, "W"), double.NaN));
+        await sink.FlushAsync(CancellationToken.None).WaitAsync(HangGuard);
+        sink.Connect().Dispose();
+
+        using var guard = new CancellationTokenSource(HangGuard);
+        while (logger.Calls == 0)
+        {
+            await Task.Yield();
+            guard.Token.ThrowIfCancellationRequested();
+        }
+
+        Assert.Equal(1, logger.Calls);
+        Assert.True(connected, "Connect blocked while the degraded snapshot was logged.");
         await sink.DisposeAsync();
     }
 
@@ -406,7 +446,7 @@ public sealed class DashboardSinkTests
         for (int round = 0; round < rounds; round++)
         {
             var logger = new SlowLogger(spin: 2000 + ((round % 7) * 3000));
-            var sink = new DashboardSink(logger, new FakeTimeProvider(Origin));
+            var sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
             var connections = new ConcurrentBag<DashboardConnection>();
             using var go = new ManualResetEventSlim();
             Task writer = Task.Run(async () =>
@@ -468,7 +508,7 @@ public sealed class DashboardSinkTests
         int bad = 0;
         for (int round = 0; round < rounds; round++)
         {
-            var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+            var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
             using var go = new ManualResetEventSlim();
             int started = 0;
             Task[] writers =
@@ -521,7 +561,7 @@ public sealed class DashboardSinkTests
     public async Task A_held_pump_never_blocks_emit_or_dispose_and_dispose_async_waits_for_it()
     {
         using var time = new PumpHoldingTime(Origin);
-        var sink = new DashboardSink(new RecordingLogger(), time);
+        var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         using DashboardConnection connection = sink.Connect();
         time.HoldPump = true;
         sink.Emit(RunStarted());
@@ -556,7 +596,7 @@ public sealed class DashboardSinkTests
     public async Task The_ingress_keeps_the_newest_1000_while_the_pump_is_held()
     {
         using var time = new PumpHoldingTime(Origin);
-        await using var sink = new DashboardSink(new RecordingLogger(), time);
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         time.HoldPump = true;
         sink.Emit(RunStarted());
         Assert.True(time.PumpHeld.Wait(HangGuard), "The pump never reached the clock.");
@@ -583,7 +623,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task A_client_that_never_reads_does_not_stop_publishing()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         using DashboardConnection connection = sink.Connect();
         var samples = new List<int>();
 
@@ -614,7 +654,7 @@ public sealed class DashboardSinkTests
     public async Task A_run_started_event_is_followed_by_a_snapshot_payload()
     {
         var time = new FakeTimeProvider(Origin);
-        await using var sink = new DashboardSink(new RecordingLogger(), time);
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), time);
         using DashboardConnection connection = sink.Connect();
 
         sink.Emit(Power(0));
@@ -627,7 +667,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public void A_run_started_event_resets_the_snapshot_state()
     {
-        var snapshot = new DashboardSnapshot();
+        var snapshot = DashboardFixtures.NewSnapshot();
         _ = snapshot.Apply(RunStarted());
         _ = snapshot.Apply(new StepCompletedEvent(Origin, false, StepReadingFixtures.Metered()));
         _ = snapshot.Apply(new BaselineEvent(Origin, false, Baseline()));
@@ -644,7 +684,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public void The_snapshot_tracks_the_agent_status_and_the_active_agents()
     {
-        var snapshot = new DashboardSnapshot();
+        var snapshot = DashboardFixtures.NewSnapshot();
         StepIdentity writer = new("Writer", "model-a", Tier.Local, "summarise", 1, IsJudge: false);
 
         _ = snapshot.Apply(new StepStartedEvent(Origin, false, writer, 1.5));
@@ -660,7 +700,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public void The_snapshot_carries_the_replay_flag_of_the_latest_run_started()
     {
-        var snapshot = new DashboardSnapshot();
+        var snapshot = DashboardFixtures.NewSnapshot();
         RunStartedEvent live = RunStarted();
 
         _ = snapshot.Apply(live with { Replay = true });
@@ -673,7 +713,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public void Apply_refuses_an_unknown_event_type()
     {
-        var snapshot = new DashboardSnapshot();
+        var snapshot = DashboardFixtures.NewSnapshot();
 
         _ = Assert.Throws<NotSupportedException>(() => snapshot.Apply(new UnknownEvent(Origin)));
         _ = Assert.Throws<NotSupportedException>(() => DashboardEventSerializer.TypeName(new UnknownEvent(Origin)));
@@ -682,7 +722,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public void Every_event_type_has_its_wire_name_and_the_envelope_carries_type_atUtc_replay_and_data()
     {
-        var snapshot = new DashboardSnapshot();
+        var snapshot = DashboardFixtures.NewSnapshot();
         StepIdentity step = new("Planner", "model-a", Tier.Local, "summarise", 1, IsJudge: false);
         RunDocument run = RunDocumentFixtures.Committed(Tier.Local);
         (LiveEvent Event, string Name)[] cases =
@@ -717,7 +757,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task Emit_after_disposal_is_a_silent_no_op_and_every_connection_completes()
     {
-        var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         DashboardConnection connection = sink.Connect();
         sink.Emit(Power(0));
 
@@ -736,7 +776,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task Dispose_does_not_wait_and_is_idempotent()
     {
-        var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         DashboardConnection connection = sink.Connect();
 
         sink.Dispose();
@@ -750,7 +790,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task A_disposed_connection_is_unsubscribed()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         DashboardConnection first = sink.Connect();
         using DashboardConnection second = sink.Connect();
 
@@ -766,7 +806,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task Connect_after_disposal_returns_a_completed_connection()
     {
-        var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
         await sink.DisposeAsync();
 
         using DashboardConnection connection = sink.Connect();
@@ -778,7 +818,7 @@ public sealed class DashboardSinkTests
     [Fact]
     public async Task Flush_on_an_idle_sink_completes_and_honours_its_token()
     {
-        await using var sink = new DashboardSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
 
         await sink.FlushAsync(CancellationToken.None).WaitAsync(HangGuard);
         using var cancelled = new CancellationTokenSource();
@@ -1408,6 +1448,28 @@ public sealed class DashboardSinkTests
         {
             onLog();
             _ = Interlocked.Increment(ref _calls);
+        }
+    }
+
+    // A logger that runs a callback for the records of one event id and counts them.
+    private sealed class EventCallbackLogger(int eventId, Action onLog) : ILogger
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId logEventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logEventId.Id == eventId)
+            {
+                onLog();
+                _ = Interlocked.Increment(ref _calls);
+            }
         }
     }
 

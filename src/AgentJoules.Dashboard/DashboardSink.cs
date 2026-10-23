@@ -2,6 +2,7 @@ using System.Threading.Channels;
 
 using AgentJoules.Core.Live;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Security;
 using AgentJoules.Metering;
 
 using Microsoft.Extensions.Logging;
@@ -37,7 +38,7 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
     private readonly Lock _lock = new();
 
     // Guarded by _lock.
-    private readonly DashboardSnapshot _snapshot = new();
+    private readonly DashboardSnapshot _snapshot;
     private readonly List<DashboardConnection> _connections = [];
     private readonly List<(long Target, TaskCompletionSource Done)> _flushes = [];
     private long _pumped;
@@ -48,16 +49,20 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
     private long _dropped;
     private int _faults;
     private int _faultLogged;
+    private int _degradedLogged;
     private int _disposed;
 
     /// <summary>Creates the sink and starts its pump.</summary>
     /// <param name="logger">The logger of the first pump failure.</param>
     /// <param name="timeProvider">The clock of the emit instants of the readings and of the snapshots.</param>
+    /// <param name="redactor">The redactor of the host (the registered keys and the <c>nvapi-</c> pattern): every payload passes it before a connection sees it.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public DashboardSink(ILogger logger, TimeProvider timeProvider)
+    public DashboardSink(ILogger logger, TimeProvider timeProvider, SecretRedactor redactor)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(redactor);
+        _snapshot = new DashboardSnapshot(redactor) { DegradedObserver = ReportDegraded };
 
         _logger = logger;
         _time = timeProvider;
@@ -308,6 +313,31 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
             // Dropped on purpose (EDGE-019).
         }
     }
+
+    // Called by the snapshot, under the lock, when a snapshot fell back to its smaller form. The first time per sink it is logged with the exception type only, from another thread, so a logger can never
+    // run under the lock of the sink; a logger that throws is dropped (EDGE-019).
+    private void ReportDegraded(string exceptionType)
+    {
+        if (Interlocked.Exchange(ref _degradedLogged, 1) == 0)
+        {
+            _ = ThreadPool.QueueUserWorkItem(static state => LogDegradedSafely(state.Logger, state.ExceptionType), (Logger: _logger, ExceptionType: exceptionType), preferLocal: false);
+        }
+    }
+
+    private static void LogDegradedSafely(ILogger logger, string exceptionType)
+    {
+        try
+        {
+            SnapshotDegraded(logger, exceptionType);
+        }
+        catch (Exception)
+        {
+            // Dropped on purpose (EDGE-019).
+        }
+    }
+
+    [LoggerMessage(EventId = 302, Level = LogLevel.Warning, Message = "The dashboard wrote a smaller snapshot because its state could not be serialized ({ExceptionType}); later occurrences are not logged")]
+    private static partial void SnapshotDegraded(ILogger logger, string exceptionType);
 
     [LoggerMessage(EventId = 301, Level = LogLevel.Warning, Message = "The dashboard dropped a live event it could not handle ({ExceptionType}); the dashboard continues and later failures are counted, not logged")]
     private static partial void PumpFaulted(ILogger logger, string exceptionType);

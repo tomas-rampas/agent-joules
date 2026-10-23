@@ -104,7 +104,7 @@ public sealed class SinkFanOutContext : IDisposable
     /// <summary>Builds a dashboard sink on a fake clock and connects one client that never reads.</summary>
     public void CreateConnectedDashboard()
     {
-        _dashboard = new DashboardSink(Logger, new FakeTimeProvider(Origin));
+        _dashboard = DashboardFixtures.NewSink(Logger, new FakeTimeProvider(Origin));
         _connection = _dashboard.Connect();
     }
 
