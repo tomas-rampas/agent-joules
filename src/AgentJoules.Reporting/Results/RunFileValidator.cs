@@ -165,7 +165,13 @@ public static class RunFileValidator
         var stream = new FileStream(path, options);
         await using (stream.ConfigureAwait(false))
         {
-            long size = stream.CanSeek ? stream.Length : 0;
+            // A pipe or a device is not a run file: it may never end or never answer, so it is refused at once (the caller reports it as a file that could not be read).
+            if (!stream.CanSeek)
+            {
+                throw new IOException("The path is not a regular file.");
+            }
+
+            long size = stream.Length;
             if (size > MaxBytes)
             {
                 return ([], MaxBytes + 1);

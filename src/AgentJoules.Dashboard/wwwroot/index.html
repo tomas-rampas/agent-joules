@@ -171,7 +171,8 @@ h2 { font-size: var(--font-size-base); }
     <span class="item"><span class="hk">Mode</span><span id="hdr-mode">-</span></span>
     <span class="item"><span class="hk">Progress</span><span id="hdr-progress">-</span></span>
     <span class="item"><span class="hk">Flags</span><span id="hdr-flags">-</span></span>
-    <span id="hdr-replay" class="banner" hidden>replay of a recorded run: power shown as recorded per-step average</span>
+    <span id="hdr-replay-marker" class="banner" hidden>replay</span>
+    <span id="hdr-replay" class="banner" hidden>power shown as recorded per-step average</span>
     <span id="hdr-reconnecting" class="banner" hidden>reconnecting</span>
   </div>
 </header>
@@ -241,6 +242,7 @@ const hdr = {
   mode: document.getElementById("hdr-mode"),
   progress: document.getElementById("hdr-progress"),
   flags: document.getElementById("hdr-flags"),
+  replayMarker: document.getElementById("hdr-replay-marker"),
   replay: document.getElementById("hdr-replay"),
   reconnecting: document.getElementById("hdr-reconnecting")
 };
@@ -554,6 +556,7 @@ function paintHeader() {
   const flags = source ? textsOf(source.flags) : [];
   setText(hdr.flags, flags.length > 0 ? flags.join(", ") : "none");
   setText(hdr.progress, progress);
+  hdr.replayMarker.hidden = !state.replay;
   hdr.replay.hidden = !state.replay;
   hdr.reconnecting.hidden = state.connected;
 }

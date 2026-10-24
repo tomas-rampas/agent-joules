@@ -34,7 +34,7 @@ Filled during the build: the Nebius AI Cloud GPU virtual machine used for the me
 
 ## Methodology and honesty rules
 
-Filled during the build from docs/methodology.md: how energy is measured and attributed, the idle baseline, warm-up and repeats, the limits of NVML readings, and the rule that every published number is measured on the named hardware and traceable to a committed results file. The live dashboard (`--dashboard`) shows one-second driver averages and running estimates labelled `estimated`; estimates never enter a results file. The dashboard adds no GPU work and shows only what the meter already samples; a browser rendering it on the measured GPU adds compositing load, so published results files are recorded without a browser open and only the demo recording shows the live page.
+Filled during the build from docs/methodology.md: how energy is measured and attributed, the idle baseline, warm-up and repeats, the limits of NVML readings, and the rule that every published number is measured on the named hardware and traceable to a committed results file. The live dashboard (`--dashboard`) shows one-second driver averages and running estimates labelled `estimated`; estimates never enter a results file. The dashboard adds no GPU work and shows only what the meter already samples; a browser rendering it on the measured GPU adds compositing load, so published results files are recorded without a browser open and only the demo recording shows the live page. A replay (`dashboard --replay`) shows the recorded per-step average power of a committed results file, not a trace; it runs no agent and writes nothing; it needs no key, and a key variable that is set is used only to mask its value, so a file holding that value is refused.
 
 ## Results
 
@@ -111,6 +111,24 @@ nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-
 ```
 
 A wrong option value exits 2 before anything runs and prints one stderr line `error: <message> (ParseError)` (several parse errors are joined with `; ` into that one line); the exit-code table is written in M6. Of the three model IDs in the example, the nvidia and nebius ones have been verified against their live endpoints (2026-10-21); the local check is still open.
+
+### dashboard
+
+`dashboard --replay <run file>` replays a committed results file on its recorded timeline into the same local dashboard that `run --dashboard` serves, so the live view can be seen without a GPU. The replay runs no agent and writes nothing to disk; it needs no key, and a key variable that is set is used only to mask its value, so a file holding that value is refused with exit 2. The page shows power as the recorded per-step average, with the banner `power shown as recorded per-step average` and a `replay` marker; a hosted step shows N/A, never 0.
+
+Usage: `AJ dashboard --replay <run file> [--speed <factor>] [--exit-after <seconds>] [--start-delay <seconds>] [--dashboard-port <n>]`
+
+- `--replay <run file>` (required): the results file. Its name must be a run-file name, it must pass `AJ validate`, hold no registered key's value or `nvapi-` string, and name one of the four agent roles or the judge in every step and in its environment model list; otherwise the command exits 2 and names the file.
+- `--speed <factor>` (default 1.0): divides every recorded delay; a finite number above 0 and at most 4294967.294; a speed so small that a recorded gap divided by it would exceed the timer limit exits 2.
+- `--exit-after <seconds>`: stops the replay after this many wall-clock seconds (at least 0.0000001), counted from the first replayed event; an event scheduled exactly at the deadline is still shown. Without it the server runs until Ctrl+C, which exits 0.
+- `--start-delay <seconds>`: starts the replay after this delay (0, or at least 0.0000001 s) or at the first browser connection, whichever comes first; `0` starts at once. Without it the replay waits for the first browser connection, at most 120 s or `--exit-after` when that is shorter; if no browser connects, it prints a warning and exits 0.
+- `--dashboard-port <n>` (default 5178): the preferred port, a whole number from 1 to 65535; the next 19 ports are tried. With no free port the command exits 5.
+
+The committed nvidia fixture replays at speed 50 and exits 0:
+
+```text
+dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5 --start-delay 0
+```
 
 ### validate
 

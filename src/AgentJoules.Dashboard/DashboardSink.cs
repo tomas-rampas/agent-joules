@@ -40,6 +40,7 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
     private readonly TimeProvider _time;
     private readonly Channel<LiveEvent> _ingress;
     private readonly Lock _lock = new();
+    private readonly TaskCompletionSource _firstClient = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     // Guarded by _lock.
     private readonly DashboardSnapshot _snapshot;
@@ -80,6 +81,12 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
 
     /// <summary>The number of events the pump could not handle and dropped.</summary>
     public int PumpFaultCount => Volatile.Read(ref _faults);
+
+    /// <summary>
+    /// Completes when the first client connects (the first call of <see cref="Connect"/>, an <c>/events</c> stream or an in-process subscriber alike), and stays completed. The replay (AJ-092) emits no event
+    /// before it. Its continuations run on the thread pool, never under the lock of the sink or on the pump.
+    /// </summary>
+    public Task FirstClientConnected => _firstClient.Task;
 
     /// <summary>The redactor of the host the sink was given, for the serve-time check of the page (AJ-091); immutable, so it is read without the lock.</summary>
     internal SecretRedactor Redactor => _snapshot.Redactor;
@@ -139,6 +146,8 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
             {
                 _connections.Add(connection);
             }
+
+            _ = _firstClient.TrySetResult();
 
             return connection;
         }

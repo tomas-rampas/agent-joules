@@ -1628,10 +1628,11 @@ Conflict: C-14 (design 9.2) - the URL-literal grep forbids `"http` in C# while t
 
 ### AJ-092: Replay a committed run file on its recorded timeline
 Covers: REQ-032
+Note (2026-10-24, AJ-092): the feature file is `tests/AgentJoules.Specs/Features/Dashboard/AJ-092-replay.feature`, identical to the story block (builder cmp exit 0). Pinned readings applied: the hosted `dashboard` command (P-81), the name, bounded reader, `RunFileValidator.Check` and step-agent checks in `DashboardCommand` (P-82), the baseline only when the file has one (P-83), `--exit-after` from event 0 in wall seconds (P-85), the start gated on the first client or `--start-delay` with the 120 s warning (P-86), and fake clocks in the replay tests (P-90). Measured by the builder: red 42 failed of 55 and 10 failed of 11, green 55/55, 11/11 and `Spec=REQ-032` 266/266 (after the fix round 86/86, 11/11 and 297/297), fixture span 23 s, the exit-criteria command exit 0 in 7.83 s on the system clock. Deviations: the step-agent rule with exit 2 is new against this story, the banner drops the AJ-090 "replay of a recorded run:" prefix, any start failure exits 5, and `ReplayRig` lives in TestSupport. Docs: README `### dashboard` (the story's "Live dashboard" section) and the replay sentence in the README methodology paragraph; docs/methodology.md does not exist yet, so its replay caveat carries to the story that creates the file. Fix round (2026-10-24, from the three round-1 gates): a flush after every replayed event (events were lost at very high speed), a gap check that exits 2 for a `--speed` too small for the recorded gaps and a one-tick minimum for `--exit-after` and `--start-delay`, the agent rule ordinal and case-sensitive and extended to `environment.models[].agent`, zero-length steps ordered start before end with run-completed after every step entry, an event exactly at the deadline emitted, cancellation returning 0 at every phase including the file read, pipes and devices refused by the shared readers of `report`, `validate` and `dashboard`.
 User story: As a judge without a GPU, I want `AJ dashboard --replay <run file>` to serve the same page and replay the recorded steps on their timeline, so that I can see the live view from committed data.
 Acceptance criteria:
 1. `AJ dashboard --replay <fixture run file> --speed 50 --exit-after 5` exits 0 and a test asserts one `step-completed` SSE event per step of the fixture (test `Replay_emits_one_event_per_step`).
-2. `ReplayTimeline.Build` creates events at the recorded offsets from `run.startUtc`: run started at 0, progress at the first step of each (task, repeat), step started at `step.startUtc`, step completed at `step.endUtc`, power as one event per step start and end carrying the step's recorded `avgW`, run completed at the last `endUtc` with the file's totals and flags; every event has `replay: true`.
+2. `ReplayTimeline.Build` creates events at the recorded offsets from `run.startUtc`: run started at 0, baseline at 0 when the file has one, progress at the first step of each (task, repeat), step started at `step.startUtc`, step completed at `step.endUtc`, power as one event per step start and end carrying the step's recorded `avgW`, run completed at the last `endUtc` with the file's totals and flags; every event has `replay: true`.
 3. `--speed 4` divides every delay by 4 (driven by `FakeTimeProvider`); `--speed` of 0 or below exits 2.
 4. A file that does not match the run-file name pattern or fails the schema exits 2 naming the file; when 20 consecutive ports are busy the command exits 5 and prints `no free dashboard port in <start>-<end>`.
 5. A hosted fixture replays power as N/A reason `hosted-tier`; the page shows the banner `power shown as recorded per-step average` and a replay marker.
@@ -1708,18 +1709,18 @@ Tasks:
 |---|---|---|---|---|
 | AJ-092-T1 | Write the failing BDD feature and unit tests for replay | tests/AgentJoules.Specs/Features/Dashboard/Replay.feature, tests/AgentJoules.UnitTests/ReplayTimelineTests.cs | 0.75 | AJ-091-T1 |
 | AJ-092-T2 | Implement `ReplayTimeline.Build` from a `RunDocument` | src/AgentJoules.Dashboard/ReplayTimeline.cs | 1.5 | AJ-092-T1, AJ-078-T3 |
-| AJ-092-T3 | Implement `ReplayService.RunAsync` with validation, delays on `TimeProvider` and `--exit-after` | src/AgentJoules.Dashboard/ReplayService.cs | 1.5 | AJ-092-T2, AJ-091-T4, AJ-079-T4 |
+| AJ-092-T3 | Implement `ReplayService.RunAsync` with delays on `TimeProvider` and `--exit-after` (the name and schema checks run in `DashboardCommand`) | src/AgentJoules.Dashboard/ReplayService.cs | 1.5 | AJ-092-T2, AJ-091-T4, AJ-079-T4 |
 | AJ-092-T3a | Add `DashboardSink.FirstClientConnected` and make the replay wait for the first `/events` connection | src/AgentJoules.Dashboard/DashboardSink.cs, src/AgentJoules.Dashboard/ReplayService.cs | 0.5 | AJ-092-T3 |
-| AJ-092-T4 | Add the `dashboard` command with `--replay`, `--speed`, `--exit-after`, `--dashboard-port` | src/AgentJoules.Cli/Commands/DashboardCommand.cs | 1.0 | AJ-092-T3 |
+| AJ-092-T4 | Add the `dashboard` command with `--replay`, `--speed`, `--exit-after`, `--dashboard-port` | src/AgentJoules.Cli/Commands/DashboardCommand.cs | 1.0 | AJ-092-T3, AJ-080 (`RunFileValidator`) |
 | AJ-092-T4a | Add the `--start-delay` option, the 120 s no-client timeout and the `--exit-after` clock from event 0 | src/AgentJoules.Cli/Commands/DashboardCommand.cs, src/AgentJoules.Dashboard/ReplayService.cs | 0.5 | AJ-092-T4, AJ-092-T3a |
 | AJ-092-T5 | Show the replay banner and marker in the page | src/AgentJoules.Dashboard/wwwroot/index.html | 0.5 | AJ-092-T2, AJ-090-T4 |
 | AJ-092-T6 | Write the README replay usage for judges without a GPU | README.md | 0.25 | AJ-092-T4 |
 Test mapping: `ReplayTimelineTests` (design class, trait `Spec=REQ-032`); feature file `tests/AgentJoules.Specs/Features/Dashboard/Replay.feature`.
 Docs impact: README section "Live dashboard" (replay command and the per-step average caveat); `docs/methodology.md` (replayed power is the recorded per-step average, not a trace).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5 --start-delay 0; echo $?` prints 0
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated (README `### dashboard` stands for the "Live dashboard" section; docs/methodology.md does not exist yet and its caveat is carried forward, see the Note)
+- [x] `dotnet run --project src/AgentJoules.Cli -- dashboard --replay tests/AgentJoules.TestSupport/Fixtures/results/20260101T000000Z-nvidia.json --speed 50 --exit-after 5 --start-delay 0; echo $?` prints 0
 Demo relevance: yes: the fallback for the video when the local tier is unavailable at recording time, and the way judges without a GPU see the live view.
 
 ### AJ-093: Leave the run and its results unchanged when the dashboard fails

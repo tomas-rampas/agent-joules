@@ -395,7 +395,7 @@ internal static partial class ReportCommand
     }
 
     // One read serves the check and the model, so the file that was checked is the file that is rendered. The failure lines are those of validate; the three read failures use its wording.
-    private static async Task<(IReadOnlyList<string> Failures, RunDocument? Document)> ReadAndCheckAsync(string path, string name, SecretRedactor redactor, CancellationToken cancellationToken)
+    internal static async Task<(IReadOnlyList<string> Failures, RunDocument? Document)> ReadAndCheckAsync(string path, string name, SecretRedactor redactor, CancellationToken cancellationToken)
     {
         byte[]? bytes;
         try
@@ -461,6 +461,12 @@ internal static partial class ReportCommand
         var stream = new FileStream(path, options);
         await using (stream.ConfigureAwait(false))
         {
+            // A pipe or a device is not a run file: it may never end or never answer, so it is refused at once (the failure line is the one of a file that could not be read).
+            if (!stream.CanSeek)
+            {
+                throw new IOException("The path is not a regular file.");
+            }
+
             using var held = new MemoryStream();
             byte[] chunk = new byte[CopyBuffer];
             while (true)
