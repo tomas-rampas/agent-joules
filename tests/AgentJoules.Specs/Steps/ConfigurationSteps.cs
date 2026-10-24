@@ -12,12 +12,12 @@ using Xunit;
 namespace AgentJoules.Specs.Steps;
 
 /// <summary>
-/// The steps of two configuration stories. AJ-010 (redact key values) binds the unscoped sentences at the top of the class. AJ-100 (<c>AJ validate --config</c> checks the configured model IDs against
-/// <c>docs/endpoints.md</c>, REQ-018) binds the sentences at the end, each scoped to its feature because "the exit code is 0" and "I run ..." are sentences of every CLI story. The state of an AJ-100 scenario lives in
+/// The steps of three configuration stories. AJ-010 (redact key values) binds the unscoped sentences at the top of the class. AJ-102 (the contract of <c>docs/nim-local-attempt.md</c>, REQ-019 and EDGE-010) binds the sentences scoped to its feature, at the end; its state lives in <see cref="NimAttemptContractContext"/>, and its scenarios build documents in memory and call <c>NimAttemptRules</c> directly. AJ-100 (<c>AJ validate --config</c> checks the configured model IDs against
+/// <c>docs/endpoints.md</c>, REQ-018) binds the sentences after the AJ-010 ones, each scoped to its feature because "the exit code is 0" and "I run ..." are sentences of every CLI story. The state of an AJ-100 scenario lives in
 /// <see cref="EndpointsValidationContext"/>; every scenario runs the real command line through the harness in a temporary workspace that holds its own configuration and its own endpoints document.
 /// </summary>
 [Binding]
-public sealed class ConfigurationSteps(EndpointsValidationContext endpoints) : IDisposable
+public sealed class ConfigurationSteps(EndpointsValidationContext endpoints, NimAttemptContractContext contract) : IDisposable
 {
     private const string KeyPlaceholder = "<key>";
 
@@ -311,6 +311,90 @@ public sealed class ConfigurationSteps(EndpointsValidationContext endpoints) : I
     {
         Assert.Equal(expected, _endpoints.Handler.Attempts);
         Assert.Equal(expected, _endpoints.Required().DeniedRequests.Count);
+    }
+
+    // ---- AJ-102: the contract of docs/nim-local-attempt.md (REQ-019, EDGE-010) ----
+
+    private const string ContractFeature = "Enforce the NIM attempt document contract";
+
+    private readonly NimAttemptContractContext _contract = contract;
+
+    [Given(@"^a NIM attempt document with the four headings, Started and Ended (\d+) minutes apart and ""Local runtime: (nim|ollama)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenACompleteDocument(int minutes, string runtime)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        _contract.Draft.DecisionLines[^1] = "Local runtime: " + runtime;
+    }
+
+    [Given(@"^Started and Ended are exactly (\d+) minutes apart$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreExactlyApart(int minutes) => _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+
+    [Given(@"^Started and Ended are (\d+) minutes apart and a line ""Box exceeded: ([^""]+)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreApartAndTheBoxIsExceeded(int minutes, string reason)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        _contract.Draft.BoxExceeded = reason;
+    }
+
+    [Given(@"^the document has no ""([^""]+)"" heading$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheDocumentHasNoHeading(string heading) => Assert.True(_contract.Draft.Headings.Remove(heading), $"The draft has no heading {heading}.");
+
+    [Given(@"^Started and Ended are (\d+) minutes apart and no ""Box exceeded:"" line$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreApartAndNoBoxLine(int minutes)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        Assert.Null(_contract.Draft.BoxExceeded);
+    }
+
+    [Given(@"^the Commands section contains a docker login line with ""--password"" followed by a value$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheCommandsHoldALoginWithAPasswordArgument() =>
+        _contract.Draft.CommandLines.Insert(0, "docker login nvcr.io --username '$oauthtoken' --password not-a-key");
+
+    [Given(@"^the document contains a key built at runtime as ""nvapi-"" plus a random suffix$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheDocumentHoldsARuntimeBuiltKey() => _contract.AddRuntimeBuiltKey();
+
+    [When(@"^the contract test runs$")]
+    [Scope(Feature = ContractFeature)]
+    public void WhenTheContractTestRuns() => _contract.Run();
+
+    [Then(@"^the result is pass$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsPass() => Assert.True(_contract.Violations.Count == 0, "Expected a pass but the rules reported:\n" + string.Join('\n', _contract.Violations));
+
+    [Then(@"^the result is fail and the message names ""([^""]+)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageNames(string name) => AssertOneViolationContains(name);
+
+    [Then(@"^the result is fail and the message names the 90-minute box$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageNamesTheBox() => AssertOneViolationContains("90-minute box");
+
+    [Then(@"^the result is fail and the message says the login must use --password-stdin$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageSaysPasswordStdin() => AssertOneViolationContains("the login must use --password-stdin");
+
+    [Then(@"^the result is fail and the message does not echo the suffix$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageDoesNotEchoTheSuffix()
+    {
+        string suffix = _contract.KeySuffix ?? throw new Xunit.Sdk.XunitException("The scenario built no key.");
+
+        _ = Assert.Single(_contract.Violations);
+        Assert.DoesNotContain(suffix, string.Join('\n', _contract.Violations), StringComparison.Ordinal);
+    }
+
+    private void AssertOneViolationContains(string text)
+    {
+        string message = Assert.Single(_contract.Violations);
+
+        Assert.Contains(text, message, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string? text, string value)

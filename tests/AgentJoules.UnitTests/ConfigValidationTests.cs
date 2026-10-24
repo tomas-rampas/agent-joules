@@ -2057,4 +2057,45 @@ public sealed class ConfigValidationTests
 
         Assert.Contains($"Missing in section ## local: {prefix}****", Assert.Single(OutputLines(result.Stderr)), StringComparison.Ordinal);
     }
+
+    // ---- AJ-102: Local:Runtime (REQ-019) ----
+
+    [Fact]
+    [Trait("Spec", "REQ-019")]
+    public void Local_runtime_defaults_to_ollama_without_a_key()
+    {
+        Assert.Equal(LocalOptions.Ollama, new AgentJoulesOptions().Local.Runtime);
+        Assert.Equal(LocalOptions.Ollama, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Local.Runtime);
+        Assert.Equal(LocalOptions.Ollama, Load().Local.Runtime);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-019")]
+    public void Local_runtime_binds_from_the_environment_variable_name()
+    {
+        IConfiguration configuration = ConfigurationFixtures.InMemory((ConfigurationFixtures.NormaliseEnvironmentKey("AGENTJOULES__Local__Runtime"), LocalOptions.Nim));
+
+        Assert.Equal(LocalOptions.Nim, OptionsLoader.Load(configuration).Local.Runtime);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-019")]
+    [InlineData("ollama")]
+    [InlineData("nim")]
+    public void Local_runtime_accepts_ollama_and_nim(string runtime) =>
+        Assert.Equal(runtime, Load(("Local:Runtime", runtime)).Local.Runtime);
+
+    [Theory]
+    [Trait("Spec", "REQ-019")]
+    [InlineData("vllm")]
+    [InlineData("NIM")]
+    [InlineData("nim ")]
+    public void Local_runtime_other_than_ollama_or_nim_exits_2_without_showing_the_value(string runtime)
+    {
+        ConfigurationException failure = Rejected(("Local:Runtime", runtime));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Local:Runtime must be ollama or nim", failure.Message);
+        Assert.DoesNotContain(runtime, failure.Message, StringComparison.Ordinal);
+    }
 }

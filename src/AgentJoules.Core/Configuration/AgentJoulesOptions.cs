@@ -54,4 +54,7 @@ public sealed class AgentJoulesOptions
     /// <summary>Section <c>Dashboard</c>: how the live dashboard is fed (the power forwarding interval).</summary>
     [ValidateObjectMembers]
     public DashboardOptions Dashboard { get; set; } = new();
+
+    /// <summary>Section <c>Local</c>: which runtime serves the local tier (<c>ollama</c> or <c>nim</c>); checked by <see cref="CrossFieldValidator"/>.</summary>
+    public LocalOptions Local { get; set; } = new();
 }

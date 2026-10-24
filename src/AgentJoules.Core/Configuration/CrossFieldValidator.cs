@@ -9,7 +9,7 @@ namespace AgentJoules.Core.Configuration;
 
 /// <summary>
 /// Checks what annotations cannot: that <c>Meter:Method</c> is a known name, the 10 Hz rule (a rate below 10 Hz is valid only when
-/// <c>Meter:AllowBelowMinRate</c> is true), the <c>Tiers</c> and <c>Judge</c> sections, and <c>Report:RepositoryUrl</c> (an absolute https URL without user info, query, fragment or surrounding space, and without an <c>nvapi-</c> key; the rule and its message are <see cref="ReportOptions.IsRepositoryUrl"/> and <see cref="ReportOptions.RepositoryUrlMessage"/>).
+/// <c>Meter:AllowBelowMinRate</c> is true), the <c>Tiers</c> and <c>Judge</c> sections, <c>Local:Runtime</c> (<c>ollama</c> or <c>nim</c>, AJ-102), and <c>Report:RepositoryUrl</c> (an absolute https URL without user info, query, fragment or surrounding space, and without an <c>nvapi-</c> key; the rule and its message are <see cref="ReportOptions.IsRepositoryUrl"/> and <see cref="ReportOptions.RepositoryUrlMessage"/>).
 /// </summary>
 /// <remarks>
 /// Every failure is reported, one line each, and the checks do not stop at the first one. A rate of 0 or less, NaN or infinity, which
@@ -60,6 +60,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 
         ValidateJudge(options, failures);
         ValidateReport(options.Report, failures);
+        ValidateLocal(options.Local, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
@@ -179,6 +180,15 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         else if (options.Tiers.Keys.Any(IsKnownTierName) && !options.Tiers.ContainsKey(judgeTier))
         {
             failures.Add("Judge:Tier names a tier that Tiers does not hold");
+        }
+    }
+
+    // Local:Runtime (AJ-102) is matched exactly and in lower case, as the decision line of docs/nim-local-attempt.md spells it; the message names the key and never the value.
+    private static void ValidateLocal(LocalOptions local, List<string> failures)
+    {
+        if (!LocalOptions.Runtimes.Contains(local.Runtime, StringComparer.Ordinal))
+        {
+            failures.Add($"Local:Runtime must be {ConfigurationMessages.OrList(LocalOptions.Runtimes)}");
         }
     }
 
