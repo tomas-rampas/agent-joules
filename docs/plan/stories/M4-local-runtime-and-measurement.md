@@ -184,6 +184,7 @@ Demo relevance: no (the README quotes the model IDs recorded here).
 
 ### AJ-102: Enforce the NIM attempt document contract and the 90-minute box
 Covers: REQ-019, EDGE-010
+Note (2026-10-24, AJ-102): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-102-nim-attempt-contract.feature (the table's NimAttemptContract.feature); parser and rules in tests/AgentJoules.TestSupport/Docs (NimAttemptDocument, NimAttemptDocumentParser, NimAttemptRules, NimAttemptDraft, NimAttemptDocumentFactAttribute); 78 cases in NimAttemptDocumentTests after the gate rounds (31 methods and 41 cases at hand-over); the committed-file test passes on docs/nim-local-attempt.md and skips with "docs/nim-local-attempt.md does not exist yet (AJ-103)" when the file is absent (measured by moving the file aside and restoring it); the Local:Runtime setting (LocalOptions, default ollama, values ollama or nim, CrossFieldValidator) added here for AJ-103-T5; rule g (a docker logout line) added beyond the story's three rules.
 User story: As a reviewer, I want a test that rejects `docs/nim-local-attempt.md` when a heading, a time or a secret rule is violated, so that the time-boxed attempt is documented honestly whichever way it ends.
 Acceptance criteria:
 1. A parser test reads the document and requires the headings `Commands`, `Image`, `Outcome` and `Decision`, a line `Started: <ISO 8601 UTC>`, a line `Ended: <ISO 8601 UTC>` and, in `Decision`, a line `Local runtime: nim` or `Local runtime: ollama`.
@@ -241,13 +242,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/NimAttemptContract.feature; unit class NimAttemptDocumentTests with `[Trait("Spec","REQ-019")]` and `[Trait("Spec","EDGE-010")]`.
 Docs impact: docs/build-log.md (contract: headings, `Started:`, `Ended:`, `Box exceeded:`, `Local runtime:` lines).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the contract test is skipped with a clear message while `docs/nim-local-attempt.md` does not exist, and runs against the committed file after AJ-103
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the contract test is skipped with a clear message while `docs/nim-local-attempt.md` does not exist, and runs against the committed file after AJ-103
 Demo relevance: no.
 
 ### AJ-103: Run the NIM-local attempt within 90 minutes and document the outcome
 Covers: REQ-019, EDGE-010
+Note (2026-10-24, AJ-103): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-103-nim-local-attempt.feature (the table's NimLocalAttempt.feature; gate-closed scenarios record a note and pass; with the gate open the success scenario asserts the committed document and the five conditional scenarios record that their precondition does not hold) and the gated NimLocalEndpointTests with a NimDecisionIntegrationFact that skips when the decision is ollama; the attempt ran 17:19:23Z to 17:51:29Z (32 min 6 s) and succeeded: image nvcr.io/nim/nvidia/llama3.1-nemotron-nano-4b-v1.1:1.8.5 (no Nemotron 3 Nano 4B NIM exists in the catalog), four container starts (the default TensorRT-LLM engine build OOM-killed at the 7.756 GiB container memory limit; the vLLM BF16 profile needed NIM_MAX_MODEL_LEN 16384), GET /v1/models 200 with nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1; decision Local runtime: nim; the container agent-joules-nim stays running for the campaign; config Local:Runtime nim and the local tier values set; README section written; the Ollama fallback not used.
 User story: As the author who promises an honest README, I want a hard 90-minute attempt to serve a Nemotron model from a NIM container on the laptop, so that the local runtime is chosen on evidence and the README reports the attempt whichever way it ends.
 Acceptance criteria:
 1. The attempt starts at the first NGC catalog search and ends at the first successful `GET /v1/models` response on the container or at the 90-minute stop, whichever comes first; the document records `Started:` and `Ended:` in UTC.
@@ -309,9 +311,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/NimLocalAttempt.feature; AJ-102 NimAttemptDocumentTests on the committed file; gated class NimLocalEndpointTests (design 6.3).
 Docs impact: docs/nim-local-attempt.md (new), README.md (section "Local runtime: NIM attempt" with the link; the results block stays generated), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `docs/nim-local-attempt.md` committed with the four headings; Ended minus Started at most 90 minutes or `Box exceeded:` present
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `docs/nim-local-attempt.md` committed with the four headings; Ended minus Started at most 90 minutes or `Box exceeded:` present
 Demo relevance: yes: the video and README state which local runtime produced the numbers and link the attempt document.
 
 ### AJ-104: Report Ollama failures with the exact fix command

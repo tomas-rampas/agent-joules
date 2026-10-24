@@ -48,9 +48,9 @@ The demo page is the static HTML report, written by `report` to `docs/report/ind
 
 GitHub Pages publishes the `docs/` folder. Set the Pages source to that folder once in the repository settings, and the page is served at the `/report/` path of the Pages site. The empty file `docs/.nojekyll`, committed beside the folder, stops Pages from processing it with Jekyll; `report` recreates it when it is missing and the `docs` folder exists.
 
-## NIM-local outcome
+## Local runtime: NIM attempt
 
-Filled during the build from docs/nim-local-attempt.md, whichever way the time-boxed NIM container attempt ends.
+The NIM-local attempt of 2026-10-24 succeeded inside the 90-minute box (started 17:19:23Z, ended 17:51:29Z, 32 minutes): the NIM container nvcr.io/nim/nvidia/llama3.1-nemotron-nano-4b-v1.1:1.8.5 serves nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 in BF16 (vLLM profile, 16384-token context) on the laptop GPU, and it is the local runtime for the laptop measurements (configuration Local:Runtime nim; the local tier points at http://localhost:8000/v1). The NGC catalog has no Nemotron 3 Nano 4B NIM (checked 2026-10-24); the first start with the default TensorRT-LLM engine-build profile was killed during the engine build (exit 137, OOMKilled true; the 7.756 GiB container memory limit is the inferred cause), and the vLLM BF16 profile with NIM_MAX_MODEL_LEN=16384 started in 3 minutes 27 seconds with 13449 MiB of the 16384 MiB GPU memory in use while serving. Ollama with nemotron-3-nano:4b stays the REQ-020 fallback and was not needed. Commands with the key redacted, the image digest, the errors of the three failed starts and the decision: [docs/nim-local-attempt.md](docs/nim-local-attempt.md). The running container was re-created on 2026-10-24 with `-p 127.0.0.1:8000:8000` (18:54:58Z) and then without the NGC key in its environment (20:19:29Z), same image, profile and NIM_MAX_MODEL_LEN; the commands in the attempt document publish the port on all interfaces as they ran during the box: publish it on 127.0.0.1 only. Switching to the Ollama fallback needs three values together: `Local:Runtime` ollama, `Tiers:local:BaseUrl` http://localhost:11434/v1 and `Tiers:local:ModelId` nemotron-3-nano:4b.
 
 ## CLI reference
 
@@ -105,7 +105,7 @@ Dry-run example (the three endpoints and model IDs of `config/appsettings.json`)
 
 ```text
 dotnet run --project src/AgentJoules.Cli -- run --tier all --dry-run
-local http://localhost:11434/v1 nemotron-3-nano:30b OK
+local http://localhost:8000/v1 nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 OK
 nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-3-nano-omni-30b-a3b-reasoning OK
 nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B OK
 ```
