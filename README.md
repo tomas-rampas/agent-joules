@@ -106,7 +106,7 @@ Dry-run example (the three endpoints and model IDs of `config/appsettings.json`)
 ```text
 dotnet run --project src/AgentJoules.Cli -- run --tier all --dry-run
 local http://localhost:11434/v1 nemotron-3-nano:30b OK
-nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-nano-3-30b-a3b OK
+nvidia https://integrate.api.nvidia.com/v1 nvidia/nemotron-3-nano-omni-30b-a3b-reasoning OK
 nebius https://api.tokenfactory.nebius.com/v1 nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B OK
 ```
 

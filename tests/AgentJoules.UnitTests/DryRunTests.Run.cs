@@ -259,16 +259,20 @@ public sealed partial class DryRunTests
             Assert.Equal(0, setup.Orchestrator.Runs);
         }
 
-        // ---- the shipped model IDs (the live check of 2026-10-21) ----
+        // ---- the shipped model IDs (the live checks of 2026-10-21 and 2026-10-24) ----
 
         [Fact]
         public void The_shipped_nvidia_and_judge_model_is_the_ID_the_live_endpoint_lists()
         {
-            const string verified = "nvidia/nemotron-nano-3-30b-a3b";
+            // The id the live endpoint listed and answered on 2026-10-24 (the user's decision 2 after the M3 exit);
+            // the previously shipped nvidia/nemotron-nano-3-30b-a3b is listed but refused for the account (HTTP 404).
+            const string verified = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning";
 
             Assert.Equal(verified, ModelOf("nvidia"));
             Assert.Equal(verified, JudgeModel);
-            Assert.Equal(verified, RunCheckpointFixtures.NemotronModel);
+
+            // The committed fixtures of 2026-01-01 keep the id they were recorded with; it is data, not the shipped configuration.
+            Assert.Equal("nvidia/nemotron-nano-3-30b-a3b", RunCheckpointFixtures.NemotronModel);
         }
 
         // ---- the task set: --task and Paths:Tasks ----
