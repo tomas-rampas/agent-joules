@@ -254,28 +254,60 @@ public sealed class MissingKeyException : AgentJoulesException
 /// Every ID is provider or configuration text: the creator passes IDs that are already masked by the redactor (a provider can echo a key), and the message cuts and scrubs each ID with
 /// <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so an ID that is long or holds a control character cannot break the error line.
 /// </para>
+/// <para>
+/// A second form (AJ-100, <c>validate --config</c>) carries the problem lines of the configuration check against <c>docs/endpoints.md</c>: its message is those lines joined with line feeds, and it has no tier,
+/// no missing-ID list and no available IDs, so <see cref="TierName"/> is empty and nothing is listed after it.
+/// </para>
 /// </remarks>
-/// <param name="tierName">The lowercase name of the tier whose list lacks the IDs (for the judge model, the judge tier); not blank.</param>
-/// <param name="missingIds">The configured IDs the list lacks, at least one, in the order the check met them.</param>
-/// <param name="availableIds">The IDs to show the user: at most the first 20 of the list, Nemotron and Qwen entries first; empty when the list is empty.</param>
-/// <param name="availableCount">The number of distinct IDs the endpoint listed before the cap; 0 for an empty list, never below the number of <paramref name="availableIds"/>.</param>
-/// <exception cref="ArgumentException"><paramref name="tierName"/> is blank or <paramref name="missingIds"/> is empty.</exception>
-/// <exception cref="ArgumentNullException"><paramref name="missingIds"/> or <paramref name="availableIds"/> is null.</exception>
-/// <exception cref="ArgumentOutOfRangeException"><paramref name="availableCount"/> is negative or below the number of <paramref name="availableIds"/>.</exception>
-public sealed class ModelNotFoundException(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
-    : AgentJoulesException(ExitCode.ModelNotFound, Describe(tierName, missingIds, availableIds, availableCount))
+public sealed class ModelNotFoundException : AgentJoulesException
 {
-    /// <summary>The lowercase name of the tier whose list lacks the IDs.</summary>
-    public string TierName { get; } = tierName;
+    /// <summary>Creates the exception for a tier whose models list lacks configured IDs.</summary>
+    /// <param name="tierName">The lowercase name of the tier whose list lacks the IDs (for the judge model, the judge tier); not blank.</param>
+    /// <param name="missingIds">The configured IDs the list lacks, at least one, in the order the check met them.</param>
+    /// <param name="availableIds">The IDs to show the user: at most the first 20 of the list, Nemotron and Qwen entries first; empty when the list is empty.</param>
+    /// <param name="availableCount">The number of distinct IDs the endpoint listed before the cap; 0 for an empty list, never below the number of <paramref name="availableIds"/>.</param>
+    /// <exception cref="ArgumentException"><paramref name="tierName"/> is blank or <paramref name="missingIds"/> is empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="missingIds"/> or <paramref name="availableIds"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="availableCount"/> is negative or below the number of <paramref name="availableIds"/>.</exception>
+    public ModelNotFoundException(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
+        : base(ExitCode.ModelNotFound, Describe(tierName, missingIds, availableIds, availableCount))
+    {
+        TierName = tierName;
+        MissingIds = [.. missingIds];
+        AvailableIds = [.. availableIds];
+        AvailableCount = availableCount;
+    }
 
-    /// <summary>The configured IDs the list lacks, at least one, in the order the check met them.</summary>
-    public IReadOnlyList<string> MissingIds { get; } = [.. missingIds];
+    /// <summary>Creates the exception for the configuration check of <c>validate --config</c>.</summary>
+    /// <param name="problems">The problem lines the check printed, at least one; the message is these lines joined with line feeds.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="problems"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="problems"/> is empty.</exception>
+    public ModelNotFoundException(IReadOnlyList<string> problems)
+        : base(ExitCode.ModelNotFound, Join(problems))
+    {
+        TierName = string.Empty;
+        MissingIds = [];
+        AvailableIds = [];
+        AvailableCount = 0;
+    }
+
+    /// <summary>The lowercase name of the tier whose list lacks the IDs; empty for the configuration check of <c>validate --config</c>.</summary>
+    public string TierName { get; }
+
+    /// <summary>The configured IDs the list lacks, at least one, in the order the check met them; empty for the configuration check.</summary>
+    public IReadOnlyList<string> MissingIds { get; }
 
     /// <summary>The IDs to show the user (at most 20, Nemotron and Qwen entries first); empty when the endpoint listed none.</summary>
-    public IReadOnlyList<string> AvailableIds { get; } = [.. availableIds];
+    public IReadOnlyList<string> AvailableIds { get; }
 
     /// <summary>The number of distinct IDs the endpoint listed before the cap; 0 when it listed none.</summary>
-    public int AvailableCount { get; } = availableCount;
+    public int AvailableCount { get; }
+
+    private static string Join(IReadOnlyList<string> problems)
+    {
+        ArgumentNullException.ThrowIfNull(problems);
+        return problems.Count == 0 ? throw new ArgumentException("At least one problem line is needed.", nameof(problems)) : string.Join('\n', problems);
+    }
 
     private static string Describe(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
     {
