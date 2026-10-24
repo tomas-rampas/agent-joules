@@ -23,7 +23,8 @@ namespace AgentJoules.Dashboard;
 /// </para>
 /// <para>
 /// A pump failure drops the event that caused it and the loop goes on; the first failure is logged at Warning with its exception type only, and <see cref="PumpFaultCount"/> counts every
-/// one. <see cref="DisposeAsync"/> completes the ingress, waits for the pump to apply what is left and completes every connection; <see cref="Dispose"/> does the same without waiting.
+/// one. <see cref="DisposeAsync"/> completes the ingress, waits for the pump to apply what is left (at most <see cref="DisposeTimeout"/>) and completes every connection; <see cref="Dispose"/> does the
+/// same without waiting.
 /// After disposal <see cref="Emit"/> and <see cref="Publish"/> are silent no-ops.
 /// </para>
 /// </remarks>
@@ -31,6 +32,9 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
 {
     /// <summary>The capacity of the ingress channel and of every connection channel.</summary>
     internal const int Capacity = 1000;
+
+    /// <summary>How long <see cref="DisposeAsync"/> waits for the pump, on the clock of the sink; the same bound as the server's stop.</summary>
+    public static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(2);
 
     private readonly ILogger _logger;
     private readonly TimeProvider _time;
@@ -76,6 +80,9 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
 
     /// <summary>The number of events the pump could not handle and dropped.</summary>
     public int PumpFaultCount => Volatile.Read(ref _faults);
+
+    /// <summary>The redactor of the host the sink was given, for the serve-time check of the page (AJ-091); immutable, so it is read without the lock.</summary>
+    internal SecretRedactor Redactor => _snapshot.Redactor;
 
     /// <inheritdoc />
     /// <remarks>The reading becomes one <see cref="StepCompletedEvent"/> stamped with the clock's current instant.</remarks>
@@ -161,14 +168,21 @@ public sealed partial class DashboardSink : IMetricsSink, ILiveEventSink, IAsync
         }
     }
 
-    /// <summary>Completes the ingress, waits for the pump to apply what is left, and completes every connection; safe to call twice.</summary>
-    /// <returns>A task that completes when the pump ended.</returns>
+    /// <summary>
+    /// Completes the ingress, waits for the pump to apply what is left for at most <see cref="DisposeTimeout"/> on the clock of the sink, and completes every connection; safe to call twice
+    /// and never throws. On the timeout (a logger that blocks the pump) the connections and the waiting flushes are completed anyway and the pump finishes on its own (AJ-091, P-42 as amended).
+    /// </summary>
+    /// <returns>A task that completes when the pump ended or the timeout passed.</returns>
     public async ValueTask DisposeAsync()
     {
         Dispose();
 
-        // The pump never ends faulted by design, and if it did, the fault would not be the disposer's business (as the meter's DisposeAsync).
-        await _pump.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        // The pump never ends faulted by design, and if it did, the fault would not be the disposer's business (as the meter's DisposeAsync); the timeout is swallowed the same way.
+        await _pump.WaitAsync(DisposeTimeout, _time).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (!_pump.IsCompleted)
+        {
+            End();
+        }
     }
 
     /// <summary>Completes the ingress without waiting; the pump applies what is left and then completes every connection. Safe to call twice.</summary>

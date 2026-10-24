@@ -1,10 +1,18 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using System.Xml.Linq;
 
 using AgentJoules.Cli;
+using AgentJoules.Cli.Commands;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
@@ -13,15 +21,19 @@ using AgentJoules.Core.Labels;
 using AgentJoules.Core.Live;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
+using AgentJoules.Core.Security;
 using AgentJoules.Dashboard;
 using AgentJoules.Metering;
 using AgentJoules.Nvml;
 using AgentJoules.TestSupport;
+using AgentJoules.Workflow.Runs;
 
+using Microsoft.AspNetCore.Connections;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 
 using Xunit;
@@ -1158,7 +1170,10 @@ public sealed class DashboardSinkTests
         _ = await client.GetResponseAsync(Prompt);
 
         await meter.DisposeAsync();
-        Assert.Empty(live.Events);
+
+        // No progress; the only live event of the call is the step-started of its window (AJ-091).
+        Assert.Empty(live.Of<StepProgressEvent>());
+        _ = Assert.IsType<StepStartedEvent>(Assert.Single(live.Events));
         _ = Assert.Single(sink.Snapshot());
     }
 
@@ -1252,7 +1267,1034 @@ public sealed class DashboardSinkTests
         Assert.All(progress, item => Assert.Contains(item.Step.Agent, agents));
     }
 
+    // ---- AJ-091 (REQ-032, EDGE-018, REQ-017): the loopback server, its port fallback and the run wiring. Every test that binds or holds a port uses LoopbackPortBlock;
+    // the only system-clock tests are the latency pair, which measure real delivery (P-80) ----
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public async Task Port_in_use_falls_back()
+    {
+        using LoopbackPortBlock held = LoopbackPortBlock.Reserve(1);
+        var logger = new RecordingLogger();
+        await using DashboardSink sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
+        await using var server = new DashboardServer(sink, new SingleLoggerFactory(logger));
+
+        Uri? uri = await server.TryStartAsync(held.First, null, CancellationToken.None).WaitAsync(HangGuard);
+
+        Assert.NotNull(uri);
+        Assert.NotEqual(held.First, uri.Port);
+        Assert.InRange(uri.Port, held.First + 1, held.First + DashboardServer.PortAttempts - 1);
+        Assert.Equal(uri, server.Uri);
+        Assert.Null(server.FailureReason);
+        using var client = new HeadlessSseClient();
+        Assert.Equal(200, (await client.GetAsync(uri, "/", null).WaitAsync(HangGuard)).Status);
+
+        // The refused port is never reported at Warning or above (Kestrel's bind failure goes to Debug).
+        Assert.DoesNotContain(logger.Entries, static entry => entry.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public async Task All_twenty_ports_busy_return_no_uri_and_name_the_range()
+    {
+        using LoopbackPortBlock held = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        var logger = new RecordingLogger();
+        await using DashboardSink sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin));
+        await using var server = new DashboardServer(sink, new SingleLoggerFactory(logger));
+
+        Uri? uri = await server.TryStartAsync(held.First, null, CancellationToken.None).WaitAsync(HangGuard);
+
+        Assert.Null(uri);
+        Assert.Null(server.Uri);
+        Assert.Equal($"no free dashboard port in {held.First}-{held.Last}", server.FailureReason);
+        Assert.Equal(DashboardServer.NoFreePortMessage(held.First), server.FailureReason);
+        Assert.DoesNotContain(logger.Entries, static entry => entry.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public void Port_range_stops_at_65535()
+    {
+        Assert.Equal((65530, 65535), DashboardServer.PortRange(65530));
+        Assert.Equal("no free dashboard port in 65530-65535", DashboardServer.NoFreePortMessage(65530));
+        Assert.Equal((65535, 65535), DashboardServer.PortRange(65535));
+        Assert.Equal((5178, 5197), DashboardServer.PortRange(DashboardServer.DefaultPort));
+        Assert.Equal("no free dashboard port in 5178-5197", DashboardServer.NoFreePortMessage(DashboardServer.DefaultPort));
+        Assert.Equal((5178, 20), (DashboardServer.DefaultPort, DashboardServer.PortAttempts));
+        Assert.Equal((TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2)), (DashboardServer.StartTimeout, DashboardServer.GracePeriod, DashboardServer.StopTimeout));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => DashboardServer.PortRange(0));
+        _ = Assert.Throws<ArgumentOutOfRangeException>(() => DashboardServer.PortRange(65536));
+    }
+
+    [Fact]
+    public async Task The_printed_uri_is_the_loopback_address_built_by_the_uri_builder()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+
+        Assert.Equal(new UriBuilder(Uri.UriSchemeHttp, IPAddress.Loopback.ToString(), rig.Uri.Port).Uri, rig.Uri);
+        Assert.Equal((Uri.UriSchemeHttp, "127.0.0.1", "/"), (rig.Uri.Scheme, rig.Uri.Host, rig.Uri.AbsolutePath));
+
+        // The only listener on the port is the loopback one: a wildcard or IPv6 bind would show here on every OS.
+        Assert.Equal([new IPEndPoint(IPAddress.Loopback, rig.Uri.Port)], ListenersOn(rig.Uri.Port));
+    }
+
+    [Fact]
+    public async Task Security_headers_present()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        string page = DashboardPage.Render(null);
+        string policy = "default-src 'none'; script-src 'sha256-" + Sha256Base64(Between(page, "<script>", "</script>")) + "'; style-src 'sha256-" + Sha256Base64(Between(page, "<style>", "</style>"))
+            + "'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+        Assert.Equal(policy, DashboardServer.ContentSecurityPolicy(page));
+        int[] statuses = await Task.WhenAll(SecurityPaths.Select(async path =>
+        {
+            HeadlessResponse response = await rig.Client.GetAsync(rig.Uri, path, null).WaitAsync(HangGuard);
+            Assert.Equal(policy, response.Header("Content-Security-Policy"));
+            Assert.Equal("nosniff", response.Header("X-Content-Type-Options"));
+            Assert.DoesNotContain(response.Headers.Keys, static name => name.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase));
+            return response.Status;
+        }));
+
+        Assert.Equal([200, 200, 404], statuses);
+    }
+
+    [Fact]
+    public async Task Foreign_host_gets_421()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        rig.Sink.Publish(StepReadingFixtures.Metered());
+        await rig.Sink.FlushAsync(CancellationToken.None).WaitAsync(HangGuard);
+        int port = rig.Uri.Port;
+        string[] foreign = ["evil.example", $"evil.example:{port}", $"127.0.0.1:{port + 1}", "localhost", "127.0.0.1", $"localhost.evil.example:{port}"];
+
+        foreach (string path in RootAndEvents)
+        {
+            foreach (string host in foreign)
+            {
+                HeadlessResponse response = await rig.Client.GetAsync(rig.Uri, path, host).WaitAsync(HangGuard);
+                Assert.True(response.Status == 421, $"{path} with Host {host}: {response.Status}");
+                Assert.Empty(response.BodyBytes);
+                Assert.NotNull(response.Header("Content-Security-Policy"));
+                Assert.Equal("nosniff", response.Header("X-Content-Type-Options"));
+            }
+        }
+
+        // The two loopback names of the port pass, in any case.
+        string[] loopback = [$"127.0.0.1:{port}", $"localhost:{port}", $"LOCALHOST:{port}"];
+        foreach (string host in loopback)
+        {
+            Assert.Equal(200, (await rig.Client.GetAsync(rig.Uri, "/", host).WaitAsync(HangGuard)).Status);
+        }
+    }
+
+    [Fact]
+    public async Task A_foreign_origin_or_a_cross_site_fetch_gets_403_and_no_cors_header()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        string own = Uri.UriSchemeHttp + Uri.SchemeDelimiter + "127.0.0.1:" + rig.Uri.Port.ToString(CultureInfo.InvariantCulture);
+        string ownByName = Uri.UriSchemeHttp + Uri.SchemeDelimiter + "localhost:" + rig.Uri.Port.ToString(CultureInfo.InvariantCulture);
+        string foreign = new UriBuilder(Uri.UriSchemeHttps, "evil.example").Uri.GetLeftPart(UriPartial.Authority);
+
+        // Absent headers: a typed URL or a tool.
+        Assert.Equal(200, (await rig.Client.GetAsync(rig.Uri, "/", null).WaitAsync(HangGuard)).Status);
+
+        // same-site is a page on another loopback port: refused, so it cannot exhaust the stream slots.
+        (string Name, string Value)[] refused = [("Origin", foreign), ("Origin", "null"), ("Origin", own + "0"), ("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Site", "same-site"), ("Sec-Fetch-Site", "bogus")];
+        foreach (string path in RootAndEvents)
+        {
+            foreach ((string name, string value) in refused)
+            {
+                HeadlessResponse response = await rig.Client.GetAsync(rig.Uri, path, null, [new(name, value)]).WaitAsync(HangGuard);
+                Assert.True(response.Status == 403, $"{path} with {name} {value}: {response.Status}");
+                Assert.Empty(response.BodyBytes);
+                Assert.NotNull(response.Header("Content-Security-Policy"));
+                Assert.Equal("nosniff", response.Header("X-Content-Type-Options"));
+                Assert.DoesNotContain(response.Headers.Keys, static header => header.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        (string Name, string Value)[] accepted = [("Origin", own), ("Origin", ownByName), ("Sec-Fetch-Site", "same-origin"), ("Sec-Fetch-Site", "none")];
+        foreach ((string name, string value) in accepted)
+        {
+            HeadlessResponse response = await rig.Client.GetAsync(rig.Uri, "/", null, [new(name, value)]).WaitAsync(HangGuard);
+            Assert.True(response.Status == 200, $"{name} {value}: {response.Status}");
+            Assert.DoesNotContain(response.Headers.Keys, static header => header.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public async Task Get_root_serves_the_rendered_page_byte_for_byte()
+    {
+        Uri repository = new UriBuilder(Uri.UriSchemeHttps, "repo.fake.test") { Path = "/owner/agent-joules" }.Uri;
+        await using ServerRig linked = await ServerRig.StartAsync(repository);
+        await using ServerRig unlinked = await ServerRig.StartAsync();
+
+        HeadlessResponse withLink = await linked.Client.GetAsync(linked.Uri, "/", null).WaitAsync(HangGuard);
+        HeadlessResponse withoutLink = await unlinked.Client.GetAsync(unlinked.Uri, "/", null).WaitAsync(HangGuard);
+
+        Assert.Equal((200, "text/html; charset=utf-8"), (withLink.Status, withLink.Header("Content-Type")));
+        Assert.Equal(Encoding.UTF8.GetBytes(DashboardPage.Render(repository)), withLink.BodyBytes);
+        Assert.Contains("#readme", withLink.Body, StringComparison.Ordinal);
+        Assert.Equal(Encoding.UTF8.GetBytes(DashboardPage.Render(null)), withoutLink.BodyBytes);
+        Assert.Contains(DashboardPage.RepositoryNotConfigured, withoutLink.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Events_start_with_the_snapshot_and_send_each_payload_as_a_raw_data_line()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        rig.Sink.Publish(StepReadingFixtures.Metered());
+        await rig.Sink.FlushAsync(CancellationToken.None).WaitAsync(HangGuard);
+        using var guard = new CancellationTokenSource(HangGuard);
+
+        await using HeadlessSseConnection stream = await rig.Client.OpenEventsAsync(rig.Uri, cancellationToken: guard.Token);
+        await using IAsyncEnumerator<SseReceipt> events = stream.ReadEventsAsync(guard.Token).GetAsyncEnumerator(guard.Token);
+
+        Assert.Equal((200, "text/event-stream"), (stream.Status, stream.ContentType));
+        Assert.NotNull(stream.Headers.GetValueOrDefault("Content-Security-Policy"));
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal(("aj", "snapshot"), (events.Current.EventType, events.Current.Type));
+        Assert.Equal(["event: aj", "data: " + events.Current.Json], events.Current.Lines);
+        Assert.StartsWith("data: {\"type\":\"snapshot\"", events.Current.Lines[1], StringComparison.Ordinal);
+
+        // A payload written after the snapshot: one data line holding the envelope exactly as the sink wrote it, raw JSON and not a quoted string.
+        using DashboardConnection reference = rig.Sink.Connect();
+        rig.Sink.Publish(StepReadingFixtures.Metered(agent: "Writer"));
+        Assert.True(await events.MoveNextAsync());
+        Assert.Equal(("aj", "step-completed"), (events.Current.EventType, events.Current.Type));
+        Assert.True(await reference.Events.WaitToReadAsync(guard.Token));
+        Assert.True(reference.Events.TryRead(out string? payload));
+        Assert.Equal(["event: aj", "data: " + payload], events.Current.Lines);
+        Assert.StartsWith("data: {", events.Current.Lines[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Events_arrive_within_250ms()
+    {
+        // The latency check of REQ-032 R1 on the system clock (P-80): real sink, real server, real loopback socket.
+        await using ServerRig rig = await ServerRig.StartAsync(time: TimeProvider.System);
+
+        IReadOnlyList<SseReceipt> receipts = await DashboardLatencyRun.RunAsync(rig.Client, rig.Uri, rig.Sink, TimeProvider.System, HangGuard).WaitAsync(HangGuard);
+
+        LatencyResult result = HeadlessSseClient.CheckLatency(receipts, DashboardLatencyRun.Budget);
+        Assert.True(result.Passed, result.Message);
+        Assert.True(receipts.Count(static receipt => receipt.Type != "snapshot") >= 50, result.Message);
+        Assert.True(receipts.Count(static receipt => receipt.Type == "power") >= 10, result.Message);
+    }
+
+    [Fact]
+    public async Task A_delayed_delivery_fails_the_latency_check()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync(time: TimeProvider.System);
+        var delayed = new DelayingLiveEventSink(rig.Sink, TimeSpan.FromMilliseconds(400), TimeProvider.System);
+
+        IReadOnlyList<SseReceipt> receipts = await DashboardLatencyRun.RunAsync(rig.Client, rig.Uri, delayed, TimeProvider.System, HangGuard).WaitAsync(HangGuard);
+
+        LatencyResult result = HeadlessSseClient.CheckLatency(receipts, DashboardLatencyRun.Budget);
+        Assert.False(result.Passed, result.Message);
+        Assert.True(result.MaximumMs > 250.0, result.Message);
+        Assert.Contains("exceeds the budget of 250 ms", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_client_beyond_the_cap_gets_503_and_the_cap_is_logged_once()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        var streams = new List<HeadlessSseConnection>();
+        try
+        {
+            for (int i = 0; i < DashboardServer.MaxClients; i++)
+            {
+                HeadlessSseConnection stream = await rig.Client.OpenEventsAsync(rig.Uri).WaitAsync(HangGuard);
+                streams.Add(stream);
+                Assert.Equal((200, "text/event-stream"), (stream.Status, stream.ContentType));
+            }
+
+            for (int i = 0; i < 2; i++)
+            {
+                HeadlessResponse refused = await rig.Client.GetAsync(rig.Uri, "/events", null).WaitAsync(HangGuard);
+                Assert.Equal(503, refused.Status);
+                Assert.Empty(refused.BodyBytes);
+                Assert.NotNull(refused.Header("Content-Security-Policy"));
+                Assert.Equal("nosniff", refused.Header("X-Content-Type-Options"));
+            }
+
+            RecordedLogEntry warning = Assert.Single(rig.Logger.At(LogLevel.Warning));
+            Assert.Contains("16", warning.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("127.0.0.1", warning.Message, StringComparison.Ordinal);
+
+            // A client that leaves frees its place.
+            await streams[0].DisposeAsync();
+            streams.RemoveAt(0);
+            HeadlessResponse admitted;
+            int attempts = 0;
+            do
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(20));
+                admitted = await rig.Client.GetAsync(rig.Uri, "/events", null).WaitAsync(HangGuard);
+            }
+            while (admitted.Status == 503 && ++attempts < 500);
+
+            Assert.Equal(200, admitted.Status);
+        }
+        finally
+        {
+            foreach (HeadlessSseConnection stream in streams)
+            {
+                await stream.DisposeAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task A_page_whose_link_would_publish_a_registered_key_is_refused()
+    {
+        string key = string.Concat("qk4r", "8vz2", "mw7p", "x3ty");
+        var redactor = new SecretRedactor();
+        Assert.True(redactor.Register(key));
+        Uri repository = new UriBuilder(Uri.UriSchemeHttps, "repo.fake.test") { Path = "/owner/" + key }.Uri;
+        using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        block.Release();
+        var logger = new RecordingLogger();
+        await using DashboardSink sink = DashboardFixtures.NewSink(logger, new FakeTimeProvider(Origin), redactor);
+        await using var server = new DashboardServer(sink, new SingleLoggerFactory(logger));
+
+        Uri? uri = await server.TryStartAsync(block.First, repository, CancellationToken.None).WaitAsync(HangGuard);
+
+        Assert.Null(uri);
+        Assert.Equal(DashboardServer.SecretInPageMessage, server.FailureReason);
+        Assert.DoesNotContain(key, server.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain("repo.fake.test", server.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains(key, StringComparison.Ordinal));
+
+        // Nothing was bound.
+        using LoopbackPortBlock? free = LoopbackPortBlock.TryHold(block.First);
+        Assert.NotNull(free);
+    }
+
+    [Fact]
+    public async Task A_second_start_throws_and_disposal_releases_the_port_and_is_idempotent()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Server.TryStartAsync(rig.Uri.Port, null, CancellationToken.None));
+        await rig.Server.DisposeAsync();
+        await rig.Server.DisposeAsync();
+
+        using LoopbackPortBlock? free = LoopbackPortBlock.TryHold(rig.Uri.Port);
+        Assert.NotNull(free);
+    }
+
+    [Fact]
+    public async Task Dispose_with_a_connected_client_ends_its_stream_within_the_stop_timeout()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        using var guard = new CancellationTokenSource(HangGuard);
+        await using HeadlessSseConnection stream = await rig.Client.OpenEventsAsync(rig.Uri, cancellationToken: guard.Token);
+        await using IAsyncEnumerator<SseReceipt> events = stream.ReadEventsAsync(guard.Token).GetAsyncEnumerator(guard.Token);
+        Assert.True(await events.MoveNextAsync());
+
+        // Under 1 s: ApplicationStopping ends the open stream at once; without it the stop would wait for its 2 s bound (design 3.10, mutants M5 and M6).
+        await rig.Server.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+
+        bool ended;
+        try
+        {
+            ended = !await events.MoveNextAsync();
+        }
+        catch (Exception failure) when (failure is IOException or HttpRequestException)
+        {
+            ended = true;
+        }
+
+        Assert.True(ended);
+    }
+
+    [Fact]
+    public async Task A_cancelled_start_throws_and_binds_nothing()
+    {
+        using LoopbackPortBlock block = LoopbackPortBlock.Reserve(1);
+        block.Release();
+        await using DashboardSink sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var server = new DashboardServer(sink, NullLoggerFactory.Instance);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => server.TryStartAsync(block.First, null, cancelled.Token));
+
+        Assert.Null(server.Uri);
+        using LoopbackPortBlock? free = LoopbackPortBlock.TryHold(block.First);
+        Assert.NotNull(free);
+    }
+
+    [Fact]
+    public async Task The_server_refuses_null_arguments_and_a_port_outside_the_range_and_disposes_before_start()
+    {
+        await using DashboardSink sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        _ = Assert.Throws<ArgumentNullException>(() => new DashboardServer(null!, NullLoggerFactory.Instance));
+        _ = Assert.Throws<ArgumentNullException>(() => new DashboardServer(sink, null!));
+        await using var server = new DashboardServer(sink, NullLoggerFactory.Instance);
+
+        _ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => server.TryStartAsync(0, null, CancellationToken.None));
+        _ = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => server.TryStartAsync(65536, null, CancellationToken.None));
+        await server.DisposeAsync();
+        Assert.Null(server.Uri);
+    }
+
+    // ---- AJ-091 run wiring (T5) ----
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("65536")]
+    [InlineData("70000")]
+    [InlineData("abc")]
+    [InlineData("1.5")]
+    [InlineData("+80")]
+    public async Task An_invalid_dashboard_port_exits_2_before_any_host(string port)
+    {
+        var setup = new RunCommandSetup();
+        setup.Settings[ProviderClientFixtures.NvidiaKeyVariable] = ProviderClientFixtures.FakeKey();
+
+        CliRunResult result = await RunCommandHarness.RunAsync($"run --tier nvidia --dashboard --dashboard-port {port} --dry-run", setup).WaitAsync(HangGuard);
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Equal(0, setup.HostBuilds);
+        Assert.Contains(DashboardPortOption.RangeMessage, result.Stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dashboard:", result.Stdout, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Dry_run_with_the_dashboard_prints_the_loopback_url_disposes_at_once_and_exits_0()
+    {
+        using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        block.Release();
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        FakeHttpMessageHandler local = RunOrchestrationFixtures.Endpoint();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["local"] = local, ["nvidia"] = RunOrchestrationFixtures.Endpoint() });
+        setup.Gpu = new ScriptedNvmlApi(new FakeTimeProvider(Origin));
+
+        CliRunResult result = await RunCommandHarness.RunAsync($"run --tier local --dashboard --dry-run --dashboard-port {block.First}", setup).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        string[] lines = RunOrchestrationFixtures.StdoutLines(result);
+        string line = Assert.Single(lines, static line => line.StartsWith("Dashboard:", StringComparison.Ordinal));
+        Assert.Equal(lines[^1], line);
+        Assert.StartsWith("local ", lines[0], StringComparison.Ordinal);
+        Uri printed = new(line["Dashboard: ".Length..]);
+        Assert.Equal(new UriBuilder(Uri.UriSchemeHttp, IPAddress.Loopback.ToString(), printed.Port).Uri, printed);
+        Assert.True(block.Contains(printed.Port), line);
+        Assert.Equal(0, local.Count(FakeRoute.ChatCompletions));
+        Assert.DoesNotContain(ReportSentences.GpuBoardOnly, result.Stdout, StringComparison.Ordinal);
+        Assert.Empty(RunOrchestrationFixtures.EntriesIn(workspace.Root));
+
+        // Disposed at once: the port is free again when the command returned.
+        using LoopbackPortBlock? free = LoopbackPortBlock.TryHold(printed.Port);
+        Assert.NotNull(free);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public async Task A_run_whose_preferred_port_is_taken_serves_the_next_port_and_completes()
+    {
+        using LoopbackPortBlock held = LoopbackPortBlock.Reserve(1);
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        (RunCommandSetup setup, TimerTrackingTimeProvider time) = HostedDashboardRun(workspace, ("AgentJoules:Dashboard:PowerIntervalMs", "50"));
+
+        CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync($"run --tier nvidia --task {DashboardTask} --repeat 1 --dashboard --dashboard-port {held.First}", setup, time).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        string[] lines = RunOrchestrationFixtures.StdoutLines(result);
+        int dashboard = Array.FindIndex(lines, static line => line.StartsWith("Dashboard: ", StringComparison.Ordinal));
+        Assert.True(dashboard >= 0, result.Stdout);
+        Uri printed = new(lines[dashboard]["Dashboard: ".Length..]);
+        Assert.InRange(printed.Port, held.First + 1, held.First + DashboardServer.PortAttempts - 1);
+
+        // Before the scope sentence, which stays the last line before the first step line (T-5).
+        int scope = Array.IndexOf(lines, ReportSentences.GpuBoardOnly);
+        int firstStep = Array.FindIndex(lines, static line => line.StartsWith(DashboardTask + " r1 ", StringComparison.Ordinal));
+        Assert.True(dashboard < scope && scope == firstStep - 1, result.Stdout);
+        // A hosted-only run samples nothing, so the note of a short power interval is not printed (P-74 as amended).
+        Assert.DoesNotContain(PowerForwarding.ShortIntervalNote(50, 10.0)!, result.StderrLines);
+        AssertCompletedFile(workspace);
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public async Task A_run_with_all_twenty_ports_busy_warns_continues_without_a_dashboard_and_exits_0()
+    {
+        using LoopbackPortBlock held = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        (RunCommandSetup setup, TimerTrackingTimeProvider time) = HostedDashboardRun(workspace);
+
+        CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync($"run --tier nvidia --task {DashboardTask} --repeat 1 --dashboard --dashboard-port {held.First}", setup, time).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        Assert.DoesNotContain(RunOrchestrationFixtures.StdoutLines(result), static line => line.StartsWith("Dashboard:", StringComparison.Ordinal));
+        Assert.Contains($"Warning: the dashboard did not start ({DashboardServer.NoFreePortMessage(held.First)}); the run continues without it", result.StderrLines);
+        Assert.Empty(result.ErrorLines);
+        AssertCompletedFile(workspace);
+    }
+
+    [Fact]
+    public async Task Without_the_dashboard_flag_no_sink_no_server_and_no_line()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = RunOrchestrationFixtures.Endpoint() });
+        DashboardSink? registered = null;
+        ILiveEventSink? live = null;
+        CliHostOverrides overrides = setup.ToOverrides(workspace.Root) with
+        {
+            OnHostStarted = host =>
+            {
+                registered = host.Services.GetService<DashboardSink>();
+                live = host.Services.GetRequiredService<ILiveEventSink>();
+            },
+        };
+
+        CliRunResult result = await CliHarness.RunAsync($"run --tier nvidia --task {DashboardTask} --repeat 1", overrides).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        Assert.Null(registered);
+        Assert.Same(NullLiveEventSink.Instance, live);
+        Assert.DoesNotContain("Dashboard", result.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("dashboard", result.Stderr, StringComparison.OrdinalIgnoreCase);
+        AssertCompletedFile(workspace);
+    }
+
+    [Fact]
+    public async Task With_the_dashboard_flag_the_run_registers_the_dashboard_sink_as_its_live_sink()
+    {
+        using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        block.Release();
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        (RunCommandSetup setup, TimerTrackingTimeProvider time) = HostedDashboardRun(workspace);
+        DashboardSink? registered = null;
+        ILiveEventSink? live = null;
+        CliHostOverrides overrides = setup.ToOverrides(workspace.Root) with
+        {
+            OnHostStarted = host =>
+            {
+                registered = host.Services.GetService<DashboardSink>();
+                live = host.Services.GetRequiredService<ILiveEventSink>();
+            },
+        };
+
+        Task<CliRunResult> run = CliHarness.RunAsync($"run --tier nvidia --task {DashboardTask} --repeat 1 --dashboard --dashboard-port {block.First}", overrides);
+        await FakeTimeDriver.RunWaitsToCompletionAsync(run, time, maxStep: RunOrchestrationFixtures.SamplingPeriod).WaitAsync(HangGuard);
+        CliRunResult result = await run;
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        Assert.NotNull(registered);
+        Assert.Same(registered, live);
+        Assert.Equal(0, registered.PumpFaultCount);
+        AssertCompletedFile(workspace);
+    }
+
+    // ---- AJ-091 producers (T6) ----
+
+    [Fact]
+    public async Task A_measured_run_emits_run_started_baseline_progress_step_started_and_run_completed()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        TimerTrackingTimeProvider time = RunOrchestrationFixtures.Clock();
+        var gpu = new ScriptedNvmlApi(time) { ConstantPowerWatts = 30.0 };
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(
+            workspace.Root,
+            new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal)
+            {
+                ["local"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromSeconds(1)),
+                ["nvidia"] = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), ChatText = "4" },
+            });
+        setup.Gpu = gpu;
+        setup.UseProductionJudge = true;
+        RunOrchestrationFixtures.UseClock(setup, time);
+        var live = new RecordingLiveMetricsSink();
+        RunOrchestrationFixtures.AddServices(setup, services =>
+        {
+            _ = services.RemoveAll<ILiveEventSink>();
+            _ = services.AddSingleton<ILiveEventSink>(live);
+        });
+
+        CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync($"run --tier local --task {DashboardTask} --repeat 2 --baseline-seconds 2", setup, time).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
+        LiveEvent[] events = [.. live.Events.Where(static item => item is not PowerEvent and not StepProgressEvent)];
+
+        // The order of one tier run: run-started (the GPU known, before the warm-up and the baseline), the baseline, then per (task, repeat) its progress and its steps, then run-completed.
+        RunStartedEvent started = Assert.IsType<RunStartedEvent>(events[0]);
+        BaselineEvent baseline = Assert.IsType<BaselineEvent>(events[1]);
+        Assert.IsType<RunCompletedEvent>(events[^1]);
+        Assert.Equal((Tier.Local, RunStatus.Running), (started.Run.Tier, started.Run.Status));
+        Assert.Equal(document.RootElement.GetProperty("probe").GetProperty("powerLimitW").GetDouble(), started.PowerLimitW);
+        Assert.Equal(document.RootElement.GetProperty("baseline").GetProperty("meanW").GetProperty("value").GetDouble(), baseline.Baseline.MeanW.Value);
+        Assert.All(events, static item => Assert.False(item.Replay));
+
+        ProgressEvent[] progress = [.. events.OfType<ProgressEvent>()];
+        Assert.Equal([(DashboardTask, 1, 1, 1, 2), (DashboardTask, 1, 1, 2, 2)], progress.Select(static item => (item.Task, item.TaskIndex, item.TaskCount, item.Repeat, item.RepeatCount)));
+
+        // One step-started per workflow step and none for the judge, whose readings never reach the dashboard; each at its window's start, before its completion.
+        StepStartedEvent[] steps = [.. events.OfType<StepStartedEvent>()];
+        Assert.Equal(RunOrchestrationFixtures.Steps(document).Length, steps.Length);
+        Assert.All(steps, static item => Assert.False(item.Step.IsJudge));
+        Assert.Equal(live.Readings.Select(static reading => (reading.Agent, reading.Repeat, reading.Window!.Value.StartSeconds)), steps.Select(static item => (item.Step.Agent, item.Step.Repeat, item.StartSeconds)));
+        Assert.True(Array.IndexOf(events, progress[1]) > Array.IndexOf(events, steps[3]), "The second progress event comes after the four steps of the first repeat.");
+
+        // Progress k comes before the first step of repeat k (mutant M3: the progress after the repeat).
+        Assert.True(Array.IndexOf(events, progress[0]) < Array.IndexOf(events, steps[0]), "The first progress event precedes the first step.");
+        Assert.True(Array.IndexOf(events, progress[1]) < Array.IndexOf(events, steps[4]), "The second progress event precedes the first step of the second repeat.");
+
+        RunCompletedEvent finished = Assert.Single(events.OfType<RunCompletedEvent>());
+        Assert.Equal(RunStatus.Completed, finished.Run.Status);
+        Assert.Equal(document.RootElement.GetProperty("totals").GetProperty("netJoules").GetProperty("value").GetDouble(), finished.Totals.NetJoules.Value);
+        _ = Assert.Single(events.OfType<RunStartedEvent>());
+        _ = Assert.Single(events.OfType<BaselineEvent>());
+    }
+
+    [Fact]
+    public async Task A_hosted_tier_emits_one_not_applicable_power_event_right_after_run_started()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = RunOrchestrationFixtures.Endpoint() });
+        var live = new RecordingLiveMetricsSink();
+        RunOrchestrationFixtures.AddServices(setup, services =>
+        {
+            _ = services.RemoveAll<ILiveEventSink>();
+            _ = services.AddSingleton<ILiveEventSink>(live);
+        });
+
+        CliRunResult result = await RunCommandHarness.RunAsync($"run --tier nvidia --task {DashboardTask} --repeat 1", setup).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        LiveEvent[] events = [.. live.Events.Where(static item => item is not StepProgressEvent)];
+        RunStartedEvent started = Assert.IsType<RunStartedEvent>(events[0]);
+        Assert.Equal((Tier.Nvidia, null), (started.Run.Tier, started.PowerLimitW));
+        PowerEvent power = Assert.IsType<PowerEvent>(events[1]);
+        Assert.Equal((Metric.NotApplicable(MeterCapabilities.HostedTierReason), 0.0, false), (power.Watts, power.SampleSeconds, power.Replay));
+        _ = Assert.Single(events.OfType<PowerEvent>());
+        Assert.Empty(events.OfType<BaselineEvent>());
+        Assert.Equal(RunStatus.Completed, Assert.IsType<RunCompletedEvent>(events[^1]).Run.Status);
+        Assert.Equal(4, events.OfType<StepStartedEvent>().Count());
+    }
+
+    [Fact]
+    public async Task A_failed_tier_emits_run_completed_with_the_failed_document()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        FakeHttpMessageHandler nvidia = RunOrchestrationFixtures.Endpoint();
+        nvidia.SetStatuses(FakeRoute.ChatCompletions, 500);
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = nvidia });
+        var live = new RecordingLiveMetricsSink();
+        RunOrchestrationFixtures.AddServices(setup, services =>
+        {
+            _ = services.RemoveAll<ILiveEventSink>();
+            _ = services.AddSingleton<ILiveEventSink>(live);
+        });
+
+        CliRunResult result = await RunCommandHarness.RunAsync($"run --tier nvidia --task {DashboardTask} --repeat 1", setup).WaitAsync(HangGuard);
+
+        Assert.Equal(5, result.ExitCode);
+        using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
+        RunCompletedEvent finished = Assert.Single(live.Of<RunCompletedEvent>());
+        Assert.Equal(RunStatus.Failed, finished.Run.Status);
+        Assert.Equal("failed", document.RootElement.GetProperty("run").GetProperty("status").GetString());
+        Assert.IsType<RunCompletedEvent>(live.Events[^1]);
+    }
+
+    [Fact]
+    public async Task Opening_a_window_emits_one_step_started_event_at_the_window_start()
+    {
+        var time = new FakeTimeProvider(Origin);
+        var live = new RecordingLiveSink();
+        (MeteredChatClient client, InMemoryMetricsSink sink, IEnergyMeter meter) = await HostedClientAsync(new FakeChatClient(time), time, live);
+        time.Advance(TimeSpan.FromMilliseconds(1500));
+
+        _ = await client.GetResponseAsync(Prompt);
+
+        await meter.DisposeAsync();
+        StepReading reading = Assert.Single(sink.Snapshot());
+        StepStartedEvent started = Assert.IsType<StepStartedEvent>(Assert.Single(live.Events));
+        Assert.Equal(Identity(), started.Step);
+        Assert.Equal(reading.Window!.Value.StartSeconds, started.StartSeconds);
+        Assert.Equal(1.5, started.StartSeconds, 9);
+        Assert.Equal((reading.StartUtc, false), (started.AtUtc, started.Replay));
+    }
+
+    [Fact]
+    public async Task A_judge_call_emits_no_step_started_event()
+    {
+        var time = new FakeTimeProvider(Origin);
+        var live = new RecordingLiveSink();
+        var meter = new UnmeteredEnergyMeter(time);
+        await meter.StartAsync(CancellationToken.None);
+        MeteringServices services = new(meter, NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), time) { Live = live };
+        var client = new MeteredChatClient(new FakeChatClient(time), Identity() with { IsJudge = true, JudgedAgent = "Writer" }, services);
+
+        _ = await client.GetResponseAsync(Prompt);
+
+        await meter.DisposeAsync();
+        Assert.Empty(live.Of<StepStartedEvent>());
+    }
+
+    // ---- AJ-091 fix round ----
+
+    [Fact]
+    public async Task Dispose_async_is_bounded_on_the_sink_clock_while_a_logger_holds_the_pump()
+    {
+        // The pump's first fault is logged by a logger that blocks on a gate; the bound runs on the injected fake clock (P-42 as amended, mutant M8).
+        var time = new FakeTimeProvider(Origin);
+        using var entered = new ManualResetEventSlim();
+        using var gate = new ManualResetEventSlim();
+        var sink = DashboardFixtures.NewSink(new CallbackLogger(() =>
+        {
+            entered.Set();
+            _ = gate.Wait(HangGuard);
+        }), time);
+        using DashboardConnection connection = sink.Connect();
+        Task pump = Field<Task>(sink, "_pump");
+        try
+        {
+            sink.Emit(new UnknownEvent(Origin));
+            Assert.True(entered.Wait(HangGuard), "The pump never reached the logger.");
+
+            Task disposing = sink.DisposeAsync().AsTask();
+            Assert.False(disposing.IsCompleted);
+            time.Advance(DashboardSink.DisposeTimeout);
+
+            // At most 500 ms of real time: the bound must run on the injected clock, not on the system clock (mutant M8c).
+            await disposing.WaitAsync(TimeSpan.FromMilliseconds(500));
+
+            Assert.Equal(TimeSpan.FromSeconds(2), DashboardSink.DisposeTimeout);
+            while (connection.Events.TryRead(out _))
+            {
+            }
+
+            await connection.Events.Completion.WaitAsync(HangGuard);
+            Assert.False(pump.IsCompleted, "The pump is still held by the logger.");
+        }
+        finally
+        {
+            gate.Set();
+        }
+
+        await pump.WaitAsync(HangGuard);
+        await sink.DisposeAsync();
+    }
+
+    [Fact]
+    [Trait("Spec", "EDGE-018")]
+    public void A_refused_port_moves_on_and_any_other_failure_ends_the_start()
+    {
+        // The Windows reserved-port case surfaces bare (measured) or wrapped; both move on, as address-in-use does.
+        Assert.True(DashboardServer.IsPortRefused(new AddressInUseException("taken")));
+        Assert.True(DashboardServer.IsPortRefused(new IOException("bind", new AddressInUseException("taken", new SocketException((int)SocketError.AddressAlreadyInUse)))));
+        Assert.True(DashboardServer.IsPortRefused(new SocketException((int)SocketError.AccessDenied)));
+        Assert.True(DashboardServer.IsPortRefused(new IOException("bind", new SocketException((int)SocketError.AccessDenied))));
+        Assert.True(DashboardServer.IsPortRefused(new SocketException((int)SocketError.AddressAlreadyInUse)));
+        Assert.True(DashboardServer.IsPortRefused(new AggregateException(new InvalidDataException("other"), new SocketException((int)SocketError.AccessDenied))));
+
+        // Anything else ends the start with start failed (<type>).
+        Assert.False(DashboardServer.IsPortRefused(new InvalidOperationException("reloadConfigOnChange")));
+        Assert.False(DashboardServer.IsPortRefused(new SocketException((int)SocketError.ConnectionRefused)));
+        Assert.False(DashboardServer.IsPortRefused(new IOException("disk")));
+    }
+
+    [Fact]
+    public void The_address_check_admits_exactly_the_loopback_address_of_the_port()
+    {
+        string http = Uri.UriSchemeHttp + Uri.SchemeDelimiter;
+
+        Assert.True(DashboardServer.ListensOnlyOnLoopback([http + "127.0.0.1:5200"], 5200));
+        Assert.False(DashboardServer.ListensOnlyOnLoopback([http + "127.0.0.2:5200"], 5200));
+        Assert.False(DashboardServer.ListensOnlyOnLoopback([http + "127.0.0.1:5201"], 5200));
+        Assert.False(DashboardServer.ListensOnlyOnLoopback([http + "localhost:5200"], 5200));
+        Assert.False(DashboardServer.ListensOnlyOnLoopback([http + "127.0.0.1:5200", http + "127.0.0.2:5200"], 5200));
+        Assert.False(DashboardServer.ListensOnlyOnLoopback([], 5200));
+    }
+
+    [Fact]
+    public async Task A_cancellation_during_the_attempts_is_thrown_not_reported()
+    {
+        // Every port busy; the first record of a failed attempt (Kestrel's bind failure, forwarded at Debug) cancels the command token, so the loop sees the cancellation mid-way (mutant M39).
+        using LoopbackPortBlock held = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        using var cancellation = new CancellationTokenSource();
+        await using DashboardSink sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+        await using var server = new DashboardServer(sink, new SingleLoggerFactory(new CallbackLogger(cancellation.Cancel)));
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => server.TryStartAsync(held.First, null, cancellation.Token)).WaitAsync(HangGuard);
+
+        Assert.Null(server.Uri);
+        Assert.Null(server.FailureReason);
+    }
+
+    [Fact]
+    public async Task A_dispose_racing_the_start_never_leaves_a_listener()
+    {
+        // A real race (the gatekeeper's R3 shape): the start on one pool thread, the dispose from another after a random 0 to 40 ms, 60 rounds (mutant N10: the disposal re-check after the
+        // publish removed leaves a listener in some rounds). The delay only spreads the interleavings; nothing is timed.
+        var random = new Random(7);
+        for (int round = 0; round < 60; round++)
+        {
+            using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+            block.Release();
+            await using DashboardSink sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+            var server = new DashboardServer(sink, NullLoggerFactory.Instance);
+            int delayMs = random.Next(0, 40);
+
+            Task<Uri?> start = Task.Run(() => server.TryStartAsync(block.First, null, CancellationToken.None));
+            var spread = Stopwatch.StartNew();
+            while (spread.Elapsed.TotalMilliseconds < delayMs)
+            {
+                Thread.SpinWait(50);
+            }
+
+            Task dispose = Task.Run(async () => await server.DisposeAsync());
+            try
+            {
+                _ = await start.WaitAsync(HangGuard);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The disposal overtook the start: the start stopped its own application.
+            }
+
+            await dispose.WaitAsync(HangGuard);
+
+            // Whichever side took the application stopped it: nothing listens on the block.
+            Assert.False(Enumerable.Range(block.First, block.Count).SelectMany(ListenersOn).Any(), $"Round {round} (delay {delayMs} ms) left a listener.");
+        }
+    }
+
+    [Fact]
+    public async Task A_failing_event_stream_is_logged_once_at_warning_with_its_type_only()
+    {
+        await using ServerRig rig = await ServerRig.StartAsync();
+        using var guard = new CancellationTokenSource(HangGuard);
+        await using HeadlessSseConnection first = await rig.Client.OpenEventsAsync(rig.Uri, cancellationToken: guard.Token);
+        await using HeadlessSseConnection second = await rig.Client.OpenEventsAsync(rig.Uri, cancellationToken: guard.Token);
+        await using IAsyncEnumerator<SseReceipt> firstEvents = first.ReadEventsAsync(guard.Token).GetAsyncEnumerator(guard.Token);
+        await using IAsyncEnumerator<SseReceipt> secondEvents = second.ReadEventsAsync(guard.Token).GetAsyncEnumerator(guard.Token);
+        Assert.True(await firstEvents.MoveNextAsync());
+        Assert.True(await secondEvents.MoveNextAsync());
+
+        // Both connections' channels fail (their writers completed with an exception): both streams end, and the failure is logged once per server at Warning by type, never by message (mutant N7b).
+        DashboardConnection[] connections;
+        using (Field<Lock>(rig.Sink, "_lock").EnterScope())
+        {
+            connections = [.. Field<List<DashboardConnection>>(rig.Sink, "_connections")];
+        }
+
+        Assert.Equal(2, connections.Length);
+        foreach (DashboardConnection connection in connections)
+        {
+            var channel = (Channel<string>)typeof(DashboardConnection).GetField("_channel", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(connection)!;
+            Assert.True(channel.Writer.TryComplete(new InvalidDataException(ThrowingMetricsSink.SecretMessage)));
+        }
+
+        Assert.True(await EndedAsync(firstEvents));
+        Assert.True(await EndedAsync(secondEvents));
+        RecordedLogEntry warning = Assert.Single(rig.Logger.At(LogLevel.Warning));
+        Assert.Equal(314, warning.EventId.Id);
+        Assert.Contains(nameof(InvalidDataException), warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(ThrowingMetricsSink.SecretMessage, warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_local_run_with_a_short_power_interval_prints_the_note_once()
+    {
+        using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+        block.Release();
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        TimerTrackingTimeProvider time = RunOrchestrationFixtures.Clock();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(
+            workspace.Root,
+            new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal)
+            {
+                ["local"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromMilliseconds(200)),
+                ["nvidia"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromMilliseconds(10)),
+            },
+            ("AgentJoules:Dashboard:PowerIntervalMs", "50"));
+        setup.Gpu = new ScriptedNvmlApi(time) { ConstantPowerWatts = 30.0 };
+        RunOrchestrationFixtures.UseClock(setup, time);
+
+        CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync($"run --tier local --task {DashboardTask} --repeat 1 --baseline-seconds 2 --dashboard --dashboard-port {block.First}", setup, time).WaitAsync(HangGuard);
+
+        Assert.True(result.ExitCode == 0, result.Stderr);
+        _ = Assert.Single(result.StderrLines, static line => line == PowerForwarding.ShortIntervalNote(50, 10.0));
+        _ = Assert.Single(RunOrchestrationFixtures.StdoutLines(result), static line => line.StartsWith("Dashboard: ", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_failed_completed_write_emits_run_completed_once_as_the_last_event()
+    {
+        (CliRunResult result, RecordingLiveMetricsSink live) = await RunWithFailingWriteAsync(RunStatus.Completed, failSteps: false);
+
+        Assert.NotEqual(0, result.ExitCode);
+        AssertLastRunCompleted(live, RunStatus.Completed);
+    }
+
+    [Fact]
+    public async Task A_failed_partial_write_emits_run_completed_once_as_the_last_event()
+    {
+        (CliRunResult result, RecordingLiveMetricsSink live) = await RunWithFailingWriteAsync(RunStatus.Failed, failSteps: true);
+
+        Assert.Equal(5, result.ExitCode);
+        AssertLastRunCompleted(live, RunStatus.Failed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_shutdown_emits_run_completed_once_as_the_last_event(bool failTheIncompleteWrite)
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        var held = new HoldingHttpMessageHandler(RunOrchestrationFixtures.Endpoint(), FakeRoute.ChatCompletions, number: 2);
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = held });
+        RecordingLiveMetricsSink live = UseRecordingLiveSink(setup, failTheIncompleteWrite ? RunStatus.Incomplete : null);
+        using var cancellation = new CancellationTokenSource();
+
+        CliHarnessRun run = CliHarness.Start($"run --tier nvidia --task {DashboardTask} --repeat 1", setup.ToOverrides(workspace.Root), cancellationToken: cancellation.Token);
+        try
+        {
+            await held.Reached.WaitAsync(HangGuard);
+            await run.RaiseShutdownAsync(CancellationToken.None).WaitAsync(HangGuard);
+            CliRunResult result = await run.Result.WaitAsync(HangGuard);
+
+            Assert.Equal(5, result.ExitCode);
+            AssertLastRunCompleted(live, RunStatus.Incomplete);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            _ = await run.Result.WaitAsync(HangGuard);
+        }
+    }
+
+    [Fact]
+    public async Task A_shutdown_inside_the_completed_write_emits_run_completed_once_as_the_last_event()
+    {
+        // The completed write is attempted and then cancelled by the shutdown: only the incomplete write that follows emits its run-completed (mutant M43: two events).
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = RunOrchestrationFixtures.Endpoint() });
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RecordingLiveMetricsSink live = UseRecordingLiveSink(setup, writer => new CompletedWriteHolder(writer, reached));
+        using var cancellation = new CancellationTokenSource();
+
+        CliHarnessRun run = CliHarness.Start($"run --tier nvidia --task {DashboardTask} --repeat 1", setup.ToOverrides(workspace.Root), cancellationToken: cancellation.Token);
+        try
+        {
+            await reached.Task.WaitAsync(HangGuard);
+            await run.RaiseShutdownAsync(CancellationToken.None).WaitAsync(HangGuard);
+            CliRunResult result = await run.Result.WaitAsync(HangGuard);
+
+            Assert.Equal(5, result.ExitCode);
+            AssertLastRunCompleted(live, RunStatus.Incomplete);
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+            _ = await run.Result.WaitAsync(HangGuard);
+        }
+    }
+
     // ---- helpers ----
+
+    private const string DashboardTask = "incident-brief";
+
+    // True when the stream ended: the server closed it, or the connection dropped.
+    private static async Task<bool> EndedAsync(IAsyncEnumerator<SseReceipt> events)
+    {
+        try
+        {
+            return !await events.MoveNextAsync();
+        }
+        catch (Exception failure) when (failure is IOException or HttpRequestException)
+        {
+            return true;
+        }
+    }
+
+    private static readonly string[] SecurityPaths = ["/", "/events", "/missing"];
+
+    private static readonly string[] RootAndEvents = ["/", "/events"];
+
+    // A hosted run (nvidia, also the judge tier) of the production orchestrator on a driven fake clock, so the grace after the run takes no wall-clock time.
+    private static (RunCommandSetup Setup, TimerTrackingTimeProvider Time) HostedDashboardRun(TempWorkspace workspace, params (string Key, string? Value)[] extra)
+    {
+        TimerTrackingTimeProvider time = RunOrchestrationFixtures.Clock();
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(
+            workspace.Root,
+            new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromMilliseconds(10)) },
+            extra);
+        RunOrchestrationFixtures.UseClock(setup, time);
+        return (setup, time);
+    }
+
+    // The active TCP listeners of the machine on one port (the gatekeeper's P1 pattern).
+    private static IPEndPoint[] ListenersOn(int port) => [.. IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Where(listener => listener.Port == port)];
+
+    // A recording live sink in place of the run's, and optionally the production orchestrator behind a decorator whose writers fail the write of one status.
+    private static RecordingLiveMetricsSink UseRecordingLiveSink(RunCommandSetup setup, RunStatus? failOn) =>
+        UseRecordingLiveSink(setup, failOn is { } status ? writer => new FailingWriter(writer, status) : null);
+
+    // A recording live sink in place of the run's, and optionally the production orchestrator behind a decorator that wraps every writer of the plan.
+    private static RecordingLiveMetricsSink UseRecordingLiveSink(RunCommandSetup setup, Func<IRunCheckpointWriter, IRunCheckpointWriter>? wrap)
+    {
+        var live = new RecordingLiveMetricsSink();
+        RunOrchestrationFixtures.AddServices(setup, services =>
+        {
+            _ = services.RemoveAll<ILiveEventSink>();
+            _ = services.AddSingleton<ILiveEventSink>(live);
+            if (wrap is not null)
+            {
+                _ = services.RemoveAll<IRunOrchestrator>();
+                _ = services.AddSingleton<IRunOrchestrator>(provider => new WriterWrappingOrchestrator(ActivatorUtilities.CreateInstance<RunOrchestrator>(provider), wrap));
+            }
+        });
+        return live;
+    }
+
+    // A hosted run whose write of the given status fails; with failSteps every completion call answers 500, so the tier stops at its first step.
+    private static async Task<(CliRunResult Result, RecordingLiveMetricsSink Live)> RunWithFailingWriteAsync(RunStatus failOn, bool failSteps)
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        FakeHttpMessageHandler nvidia = RunOrchestrationFixtures.Endpoint();
+        if (failSteps)
+        {
+            nvidia.SetStatuses(FakeRoute.ChatCompletions, 500);
+        }
+
+        RunCommandSetup setup = RunOrchestrationFixtures.Production(workspace.Root, new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["nvidia"] = nvidia });
+        RecordingLiveMetricsSink live = UseRecordingLiveSink(setup, failOn);
+        CliRunResult result = await RunCommandHarness.RunAsync($"run --tier nvidia --task {DashboardTask} --repeat 1", setup).WaitAsync(HangGuard);
+        return (result, live);
+    }
+
+    // Exactly one run-completed event, of the given status, and nothing after it.
+    private static void AssertLastRunCompleted(RecordingLiveMetricsSink live, RunStatus status)
+    {
+        RunCompletedEvent finished = Assert.Single(live.Of<RunCompletedEvent>());
+        Assert.Equal(status, finished.Run.Status);
+        Assert.Same(finished, live.Events[^1]);
+    }
+
+    private static void AssertCompletedFile(TempWorkspace workspace)
+    {
+        using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
+        Assert.Equal("completed", document.RootElement.GetProperty("run").GetProperty("status").GetString());
+        JsonElement[] steps = RunOrchestrationFixtures.Steps(document);
+        Assert.Equal(4, steps.Length);
+        Assert.All(steps, static step => Assert.Equal(StepOutcomes.Ok, step.GetProperty("outcome").GetString()));
+    }
+
+    private static string Between(string text, string open, string close)
+    {
+        int start = text.IndexOf(open, StringComparison.Ordinal) + open.Length;
+        return text[start..text.IndexOf(close, start, StringComparison.Ordinal)];
+    }
+
+    private static string Sha256Base64(string text) => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
     private static DateTimeOffset At(int index) => Origin.AddMilliseconds(index);
 
@@ -1518,6 +2560,183 @@ public sealed class DashboardSinkTests
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             _threads.Enqueue(Environment.CurrentManagedThreadId);
+    }
+
+    // The production orchestrator with the writers of the plan wrapped, so the write of one status fails (the writers are built by the command, not by the container).
+    private sealed class WriterWrappingOrchestrator(IRunOrchestrator inner, Func<IRunCheckpointWriter, IRunCheckpointWriter> wrap) : IRunOrchestrator
+    {
+        public Task<int> RunAsync(RunPlan plan, CancellationToken cancellationToken)
+        {
+            Dictionary<Tier, IRunCheckpointWriter> writers = plan.Writers.ToDictionary(static pair => pair.Key, pair => wrap(pair.Value));
+            var swapped = new RunPlan(plan.Tiers, plan.Tasks, plan.Mode, plan.Repeat, plan.BaselineSeconds, writers, plan.Keys, plan.Models, plan.StartUtc, plan.OutputDisplay);
+            return inner.RunAsync(swapped, cancellationToken);
+        }
+    }
+
+    private sealed class FailingWriter(IRunCheckpointWriter inner, RunStatus failOn) : IRunCheckpointWriter
+    {
+        public string FilePath => inner.FilePath;
+
+        public Task WriteAsync(RunDocument document, CancellationToken cancellationToken) =>
+            document.Run.Status == failOn ? Task.FromException(new IOException("The disk is full.")) : inner.WriteAsync(document, cancellationToken);
+    }
+
+    // Holds the write of the completed document until the run token is cancelled, so a shutdown lands inside that write.
+    private sealed class CompletedWriteHolder(IRunCheckpointWriter inner, TaskCompletionSource reached) : IRunCheckpointWriter
+    {
+        public string FilePath => inner.FilePath;
+
+        public async Task WriteAsync(RunDocument document, CancellationToken cancellationToken)
+        {
+            if (document.Run.Status != RunStatus.Completed)
+            {
+                await inner.WriteAsync(document, cancellationToken);
+                return;
+            }
+
+            _ = reached.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    // The host settings of the dashboard's web host are process-wide environment variables, so these tests run alone (no other test builds a host meanwhile).
+    [CollectionDefinition(Name, DisableParallelization = true)]
+    public sealed class HostSettingsGroup
+    {
+        public const string Name = "AJ-091 dashboard host settings";
+    }
+
+    [Collection(HostSettingsGroup.Name)]
+    [Trait("Spec", "REQ-032")]
+    public sealed class HostSettings
+    {
+        [Theory]
+        [InlineData("ASPNETCORE_")]
+        [InlineData("DOTNET_")]
+        [InlineData("")]
+        public async Task Url_settings_of_the_process_cannot_rebind_the_dashboard(string prefix)
+        {
+            using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts + 1);
+            block.Release();
+            int rebound = block.Last;
+            string urls = Uri.UriSchemeHttp + Uri.SchemeDelimiter + "127.0.0.2:" + rebound.ToString(CultureInfo.InvariantCulture);
+            using var variables = new EnvironmentScope((prefix + "URLS", urls), (prefix + "PREFERHOSTINGURLS", "true"));
+            await using DashboardSink sink = DashboardFixtures.NewSink(new RecordingLogger(), new FakeTimeProvider(Origin));
+            await using var server = new DashboardServer(sink, NullLoggerFactory.Instance);
+
+            Uri? uri = await server.TryStartAsync(block.First, null, CancellationToken.None).WaitAsync(HangGuard);
+
+            Assert.NotNull(uri);
+            Assert.Equal([new IPEndPoint(IPAddress.Loopback, uri.Port)], ListenersOn(uri.Port));
+            Assert.Empty(ListenersOn(rebound));
+            using var client = new HeadlessSseClient();
+            Assert.Equal(200, (await client.GetAsync(uri, "/", null).WaitAsync(HangGuard)).Status);
+        }
+
+        [Theory]
+        [InlineData("DOTNET_hostBuilder__reloadConfigOnChange")]
+        [InlineData("ASPNETCORE_hostBuilder__reloadConfigOnChange")]
+        public async Task A_host_setting_the_builder_refuses_ends_the_start_and_the_run_completes(string variable)
+        {
+            // The P10 shape: the builder throws when constructed; the start ends with start failed (<type>), the command prints its one warning line and the run completes (mutant M10).
+            using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+            block.Release();
+            using var variables = new EnvironmentScope((variable, "maybe"));
+            using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+            (RunCommandSetup setup, TimerTrackingTimeProvider time) = HostedDashboardRun(workspace);
+
+            CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync($"run --tier nvidia --task {DashboardTask} --repeat 1 --dashboard --dashboard-port {block.First}", setup, time).WaitAsync(HangGuard);
+
+            Assert.True(result.ExitCode == 0, result.Stderr);
+            Assert.DoesNotContain(RunOrchestrationFixtures.StdoutLines(result), static line => line.StartsWith("Dashboard:", StringComparison.Ordinal));
+            string[] stderr = [.. result.StderrLines.Where(static line => line.Length > 0)];
+            Assert.Equal(["Warning: the dashboard did not start (start failed (InvalidOperationException)); the run continues without it"], stderr);
+            AssertCompletedFile(workspace);
+        }
+    }
+
+    // Sets process environment variables and restores their previous values.
+    private sealed class EnvironmentScope : IDisposable
+    {
+        private readonly (string Name, string? Previous)[] _previous;
+
+        public EnvironmentScope(params (string Name, string Value)[] variables)
+        {
+            _previous = [.. variables.Select(static variable => (variable.Name, Environment.GetEnvironmentVariable(variable.Name)))];
+            foreach ((string name, string value) in variables)
+            {
+                Environment.SetEnvironmentVariable(name, value);
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach ((string name, string? previous) in _previous)
+            {
+                Environment.SetEnvironmentVariable(name, previous);
+            }
+        }
+    }
+
+    // A logger factory whose every category writes to one logger, for the records of the server.
+    private sealed class SingleLoggerFactory(ILogger logger) : ILoggerFactory
+    {
+        public void AddProvider(ILoggerProvider provider)
+        {
+        }
+
+        public ILogger CreateLogger(string categoryName) => logger;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    // A started server on a block of free loopback ports (reserved, then released so the server can bind them), its sink, its records and the one client of the test.
+    private sealed class ServerRig : IAsyncDisposable
+    {
+        private ServerRig(DashboardSink sink, DashboardServer server, Uri uri, RecordingLogger logger)
+        {
+            Sink = sink;
+            Server = server;
+            Uri = uri;
+            Logger = logger;
+        }
+
+        public DashboardSink Sink { get; }
+
+        public DashboardServer Server { get; }
+
+        public Uri Uri { get; }
+
+        public RecordingLogger Logger { get; }
+
+        public HeadlessSseClient Client { get; } = new();
+
+        public static async Task<ServerRig> StartAsync(Uri? repositoryUrl = null, TimeProvider? time = null)
+        {
+            using LoopbackPortBlock block = LoopbackPortBlock.Reserve(DashboardServer.PortAttempts);
+            block.Release();
+            var logger = new RecordingLogger();
+            DashboardSink sink = DashboardFixtures.NewSink(logger, time ?? new FakeTimeProvider(Origin));
+            var server = new DashboardServer(sink, new SingleLoggerFactory(logger));
+            Uri? uri = await server.TryStartAsync(block.First, repositoryUrl, CancellationToken.None).WaitAsync(HangGuard);
+            if (uri is null)
+            {
+                await server.DisposeAsync();
+                await sink.DisposeAsync();
+                throw new InvalidOperationException("The dashboard did not start: " + server.FailureReason);
+            }
+
+            return new ServerRig(sink, server, uri, logger);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Client.Dispose();
+            await Server.DisposeAsync();
+            await Sink.DisposeAsync();
+        }
     }
 
     // A fake clock that holds the pump: once HoldPump is set, a read of the time from any thread other than the one that built the clock (the test's) waits until Release,

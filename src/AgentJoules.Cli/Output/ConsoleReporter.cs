@@ -59,6 +59,39 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     /// </summary>
     public void ReportEnergyScope() => Output.WriteLine(ReportSentences.GpuBoardOnly);
 
+    /// <summary>
+    /// Tells the user where the live dashboard listens (REQ-032, AJ-091): one line <c>Dashboard: &lt;uri&gt;</c> to the output writer, the loopback URI the server printed. <c>run</c> writes it after the
+    /// checks and before the energy-scope sentence, so the scope sentence stays the last line before the first step line.
+    /// </summary>
+    /// <param name="uri">The URI of the server.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> is null.</exception>
+    public void ReportDashboard(Uri uri)
+    {
+        ArgumentNullException.ThrowIfNull(uri);
+        Output.WriteLine("Dashboard: " + uri.AbsoluteUri);
+    }
+
+    /// <summary>
+    /// Warns that the dashboard did not start (EDGE-018): exactly one line to the error writer, <c>Warning: the dashboard did not start (&lt;reason&gt;); the run continues without it</c>; the reason is one
+    /// of the fixed reasons of the server (<c>no free dashboard port in 5178-5197</c>, <c>start timed out after 5 s</c>), scrubbed of control characters.
+    /// </summary>
+    /// <param name="reason">The reason the server gave.</param>
+    /// <exception cref="ArgumentException"><paramref name="reason"/> is null or blank.</exception>
+    public void ReportDashboardNotStarted(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        _error.WriteLine($"Warning: the dashboard did not start ({TextEcho.ForMessage(reason)}); the run continues without it");
+    }
+
+    /// <summary>Writes one note of the command (for example the note of a power interval shorter than the sampling period) as one line to the error writer.</summary>
+    /// <param name="note">The note.</param>
+    /// <exception cref="ArgumentException"><paramref name="note"/> is null or blank.</exception>
+    public void ReportNote(string note)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(note);
+        _error.WriteLine(note);
+    }
+
     /// <summary>Tells the user where <c>probe --save</c> wrote its file: one line <c>saved: &lt;path&gt;</c> to the error writer, so standard output stays the probe output.</summary>
     /// <param name="relativePath">The path relative to the content root with forward slashes, for example <c>results/probe-20261019T093015Z.json</c>.</param>
     /// <exception cref="ArgumentException"><paramref name="relativePath"/> is null or empty.</exception>

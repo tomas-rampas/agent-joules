@@ -66,7 +66,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="listener">Receives the step lines, the baseline, the judge warning and the closing lines of each tier.</param>
 /// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
 /// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
-/// <param name="live">The live sink of the dashboard (<see cref="NullLiveEventSink"/> without <c>--dashboard</c>): when it also takes readings, the workflow readings of every tier run fan out to it after the listener sink; a measured tier forwards its stored power samples to it at <c>Dashboard:PowerIntervalMs</c>; the judge's services keep the null sink, so a judge reading never reaches it.</param>
+/// <param name="live">The live sink of the dashboard (<see cref="NullLiveEventSink"/> without <c>--dashboard</c>): when it also takes readings, the workflow readings of every tier run fan out to it after the listener sink; a measured tier forwards its stored power samples to it at <c>Dashboard:PowerIntervalMs</c>; the judge's services keep the null sink, so a judge reading never reaches it. Each tier run emits one run-started event (a measured tier once its meter started, before the warm-up and the baseline; a hosted tier once its meter started, followed by one N/A power event), the baseline next to the listener's, one progress event per (task, repeat) and one run-completed event after its final document was written or attempted (AJ-091); every emit goes through <see cref="LiveEventSinkExtensions.EmitSafely"/>.</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
 /// <exception cref="ArgumentNullException">An argument is null.</exception>
 public sealed class RunOrchestrator(
@@ -163,6 +163,9 @@ public sealed class RunOrchestrator(
                 // The union of the step windows for the energy totals of a concurrent run; the meter is alive for every write of the tier (it is disposed in the finally below).
                 progress.Union = meter.ComputeUnion;
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
+
+                // The live view's run starts once the GPU is known and before the warm-up and the baseline (AJ-091, P-72).
+                _live.EmitSafely(progress.Started(_time.GetUtcNow()));
                 progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
                 progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
                 progress.Baseline = await meter
@@ -170,21 +173,29 @@ public sealed class RunOrchestrator(
                     .ConfigureAwait(false);
                 BaselineResult measured = progress.Baseline;
                 listening.Tell(listener => listener.BaselineMeasured(measured));
+                _live.EmitSafely(new BaselineEvent(_time.GetUtcNow(), false, measured));
             }
             else
             {
                 meter = new UnmeteredEnergyMeter(_time);
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
+
+                // A hosted tier has no power to show: one N/A power event right after its run started (P-56).
+                _live.EmitSafely(progress.Started(_time.GetUtcNow()));
+                _live.EmitSafely(new PowerEvent(_time.GetUtcNow(), false, Metric.NotApplicable(MeterCapabilities.HostedTierReason), 0.0));
             }
 
             // With a dashboard that also takes readings, the workflow readings fan out to the listener sink (which keeps them for the file) first and to the dashboard second.
             IMetricsSink workflowSink = _live is IMetricsSink liveReadings ? new FanOutMetricsSink(_logger, listening, liveReadings) : listening;
             var services = new MeteringServices(meter, _gate, workflowSink, _cost, _instruments, _time) { Live = _live };
             AgentFactory factory = _agentFactory(services);
-            foreach (TaskDefinition task in plan.Tasks)
+            for (int taskIndex = 0; taskIndex < plan.Tasks.Count; taskIndex++)
             {
+                TaskDefinition task = plan.Tasks[taskIndex];
                 for (int repeat = 1; repeat <= plan.Repeat; repeat++)
                 {
+                    // The live view's progress at the start of each (task, repeat), 1-based.
+                    _live.EmitSafely(new ProgressEvent(_time.GetUtcNow(), false, task.Name, taskIndex + 1, plan.Tasks.Count, repeat, plan.Repeat));
                     try
                     {
                         await RunRepeatAsync(factory, progress, task, repeat, options.Workflow.Seed, cancellationToken).ConfigureAwait(false);
@@ -211,7 +222,18 @@ public sealed class RunOrchestrator(
             IReadOnlyList<StepReading> workflow = sink.Snapshot();
             JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance }, cancellationToken).ConfigureAwait(false);
             RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), RunStatus.Completed, judged?.SelfJudged);
-            await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The final document was attempted (P-72): the live view ends with it as the failed and incomplete paths do. A shutdown during the write goes to the incomplete write,
+                // which emits its own run-completed event, so one tier run never emits two.
+                EmitCompleted(completed);
+                throw;
+            }
+
             string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
 
             // A judge failure is a warning and nothing else (EDGE-012): one line per tier run in which a judged step failed, told after the file was written and before the closing lines of the tier.
@@ -222,6 +244,7 @@ public sealed class RunOrchestrator(
             }
 
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
+            _live.EmitSafely(new RunCompletedEvent(_time.GetUtcNow(), false, completed.Run, completed.Totals));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -327,20 +350,23 @@ public sealed class RunOrchestrator(
         IReadOnlyList<StepReading> steps = sink.Snapshot();
         StepReading? latest = steps.LastOrDefault(step => string.Equals(step.Agent, failure.Agent, StringComparison.Ordinal));
         RunStatus status = latest?.Outcome == StepOutcomes.Incomplete ? RunStatus.Incomplete : RunStatus.Failed;
+        RunDocument document = progress.Document(steps, judgeSink.Snapshot(), status);
         try
         {
             // The wall clock, like the shutdown write: a fake clock in a test must not cancel the write.
             using var timeout = new CancellationTokenSource(shutdown.WriteBudget());
-            await progress.Writer.WriteAsync(progress.Document(steps, judgeSink.Snapshot(), status), timeout.Token).ConfigureAwait(false);
+            await progress.Writer.WriteAsync(document, timeout.Token).ConfigureAwait(false);
         }
         catch (Exception writeFailure)
         {
             string type = writeFailure.GetType().Name;
             RunLog.StepFailureCheckpointFailed(_logger, type);
             listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten, CheckpointKind.StepFailure));
+            EmitCompleted(document);
             return null;
         }
 
+        EmitCompleted(document);
         string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
         listening.Tell(listener => listener.TierFailed(displayPath, failure.Agent, status));
         return failure.WithPartialFile(displayPath);
@@ -370,18 +396,20 @@ public sealed class RunOrchestrator(
             }
         }
 
+        RunDocument document = progress.Document(steps, judgeSink.Snapshot(), RunStatus.Incomplete);
         try
         {
             // The wall clock of the termination timeout, not the run's clock: a fake clock in a test must not cancel the write. The token reaches the asynchronous part of the write
             // only; the writer's synchronous file operations finish once started.
             using var timeout = new CancellationTokenSource(shutdown.WriteBudget());
-            await progress.Writer.WriteAsync(progress.Document(steps, judgeSink.Snapshot(), RunStatus.Incomplete), timeout.Token).ConfigureAwait(false);
+            await progress.Writer.WriteAsync(document, timeout.Token).ConfigureAwait(false);
         }
         catch (Exception failure)
         {
             string type = failure.GetType().Name;
             RunLog.ShutdownCheckpointFailed(_logger, type);
             listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten, CheckpointKind.Shutdown));
+            EmitCompleted(document);
             return;
         }
 
@@ -389,7 +417,12 @@ public sealed class RunOrchestrator(
         {
             listening.Tell(listener => listener.StepFinished(incomplete));
         }
+
+        EmitCompleted(document);
     }
+
+    // The live view's end of a tier run (AJ-091, P-72): once per tier end that wrote or attempted its final document, with that document's run and totals.
+    private void EmitCompleted(RunDocument document) => _live.EmitSafely(new RunCompletedEvent(_time.GetUtcNow(), false, document.Run, document.Totals));
 
     // The instant the run token was cancelled, on the wall clock (the termination timeout of the process is wall time), and the budget of the shutdown write that follows from it.
     private sealed class ShutdownSignal
@@ -451,9 +484,16 @@ public sealed class RunOrchestrator(
         // selfJudged is the judge's statement and is given to the completed write only: a checkpoint, a skipped judge, a failed or an incomplete file state none.
         public RunDocument Document(IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, RunStatus status, bool? selfJudged = null)
         {
-            RunInfo run = RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged);
+            RunInfo run = RunInfoOf(status, selfJudged);
             EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions);
             return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, judge, WallClockMs, Union, CostOptions);
         }
+
+        // The live view's start of this tier run: the run as running and the environment known so far (the GPU of a measured tier, not yet its runtime or load time), with the power limit of the probe.
+        public RunStartedEvent Started(DateTimeOffset atUtc) =>
+            new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions), Probe?.PowerLimitW);
+
+        private RunInfo RunInfoOf(RunStatus status, bool? selfJudged) =>
+            RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged);
     }
 }

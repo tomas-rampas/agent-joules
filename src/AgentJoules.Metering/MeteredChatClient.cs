@@ -324,6 +324,14 @@ public sealed class MeteredChatClient : DelegatingChatClient
             _window = owner._services.Meter.OpenWindow();
             _startTimestamp = time.GetTimestamp();
             _startUtc = time.GetUtcNow();
+
+            // The live view learns that a step's window opened (AJ-091): only here, where a window opens, and never for a judge call (whose services carry the null live sink anyway), because
+            // the live overlap rule counts running starts. A run without a dashboard builds no event; EmitSafely drops whatever the sink throws.
+            ILiveEventSink live = owner._services.Live;
+            if (live is not NullLiveEventSink && !owner._identity.IsJudge)
+            {
+                live.EmitSafely(new StepStartedEvent(_startUtc, false, owner._identity, _window.Span.StartSeconds));
+            }
         }
 
         public void SetText(string text) => _text.Append(text);

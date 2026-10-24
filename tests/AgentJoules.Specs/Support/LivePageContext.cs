@@ -181,10 +181,9 @@ public sealed class LivePageContext : IDisposable
         _connection = _sink.Connect();
         DashboardSink sink = _sink;
 
-        // No production code emits the step-started event yet, so the dashboard is told that the first step started with a baseline of 20 W; the power samples the meter forwards during the run
-        // then feed a real running estimate that the results file must not show.
+        // From AJ-091 the orchestrator and the chat client emit the run-started, baseline and step-started events, so the power samples the meter forwards during the run feed a real running estimate
+        // that the results file must not show; the test pre-emits only a baseline of 20 W for isolation (the run's own run-started resets it).
         sink.Emit(new BaselineEvent(Origin, false, new BaselineResult(Metric.Measured(20.0, "W"), Metric.Measured(0.5, "W"), seconds: 10.0, sampleCount: 100, coefficientOfVariation: 0.025, maxCoefficientOfVariation: 0.1, ReadingFlags.None)));
-        sink.Emit(new StepStartedEvent(Origin, false, new StepIdentity("Planner", "model-a", Tier.Local, "summarise", 1, IsJudge: false), 0.0));
         RunOrchestrationFixtures.AddServices(setup, services =>
         {
             _ = services.RemoveAll<ILiveEventSink>();
