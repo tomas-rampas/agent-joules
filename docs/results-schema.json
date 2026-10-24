@@ -1277,13 +1277,13 @@
         "costPerQualityPoint": {
           "allOf": [
             {
-              "$ref": "#/$defs/metricJudged"
+              "$ref": "#/$defs/metricEstimated"
             },
             {
               "if": {
                 "properties": {
                   "label": {
-                    "const": "model-judged"
+                    "const": "estimated"
                   }
                 },
                 "required": [

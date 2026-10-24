@@ -327,6 +327,16 @@ public sealed partial class JudgeParsingTests
         Assert.Equal(currency, metric.Currency);
     }
 
+    // The cost per quality point is an estimate in the currency of the cost (user decision 9, 2026-10-24): a ratio of a cost and a score is arithmetic on an estimate, not a judge reading.
+    private static void AssertEstimatedCost(Metric metric, double value, string currency)
+    {
+        Assert.Equal(MetricLabel.Estimated, metric.Label);
+        Assert.Equal(value, metric.Value);
+        Assert.Null(metric.Reason);
+        Assert.Null(metric.Unit);
+        Assert.Equal(currency, metric.Currency);
+    }
+
     [Fact]
     public void Joules_per_point_is_net_over_quality()
     {
@@ -346,17 +356,33 @@ public sealed partial class JudgeParsingTests
         Metric estimated = DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.08, "EUR"), Metric.ModelJudged(4));
         Metric measured = DerivedMetrics.CostPerQualityPoint(Metric.MeasuredCost(0.5, "USD"), Metric.ModelJudged(5));
 
-        AssertJudged(estimated, 0.02, "EUR");
-        AssertJudged(measured, 0.1, "USD");
-        Assert.Equal("""{"value":0.02,"label":"model-judged","currency":"EUR"}""", JsonSerializer.Serialize(estimated));
+        AssertEstimatedCost(estimated, 0.02, "EUR");
+        AssertEstimatedCost(measured, 0.1, "USD");
+        Assert.Equal("""{"value":0.02,"label":"estimated","currency":"EUR"}""", JsonSerializer.Serialize(estimated));
         Assert.Equal(estimated, JsonSerializer.Deserialize<Metric>(JsonSerializer.Serialize(estimated)));
+    }
+
+    // User decision 9 (2026-10-24): the cost per quality point is a ratio of an estimated cost and a judge score, so it is an estimate in the currency of the cost; only the quality and the joules per quality point are model-judged.
+    [Fact]
+    [Trait("Spec", "REQ-010")]
+    public void CostPerQualityPoint_is_labelled_estimated_with_the_cost_currency()
+    {
+        Metric result = DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.08, "EUR"), Metric.ModelJudged(4));
+
+        Assert.Equal(MetricLabel.Estimated, result.Label);
+        Assert.Equal(0.02, result.Value);
+        Assert.Equal("EUR", result.Currency);
+        Assert.Null(result.Unit);
+        Assert.Equal(Metric.Estimated(0.02, "EUR"), result);
+        Assert.Equal(MetricLabel.ModelJudged, DerivedMetrics.JoulesPerQualityPoint(Metric.Measured(120, "J"), Metric.ModelJudged(4)).Label);
+        Assert.Equal(MetricLabel.NotApplicable, DerivedMetrics.CostPerQualityPoint(Metric.NotApplicable("cost-not-configured"), Metric.ModelJudged(4)).Label);
     }
 
     [Fact]
     public void A_measured_zero_gives_a_judged_zero_not_a_missing_value()
     {
         AssertJudged(DerivedMetrics.JoulesPerQualityPoint(Metric.Measured(0, "J"), Metric.ModelJudged(4)), 0.0);
-        AssertJudged(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0, "EUR"), Metric.ModelJudged(4)), 0.0, "EUR");
+        AssertEstimatedCost(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0, "EUR"), Metric.ModelJudged(4)), 0.0, "EUR");
     }
 
     [Fact]
@@ -365,7 +391,7 @@ public sealed partial class JudgeParsingTests
         Metric energy = Metric.NotApplicable("hosted-tier");
 
         AssertNotApplicable(DerivedMetrics.JoulesPerQualityPoint(energy, Metric.ModelJudged(4)), "missing-input");
-        AssertJudged(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.08, "USD"), Metric.ModelJudged(4)), 0.02, "USD");
+        AssertEstimatedCost(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.08, "USD"), Metric.ModelJudged(4)), 0.02, "USD");
     }
 
     [Fact]
@@ -418,7 +444,7 @@ public sealed partial class JudgeParsingTests
 
         AssertNotApplicable(joules, "below-baseline");
         Assert.Equal("below-baseline", DerivedMetrics.BelowBaselineReason);
-        AssertJudged(cost, 0.03, "EUR");
+        AssertEstimatedCost(cost, 0.03, "EUR");
     }
 
     [Fact]
@@ -439,7 +465,7 @@ public sealed partial class JudgeParsingTests
     }
 
     [Fact]
-    public void No_derived_metric_is_ever_labelled_measured_or_estimated_and_a_missing_value_is_never_a_number()
+    public void Joules_per_point_is_never_measured_or_estimated_cost_per_point_is_never_measured_and_a_missing_value_is_never_a_number()
     {
         Metric[] nets = [Metric.Measured(120, "J"), Metric.Measured(0, "J"), Metric.Measured(-5, "J"), Metric.EstimatedQuantity(40, "J"), Metric.NotApplicable("hosted-tier"), Metric.NotReported("x")];
         Metric[] costs = [Metric.Estimated(0.08, "EUR"), Metric.MeasuredCost(0.3, "USD"), Metric.NotApplicable("cost-not-configured"), Metric.NotReported("not-priced")];
@@ -458,13 +484,16 @@ public sealed partial class JudgeParsingTests
 
             foreach (Metric cost in costs)
             {
-                AssertDerived(DerivedMetrics.CostPerQualityPoint(cost, quality));
+                Metric ratio = DerivedMetrics.CostPerQualityPoint(cost, quality);
+                Assert.True(ratio.Label is MetricLabel.Estimated or MetricLabel.NotApplicable, $"A cost per quality point is {ratio.Label}.");
+                Assert.Equal(ratio.Label == MetricLabel.NotApplicable, ratio.Value is null);
             }
         }
 
         static void AssertDerived(Metric metric)
         {
             Assert.True(metric.Label is MetricLabel.ModelJudged or MetricLabel.NotApplicable, $"A derived metric is {metric.Label}.");
+            Assert.Equal(metric.Label == MetricLabel.NotApplicable, metric.Value is null);
         }
     }
 
@@ -508,14 +537,14 @@ public sealed partial class JudgeParsingTests
     public void The_ends_of_the_scale_are_accepted(double score)
     {
         AssertJudged(DerivedMetrics.JoulesPerQualityPoint(Metric.Measured(10, "J"), Metric.ModelJudged(score)), 10.0 / score);
-        AssertJudged(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(10, "EUR"), Metric.ModelJudged(score)), 10.0 / score, "EUR");
+        AssertEstimatedCost(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(10, "EUR"), Metric.ModelJudged(score)), 10.0 / score, "EUR");
     }
 
     [Fact]
     public void A_quotient_that_is_not_exact_is_neither_rounded_nor_truncated()
     {
         AssertJudged(DerivedMetrics.JoulesPerQualityPoint(Metric.Measured(100, "J"), Metric.ModelJudged(3)), 100.0 / 3);
-        AssertJudged(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.00001, "USD"), Metric.ModelJudged(3)), 0.00001 / 3, "USD");
+        AssertEstimatedCost(DerivedMetrics.CostPerQualityPoint(Metric.Estimated(0.00001, "USD"), Metric.ModelJudged(3)), 0.00001 / 3, "USD");
     }
 
     [Fact]
@@ -545,7 +574,7 @@ public sealed partial class JudgeParsingTests
         StepReading result = RunAssembler.WithDerivedMetrics(reading);
 
         AssertJudged(result.JoulesPerQualityPoint, 30.0);
-        AssertJudged(result.CostPerQualityPoint, 0.02, "EUR");
+        AssertEstimatedCost(result.CostPerQualityPoint, 0.02, "EUR");
         Assert.Equal("the answer", result.OutputText);
         Assert.Equal(new WindowSpan(1.0, 3.0), result.Window);
         string[] derived = [nameof(StepReading.JoulesPerQualityPoint), nameof(StepReading.CostPerQualityPoint)];
@@ -578,7 +607,7 @@ public sealed partial class JudgeParsingTests
         StepReading result = RunAssembler.WithDerivedMetrics(reading);
 
         AssertNotApplicable(result.JoulesPerQualityPoint, "below-baseline");
-        AssertJudged(result.CostPerQualityPoint, 0.03, "EUR");
+        AssertEstimatedCost(result.CostPerQualityPoint, 0.03, "EUR");
     }
 
     [Fact]
@@ -589,7 +618,7 @@ public sealed partial class JudgeParsingTests
         StepReading result = RunAssembler.WithDerivedMetrics(hosted);
 
         AssertNotApplicable(result.JoulesPerQualityPoint, "missing-input");
-        Assert.Equal(Metric.ModelJudgedCost(0.02, "USD"), result.CostPerQualityPoint);
+        Assert.Equal(Metric.Estimated(0.02, "USD"), result.CostPerQualityPoint);
     }
 
     [Fact]
@@ -607,18 +636,18 @@ public sealed partial class JudgeParsingTests
         RunDocument document = AssembleLocal(scored, unscored, failed, below);
 
         AssertJudged(document.Steps[0].JoulesPerQualityPoint, 30.0);
-        AssertJudged(document.Steps[0].CostPerQualityPoint, 0.02, "EUR");
+        AssertEstimatedCost(document.Steps[0].CostPerQualityPoint, 0.02, "EUR");
         AssertNotApplicable(document.Steps[1].JoulesPerQualityPoint, "missing-input");
         AssertNotApplicable(document.Steps[1].CostPerQualityPoint, "missing-input");
         AssertNotApplicable(document.Steps[2].JoulesPerQualityPoint, "missing-input");
         AssertNotApplicable(document.Steps[2].CostPerQualityPoint, "missing-input");
         AssertNotApplicable(document.Steps[3].JoulesPerQualityPoint, "below-baseline");
-        AssertJudged(document.Steps[3].CostPerQualityPoint, 0.03, "EUR");
+        AssertEstimatedCost(document.Steps[3].CostPerQualityPoint, 0.03, "EUR");
         Assert.Equal(Metric.NotApplicable("not-scored"), unscored.JoulesPerQualityPoint);
     }
 
     [Fact]
-    public void Assemble_writes_the_derived_metrics_into_the_file_with_the_model_judged_label()
+    public void Assemble_writes_the_derived_metrics_into_the_file_with_the_model_judged_and_estimated_labels()
     {
         RunDocument document = AssembleLocal(Scored(Metric.ModelJudged(4), net: Metric.Measured(120, "J"), cost: Metric.Estimated(0.08, "EUR")));
 
@@ -630,7 +659,7 @@ public sealed partial class JudgeParsingTests
         JsonElement cost = step.GetProperty("costPerQualityPoint");
         Assert.Equal((30.0, "model-judged"), (joules.GetProperty("value").GetDouble(), joules.GetProperty("label").GetString()));
         Assert.False(joules.TryGetProperty("currency", out _));
-        Assert.Equal((0.02, "model-judged", "EUR"), (cost.GetProperty("value").GetDouble(), cost.GetProperty("label").GetString(), cost.GetProperty("currency").GetString()));
+        Assert.Equal((0.02, "estimated", "EUR"), (cost.GetProperty("value").GetDouble(), cost.GetProperty("label").GetString(), cost.GetProperty("currency").GetString()));
     }
 
     // ---- AJ-074: the shape of the judge and cost members of a reading ----
@@ -649,7 +678,7 @@ public sealed partial class JudgeParsingTests
         "measured-cost" => Metric.MeasuredCost(1, "USD"),
         "estimated-quantity" => Metric.EstimatedQuantity(1, "J"),
         "model-judged" => Metric.ModelJudged(4),
-        "model-judged-cost" => Metric.ModelJudgedCost(4, "EUR"),
+        "model-judged-cost" => JsonSerializer.Deserialize<Metric>("""{"value":4,"label":"model-judged","currency":"EUR"}""")!,
         "model-judged-unit" => Metric.ModelJudged(4, "points"),
         "measured" => Metric.Measured(4, "points"),
         "estimated-cost" => Metric.Estimated(4, "EUR"),
@@ -672,7 +701,8 @@ public sealed partial class JudgeParsingTests
     [InlineData("costPerQualityPoint", "model-judged")]
     [InlineData("costPerQualityPoint", "model-judged-unit")]
     [InlineData("costPerQualityPoint", "measured-cost")]
-    [InlineData("costPerQualityPoint", "estimated-cost")]
+    [InlineData("costPerQualityPoint", "estimated-quantity")]
+    [InlineData("costPerQualityPoint", "model-judged-cost")]
     public void The_reading_rejects_a_member_of_the_wrong_shape_naming_only_the_member(string member, string shape)
     {
         ArgumentException failure = Assert.Throws<ArgumentException>(() => ReadingWith(member, BadShape(shape)));
@@ -698,9 +728,9 @@ public sealed partial class JudgeParsingTests
             cost: Metric.Estimated(0.08, "EUR"),
             quality: JudgeScoreParser.Parse("4", new SecretRedactor()).Quality,
             joulesPerQualityPoint: Metric.ModelJudged(30),
-            costPerQualityPoint: Metric.ModelJudgedCost(0.02, "EUR"));
+            costPerQualityPoint: Metric.Estimated(0.02, "EUR"));
 
-        Assert.Equal(MetricLabel.ModelJudged, reading.CostPerQualityPoint.Label);
+        Assert.Equal(MetricLabel.Estimated, reading.CostPerQualityPoint.Label);
     }
 
     [Theory]
@@ -708,7 +738,8 @@ public sealed partial class JudgeParsingTests
     [InlineData("quality", """{"value":4,"label":"measured","unit":"points"}""")]
     [InlineData("joulesPerQualityPoint", """{"value":30,"label":"model-judged","currency":"EUR"}""")]
     [InlineData("costPerQualityPoint", """{"value":0.02,"label":"model-judged","unit":"J"}""")]
-    [InlineData("costPerQualityPoint", """{"value":0.02,"label":"model-judged"}""")]
+    [InlineData("costPerQualityPoint", """{"value":0.02,"label":"estimated","unit":"J"}""")]
+    [InlineData("costPerQualityPoint", """{"value":0.02,"label":"model-judged","currency":"EUR"}""")]
     [InlineData("cost", """{"value":0.08,"label":"measured","currency":"EUR"}""")]
     [InlineData("cost", """{"value":0.08,"label":"model-judged","currency":"EUR"}""")]
     public void A_document_read_back_with_a_member_of_the_wrong_shape_is_rejected(string member, string metricJson)
@@ -730,7 +761,7 @@ public sealed partial class JudgeParsingTests
     [InlineData("quality", """{"value":-1,"label":"model-judged"}""")]
     [InlineData("cost", """{"value":-1,"label":"estimated","currency":"EUR"}""")]
     [InlineData("joulesPerQualityPoint", """{"value":-30,"label":"model-judged"}""")]
-    [InlineData("costPerQualityPoint", """{"value":-0.02,"label":"model-judged","currency":"EUR"}""")]
+    [InlineData("costPerQualityPoint", """{"value":-0.02,"label":"estimated","currency":"EUR"}""")]
     public void A_document_read_back_with_a_member_out_of_range_is_rejected(string member, string metricJson)
     {
         string json = MutatedStepJson(member, metricJson);
@@ -745,7 +776,7 @@ public sealed partial class JudgeParsingTests
     [InlineData("quality", """{"value":5,"label":"model-judged"}""")]
     [InlineData("cost", """{"value":0,"label":"estimated","currency":"EUR"}""")]
     [InlineData("joulesPerQualityPoint", """{"value":0,"label":"model-judged"}""")]
-    [InlineData("costPerQualityPoint", """{"value":0,"label":"model-judged","currency":"EUR"}""")]
+    [InlineData("costPerQualityPoint", """{"value":0,"label":"estimated","currency":"EUR"}""")]
     public void A_document_read_back_with_a_member_at_the_edge_of_its_range_is_accepted(string member, string metricJson)
     {
         string json = MutatedStepJson(member, metricJson);
@@ -765,7 +796,7 @@ public sealed partial class JudgeParsingTests
     [InlineData("costPerQualityPoint", -0.02)]
     public void The_reading_rejects_a_member_out_of_range_naming_only_the_member(string member, double value)
     {
-        Metric metric = member == "cost" ? Metric.Estimated(value, "EUR") : member == "costPerQualityPoint" ? Metric.ModelJudgedCost(value, "EUR") : Metric.ModelJudged(value);
+        Metric metric = member is "cost" or "costPerQualityPoint" ? Metric.Estimated(value, "EUR") : Metric.ModelJudged(value);
 
         ArgumentException failure = Assert.Throws<ArgumentException>(() => ReadingWith(member, metric));
 
@@ -783,7 +814,7 @@ public sealed partial class JudgeParsingTests
     [Theory]
     [InlineData("quality", """{"value":4,"label":"model-judged"}""")]
     [InlineData("joulesPerQualityPoint", """{"value":30,"label":"model-judged"}""")]
-    [InlineData("costPerQualityPoint", """{"value":0.02,"label":"model-judged","currency":"EUR"}""")]
+    [InlineData("costPerQualityPoint", """{"value":0.02,"label":"estimated","currency":"EUR"}""")]
     [InlineData("cost", """{"value":0.08,"label":"estimated","currency":"EUR"}""")]
     public void A_document_read_back_with_a_member_of_the_right_shape_is_accepted(string member, string metricJson)
     {

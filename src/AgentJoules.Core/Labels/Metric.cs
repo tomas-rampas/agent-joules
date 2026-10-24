@@ -119,16 +119,6 @@ public sealed record Metric
         return new(value, MetricLabel.ModelJudged, null, unit, null);
     }
 
-    /// <summary>Creates a value derived from a judge score and a cost, with the currency of that cost, for example the cost per quality point.</summary>
-    /// <param name="value">The finite amount.</param>
-    /// <param name="currency">The non-blank currency code.</param>
-    public static Metric ModelJudgedCost(double value, string currency)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(currency);
-
-        return new(value, MetricLabel.ModelJudged, null, null, currency);
-    }
-
     /// <summary>Creates a metric for a value that does not exist for this step.</summary>
     /// <param name="reason">The non-blank explanation.</param>
     public static Metric NotApplicable(string reason) => new(null, MetricLabel.NotApplicable, reason, null, null);

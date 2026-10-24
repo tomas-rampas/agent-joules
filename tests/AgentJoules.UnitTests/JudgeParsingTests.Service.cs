@@ -909,7 +909,7 @@ public sealed partial class JudgeParsingTests
         Assert.Equal(reading.CostPerQualityPoint, scored.CostPerQualityPoint);
         RunDocument document = AssembleJudged([scored], []);
         AssertJudged(Assert.Single(document.Steps).JoulesPerQualityPoint, 15.0);
-        AssertJudged(document.Steps[0].CostPerQualityPoint, 0.02, "EUR");
+        AssertEstimatedCost(document.Steps[0].CostPerQualityPoint, 0.02, "EUR");
     }
 
     [Fact]

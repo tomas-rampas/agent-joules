@@ -284,11 +284,12 @@ Demo relevance: no.
 
 ### AJ-074: Derive joules and cost per quality point only when both inputs exist
 Covers: REQ-010
+Note (2026-10-24, M4 K0): criterion 2 and the scenario label of costPerQualityPoint changed from model-judged to estimated by user decision 9 (docs/build-log.md, the decisions bullet of the M3 exit addendum); code, schema and fixtures follow.
 Note (2026-10-22, AJ-074): feature file `tests/AgentJoules.Specs/Features/Reporting/AJ-074-derived-metrics.feature` (the story table's `DerivedMetrics.feature`); pinned readings applied: criterion 2 governs over design 3.2 line 222 through `Metric.ModelJudgedCost`, and `RunAssembler.Assemble` applies the derived metrics to every step, so an unscored step reads `missing-input` after assembly. Deviations: a `MetricTests` JSON row and a factory-count test name were updated (D2, D3), and `RetryPolicyTests.Steps_finished_before_the_failure_are_kept_unchanged` moved from `Assert.Same` to value equality after battery 1 (D7). Criterion 4 applies when the quality holds a value; a step that is both unscored and below baseline reads `missing-input` by the pinned check order (quality, energy, flag), recorded 2026-10-22 for the user to confirm or revise at the M3 exit.
 User story: As a reader comparing efficiency within one tier, I want joules per quality point and cost per quality point computed only from real inputs and labelled `model-judged`, so that a missing input never produces a made-up ratio.
 Acceptance criteria:
 1. Quality 4 and net energy 120 J (fixture) give `joulesPerQualityPoint {value:30,label:"model-judged"}`; the test name is `Joules_per_point_is_net_over_quality`.
-2. Cost 0.08 EUR (fixture) and quality 4 give `costPerQualityPoint {value:0.02,label:"model-judged",currency:"EUR"}`; the currency of the cost is kept.
+2. Cost 0.08 EUR (fixture) and quality 4 give `costPerQualityPoint {value:0.02,label:"estimated",currency:"EUR"}`; the currency of the cost is kept.
 3. Energy N/A (hosted tier) gives `joulesPerQualityPoint` N/A with reason `missing-input`; quality N/A gives both derived metrics N/A with reason `missing-input`; cost N/A gives `costPerQualityPoint` N/A.
 4. Assumption consistent with AJ-072: a step flagged `below-baseline` gives `joulesPerQualityPoint` N/A with reason `below-baseline`.
 5. Derived values are never labelled `measured`, and no derived value is computed across tiers.
@@ -305,7 +306,7 @@ Feature: AJ-074 Derive joules and cost per quality point only when both inputs e
   Scenario: AJ-074 cost per quality point keeps the currency
     Given a step with cost 0.08 EUR and quality 4
     When the derived metrics are computed
-    Then costPerQualityPoint is 0.02 with label "model-judged" and currency "EUR"
+    Then costPerQualityPoint is 0.02 with label "estimated" and currency "EUR"
   @negative
   Scenario: AJ-074 hosted step has no joules per quality point
     Given a hosted step whose energy is N/A and whose quality is 4

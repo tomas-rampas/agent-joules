@@ -180,7 +180,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.944333333333333E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -258,7 +258,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.47925E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -336,7 +336,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.2E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -414,7 +414,7 @@
       },
       "costPerQualityPoint": {
         "value": 2.0276666666666667E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -492,7 +492,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.54175E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -570,7 +570,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.25E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -648,7 +648,7 @@
       },
       "costPerQualityPoint": {
         "value": 2.111E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -726,7 +726,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.60425E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -804,7 +804,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.2999999999999998E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -882,7 +882,7 @@
       },
       "costPerQualityPoint": {
         "value": 2.1943333333333333E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -960,7 +960,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.66675E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],
@@ -1038,7 +1038,7 @@
       },
       "costPerQualityPoint": {
         "value": 1.35E-06,
-        "label": "model-judged",
+        "label": "estimated",
         "currency": "EUR"
       },
       "flags": [],

@@ -9,7 +9,7 @@ Feature: AJ-074 Derive joules and cost per quality point only when both inputs e
   Scenario: AJ-074 cost per quality point keeps the currency
     Given a step with cost 0.08 EUR and quality 4
     When the derived metrics are computed
-    Then costPerQualityPoint is 0.02 with label "model-judged" and currency "EUR"
+    Then costPerQualityPoint is 0.02 with label "estimated" and currency "EUR"
   @negative
   Scenario: AJ-074 hosted step has no joules per quality point
     Given a hosted step whose energy is N/A and whose quality is 4

@@ -150,7 +150,7 @@ public static class RunDocumentFixtures
             throttleReasons: [throttleReason],
             quality: Metric.ModelJudged(4.0),
             joulesPerQualityPoint: Metric.ModelJudged(15.0),
-            costPerQualityPoint: Metric.ModelJudgedCost(0.005, "USD"),
+            costPerQualityPoint: Metric.Estimated(0.005, "USD"),
             outputSha256: outputText is null ? null : Sha256Hex(outputText),
             outputChars: outputText?.Length,
             outputText: outputText,

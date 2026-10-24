@@ -4,8 +4,9 @@ namespace AgentJoules.Core.Quality;
 
 /// <summary>
 /// The two metrics derived from the judge quality of one step (REQ-010, design 3.2): joules per quality point and cost per quality point. A derived value is computed only when both of its inputs
-/// exist; otherwise it is N/A with a reason, and a missing input is never written as 0. A derived value is a judgement-based ratio, so it is labelled <see cref="MetricLabel.ModelJudged"/>
-/// and never measured or estimated. The functions take the scalars of one step, so nothing is computed across steps or across tiers: the caller (<c>RunAssembler.WithDerivedMetrics</c>) applies
+/// exist; otherwise it is N/A with a reason, and a missing input is never written as 0. Joules per quality point divides a measured or estimated energy by a judge score, so it is labelled
+/// <see cref="MetricLabel.ModelJudged"/>; cost per quality point divides an estimated cost by the same score, so it is labelled <see cref="MetricLabel.Estimated"/> (user decision 9, 2026-10-24) and carries
+/// the currency of the cost. Neither is ever measured. The functions take the scalars of one step, so nothing is computed across steps or across tiers: the caller (<c>RunAssembler.WithDerivedMetrics</c>) applies
 /// them to each step on its own.
 /// </summary>
 public static class DerivedMetrics
@@ -39,12 +40,12 @@ public static class DerivedMetrics
     }
 
     /// <summary>
-    /// Cost per quality point: the cost divided by the quality, a model-judged value in the currency of the cost. N/A with <see cref="MissingInputReason"/> when the quality or the cost has no value.
+    /// Cost per quality point: the cost divided by the quality, an estimate in the currency of the cost (a ratio of an estimated cost and a score is arithmetic on an estimate, not a judge reading). N/A with <see cref="MissingInputReason"/> when the quality or the cost has no value.
     /// The below-baseline flag does not apply: it concerns energy only.
     /// </summary>
     /// <param name="cost">The cost of the step, measured or estimated with a currency; N/A or not-reported when there is none.</param>
     /// <param name="quality">The quality of the step: model-judged when scored, N/A or not-reported otherwise.</param>
-    /// <returns>A model-judged metric with the currency of the cost, or N/A.</returns>
+    /// <returns>An estimated metric with the currency of the cost, or N/A.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="cost"/> or <paramref name="quality"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The quality holds a score below 1 or not finite (see <see cref="JoulesPerQualityPoint"/>).</exception>
     /// <exception cref="ArgumentException">The cost holds a value but no currency (a programmer error: a cost always names its currency).</exception>
@@ -57,7 +58,7 @@ public static class DerivedMetrics
             ? Metric.NotApplicable(MissingInputReason)
             : string.IsNullOrWhiteSpace(cost.Currency)
                 ? throw new ArgumentException("A cost with a value must carry a currency.", nameof(cost))
-                : Metric.ModelJudgedCost(amount / score, cost.Currency);
+                : Metric.Estimated(amount / score, cost.Currency);
     }
 
     // The score of a model-judged quality, or null when the quality is absent or is not a judge score; a score below 1 (or not finite) is a programmer error, because the parser only produces 1 to 5.

@@ -473,7 +473,7 @@ public sealed class SchemaValidationTests
         2 => ("USD", Metric.Estimated(1.0, "EUR")),
         3 => ("USD", Metric.EstimatedQuantity(1.0, "gCO2e")),
         4 => ("USD", Metric.Estimated(-0.01, "USD")),
-        5 => ("USD", Metric.ModelJudgedCost(1.0, "USD")),
+        5 => ("USD", JsonSerializer.Deserialize<Metric>("""{"value":1,"label":"model-judged","currency":"USD"}""")!),
         6 => ("USD", Metric.NotReported("missing-step-costs")),
         7 => (" ", Metric.NotApplicable("missing-step-costs")),
         8 => ("usd", Metric.Estimated(1.0, "USD")),
@@ -1208,19 +1208,19 @@ public sealed class SchemaValidationTests
     }
 
     [Fact]
-    public void Currency_alone_on_model_judged_is_valid()
+    public void Cost_per_quality_point_as_an_estimate_in_a_currency_is_valid()
     {
         JsonNode tree = Tree(Fixture());
-        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"model-judged","currency":"EUR"}""");
+        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"estimated","currency":"EUR"}""");
 
         AssertValid(tree);
     }
 
     [Fact]
-    public void Unit_and_currency_on_model_judged_is_invalid()
+    public void Unit_and_currency_on_cost_per_quality_point_is_invalid()
     {
         JsonNode tree = Tree(Fixture());
-        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"model-judged","unit":"point","currency":"EUR"}""");
+        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"estimated","unit":"point","currency":"EUR"}""");
 
         AssertInvalidAt(tree, "/steps/0/costPerQualityPoint");
     }
@@ -1232,15 +1232,28 @@ public sealed class SchemaValidationTests
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":15,"label":"model-judged","currency":"USD"}""")]
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":15,"label":"model-judged","unit":"J"}""")]
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":-1,"label":"model-judged"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":0.005,"label":"model-judged"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":-0.005,"label":"model-judged","currency":"USD"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":0.005,"label":"measured","currency":"USD"}""")]
     public void Model_judged_members_refuse_the_wrong_qualifiers_labels_and_ranges(string path, string json)
     {
         JsonNode tree = Tree(Fixture());
         Put(tree, path, json);
 
         AssertInvalidAt(tree, "/" + path.Replace('.', '/'));
+    }
+
+    // The cost per quality point is an estimate in a currency (user decision 9, 2026-10-24): the refinements of the step cost apply, and the model-judged label is refused.
+    [Theory]
+    [InlineData("""{"value":0.005,"label":"model-judged"}""")]
+    [InlineData("""{"value":0.005,"label":"model-judged","currency":"USD"}""")]
+    [InlineData("""{"value":0.005,"label":"estimated"}""")]
+    [InlineData("""{"value":0.005,"label":"estimated","unit":"J"}""")]
+    [InlineData("""{"value":-0.005,"label":"estimated","currency":"USD"}""")]
+    [InlineData("""{"value":0.005,"label":"measured","currency":"USD"}""")]
+    public void The_cost_per_quality_point_refuses_the_wrong_qualifiers_labels_and_ranges(string json)
+    {
+        JsonNode tree = Tree(Fixture());
+        Put(tree, "steps.0.costPerQualityPoint", json);
+
+        AssertInvalidAt(tree, "/steps/0/costPerQualityPoint");
     }
 
     [Theory]
@@ -1683,7 +1696,7 @@ public sealed class SchemaValidationTests
         (static tree => MetricAt(tree, "steps.0.quality")["value"] = 4.5, [("/steps/0/quality/value", "Value is \"number\" but should be \"integer\"")]),
         (static tree => Put(tree, "totals.costByCurrency.USD", """{"value":null,"label":"not-reported","reason":"x"}"""), [("/totals/costByCurrency/USD/label", EnumMessage)]),
         (static tree => MetricAt(tree, "steps.0.latencyMs")["currency"] = "USD", [("/steps/0/latencyMs", "Exactly one alternative may hold, but several do.")]),
-        (static tree => MetricAt(tree, "steps.0.costPerQualityPoint")["unit"] = "point", [("/steps/0/costPerQualityPoint", ExcludedMessage)]),
+        (static tree => MetricAt(tree, "steps.0.joulesPerQualityPoint")["unit"] = "point", [("/steps/0/joulesPerQualityPoint", ExcludedMessage)]),
         (static tree => At(tree, "steps.0").AsObject()["judgedAgent"] = RunDocumentFixtures.PlannerAgent, [("/steps/0", ExcludedMessage)]),
         (static tree => MetricAt(tree, "steps.0.latencyMs").Remove("unit"), [("/steps/0/latencyMs", "Required properties [\"unit\"] are not present"), ("/steps/0/latencyMs", "Required properties [\"currency\"] are not present")]),
     ];
@@ -2140,7 +2153,7 @@ public sealed class SchemaValidationTests
             Assert.Empty(result.Stdout);
             string line = Assert.Single(LinesOf(result.Stderr));
             Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
-            Assert.Contains("M4", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("arrives in M4", line, StringComparison.Ordinal);
             Assert.DoesNotContain("ParseError", line, StringComparison.Ordinal);
         }
     }
@@ -2374,7 +2387,7 @@ public sealed class SchemaValidationTests
                     Assert.Equal(MetricLabel.Estimated, step.Cost.Label);
                     Assert.Equal("EUR", step.Cost.Currency);
                     Assert.Equal(MetricLabel.ModelJudged, step.JoulesPerQualityPoint.Label);
-                    Assert.Equal(MetricLabel.ModelJudged, step.CostPerQualityPoint.Label);
+                    Assert.Equal(MetricLabel.Estimated, step.CostPerQualityPoint.Label);
                 });
                 break;
             case Tier.Nvidia:
