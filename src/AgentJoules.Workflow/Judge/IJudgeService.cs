@@ -32,8 +32,8 @@ public sealed record JudgeRequest(Tier Tier, IReadOnlyList<StepReading> Steps, I
 
 /// <summary>What the judge made of a <see cref="JudgeRequest"/>.</summary>
 /// <param name="Steps">One step per requested step, in the same order, window unchanged.</param>
-/// <param name="SelfJudged">True when the judge model is the model of any requested step.</param>
+/// <param name="SelfJudged">True when the judge model id is the model id of any requested step, false when no step has it, and null when no step was judged (nothing to compare: no ok step with output, a blank judge model, the no-op judge).</param>
 /// <param name="JudgedSteps">How many steps were sent to the judge: ok steps with output.</param>
 /// <param name="FailedSteps">How many of those ended with a quality that is N/A (a failed call, a reply that did not parse, a refusal).</param>
 /// <param name="FailureKinds">The distinct kinds of those failures, in ordinal order: exception type names, <c>parse-error</c> or a refusal token.</param>
-public sealed record JudgeResult(IReadOnlyList<StepReading> Steps, bool SelfJudged, int JudgedSteps, int FailedSteps, IReadOnlyList<string> FailureKinds);
+public sealed record JudgeResult(IReadOnlyList<StepReading> Steps, bool? SelfJudged, int JudgedSteps, int FailedSteps, IReadOnlyList<string> FailureKinds);

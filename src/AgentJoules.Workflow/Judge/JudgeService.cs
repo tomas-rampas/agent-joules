@@ -1,3 +1,4 @@
+using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Quality;
@@ -76,8 +77,6 @@ public sealed class JudgeService : IJudgeService
     /// <summary>The <see cref="StepReading.QualityReason"/> of every step whose quality is N/A.</summary>
     public const string NotScored = "not-scored";
 
-    private const string JudgeAgent = "Judge";
-
     private readonly Tier _tier;
     private readonly string? _modelId;
     private readonly string _rubric;
@@ -85,6 +84,8 @@ public sealed class JudgeService : IJudgeService
     private readonly SecretRedactor _redactor;
     private readonly RetryOptions _retryOptions;
     private readonly Random _random;
+    private readonly int _maxOutputTokens;
+    private readonly string? _systemPrompt;
     private readonly Lock _seedGate = new();
 
     /// <summary>Creates the judge.</summary>
@@ -95,14 +96,30 @@ public sealed class JudgeService : IJudgeService
     /// <param name="redactor">The redactor of the process; it masks a registered key in a reply before the reply is kept.</param>
     /// <param name="retryOptions">The 429 retry policy of every judge call.</param>
     /// <param name="random">The source of the retry jitter: <see cref="Random.Shared"/>, used directly, or any other instance, from which one seed per call is drawn under a lock.</param>
-    /// <exception cref="ArgumentNullException">An argument other than <paramref name="judgeModelId"/> is null.</exception>
+    /// <param name="maxOutputTokens">The output cap of one judge call (<c>Judge:MaxOutputTokens</c>), from 1 to <see cref="MaxReplyChars"/>; the request carries it as the cap of the SDK and the body patch of the tier names the field.</param>
+    /// <param name="systemPromptPrefix">The <c>SystemPromptPrefix</c> of the tier <paramref name="judgeTier"/>, sent as the system message of every judge call without its trailing white space; null, empty or white space sends no system message.</param>
+    /// <exception cref="ArgumentNullException">An argument other than <paramref name="judgeModelId"/> or <paramref name="systemPromptPrefix"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="rubric"/> is blank.</exception>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="judgeTier"/> is not a defined tier.</exception>
-    public JudgeService(Tier judgeTier, string? judgeModelId, string rubric, IProviderClientFactory providers, SecretRedactor redactor, RetryOptions retryOptions, Random random)
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="judgeTier"/> is not a defined tier, or <paramref name="maxOutputTokens"/> is not from 1 to 32768.</exception>
+    public JudgeService(
+        Tier judgeTier,
+        string? judgeModelId,
+        string rubric,
+        IProviderClientFactory providers,
+        SecretRedactor redactor,
+        RetryOptions retryOptions,
+        Random random,
+        int maxOutputTokens = JudgeOptions.DefaultMaxOutputTokens,
+        string? systemPromptPrefix = null)
     {
         if (!Enum.IsDefined(judgeTier))
         {
             throw new ArgumentOutOfRangeException(nameof(judgeTier), (int)judgeTier, "The judge tier is not a defined tier.");
+        }
+
+        if (maxOutputTokens is < 1 or > MaxReplyChars)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxOutputTokens), maxOutputTokens, "The judge output cap must be from 1 to 32768.");
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(rubric);
@@ -113,6 +130,10 @@ public sealed class JudgeService : IJudgeService
         _redactor = redactor ?? throw new ArgumentNullException(nameof(redactor));
         _retryOptions = retryOptions ?? throw new ArgumentNullException(nameof(retryOptions));
         _random = random ?? throw new ArgumentNullException(nameof(random));
+        _maxOutputTokens = maxOutputTokens;
+
+        // The same rule as AgentCatalog.InstructionsFor: a blank prefix is no prefix, and the trailing white space of a configured one is not sent.
+        _systemPrompt = string.IsNullOrWhiteSpace(systemPromptPrefix) ? null : systemPromptPrefix.TrimEnd();
     }
 
     /// <inheritdoc />
@@ -143,7 +164,7 @@ public sealed class JudgeService : IJudgeService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        bool selfJudged = !string.IsNullOrWhiteSpace(_modelId) && request.Steps.Any(step => string.Equals(step.ModelId, _modelId, StringComparison.Ordinal));
+        bool equalsAStepModel = request.Steps.Any(step => string.Equals(step.ModelId, _modelId, StringComparison.Ordinal));
         SortedSet<string> kinds = new(StringComparer.Ordinal);
         StepReading[] scored = new StepReading[request.Steps.Count];
         int judged = 0;
@@ -172,6 +193,9 @@ public sealed class JudgeService : IJudgeService
                 _ = kinds.Add(failure);
             }
         }
+
+        // The equality of the ids is a fact only when a step was judged by a configured model; otherwise the run makes no statement (null), never "false".
+        bool? selfJudged = judged > 0 && !string.IsNullOrWhiteSpace(_modelId) ? equalsAStepModel : null;
 
         return new JudgeResult(scored, selfJudged, judged, failed, [.. kinds]);
     }
@@ -254,7 +278,7 @@ public sealed class JudgeService : IJudgeService
                 services = services with { Meter = hosted };
             }
 
-            var identity = new StepIdentity(JudgeAgent, _modelId!, _tier, step.Task, step.Repeat, IsJudge: true, JudgedAgent: step.Agent);
+            var identity = new StepIdentity(TierOptions.JudgeAgentName, _modelId!, _tier, step.Task, step.Repeat, IsJudge: true, JudgedAgent: step.Agent);
             var ledger = new RetryLedger();
             Random jitter = JitterForOnePipeline();
             IChatClient provider = _providers.Create(_tier, _modelId!);
@@ -275,7 +299,7 @@ public sealed class JudgeService : IJudgeService
             using (pipeline)
             {
                 ChatResponse response = await pipeline
-                    .GetResponseAsync([new ChatMessage(ChatRole.User, prompt)], new ChatOptions { ModelId = _modelId, Temperature = 0f }, cancellationToken)
+                    .GetResponseAsync(Messages(prompt), new ChatOptions { ModelId = _modelId, Temperature = 0f, MaxOutputTokens = _maxOutputTokens }, cancellationToken)
                     .ConfigureAwait(false);
 
                 return response.Text;
@@ -288,6 +312,19 @@ public sealed class JudgeService : IJudgeService
                 await hosted.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    // The messages of one judge call: the system prompt prefix of the judge tier first, when it has one (so that a mode switch such as ReasoningMode off reaches the judge as it reaches an agent), then the prompt.
+    private List<ChatMessage> Messages(string prompt)
+    {
+        List<ChatMessage> messages = [];
+        if (_systemPrompt is not null)
+        {
+            messages.Add(new ChatMessage(ChatRole.System, _systemPrompt));
+        }
+
+        messages.Add(new ChatMessage(ChatRole.User, prompt));
+        return messages;
     }
 
     // Random.Shared is thread-safe and goes to the pipeline as it is; any other instance is not, so it only draws one seed per pipeline, under a lock (the rule of the agent factory).

@@ -833,7 +833,7 @@ public sealed partial class RunOrchestrationTests
             JudgeResult scored = await new NoOpJudgeService().ScoreAsync(new JudgeRequest(Tier.Local, steps, [], services), CancellationToken.None);
 
             Assert.Equal(steps, scored.Steps);
-            Assert.Equal((false, 0, 0), (scored.SelfJudged, scored.JudgedSteps, scored.FailedSteps));
+            Assert.Equal((null, 0, 0), (scored.SelfJudged, scored.JudgedSteps, scored.FailedSteps));
             Assert.Empty(scored.FailureKinds);
             Assert.All(scored.Steps, static step => Assert.Equal((MetricLabel.NotApplicable, "not-scored"), (step.Quality.Label, step.Quality.Reason)));
         }

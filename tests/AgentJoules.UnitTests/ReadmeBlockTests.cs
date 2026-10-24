@@ -342,7 +342,7 @@ public sealed partial class ReadmeBlockTests
 
         string bullet = Assert.Single(LinesOf(text), line => line.StartsWith("- nvidia:", StringComparison.Ordinal));
         Assert.Contains("; judge model-a;", bullet, StringComparison.Ordinal);
-        Assert.Contains("; self-judging yes;", bullet, StringComparison.Ordinal);
+        Assert.Contains("; self-judging yes \\(judge model model-a equals the step model id\\);", Plain(bullet), StringComparison.Ordinal);
         Assert.Contains(ReportSentences.JudgeExcluded, LinesOf(text));
         Assert.Contains(ReportSentences.SelfJudged, LinesOf(text));
     }
@@ -353,7 +353,10 @@ public sealed partial class ReadmeBlockTests
         string text = Block(CommittedRun(Tier.Local), CommittedRun(Tier.Nebius));
 
         Assert.DoesNotContain(ReportSentences.SelfJudged, text, StringComparison.Ordinal);
-        Assert.Contains("; judge " + RunDocumentFixtures.CommittedJudgeModel + "; self-judging no;", text, StringComparison.Ordinal);
+        // Two tiers that run the same model under another ID than the judge's: the line prints both IDs and says that the model IDs cannot decide it, never "no".
+        string plain = Plain(text);
+        Assert.Contains("; judge " + RunDocumentFixtures.CommittedJudgeModel + "; self-judging not determinable from the model ids \\(judge model " + RunDocumentFixtures.CommittedJudgeModel + "; step model ", plain, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"self-judging no\b", plain);
     }
 
     [Fact]

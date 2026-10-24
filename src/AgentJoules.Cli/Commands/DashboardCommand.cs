@@ -29,7 +29,6 @@ namespace AgentJoules.Cli.Commands;
 internal static class DashboardCommand
 {
     private const string Name = "dashboard";
-    private const string JudgeAgent = "Judge";
     private const int PathEchoLength = 256;
     private const double MaximumSeconds = BaselineOptions.MaximumSeconds;
 
@@ -204,7 +203,7 @@ internal static class DashboardCommand
     }
 
     private static bool IsKnownAgent(string agent) =>
-        TierOptions.KnownAgentNames.Contains(agent, StringComparer.Ordinal) || string.Equals(agent, JudgeAgent, StringComparison.Ordinal);
+        TierOptions.KnownAgentNames.Contains(agent, StringComparer.Ordinal) || string.Equals(agent, TierOptions.JudgeAgentName, StringComparison.Ordinal);
 
     // After a shutdown the sink is completed without waiting for its pump; otherwise it is disposed within the same bound as the server's stop, on the wall clock.
     private static async Task DisposeSinkAsync(DashboardSink sink, CancellationToken cancellationToken)

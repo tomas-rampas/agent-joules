@@ -103,17 +103,35 @@ public static class ReportHeader
             ? NotAvailable
             : string.Join(DisclosureSeparator, report.Models.Select(model => $"{Fact(model.Agent, escape)}={Fact(model.ModelId, escape)}"));
         string judge = report.JudgeModelIds.Count == 0 ? "none" : string.Join(DisclosureSeparator, report.JudgeModelIds.Select(id => Fact(id, escape)));
-        string selfJudging = report.SelfJudged switch
-        {
-            true => "yes",
-            false => "no",
-            null => "not judged",
-        };
+        string selfJudging = SelfJudging(report, escape);
         string methods = report.EnergyMethods.Count == 0 ? NotAvailable : string.Join(DisclosureSeparator, report.EnergyMethods.Select(Method));
 
         return $"- {name}: file {Fact(report.FileName, escape)}; run date {report.StartUtc.UtcDateTime.ToString(DateFormat, CultureInfo.InvariantCulture)}; status {Status(report.Status)}; mode {Mode(report.Mode)}; "
             + $"GPU {Fact(report.GpuName, escape)}; driver {Fact(report.DriverVersion, escape)}; local runtime {runtime}; precision {Fact(report.Precision, escape)}; "
             + $"reasoning mode {Fact(report.ReasoningMode, escape)}; power source {Fact(report.PowerSource, escape)}; models {models}; judge {judge}; self-judging {selfJudging}; energy method {methods}";
+    }
+
+    // The self-judging statement (REQ-010): three states, derived here from the equality fact of the file (run.selfJudged), the judge readings and the model IDs of the judged steps, so no schema member is added. It prints the IDs
+    // it compared and never asserts a negative the model IDs cannot support: two IDs that differ say nothing about whether the weights differ (a provider serves the same model under another ID), so the second state is
+    // "not determinable", never "no". "Not judged" is a tier without a judge reading (no ok step, a blank Judge:ModelId, the no-op judge) or a file that makes no statement. "Yes" needs the file's fact and every
+    // judged step's model ID equal to the one judge model ID (ordinal), as the file's own equality is "any step".
+    private static string SelfJudging(TierReport report, Func<string, string> escape)
+    {
+        if (report.SelfJudged is null || report.JudgeModelIds.Count == 0)
+        {
+            return $"not judged {escape("(")}no step was judged{escape(")")}";
+        }
+
+        string judge = string.Join(DisclosureSeparator, report.JudgeModelIds.Select(id => Fact(id, escape)));
+        IReadOnlyList<string> stepIds = report.JudgedStepModelIds;
+        if (report.SelfJudged == true && report.JudgeModelIds.Count == 1 && stepIds.Count > 0 && stepIds.All(id => string.Equals(id, report.JudgeModelIds[0], StringComparison.Ordinal)))
+        {
+            return $"yes {escape("(")}judge model {judge} equals the step model id{escape(")")}";
+        }
+
+        string steps = stepIds.Count == 0 ? NotAvailable : string.Join('+', stepIds.Select(id => Fact(id, escape)));
+
+        return $"not determinable from the model ids {escape("(")}judge model {judge}; step model {steps}; compared by model id only{escape(")")}";
     }
 
     // A missing fact is N/A; so is a fact that is empty after the cleaning, so a bullet never has a field with no text.

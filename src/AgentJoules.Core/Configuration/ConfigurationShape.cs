@@ -28,6 +28,7 @@ internal static class ConfigurationShape
         ("Meter:AllowBelowMinRate", Kind.Boolean),
         ("Baseline:Seconds", Kind.Number),
         ("Baseline:MaxCoefficientOfVariation", Kind.Number),
+        ("Judge:MaxOutputTokens", Kind.Integer),
         ("Workflow:Seed", Kind.Integer),
         ("CloudGpu:RequireSshVariables", Kind.Boolean),
         ("CloudGpu:HourlyPriceUsd", Kind.Number),

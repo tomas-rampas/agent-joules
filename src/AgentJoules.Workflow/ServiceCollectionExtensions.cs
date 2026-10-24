@@ -208,7 +208,7 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the <see cref="JudgeService"/> as the one <see cref="IJudgeService"/> of the process (REQ-010, design 3.4 "Judge"), built from <c>Judge:Tier</c>, <c>Judge:ModelId</c> and the rubric at
+    /// Registers the <see cref="JudgeService"/> as the one <see cref="IJudgeService"/> of the process (REQ-010, design 3.4 "Judge"), built from <c>Judge:Tier</c>, <c>Judge:ModelId</c>, <c>Judge:MaxOutputTokens</c>, the <c>SystemPromptPrefix</c> of the tier <c>Judge:Tier</c> names and the rubric at
     /// <c>Paths:Rubric</c>, together with the default <see cref="RetryOptions"/> and <see cref="Random.Shared"/> (keyed by <see cref="JitterKey"/>) that its judge calls retry a 429 with.
     /// </summary>
     /// <remarks>
@@ -254,7 +254,9 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<IProviderClientFactory>(),
                 provider.GetRequiredService<SecretRedactor>(),
                 provider.GetRequiredService<RetryOptions>(),
-                provider.GetRequiredKeyedService<Random>(JitterKey));
+                provider.GetRequiredKeyedService<Random>(JitterKey),
+                options.Judge.MaxOutputTokens,
+                options.Tiers.TryGetValue(options.Judge.Tier, out TierOptions? judgeTierOptions) ? judgeTierOptions?.SystemPromptPrefix : null);
         });
         return services;
     }

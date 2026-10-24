@@ -159,6 +159,7 @@ public static class ReportAggregator
         IReadOnlyList<StepReading> steps = document.Steps;
 
         string[] judgeModels = [.. document.Judge.Select(reading => reading.ModelId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        string[] judgedStepModels = JudgedStepModelIds(document);
         EnergyMethod[] methods = [.. steps.Where(step => step.Method is not null).Select(step => step.Method!.Value).Distinct().Order()];
         bool samplingFallback = steps.Any(step => step.Outcome == StepOutcomes.Ok && step.Flags.HasFlag(ReadingFlags.SamplingFallback));
 
@@ -178,11 +179,33 @@ public static class ReportAggregator
             environment.PowerSource,
             environment.Models,
             Array.AsReadOnly(judgeModels),
+            Array.AsReadOnly(judgedStepModels),
             info.SelfJudged,
             Array.AsReadOnly(methods),
             samplingFallback,
             info.Flags,
             document.Totals);
+    }
+
+    // The distinct model IDs, ordinal, of the workflow steps that a judge reading names (task, repeat and judged agent pair a reading with exactly one step, which RunDocument guarantees); a reading whose step is
+    // missing contributes nothing.
+    private static string[] JudgedStepModelIds(RunDocument document)
+    {
+        var modelByStep = new Dictionary<(string Task, int Repeat, string Agent), string>();
+        foreach (StepReading step in document.Steps)
+        {
+            _ = modelByStep.TryAdd((step.Task, step.Repeat, step.Agent), step.ModelId);
+        }
+
+        return
+        [
+            .. document.Judge
+                .Where(reading => reading.JudgedAgent is not null)
+                .Select(reading => modelByStep.TryGetValue((reading.Task, reading.Repeat, reading.JudgedAgent!), out string? model) ? model : null)
+                .OfType<string>()
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
     }
 
     // One pass over steps[] groups the steps by task and agent and notes where each agent first appears, so the rows cost O(S log S) however many distinct tasks and agents a file holds.

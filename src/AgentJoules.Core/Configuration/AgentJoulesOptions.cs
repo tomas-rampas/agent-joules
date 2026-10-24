@@ -30,7 +30,8 @@ public sealed class AgentJoulesOptions
     /// </summary>
     public Dictionary<string, TierOptions> Tiers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Section <c>Judge</c>: which tier and model score the answers; checked by <see cref="CrossFieldValidator"/>.</summary>
+    /// <summary>Section <c>Judge</c>: which tier and model score the answers and how long a reply may be; <c>Tier</c> is checked by <see cref="CrossFieldValidator"/>, <c>MaxOutputTokens</c> by the generated validator.</summary>
+    [ValidateObjectMembers]
     public JudgeOptions Judge { get; set; } = new();
 
     /// <summary>Section <c>Workflow</c>: settings of the agent workflow that every tier shares.</summary>

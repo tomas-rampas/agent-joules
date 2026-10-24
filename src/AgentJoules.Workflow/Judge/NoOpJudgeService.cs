@@ -7,12 +7,12 @@ namespace AgentJoules.Workflow.Judge;
 public sealed class NoOpJudgeService : IJudgeService
 {
     /// <inheritdoc />
-    /// <returns>The steps of <paramref name="request"/> itself, nothing judged, nothing failed and not self-judged.</returns>
+    /// <returns>The steps of <paramref name="request"/> itself, nothing judged, nothing failed and no self-judging statement (null).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
     public Task<JudgeResult> ScoreAsync(JudgeRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(new JudgeResult(request.Steps, SelfJudged: false, JudgedSteps: 0, FailedSteps: 0, FailureKinds: []));
+        return Task.FromResult(new JudgeResult(request.Steps, SelfJudged: null, JudgedSteps: 0, FailedSteps: 0, FailureKinds: []));
     }
 }

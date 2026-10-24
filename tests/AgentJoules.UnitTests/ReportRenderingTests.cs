@@ -2249,11 +2249,11 @@ public sealed partial class ReportRenderingTests
 
         Assert.Equal("# Agent Joules results", lines[0]);
         Assert.Equal(
-            "- local: file 20261023T093000Z-local.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU Test GPU; driver 555.00; local runtime ollama 0.1.0; precision Q4\\_K\\_M; reasoning mode off; power source N/A; models Planner=model-a, Writer=model-b; judge none; self-judging no; energy method counter",
+            "- local: file 20261023T093000Z-local.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU Test GPU; driver 555.00; local runtime ollama 0.1.0; precision Q4\\_K\\_M; reasoning mode off; power source N/A; models Planner=model-a, Writer=model-b; judge none; self-judging not judged \\(no step was judged\\); energy method counter",
             lines[1]);
         Assert.Equal("- cloudgpu: not run", lines[2]);
         Assert.Equal(
-            $"- nvidia: file 20261023T093000Z-nvidia.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU N/A; driver N/A; local runtime N/A; precision N/A; reasoning mode off; power source N/A; models {models}; judge none; self-judging no; energy method N/A",
+            $"- nvidia: file 20261023T093000Z-nvidia.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU N/A; driver N/A; local runtime N/A; precision N/A; reasoning mode off; power source N/A; models {models}; judge none; self-judging not judged \\(no step was judged\\); energy method N/A",
             lines[3]);
         Assert.Equal("- nebius: not run", lines[4]);
         Assert.Equal(string.Empty, lines[5]);
@@ -2596,23 +2596,31 @@ public sealed partial class ReportRenderingTests
     [Fact]
     public void Self_judged_disclosed()
     {
-        SelectedRun run = RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { SelfJudged = true } });
+        // The judge reading names the same model ID as the only judged step (model-a), the run flag says so: the line prints both IDs.
+        SelectedRun run = RunOf(
+            Tier.Local,
+            NetSteps(Tier.Local, 1.0),
+            judge: [Step(Tier.Nvidia, agent: "Judge", modelId: "model-a", judgedAgent: Planner)],
+            edit: document => document with { Run = document.Run with { SelfJudged = true } });
         string text = Render(run);
 
-        Assert.Contains("; self-judging yes;", text, StringComparison.Ordinal);
+        Assert.Contains("; self-judging yes \\(judge model model-a equals the step model id\\);", text, StringComparison.Ordinal);
         Assert.Equal(1, text.Split(ReportSentences.SelfJudged).Length - 1);
         Assert.Contains(ReportSentences.SelfJudged, DisclosureLines(text));
     }
 
     [Fact]
-    public void Self_judging_is_no_when_false_and_not_judged_when_unknown()
+    public void Self_judging_is_not_determinable_when_false_and_not_judged_when_unknown()
     {
-        string no = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)));
-        string unknown = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), edit: document => document with { Run = document.Run with { SelfJudged = null } }));
+        StepReading[] judge = [Step(Tier.Nvidia, agent: "Judge", modelId: "judge-x", judgedAgent: Planner)];
+        string differs = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), judge: judge));
+        string unknown = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0), judge: judge, edit: document => document with { Run = document.Run with { SelfJudged = null } }));
+        string noJudge = Render(RunOf(Tier.Local, NetSteps(Tier.Local, 1.0)));
 
-        Assert.Contains("; self-judging no;", no, StringComparison.Ordinal);
-        Assert.DoesNotContain(ReportSentences.SelfJudged, no, StringComparison.Ordinal);
-        Assert.Contains("; self-judging not judged;", unknown, StringComparison.Ordinal);
+        Assert.Contains("; self-judging not determinable from the model ids \\(judge model judge-x; step model model-a; compared by model id only\\);", differs, StringComparison.Ordinal);
+        Assert.DoesNotContain(ReportSentences.SelfJudged, differs, StringComparison.Ordinal);
+        Assert.Contains("; self-judging not judged \\(no step was judged\\);", unknown, StringComparison.Ordinal);
+        Assert.Contains("; self-judging not judged \\(no step was judged\\);", noJudge, StringComparison.Ordinal);
     }
 
     [Fact]

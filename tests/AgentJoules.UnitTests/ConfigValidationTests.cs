@@ -1125,4 +1125,57 @@ public sealed class ConfigValidationTests
         Assert.Equal(100, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Dashboard.PowerIntervalMs);
         Assert.Equal(100, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Dashboard.PowerIntervalMs);
     }
+
+    // ---- M3 exit: Judge:MaxOutputTokens ----
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("32769")]
+    public void Judge_max_output_tokens_out_of_range_exits_2(string tokens)
+    {
+        ConfigurationException failure = Rejected(("Judge:MaxOutputTokens", tokens));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Judge:MaxOutputTokens must be a whole number from 1 to 32768", failure.Message);
+        Assert.DoesNotContain(tokens, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("1")]
+    [InlineData("32")]
+    [InlineData("32768")]
+    public void Judge_max_output_tokens_within_range_passes(string tokens)
+    {
+        Assert.Equal(int.Parse(tokens, CultureInfo.InvariantCulture), Load(("Judge:MaxOutputTokens", tokens)).Judge.MaxOutputTokens);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("32.5")]
+    [InlineData("many")]
+    public void Judge_max_output_tokens_that_is_not_a_whole_number_exits_2_without_echoing_it(string tokens)
+    {
+        ConfigurationException failure = Rejected(("Judge:MaxOutputTokens", tokens));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Judge:MaxOutputTokens must be an integer", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(tokens, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-010")]
+    public void The_judge_reply_cap_defaults_to_32_and_the_shipped_file_says_so()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement judge = document.RootElement.GetProperty(AgentJoulesOptions.SectionName).GetProperty("Judge");
+
+        Assert.Equal(32, JudgeOptions.DefaultMaxOutputTokens);
+        Assert.Equal(32, judge.GetProperty("MaxOutputTokens").GetInt32());
+        Assert.Equal(32, new AgentJoulesOptions().Judge.MaxOutputTokens);
+        Assert.Equal(32, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Judge.MaxOutputTokens);
+        Assert.Equal(32, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Judge.MaxOutputTokens);
+    }
 }
