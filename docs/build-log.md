@@ -1915,4 +1915,4 @@ No cut is applied at the M3 exit; the user decides (decision 1 in `## User decis
 
 ## M3 exit addendum
 
-- 2026-10-24: exit commit 6ed6e38 on `milestone/M3` at 14:22Z; merged into `main` with `--no-ff` as 3b08560 at 14:22Z and pushed; the remote `milestone/M3` deleted (kickoff decision 3). CI run 40093689832 on 3b08560: build (ubuntu-latest) success 12:23:00Z to 12:25:41Z, build (windows-latest) success 12:23:00Z to 12:27:10Z; no environment-dependent fix needed (the branch run 40089605895 had already passed both runners). This addendum is the last M3 commit; the M4 kickoff starts from it.
+- 2026-10-24: exit commit 6ed6e38 on `milestone/M3` at 12:22Z; merged into `main` with `--no-ff` as 3b08560 at 12:22Z and pushed; the remote `milestone/M3` deleted (kickoff decision 3). CI run 40093689832 on 3b08560: build (ubuntu-latest) success 12:23:00Z to 12:25:41Z, build (windows-latest) success 12:23:00Z to 12:27:10Z; no environment-dependent fix needed (the branch run 40089605895 had already passed both runners). This addendum is the last M3 commit; the M4 kickoff starts from it.
