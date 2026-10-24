@@ -36,4 +36,11 @@ public sealed record JudgeRequest(Tier Tier, IReadOnlyList<StepReading> Steps, I
 /// <param name="JudgedSteps">How many steps were sent to the judge: ok steps with output.</param>
 /// <param name="FailedSteps">How many of those ended with a quality that is N/A (a failed call, a reply that did not parse, a refusal).</param>
 /// <param name="FailureKinds">The distinct kinds of those failures, in ordinal order: exception type names, <c>parse-error</c> or a refusal token.</param>
-public sealed record JudgeResult(IReadOnlyList<StepReading> Steps, bool? SelfJudged, int JudgedSteps, int FailedSteps, IReadOnlyList<string> FailureKinds);
+public sealed record JudgeResult(IReadOnlyList<StepReading> Steps, bool? SelfJudged, int JudgedSteps, int FailedSteps, IReadOnlyList<string> FailureKinds)
+{
+    /// <summary>
+    /// One line per distinct failure kind, in the order of <see cref="FailureKinds"/>: <c>&lt;kind&gt;: &lt;first line of the redacted, cleaned message, at most 120 characters&gt;</c> (user decision 4 of the M3 exit);
+    /// a kind whose failure had no message has no detail. Empty when nothing failed or the judge does not report details (the no-op judge).
+    /// </summary>
+    public IReadOnlyList<string> FailureDetails { get; init; } = [];
+}

@@ -41,6 +41,17 @@ public interface IRunListener
     /// <param name="failureKinds">The distinct failure kinds in ordinal order: exception type names, <c>parse-error</c> or a refusal token; never a message.</param>
     void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds);
 
+    /// <summary>
+    /// The same event with the reasons of the failures (user decision 4 of the M3 exit): one redacted, bounded line per distinct kind, <c>&lt;kind&gt;: &lt;first line of the message&gt;</c>. The orchestrator calls this one; the default
+    /// forwards to <see cref="JudgeFailed(Tier, int, int, IReadOnlyList{string})"/> so a listener that does not print reasons stays valid.
+    /// </summary>
+    /// <param name="tier">The tier whose steps were judged.</param>
+    /// <param name="failedSteps">How many of the judged steps ended with a quality that is N/A; at least 1.</param>
+    /// <param name="judgedSteps">How many steps were sent to the judge.</param>
+    /// <param name="failureKinds">The distinct failure kinds in ordinal order.</param>
+    /// <param name="failureDetails">The reason lines, possibly empty.</param>
+    void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string> failureDetails) => JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
+
     /// <summary>A tier completed and its final document was written.</summary>
     /// <param name="displayPath">The file as the user names it: the <c>--out</c> value as given, a forward slash and the file name.</param>
     /// <param name="totals">The totals of the final document.</param>

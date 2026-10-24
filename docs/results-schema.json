@@ -345,7 +345,8 @@
               "below-baseline",
               "throttled",
               "partial-offload",
-              "max-tokens-exceeded"
+              "max-tokens-exceeded",
+              "duplicate-output"
             ]
           },
           "uniqueItems": true
@@ -1320,7 +1321,8 @@
               "below-baseline",
               "throttled",
               "partial-offload",
-              "max-tokens-exceeded"
+              "max-tokens-exceeded",
+              "duplicate-output"
             ]
           },
           "uniqueItems": true

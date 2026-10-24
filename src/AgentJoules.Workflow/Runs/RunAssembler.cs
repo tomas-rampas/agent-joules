@@ -202,7 +202,7 @@ public static class RunAssembler
         return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, SelfJudged: selfJudged);
     }
 
-    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
+    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its shared-window flag (<see cref="MarkSharedWindows"/>), its duplicate-output flag (<see cref="MarkDuplicateOutputs"/>) and its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
     /// <param name="run">The run member; its tier and mode decide the totals.</param>
     /// <param name="environment">The environment member.</param>
     /// <param name="probe">The probe of a measured tier, or null.</param>
@@ -231,7 +231,7 @@ public static class RunAssembler
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
 
-        StepReading[] stepCopy = [.. MarkSharedWindows(run.Tier, steps).Select(WithDerivedMetrics)];
+        StepReading[] stepCopy = [.. MarkDuplicateOutputs(MarkSharedWindows(run.Tier, steps)).Select(WithDerivedMetrics)];
         StepReading[] judgeCopy = [.. judge];
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
@@ -311,6 +311,44 @@ public static class RunAssembler
             if (shared[k] && !step.Flags.HasFlag(ReadingFlags.SharedWindow))
             {
                 marked[windowed[k]] = Copy(step, flags: step.Flags | ReadingFlags.SharedWindow);
+            }
+        }
+
+        return marked;
+    }
+
+    /// <summary>
+    /// Flags repeated outputs (user decision 3 of the M3 exit, AJ-104): every workflow step that finished <c>ok</c> with output (<see cref="StepReading.OutputChars"/> above 0) and whose
+    /// <see cref="StepReading.OutputSha256"/> equals that of an earlier step of the same task and the same repeat (one workflow run: the echo of the Writer of the output of the Planner) is copied with <see cref="ReadingFlags.DuplicateOutput"/> added. Earlier is by start time, and by position
+    /// in the list for equal start times; identical outputs of different repeats or different tasks are expected at temperature 0 and are never compared; the earlier step itself is not flagged, so three equal outputs flag the second and the third. A step without a recorded hash neither is flagged nor makes a later one a
+    /// duplicate. Pass the workflow steps only: the judge readings are never part of it. The flag changes no sum, and the input is not changed, so assembling again gives the same flags.
+    /// </summary>
+    /// <param name="steps">The workflow steps, in run order.</param>
+    /// <returns>The steps in the same order: a flagged copy where an output repeats, the same reading otherwise.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="steps"/> is null or holds a null.</exception>
+    public static StepReading[] MarkDuplicateOutputs(IReadOnlyList<StepReading> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        StepReading[] marked = [.. steps];
+        foreach (StepReading step in marked)
+        {
+            ArgumentNullException.ThrowIfNull(step, nameof(steps));
+        }
+
+        HashSet<(string Task, int Repeat, string Hash)> seen = [];
+        foreach (int index in Enumerable.Range(0, marked.Length).OrderBy(i => marked[i].StartUtc).ThenBy(static i => i))
+        {
+            StepReading step = marked[index];
+            if (step.OutputSha256 is not { Length: > 0 } hash)
+            {
+                continue;
+            }
+
+            bool repeated = !seen.Add((step.Task, step.Repeat, hash));
+            if (repeated && step.OutputChars is > 0 && string.Equals(step.Outcome, StepOutcomes.Ok, StringComparison.Ordinal) && !step.Flags.HasFlag(ReadingFlags.DuplicateOutput))
+            {
+                marked[index] = Copy(step, flags: step.Flags | ReadingFlags.DuplicateOutput);
             }
         }
 

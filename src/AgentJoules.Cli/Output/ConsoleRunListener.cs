@@ -32,5 +32,9 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
         _reporter.ReportJudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
 
     /// <inheritdoc />
+    public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string> failureDetails) =>
+        _reporter.ReportJudgeFailed(tier, failedSteps, judgedSteps, failureKinds, failureDetails);
+
+    /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => _reporter.ReportTierFailed(displayPath, agent, status);
 }

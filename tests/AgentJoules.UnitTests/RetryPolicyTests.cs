@@ -600,7 +600,7 @@ public sealed partial class RetryPolicyTests
         Assert.Equal(StepOutcomes.Error, OutcomeClassifier.Classify(failure, Tier.Nebius, firstUpdateSeen: true, CancellationToken.None));
     }
 
-    // ----- criterion 5: only 429 is retried
+    // ----- criterion 5: only an overload is retried (429 here; 503 and 500 with ResourceExhausted in RetryPolicyTests.ProviderError.cs, user decision 3 of the M3 exit)
 
     [Theory]
     [InlineData(400)]
@@ -609,8 +609,7 @@ public sealed partial class RetryPolicyTests
     [InlineData(404)]
     [InlineData(500)]
     [InlineData(502)]
-    [InlineData(503)]
-    public async Task A_response_other_than_429_is_attempted_once(int status)
+    public async Task A_response_other_than_an_overload_is_attempted_once(int status)
     {
         await using Rig rig = await Rig.CreateAsync(handler => handler.SetStatuses(FakeRoute.ChatCompletions, status));
 

@@ -14,6 +14,14 @@ public sealed class NoOpLocalRuntime : ILocalRuntime
     public string Name => NoneName;
 
     /// <inheritdoc />
+    /// <returns>A completed task: the no-op runtime has nothing to check.</returns>
+    public Task CheckAvailableAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
     /// <returns><see cref="LocalRuntimeInfo.Unknown"/>, every member null.</returns>
     public Task<LocalRuntimeInfo> DescribeAsync(CancellationToken cancellationToken)
     {

@@ -5,7 +5,6 @@ using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Live;
 using AgentJoules.Nvml;
 using AgentJoules.Workflow;
-using AgentJoules.Workflow.Local;
 using AgentJoules.Workflow.Runs;
 
 using Microsoft.Extensions.Configuration;
@@ -213,14 +212,14 @@ internal static class AgentJoulesHostFactory
         services.AddSingleton(new ConsoleReporter(output, error));
 
         // The composition root of every command (AJ-054, AJ-056): the provider clients of the tiers (registered once; a second call throws), the preflight with the dry run, the
-        // orchestrator of a measured run and the seams it takes: the cost calculator (the price-table one of M3, read from Paths:Prices only when first resolved), the judge service (AddAgentJoulesJudge, the rubric read from Paths:Rubric only when first resolved), the no-op local runtime (M4) and
+        // orchestrator of a measured run and the seams it takes: the cost calculator (the price-table one of M3, read from Paths:Prices only when first resolved), the judge service (AddAgentJoulesJudge, the rubric read from Paths:Rubric only when first resolved), the local runtime that Local:Runtime selects (ollama, or the no-op one until the NIM runtime of AJ-105) and
         // the console listener of the step lines. The meter gate, the agent factory and the instruments belong to run and are added by its service hook. Nothing here is resolved
         // unless a command asks for it.
         services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
         services.AddSingleton<IRunOrchestrator, RunOrchestrator>();
         services.AddAgentJoulesCost(contentRoot);
         services.AddAgentJoulesJudge(contentRoot);
-        services.TryAddSingleton<ILocalRuntime, NoOpLocalRuntime>();
+        services.AddAgentJoulesLocalRuntime();
         services.AddSingleton<IRunListener, ConsoleRunListener>();
 
         // The live sink of the orchestrator: the null sink unless the dashboard registers its own (AJ-091).

@@ -67,6 +67,9 @@ public static class PreflightFixtures
         _ = services.AddSingleton(redactor);
         _ = services.AddAgentJoulesProviderClients().AddAgentJoulesPreflight();
 
+        // The preflight requires a local runtime; these hosts have none to ask, whatever Local:Runtime says.
+        _ = services.AddSingleton<AgentJoules.Workflow.Local.ILocalRuntime>(new AgentJoules.Workflow.Local.NoOpLocalRuntime());
+
         foreach (string tierName in TierOptions.KnownNames)
         {
             FakeHttpMessageHandler handler = endpoints is not null && endpoints.TryGetValue(tierName, out FakeHttpMessageHandler? given) ? given : new FakeHttpMessageHandler();

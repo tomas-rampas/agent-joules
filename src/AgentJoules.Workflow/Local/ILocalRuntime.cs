@@ -10,6 +10,16 @@ public interface ILocalRuntime
     /// <summary>The short name of the runtime, for example <c>ollama</c> or <c>nim</c>; <c>none</c> for the no-op runtime.</summary>
     string Name { get; }
 
+    /// <summary>
+    /// Checks that the runtime answers before any request that depends on it (EDGE-009): the preflight asks it for the local tier, ahead of the model-list check, so a runtime that is not running is
+    /// reported with the command that starts it instead of as a bare connection error. A runtime with nothing to check returns a completed task.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the request to the runtime; a cancellation by the caller is not an unreachable runtime.</param>
+    /// <returns>A task that completes when the runtime answered.</returns>
+    /// <exception cref="Core.Cli.EndpointUnreachableException">The runtime refused the connection, did not answer in time or answered a status other than success (exit code 5).</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    Task CheckAvailableAsync(CancellationToken cancellationToken);
+
     /// <summary>Describes the runtime for the <c>environment</c> of a run: name, version, GPU offload and precision; a value the runtime cannot state is null.</summary>
     /// <param name="cancellationToken">Cancels the request to the runtime.</param>
     /// <returns>The description; every member is null when nothing is known.</returns>

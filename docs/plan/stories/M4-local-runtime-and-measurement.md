@@ -318,6 +318,7 @@ Demo relevance: yes: the video and README state which local runtime produced the
 
 ### AJ-104: Report Ollama failures with the exact fix command
 Covers: EDGE-009
+Note (2026-10-24, AJ-104): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-104-ollama-failures.feature (the table's OllamaFailures.feature); the availability check is GET /api/version on the native base (the configured BaseUrl without /v1) and the message names that base; the pull hint ends the ModelNotFoundException message as "; fix: ollama pull <tag>" per missing tag; the story also carries user decisions 3 and 4 (a provider error outcome for an in-stream error chunk, 503 and 500 ResourceExhausted retried, the judge warning with status and reason) and the duplicate-output step flag scoped to one task and repeat (docs/build-log.md, the AJ-104 entry); built in a detached worktree and applied onto milestone/M4.
 User story: As a developer running the local tier, I want a clear message when Ollama is not running or the model is not pulled, so that I can fix the problem with one command.
 Acceptance criteria:
 1. With the Ollama endpoint refusing connections, `AJ run --tier local --dry-run` exits 5 and the output contains the configured endpoint and the text `ollama serve`.
@@ -376,8 +377,8 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/OllamaFailures.feature; unit class LocalRuntimeTests (design 6.1) with `[Trait("Spec","EDGE-009")]`.
 Docs impact: docs/build-log.md (messages); README troubleshooting and exit-code rows 4 and 5 (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
 - [ ] both messages checked against the live check in AJ-107
 Demo relevance: no.
 

@@ -806,6 +806,7 @@ public sealed class ProviderClientTests
         var services = new ServiceCollection();
         _ = services.AddSingleton(ProviderClientFixtures.KeyConfiguration());
         _ = services.AddSingleton<IOptions<AgentJoulesOptions>>(Options.Create(ProviderClientFixtures.FourTiers()));
+        _ = services.AddSingleton(new AgentJoules.Core.Security.SecretRedactor());
         _ = services.AddAgentJoulesProviderClients();
         using ServiceProvider provider = services.BuildServiceProvider();
         IOptionsMonitor<HttpClientFactoryOptions> monitor = provider.GetRequiredService<IOptionsMonitor<HttpClientFactoryOptions>>();
@@ -822,7 +823,12 @@ public sealed class ProviderClientTests
 
             using SocketsHttpHandler primary = Assert.IsType<SocketsHttpHandler>(builder.PrimaryHandler);
             Assert.False(primary.AllowAutoRedirect);
-            _ = Assert.Single(builder.AdditionalHandlers);
+
+            // The body patch of the tier and the detection of an in-stream error (AJ-104), in this order.
+            Assert.Collection(
+                builder.AdditionalHandlers,
+                static first => Assert.IsType<RequestBodyPatchHandler>(first),
+                static second => Assert.IsType<StreamErrorDetectingHandler>(second));
         }
     }
 

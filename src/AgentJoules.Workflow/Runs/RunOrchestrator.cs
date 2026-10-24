@@ -240,7 +240,7 @@ public sealed class RunOrchestrator(
             // The counts and the kinds travel in the result; no message does. A skipped judge (no result) and a judge that scored every step tell nothing.
             if (judged is { FailedSteps: > 0 } failures)
             {
-                listening.Tell(listener => listener.JudgeFailed(tier, failures.FailedSteps, failures.JudgedSteps, failures.FailureKinds));
+                listening.Tell(listener => listener.JudgeFailed(tier, failures.FailedSteps, failures.JudgedSteps, failures.FailureKinds, failures.FailureDetails));
             }
 
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));

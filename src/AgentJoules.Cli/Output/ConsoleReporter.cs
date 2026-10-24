@@ -31,6 +31,9 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     // The --out value is the operator's own text; it is scrubbed, and cut only when it is far longer than a path. The same cut as the partial-file suffix of the step failure message.
     private const int MaxPathLength = StepFailedException.MaxPartialFileLength;
 
+    // One failure detail of the judge warning: a kind of a few dozen characters, a colon and a reason of at most 120.
+    private const int MaxJudgeReasonLength = 200;
+
     private readonly TextWriter _error = error ?? throw new ArgumentNullException(nameof(error));
 
     /// <summary>The writer for results: the step lines and the closing lines of a run.</summary>
@@ -268,22 +271,31 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
 
     /// <summary>
     /// Warns that the judge failed for some steps of a tier run (EDGE-012): exactly one line to the error writer, <c>Warning: the judge failed for &lt;f&gt; of &lt;n&gt; steps of tier &lt;tier&gt;
-    /// (&lt;kinds&gt;); their quality is N/A and the exit code is unchanged</c>. The kinds are exception type names and refusal tokens, each scrubbed of control characters and cut when far too long;
-    /// no message of a failure, no URL, no key and no model text is ever printed, because none of them reaches this method.
+    /// (&lt;kinds&gt;); their quality is N/A and the exit code is unchanged</c>. The kinds are exception type names (with the HTTP status when the failure carried one) and refusal tokens, each scrubbed of control characters and
+    /// cut when far too long; with reasons, the parentheses read <c>(&lt;kinds&gt;; reasons: &lt;kind&gt;: &lt;reason&gt;; ...)</c>. A reason is the first line of the message of the failure, masked and cut to 120 characters by the judge;
+    /// no other text of a response, no URL, no key and no model text is ever printed, because none of them reaches this method.
     /// </summary>
     /// <param name="tier">The tier whose steps were judged.</param>
     /// <param name="failedSteps">How many judged steps failed.</param>
     /// <param name="judgedSteps">How many steps were sent to the judge.</param>
     /// <param name="failureKinds">The distinct failure kinds, in the order to print.</param>
+    /// <param name="failureDetails">
+    /// The reason lines, <c>&lt;kind&gt;: &lt;first line of the redacted message&gt;</c>, printed after the kinds as <c>; reasons: a; b</c> inside the parentheses; null or empty prints no reasons. They come from the judge already
+    /// redacted and bounded, and each is scrubbed and cut again here.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="failureKinds"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
-    public void ReportJudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds)
+    public void ReportJudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string>? failureDetails = null)
     {
         ArgumentNullException.ThrowIfNull(failureKinds);
 
+        // The reasons follow the kinds inside the parentheses; each is a line the judge already masked and bounded, scrubbed and cut again here.
         string kinds = string.Join(", ", failureKinds.Select(static kind => TextEcho.ForMessage(kind)));
+        string reasons = failureDetails is { Count: > 0 }
+            ? "; reasons: " + string.Join("; ", failureDetails.Select(static detail => TextEcho.ForMessage(detail, MaxJudgeReasonLength)))
+            : string.Empty;
         _error.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"Warning: the judge failed for {failedSteps} of {judgedSteps} steps of tier {TierOptions.NameOf(tier)} ({kinds}); their quality is N/A and the exit code is unchanged"));
+            $"Warning: the judge failed for {failedSteps} of {judgedSteps} steps of tier {TierOptions.NameOf(tier)} ({kinds}{reasons}); their quality is N/A and the exit code is unchanged"));
     }
 }

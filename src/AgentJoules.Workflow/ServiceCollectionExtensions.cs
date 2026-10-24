@@ -6,6 +6,7 @@ using AgentJoules.Core.Security;
 using AgentJoules.Metering;
 using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Judge;
+using AgentJoules.Workflow.Local;
 using AgentJoules.Workflow.Providers;
 using AgentJoules.Workflow.Runs;
 
@@ -66,7 +67,7 @@ public static class ServiceCollectionExtensions
     /// The default primary handler does not follow redirects: a redirect would send the request, and with it the key header and the prompt, to a host the tier
     /// does not name. The registration uses the standard <see cref="IHttpClientBuilder"/> pipeline, so a test replaces the primary handler of a tier with
     /// <c>services.AddHttpClient(ProviderClientFactory.HttpClientName("nvidia")).ConfigurePrimaryHttpMessageHandler(...)</c> and the isolated harness can do
-    /// the same for every name. The caller registers <see cref="IConfiguration"/> and <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host does); the extra
+    /// the same for every name. The caller registers <see cref="IConfiguration"/>, <c>IOptions&lt;AgentJoulesOptions&gt;</c> and the <see cref="Core.Security.SecretRedactor"/> that the detection of an in-stream error (<see cref="StreamErrorDetectingHandler"/>) masks provider text with (the host does); the extra
     /// body of a tier that is not valid JSON fails when its client is first created, after the configuration validator rejected it at start.
     /// </remarks>
     /// <param name="services">The collection to add the clients to.</param>
@@ -92,7 +93,8 @@ public static class ServiceCollectionExtensions
                 {
                     AgentJoulesOptions options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
                     return RequestBodyPatchHandler.For(options.Tiers.GetValueOrDefault(tierName), tierName);
-                });
+                })
+                .AddHttpMessageHandler(static provider => new StreamErrorDetectingHandler(provider.GetRequiredService<SecretRedactor>()));
         }
 
         // The interface is what the agent factory depends on; it resolves to the one concrete singleton, so a test replaces the interface registration
@@ -165,6 +167,29 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ModelCatalogClient>();
         services.TryAddSingleton<PreflightService>();
         services.TryAddSingleton<DryRunService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="ILocalRuntime"/> the <c>Local:Runtime</c> setting selects (AJ-104, design 3.4 "Local runtimes"): <c>ollama</c> gives the <see cref="OllamaRuntime"/>, which asks the preflight's
+    /// availability check; every other value (<c>nim</c> until AJ-105 adds its runtime) keeps the <see cref="NoOpLocalRuntime"/> of M2.
+    /// </summary>
+    /// <remarks>
+    /// A factory, so the setting is read when the runtime is first resolved, after the options were validated. The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes
+    /// nothing, and a test replaces it with <c>RemoveAll&lt;ILocalRuntime&gt;()</c> followed by <c>AddSingleton</c>. The Ollama runtime asks through the named HTTP client of the local tier, so the
+    /// provider clients (<see cref="AddAgentJoulesProviderClients(IServiceCollection)"/>) must be registered; the host does.
+    /// </remarks>
+    /// <param name="services">The collection to add the runtime to.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    public static IServiceCollection AddAgentJoulesLocalRuntime(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<ILocalRuntime>(static provider =>
+            string.Equals(provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value.Local.Runtime, LocalOptions.Ollama, StringComparison.Ordinal)
+                ? new OllamaRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>())
+                : new NoOpLocalRuntime());
         return services;
     }
 

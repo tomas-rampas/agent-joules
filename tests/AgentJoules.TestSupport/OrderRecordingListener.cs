@@ -21,7 +21,7 @@ public sealed class OrderRecordingListener(IRunListener inner, Func<string?> sta
     /// <summary>The names of the calls received so far, in order.</summary>
     public IReadOnlyList<string> Calls => [.. _calls];
 
-    /// <summary>The status of the results file at the moment <see cref="JudgeFailed"/> was told, or null when it was not told or the file did not exist yet.</summary>
+    /// <summary>The status of the results file at the moment <c>JudgeFailed</c> was told, or null when it was not told or the file did not exist yet.</summary>
     public string? StatusAtJudgeFailed { get; private set; }
 
     /// <inheritdoc />
@@ -58,6 +58,14 @@ public sealed class OrderRecordingListener(IRunListener inner, Func<string?> sta
         StatusAtJudgeFailed = statusAtJudgeFailed();
         _calls.Enqueue(nameof(JudgeFailed));
         inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
+    }
+
+    /// <inheritdoc />
+    public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string> failureDetails)
+    {
+        StatusAtJudgeFailed = statusAtJudgeFailed();
+        _calls.Enqueue(nameof(JudgeFailed));
+        inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds, failureDetails);
     }
 
     /// <inheritdoc />

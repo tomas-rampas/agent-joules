@@ -263,6 +263,8 @@ public sealed partial class RunOrchestrationTests
 
         public string Name => "recording";
 
+        public Task CheckAvailableAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task<LocalRuntimeInfo> DescribeAsync(CancellationToken cancellationToken)
         {
             Add("describe");

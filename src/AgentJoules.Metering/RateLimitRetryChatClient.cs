@@ -10,19 +10,21 @@ using Microsoft.Extensions.AI;
 namespace AgentJoules.Metering;
 
 /// <summary>
-/// Retries a call that the provider answered with HTTP 429 (EDGE-006, ADR-11). In the pipeline of an agent it sits directly under the metering decorator
+/// Retries a call that the provider rejected as overloaded: HTTP 429 (EDGE-006, ADR-11), HTTP 503, HTTP 500 whose message names <c>ResourceExhausted</c>, and the same two as an in-stream error
+/// (<see cref="ProviderErrorException"/>, user decision 3 of the M3 exit). In the pipeline of an agent it sits directly under the metering decorator
 /// and over the provider client: <c>MeteredChatClient -> RateLimitRetryChatClient -> OpenAIChatClient</c>, so every attempt and every wait is inside the
 /// measurement window and the reading is still one per call.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Only a <see cref="ClientResultException"/> whose <see cref="ClientResultException.Status"/> is 429 is retried: a 500, a timeout, a cancellation and a
-/// connection error are attempted once and surface unchanged. The SDK's own retry is switched off (AJ-044), so one attempt is exactly one HTTP request. A
-/// streaming call is retried only when the 429 comes out of the first <c>MoveNextAsync</c>, which is when the SDK sends the request and reads the status;
-/// once a first update was handed to the consumer, every later failure, a 429 included, propagates, because the consumer has already seen part of an answer.
+/// Only a rejection of overload is retried (<see cref="RetryStatusOf"/>): a <see cref="ClientResultException"/> whose <see cref="ClientResultException.Status"/> is 429 or 503, or is 500 with the text
+/// <c>ResourceExhausted</c> (ordinal) in its message, and a <see cref="ProviderErrorException"/> whose <see cref="ProviderErrorException.ErrorCode"/> is 503, or is 500 with that text in its message.
+/// Any other 500, a timeout, a cancellation and a connection error are attempted once and surface unchanged. The SDK's own retry is switched off (AJ-044), so one attempt is exactly one HTTP request. A
+/// streaming call is retried only when the rejection comes out of the first <c>MoveNextAsync</c>, which is when the SDK sends the request, reads the status and reads the first event (an in-stream error
+/// as the first event is retried the same way); once a first update was handed to the consumer, every later failure, a 429 included, propagates, because the consumer has already seen part of an answer.
 /// </para>
 /// <para>
-/// The wait before a retry is the <c>Retry-After</c> header of the 429 answer when it holds a whole number of seconds or an HTTP date that is not in the
+/// The wait before a retry is the <c>Retry-After</c> header of the rejecting answer (an in-stream error has none) when it holds a whole number of seconds or an HTTP date that is not in the
 /// past; the header is the server's own figure and is not capped by <see cref="RetryOptions.MaxDelay"/>. A valid header above
 /// <see cref="RetryOptions.MaxRetryAfter"/> ends the call at once with a <see cref="RetriesExhaustedException"/>: waiting less than the server asked would only
 /// be rejected again, and waiting that long would hold the call, and with a serialized run the meter gate, for as long as the server likes. Without a usable
@@ -32,7 +34,7 @@ namespace AgentJoules.Metering;
 /// <see cref="TimeProvider"/> (a fake clock in tests). What was actually waited, measured on that clock, goes into the <see cref="RetryLedger"/> even when the
 /// wait is cut short by a cancellation (that part counts as wait, not as a retry), so the latency of a cancelled call excludes it too. The attempt that is
 /// rejected for the <see cref="RetryOptions.MaxAttempts"/>-th time ends the call with a <see cref="RetriesExhaustedException"/> as well, which carries only
-/// the attempt count and the status.
+/// the attempt count and the status of the last rejection (429, 503 or 500).
 /// </para>
 /// <para>
 /// A client serves one call at a time, like the metering decorator above it. This class logs nothing: the response of a rejected call, its headers and its
@@ -43,6 +45,9 @@ namespace AgentJoules.Metering;
 public sealed class RateLimitRetryChatClient : DelegatingChatClient
 {
     private const int RateLimited = 429;
+    private const int ServiceUnavailable = 503;
+    private const int InternalServerError = 500;
+    private const string ResourceExhausted = "ResourceExhausted";
     private const string RetryAfterHeader = "Retry-After";
 
     // A conservative bound (about 24 days) below the longest wait Task.Delay accepts, so that no configured ceiling can make the wait itself throw.
@@ -103,17 +108,19 @@ public sealed class RateLimitRetryChatClient : DelegatingChatClient
         TimeSpan waited = TimeSpan.Zero;
         for (int retry = 0; ; retry++)
         {
-            ClientResultException rejected;
+            Exception rejected;
+            int status;
             try
             {
                 return await InnerClient.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
             }
-            catch (ClientResultException failure) when (failure.Status == RateLimited)
+            catch (Exception failure) when (RetryStatusOf(failure) is { } retryable)
             {
                 rejected = failure;
+                status = retryable;
             }
 
-            waited += await WaitBeforeRetryAsync(retry, rejected, waited, cancellationToken).ConfigureAwait(false);
+            waited += await WaitBeforeRetryAsync(retry, status, rejected, waited, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -164,14 +171,16 @@ public sealed class RateLimitRetryChatClient : DelegatingChatClient
         for (int retry = 0; ; retry++)
         {
             IAsyncEnumerator<ChatResponseUpdate> updates = InnerClient.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
-            ClientResultException rejected;
+            Exception rejected;
+            int status;
             try
             {
                 return (updates, await updates.MoveNextAsync().ConfigureAwait(false));
             }
-            catch (ClientResultException failure) when (failure.Status == RateLimited)
+            catch (Exception failure) when (RetryStatusOf(failure) is { } retryable)
             {
                 rejected = failure;
+                status = retryable;
             }
             catch (Exception failure)
             {
@@ -179,27 +188,62 @@ public sealed class RateLimitRetryChatClient : DelegatingChatClient
                 throw;
             }
 
-            // The 429 is consumed: nothing the enumerator that produced it fails with on disposal is worth more than the retry that follows.
+            // The rejection is consumed: nothing the enumerator that produced it fails with on disposal is worth more than the retry that follows.
             await DisposeQuietlyAsync(updates).ConfigureAwait(false);
-            waited += await WaitBeforeRetryAsync(retry, rejected, waited, cancellationToken).ConfigureAwait(false);
+            waited += await WaitBeforeRetryAsync(retry, status, rejected, waited, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The status to retry on, or null when the failure is not a rejection of overload: 429 or 503 of the endpoint, a 500 whose message names <c>ResourceExhausted</c>, and the in-stream error whose code is
+    /// 503 or is 500 with that text. The status is what a <see cref="RetriesExhaustedException"/> reports when the attempts run out.
+    /// </summary>
+    /// <param name="failure">The exception a call ended with.</param>
+    /// <returns>429, 503, 500 or null.</returns>
+    internal static int? RetryStatusOf(Exception failure) => failure switch
+    {
+        ClientResultException { Status: RateLimited or ServiceUnavailable } rejected => rejected.Status,
+        ClientResultException { Status: InternalServerError } rejected when MentionsResourceExhausted(rejected) => InternalServerError,
+        ProviderErrorException { ErrorCode: ServiceUnavailable } => ServiceUnavailable,
+        ProviderErrorException { ErrorCode: InternalServerError } error when error.Message.Contains(ResourceExhausted, StringComparison.Ordinal) => InternalServerError,
+        _ => null,
+    };
+
+    // The SDK message of a rejected call is the status line only (measured: "Service request failed. Status: 500 (Internal Server Error)"); the text of the provider is in the buffered body of the raw
+    // response. The body is searched and never kept, copied or reported.
+    private static bool MentionsResourceExhausted(ClientResultException rejected)
+    {
+        if (rejected.Message.Contains(ResourceExhausted, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        try
+        {
+            return rejected.GetRawResponse()?.Content.ToMemory().Span.IndexOf("ResourceExhausted"u8) >= 0;
+        }
+        catch (InvalidOperationException)
+        {
+            // The body was not buffered: there is nothing to search.
+            return false;
         }
     }
 
     // Ends the call with the exhaustion exception when the attempt that was just rejected was the last one, when the server asks for a longer wait than the
     // policy allows, or when the wait would take the call above its total budget; otherwise takes the wait and returns how long it actually was.
-    private async Task<TimeSpan> WaitBeforeRetryAsync(int retry, ClientResultException rejected, TimeSpan waitedSoFar, CancellationToken cancellationToken)
+    private async Task<TimeSpan> WaitBeforeRetryAsync(int retry, int status, Exception rejected, TimeSpan waitedSoFar, CancellationToken cancellationToken)
     {
         int attemptsMade = retry + 1;
         if (attemptsMade >= _policy.MaxAttempts)
         {
-            throw new RetriesExhaustedException(attemptsMade, RateLimited);
+            throw Exhausted(attemptsMade, status, rejected);
         }
 
         TimeSpan delay;
         if (ReadRetryAfter(rejected) is { } requested)
         {
             // The server's own figure, not a backoff to shorten: too long a wait ends the call, and so does a computed delay below.
-            delay = requested <= _policy.MaxRetryAfter ? requested : throw new RetriesExhaustedException(attemptsMade, RateLimited);
+            delay = requested <= _policy.MaxRetryAfter ? requested : throw Exhausted(attemptsMade, status, rejected);
         }
         else
         {
@@ -207,9 +251,13 @@ public sealed class RateLimitRetryChatClient : DelegatingChatClient
         }
 
         return waitedSoFar + delay > _policy.MaxTotalWait
-            ? throw new RetriesExhaustedException(attemptsMade, RateLimited)
+            ? throw Exhausted(attemptsMade, status, rejected)
             : await WaitAsync(delay, cancellationToken).ConfigureAwait(false);
     }
+
+    // An error inside an event stream is exhausted in its own words (it was a 200, so its code is no HTTP status) and keeps the error of the last attempt; every other rejection is an HTTP status.
+    private static RetriesExhaustedException Exhausted(int attempts, int status, Exception rejected) =>
+        rejected is ProviderErrorException { ErrorCode: not null } inStream ? new RetriesExhaustedException(attempts, inStream) : new RetriesExhaustedException(attempts, status);
 
     // Takes one wait on the clock of the policy and writes into the ledger what was actually waited, floored to whole milliseconds: all of it as a retry when
     // the wait ran to its end, only the time that passed (no retry) when it was cut short.
@@ -262,9 +310,10 @@ public sealed class RateLimitRetryChatClient : DelegatingChatClient
     // The Retry-After of the rejected answer as a wait: whole seconds, or an HTTP date relative to the clock. Null when the header is absent, negative,
     // unparseable or a date that is not in the future (the caller then falls back to the computed delay). A value too large to represent is TimeSpan.MaxValue,
     // which is above every ceiling.
-    private TimeSpan? ReadRetryAfter(ClientResultException rejected)
+    private TimeSpan? ReadRetryAfter(Exception rejected)
     {
-        PipelineResponse? raw = rejected.GetRawResponse();
+        // An in-stream error has no header of its own: the response that carried it was a 200.
+        PipelineResponse? raw = (rejected as ClientResultException)?.GetRawResponse();
         if (raw is null || !raw.Headers.TryGetValue(RetryAfterHeader, out string? header) || header is null)
         {
             return null;
