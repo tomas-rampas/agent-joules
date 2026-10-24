@@ -39,8 +39,11 @@ Not a section 12 step but a user action: the laptop is on mains power with other
 
 ## Stories
 
+Note (2026-10-24, M4 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-nnn-<slug>.feature; the file names in the story tables (for example EndpointsValidation.feature) map to that form.
+
 ### AJ-100: Validate configured model IDs against docs/endpoints.md
 Covers: REQ-018
+Note (2026-10-24, AJ-100): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-100-endpoints-validation.feature (the table's EndpointsValidation.feature); pins applied: ConfigModelValidator.Validate is static; problem lines are exact (`Missing in section ## <tier>: <id>`, `Verified date missing in section ## <tier>`, `Section ## <tier> missing`); a disabled tier needs its heading only; the judge ID is looked up in the Judge:Tier section; comparison is ordinal; a positional path with `--config` exits 2; a missing document exits 2 naming Paths:Endpoints; the skeleton's cloudgpu section carries the line `Status: pending (verified in M5, AJ-126)`. Gate fixes (2026-10-24, gatekeeper m-1, m-5 and security L-1): problem lines are deduplicated on the raw tier and id pair and echo the id up to 256 characters; a malformed `Verified:` value prints a second line `Verified date malformed in section ## <tier>: <text>` after the pinned missing line; the endpoints document is read bounded (1 MiB, seekable, strict UTF-8, one leading BOM stripped) and a document that cannot be read exits 2 naming Paths:Endpoints.
 User story: As a reviewer of the repository, I want `AJ validate --config` to compare every configured model ID with the recorded endpoint listing, so that no model ID enters a run without a verification record.
 Acceptance criteria:
 1. `AJ validate --config` exits 0 and prints `Validated <n> model IDs` when every `Tiers:<t>:ModelId`, every `Tiers:<t>:AgentModelIds` value and `Judge:ModelId` appears as a line `- model: <id>` in the matching section of `docs/endpoints.md`; the judge ID is looked up in the section of `Judge:Tier`.
@@ -105,14 +108,15 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/EndpointsValidation.feature; unit class ConfigValidationTests (technical-design 6.1), every test with `[Trait("Spec","REQ-018")]`.
 Docs impact: docs/endpoints.md (skeleton with `## local`, `## cloudgpu`, `## nvidia`, `## nebius`, the `Verified: YYYY-MM-DD` line and the `- model: <id>` line format); README CLI reference row for `validate --config` (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-018"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `dotnet test --filter "Spec=REQ-018"` shows at least one passed and no failed test
 Demo relevance: no (guard rail; the video does not show it).
 Conflict: REQ-018 acceptance requires `Verified: 2026-10-17` or later in the `## cloudgpu` section, but the cloudgpu endpoint exists only on the VM in M5. Proposed resolution: M4 commits the `## cloudgpu` heading with the line `Status: pending (verified in M5, AJ-126)` and the validator requires `Verified:` only for enabled tiers (criterion 4); AJ-126 adds the `Verified:` line and the model line, which closes the REQ-018 acceptance for that section.
 
 ### AJ-101: Record the nvidia and nebius endpoint verification in docs/endpoints.md
 Covers: REQ-018
+Note (2026-10-24, AJ-101): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-101-hosted-endpoint-record.feature (the table's HostedEndpointRecord.feature); the nebius box ran 17:15:52Z to 17:21:18Z (not exceeded); the first nebius attempt at 17:15:52Z returned 401 with a stale key copy, and the 17:21:07Z probe returned 200; the nvidia and nebius sections were written from the live listings of 2026-10-24; nebius chose nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B by the smallest-Nemotron-3 rule because the omni-reasoning id is not listed there; the local section records the NIM listing of the AJ-103 attempt (decision `Local runtime: nim` at 17:51:29Z) with the Ollama listing as the fallback record, and the local tier configuration (BaseUrl, ModelId, Precision BF16) points at the NIM so that `validate --config` and the local dry-run can pass, with AJ-107 completing the local record.
 User story: As a reader of the results, I want the hosted endpoints and model IDs verified by a live call and recorded with date and command, so that every model ID in the configuration is a verified fact and not a remembered one.
 Acceptance criteria:
 1. The `## nvidia` section of `docs/endpoints.md` holds the base URL from `Tiers:nvidia:BaseUrl`, `Verified: <UTC date>` (2026-10-17 or later), the exact command used with the key shown as `Bearer ****`, every Nemotron and Qwen ID returned by `GET {BaseUrl}/models` as `- model: <id>` lines, a line `Total models returned: <n>` stating the truncation of other entries, and `Chosen:` lines for the Planner, Researcher, Writer and Reviewer agents and for the judge.
@@ -173,9 +177,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/HostedEndpointRecord.feature; AJ-100 `ConfigValidationTests` for the document format; gated test class HostedEndpointListingTests (design 6.3).
 Docs impact: docs/endpoints.md (`## nvidia`, `## nebius`), docs/build-log.md (Nebius base-URL confirmation, box times), config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] both sections carry `Verified: <date>` and the `AJ validate --config` exit code 0 is recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] both sections carry `Verified: <date>` and the `AJ validate --config` exit code 0 is recorded in docs/build-log.md
 Demo relevance: no (the README quotes the model IDs recorded here).
 
 ### AJ-102: Enforce the NIM attempt document contract and the 90-minute box

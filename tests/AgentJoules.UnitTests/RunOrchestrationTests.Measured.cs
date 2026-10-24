@@ -108,10 +108,13 @@ public sealed partial class RunOrchestrationTests
         AssertExit(0, result);
         using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
         JsonElement environment = document.RootElement.GetProperty("environment");
-        foreach (string absent in new[] { "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds", "powerSource", "precision" })
+        foreach (string absent in new[] { "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds", "powerSource" })
         {
             Assert.True(environment.GetProperty(absent).ValueKind == JsonValueKind.Null, absent);
         }
+
+        // The precision falls back to Tiers:local:Precision of the shipped configuration (BF16 since the AJ-103 NIM decision); AJ-105 fills it from the runtime.
+        Assert.Equal(ConfigurationFixtures.ShippedOptions().Tiers["local"].Precision, environment.GetProperty("precision").GetString());
 
         // A measured serialized run sums the energy of its steps.
         JsonElement totals = document.RootElement.GetProperty("totals");
