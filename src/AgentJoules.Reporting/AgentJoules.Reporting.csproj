@@ -8,4 +8,8 @@
     <PackageReference Include="JsonSchema.Net" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\docs\results-schema.json" LogicalName="AgentJoules.Reporting.Schema.results-schema.json" Link="Schema\results-schema.json" />
+  </ItemGroup>
+
 </Project>

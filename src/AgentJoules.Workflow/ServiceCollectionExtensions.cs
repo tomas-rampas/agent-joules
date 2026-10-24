@@ -1,7 +1,11 @@
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Cost;
 using AgentJoules.Core.Runs;
+using AgentJoules.Core.Security;
 using AgentJoules.Metering;
 using AgentJoules.Workflow.Agents;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Providers;
 using AgentJoules.Workflow.Runs;
 
@@ -161,6 +165,99 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ModelCatalogClient>();
         services.TryAddSingleton<PreflightService>();
         services.TryAddSingleton<DryRunService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="CostCalculator"/> as the one <see cref="ICostCalculator"/> of the process (REQ-009, design 3.2), built from the price table at <c>Paths:Prices</c>, the
+    /// missing-price reasons of <c>Tiers</c>, the electricity price and currency of <c>Cost</c> and the rental price of <c>CloudGpu</c>. It replaces <see cref="NotConfiguredCostCalculator"/>, which stays as a type but is no longer registered.
+    /// </summary>
+    /// <remarks>
+    /// The registration is a factory, so nothing is read until the calculator is first resolved: a command that never meters (<c>probe</c>) never touches the price file. <c>run</c> resolves it
+    /// right after the task set, before any check, so a missing, unreadable or invalid price file ends the command with exit 2 for a dry run too. The path is resolved with
+    /// <see cref="ContentPaths.Resolve"/> under <paramref name="contentRoot"/> exactly like <c>Paths:Tasks</c>: a rooted value, a colon or a <c>..</c> segment is refused naming only the key
+    /// <c>Paths:Prices</c>, and a failure of the file is prefixed with the key and names the file by its name only. The registration uses <c>TryAdd</c>: one that is already there wins and a
+    /// second call changes nothing, and a test replaces it with <c>RemoveAll&lt;ICostCalculator&gt;()</c> followed by <c>AddSingleton</c>. The caller registers
+    /// <c>IOptions&lt;AgentJoulesOptions&gt;</c> (the host does).
+    /// </remarks>
+    /// <param name="services">The collection to add the calculator to.</param>
+    /// <param name="contentRoot">The absolute content root, the working directory of the command.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="contentRoot"/> is null, empty or white space.</exception>
+    public static IServiceCollection AddAgentJoulesCost(this IServiceCollection services, string contentRoot)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentRoot);
+
+        services.TryAddSingleton<ICostCalculator>(provider =>
+        {
+            AgentJoulesOptions options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
+            string path = ContentPaths.Resolve(contentRoot, options.Paths.Prices, PathsOptions.PricesKey);
+            try
+            {
+                return new CostCalculator(PriceTable.Load(path), options.Tiers, options.Cost, options.CloudGpu);
+            }
+            catch (ConfigurationException failure)
+            {
+                // The loader names the file by its name and the row and member of the problem, never a path or a value; the key tells which setting to change.
+                throw new ConfigurationException(PathsOptions.PricesKey + ": " + failure.Message);
+            }
+        });
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the <see cref="JudgeService"/> as the one <see cref="IJudgeService"/> of the process (REQ-010, design 3.4 "Judge"), built from <c>Judge:Tier</c>, <c>Judge:ModelId</c>, <c>Judge:MaxOutputTokens</c>, the <c>SystemPromptPrefix</c> of the tier <c>Judge:Tier</c> names and the rubric at
+    /// <c>Paths:Rubric</c>, together with the default <see cref="RetryOptions"/> and <see cref="Random.Shared"/> (keyed by <see cref="JitterKey"/>) that its judge calls retry a 429 with.
+    /// </summary>
+    /// <remarks>
+    /// The registration is a factory, so nothing is read until the judge is first resolved, and then once: <c>run</c> resolves it right after the cost calculator, before any check, so a missing or invalid
+    /// rubric ends the command with exit 2 for a dry run too, and the rubric is never read again per judged step. The path is resolved with <see cref="ContentPaths.Resolve"/> under <paramref name="contentRoot"/>
+    /// exactly like <c>Paths:Prices</c>; a failure of the loader is prefixed with the key <c>Paths:Rubric</c> unless its message names the key already, and the message names the file by its name only.
+    /// <c>Judge:Tier</c> is parsed exactly like the preflight parses it. A blank <c>Judge:ModelId</c> is not a start failure: the judge then marks every step it would have scored as failed, without a call.
+    /// The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes nothing, and a test replaces it with <c>RemoveAll&lt;IJudgeService&gt;()</c> followed by <c>AddSingleton</c>.
+    /// The caller registers <c>IOptions&lt;AgentJoulesOptions&gt;</c>, the <see cref="IProviderClientFactory"/> and the <see cref="Core.Security.SecretRedactor"/> (the host does).
+    /// </remarks>
+    /// <param name="services">The collection to add the judge to.</param>
+    /// <param name="contentRoot">The absolute content root, the working directory of the command.</param>
+    /// <returns>The same collection, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="contentRoot"/> is null, empty or white space.</exception>
+    public static IServiceCollection AddAgentJoulesJudge(this IServiceCollection services, string contentRoot)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentRoot);
+
+        services.TryAddSingleton(RetryOptions.Default);
+        services.TryAddKeyedSingleton(JitterKey, Random.Shared);
+        services.TryAddSingleton<IJudgeService>(provider =>
+        {
+            AgentJoulesOptions options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value;
+            Tier tier = JudgeTierName.Parse(options.Judge.Tier);
+            string path = ContentPaths.Resolve(contentRoot, options.Paths.Rubric, PathsOptions.RubricKey);
+            string rubric;
+            try
+            {
+                rubric = RubricLoader.Load(path);
+            }
+            catch (ConfigurationException failure) when (!failure.Message.Contains(PathsOptions.RubricKey, StringComparison.Ordinal))
+            {
+                // The missing and unreadable messages carry the key already and pass as they are; the size, encoding, character and level messages name only the file.
+                throw new ConfigurationException(PathsOptions.RubricKey + ": " + failure.Message);
+            }
+
+            return new JudgeService(
+                tier,
+                options.Judge.ModelId,
+                rubric,
+                provider.GetRequiredService<IProviderClientFactory>(),
+                provider.GetRequiredService<SecretRedactor>(),
+                provider.GetRequiredService<RetryOptions>(),
+                provider.GetRequiredKeyedService<Random>(JitterKey),
+                options.Judge.MaxOutputTokens,
+                options.Tiers.TryGetValue(options.Judge.Tier, out TierOptions? judgeTierOptions) ? judgeTierOptions?.SystemPromptPrefix : null);
+        });
         return services;
     }
 }

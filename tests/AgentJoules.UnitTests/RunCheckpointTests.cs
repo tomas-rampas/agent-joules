@@ -748,7 +748,7 @@ public sealed class RunCheckpointTests
     [Fact]
     public void Totals_gco2e_is_a_required_label_object()
     {
-        ParameterInfo parameter = typeof(Totals).GetConstructors().Single().GetParameters().Single(candidate => candidate.Name == "Gco2e");
+        ParameterInfo parameter = typeof(Totals).GetConstructors().Single().GetParameters().Single(candidate => candidate.Name == "gco2e");
         Assert.False(parameter.HasDefaultValue, "Gco2e must have no default.");
         Assert.Equal(NullabilityState.NotNull, new NullabilityInfoContext().Create(parameter).WriteState);
 

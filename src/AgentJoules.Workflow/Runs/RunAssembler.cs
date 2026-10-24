@@ -6,6 +6,7 @@ using AgentJoules.Core.Cost;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Quality;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 using AgentJoules.Workflow.Agents;
@@ -25,9 +26,9 @@ namespace AgentJoules.Workflow.Runs;
 /// energies do not add up (<see cref="ReportSentences.ConcurrentOverlap"/>): the energy totals are the union of the step windows, computed by the meter of the tier
 /// (<see cref="IEnergyMeter.ComputeUnion"/>, REQ-013, EDGE-004), and not-reported <c>union-not-computed</c> when no meter was given or a step has no window; serialized mode sums. Tokens
 /// sum in both modes. The cost follows the same all-steps rule per currency: when every step carries a cost <c>estimated</c> in a currency, the sums per currency;
-/// when at least one step lacks one, every currency seen is N/A <c>missing-step-costs</c>; when no step carries one, an empty map (M2, where every cost is N/A). <c>wallClockMs</c> is the measured
+/// when at least one step lacks one, every currency seen is N/A <c>missing-step-costs</c>; an empty map when no step carries a cost. <c>wallClockMs</c> is the measured
 /// sum of the workflow wall times of the (task, repeat) runs, and not-reported <c>no-steps</c> when none started. The judge readings are never part of these and are summed into <c>totals.judge</c>
-/// (N/A <c>not-scored</c> while there are none). The emission (<c>gco2e</c>) is N/A <c>not-configured</c>.
+/// (N/A <c>not-scored</c> while there are none). The emission (<c>gco2e</c>) is the estimate of <see cref="CostCalculator.EstimateEmissions"/> from the net energy total and <c>Cost:GCo2ePerKwh</c>: N/A <c>not-configured</c> while no factor is set, N/A <c>energy-not-measured</c> when the net total is N/A or not-reported, N/A <c>below-baseline</c> when the net total is negative, N/A <c>price-not-representable</c> when the product cannot be held, and an estimated 0 for a measured net total of 0.
 /// </para>
 /// <para>
 /// The <c>shared-window</c> flag is derived when a document is assembled (<see cref="MarkSharedWindows"/>): on a measured tier, in both modes, every step whose in-memory window strictly
@@ -36,7 +37,7 @@ namespace AgentJoules.Workflow.Runs;
 /// </para>
 /// <para>
 /// <c>run.toolVersion</c> and <c>run.gitCommit</c> come from the <see cref="AssemblyInformationalVersionAttribute"/> of this assembly: the SDK appends <c>+&lt;commit&gt;</c> when it builds
-/// inside a git repository, so the part before <c>+</c> is the tool version and the part after it the commit (null when there is none).
+/// inside a git repository, so the part before <c>+</c> is the tool version and the part after it the commit (<c>unknown</c> when there is none).
 /// </para>
 /// </remarks>
 public static class RunAssembler
@@ -47,11 +48,8 @@ public static class RunAssembler
     /// </summary>
     public const string UnionNotComputedReason = "union-not-computed";
 
-    /// <summary>The reason of a judge total while no judge reading exists (M2: the judge seam is a no-op).</summary>
+    /// <summary>The reason of a judge total while no judge reading exists (the judge was skipped or produced no reading).</summary>
     public const string NotScoredReason = "not-scored";
-
-    /// <summary>The reason of a value whose configuration is not set: the emission of the run and the two assumptions of the environment.</summary>
-    public const string NotConfiguredReason = "not-configured";
 
     /// <summary>The reason of <c>environment.cloudCostUsd</c> on every tier other than <c>cloudgpu</c>: no VM is rented.</summary>
     public const string NotCloudGpuReason = "not-cloudgpu";
@@ -69,10 +67,11 @@ public static class RunAssembler
     private const string NotMeasuredReason = "not-measured";
 
     private const string JouleUnit = "J";
+    private const string GramsPerKwhUnit = "gCO2e/kWh";
     private const string MillisecondUnit = "ms";
     private const string FallbackVersion = "0.0.0";
 
-    private static readonly (string ToolVersion, string? GitCommit) ThisVersion = ParseVersion(
+    private static readonly (string ToolVersion, string GitCommit) ThisVersion = ParseVersion(
         typeof(RunAssembler).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
         typeof(RunAssembler).Assembly.GetName().Version);
 
@@ -86,10 +85,11 @@ public static class RunAssembler
     /// The union of the step windows (<see cref="IEnergyMeter.ComputeUnion"/> of the tier's meter), asked once for a concurrent run on a measured tier whose steps all carry a window;
     /// null when there is none, which leaves those energy totals not-reported <see cref="UnionNotComputedReason"/>.
     /// </param>
+    /// <param name="cost">The <c>Cost</c> section whose carbon factor turns the net energy total into <c>gco2e</c>; null takes the defaults of <see cref="CostOptions"/> (no factor).</param>
     /// <returns>The totals.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="steps"/> or <paramref name="judge"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined, or <paramref name="wallClockMs"/> is negative or not finite.</exception>
-    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
+    public static Totals ComputeTotals(Tier tier, RunMode mode, IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, double? wallClockMs, Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null, CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
@@ -113,7 +113,7 @@ public static class RunAssembler
             CostByCurrency(steps),
             wallClockMs is { } measured ? Metric.Measured(measured, MillisecondUnit) : Metric.NotReported(NoStepsReason),
             JudgeTotalsOf(judge),
-            Metric.NotApplicable(NotConfiguredReason));
+            CostCalculator.EstimateEmissions(net, cost?.GCo2ePerKwh));
     }
 
     /// <summary>
@@ -126,12 +126,13 @@ public static class RunAssembler
     /// <param name="gpu">The identity of the measured GPU, or null for a hosted tier.</param>
     /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier).</param>
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
+    /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
     /// <returns>The environment.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tierOptions"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier is not defined, or <paramref name="modelLoad"/> is negative.</exception>
     /// <exception cref="ArgumentException">The reasoning mode of the tier is not off, on or unsupported.</exception>
     /// <exception cref="Core.Cli.ConfigurationException">An agent of the tier has no model ID.</exception>
-    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad)
+    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(tierOptions);
         if (modelLoad < TimeSpan.Zero)
@@ -148,7 +149,7 @@ public static class RunAssembler
                 return new EnvironmentModel(agent, modelId, Baseline: !ModelIdRules.IsNemotron(modelId));
             }),
         ];
-        Metric notConfigured = Metric.NotReported(NotConfiguredReason);
+        CostOptions assumed = cost ?? new CostOptions();
 
         return new EnvironmentInfo(
             GpuName: gpu?.Name,
@@ -171,12 +172,14 @@ public static class RunAssembler
             Precision: runtime?.Precision ?? (string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision),
             CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(NotObservedReason) : Metric.NotApplicable(NotCloudGpuReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
-            Assumptions: new EnvironmentAssumptions(notConfigured, notConfigured),
+            Assumptions: new EnvironmentAssumptions(
+                Metric.Estimated(assumed.ElectricityPricePerKwh, assumed.Currency),
+                assumed.GCo2ePerKwh is { } factor ? Metric.EstimatedQuantity(factor, GramsPerKwhUnit) : Metric.NotApplicable(CostCalculator.NotConfiguredReason)),
             Models: models);
     }
 
     /// <summary>
-    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason and no self-judging statement (the judge of M3 sets it).
+    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
     /// </summary>
     /// <param name="id">The run id: the file name of the run file without its extension.</param>
     /// <param name="tier">The tier of the run.</param>
@@ -185,20 +188,21 @@ public static class RunAssembler
     /// <param name="repeat">The repeats per task.</param>
     /// <param name="startUtc">The start of the command.</param>
     /// <param name="status">The status of the document.</param>
+    /// <param name="selfJudged">Whether the judge model is the model of any step, or null when the judge has not run.</param>
     /// <returns>The run member.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is null or blank.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="taskNames"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined.</exception>
-    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status)
+    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, SelfJudged: selfJudged);
     }
 
-    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>).</summary>
+    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
     /// <param name="run">The run member; its tier and mode decide the totals.</param>
     /// <param name="environment">The environment member.</param>
     /// <param name="probe">The probe of a measured tier, or null.</param>
@@ -207,6 +211,7 @@ public static class RunAssembler
     /// <param name="judge">The judge readings.</param>
     /// <param name="wallClockMs">The sum of the workflow wall times so far, in milliseconds; null when no (task, repeat) started.</param>
     /// <param name="computeUnion">The union of the step windows for the energy totals of a concurrent measured run (see <see cref="ComputeTotals"/>), or null.</param>
+    /// <param name="cost">The <c>Cost</c> section for the carbon factor of the totals (see <see cref="ComputeTotals"/>), or null.</param>
     /// <returns>The document.</returns>
     /// <exception cref="ArgumentNullException">A member, the steps or the judge readings are null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="wallClockMs"/> is negative or not finite.</exception>
@@ -218,14 +223,15 @@ public static class RunAssembler
         IReadOnlyList<StepReading> steps,
         IReadOnlyList<StepReading> judge,
         double? wallClockMs,
-        Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null)
+        Func<IReadOnlyList<WindowSpan>, UnionEnergy>? computeUnion = null,
+        CostOptions? cost = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
 
-        StepReading[] stepCopy = MarkSharedWindows(run.Tier, steps);
+        StepReading[] stepCopy = [.. MarkSharedWindows(run.Tier, steps).Select(WithDerivedMetrics)];
         StepReading[] judgeCopy = [.. judge];
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
@@ -235,7 +241,25 @@ public static class RunAssembler
             baseline,
             stepCopy,
             judgeCopy,
-            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion));
+            ComputeTotals(run.Tier, run.Mode, stepCopy, judgeCopy, wallClockMs, computeUnion, cost));
+    }
+
+    /// <summary>
+    /// Returns a copy of a reading whose two derived metrics are computed from its own quality, net energy, cost and flags (REQ-010, <see cref="DerivedMetrics"/>); every other member, the in-memory
+    /// output text and window included, is kept. A reading whose quality holds no value, whatever the reason (<c>not-scored</c>, <c>step-not-ok</c>, <c>empty-output</c>, a parse error), gets both
+    /// metrics as N/A <c>missing-input</c>: the <c>not-scored</c> that a fresh reading carries is only the value before this method ran. The input is not changed, so assembling again gives the same result.
+    /// </summary>
+    /// <param name="reading">The step reading.</param>
+    /// <returns>The reading with the derived metrics.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> is null.</exception>
+    public static StepReading WithDerivedMetrics(StepReading reading)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+
+        return Copy(
+            reading,
+            joulesPerQualityPoint: DerivedMetrics.JoulesPerQualityPoint(reading.NetJoules, reading.Quality, reading.Flags),
+            costPerQualityPoint: DerivedMetrics.CostPerQualityPoint(reading.Cost, reading.Quality));
     }
 
     /// <summary>
@@ -286,7 +310,7 @@ public static class RunAssembler
             StepReading step = marked[windowed[k]];
             if (shared[k] && !step.Flags.HasFlag(ReadingFlags.SharedWindow))
             {
-                marked[windowed[k]] = Copy(step, step.Outcome, step.Flags | ReadingFlags.SharedWindow);
+                marked[windowed[k]] = Copy(step, flags: step.Flags | ReadingFlags.SharedWindow);
             }
         }
 
@@ -306,7 +330,26 @@ public static class RunAssembler
     {
         ArgumentNullException.ThrowIfNull(reading);
 
-        return Copy(reading, outcome, reading.Flags);
+        return Copy(reading, outcome: outcome);
+    }
+
+    /// <summary>
+    /// Copies <paramref name="reading"/> with the quality and the reason the judge produced and every other member unchanged, the in-memory output text and window included. The two derived metrics are
+    /// left as they are: <see cref="Assemble"/> computes them from the quality of each step, so the judge never writes them. The reason is passed explicitly because the constructor derives it only
+    /// when no quality is given: a model-judged quality takes <c>null</c>, a quality that is N/A takes <c>not-scored</c> (the value every row of the judge's reason table shares).
+    /// </summary>
+    /// <param name="reading">The step reading.</param>
+    /// <param name="quality">The quality: model-judged from 1 to 5, or N/A with the reason that says why the step has none.</param>
+    /// <param name="qualityReason">The <see cref="StepReading.QualityReason"/>: null for a scored step, <c>not-scored</c> otherwise.</param>
+    /// <returns>The copy.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="reading"/> or <paramref name="quality"/> is null.</exception>
+    /// <exception cref="ArgumentException">The quality does not have the shape of a judge score (a model-judged number from 1 to 5 without a unit or a currency), or is not one of the labels a quality may carry.</exception>
+    public static StepReading WithQuality(StepReading reading, Metric quality, string? qualityReason)
+    {
+        ArgumentNullException.ThrowIfNull(reading);
+        ArgumentNullException.ThrowIfNull(quality);
+
+        return Copy(reading, quality: quality, qualityReason: qualityReason);
     }
 
     /// <summary>The <c>environment.provider</c> of a tier: <c>laptop</c>, <c>nebius-ai-cloud</c>, <c>build.nvidia.com</c> or <c>nebius-token-factory</c>.</summary>
@@ -323,29 +366,29 @@ public static class RunAssembler
     };
 
     /// <summary>
-    /// Splits an informational version into the tool version (the part before <c>+</c>) and the commit (the part after it, null when there is none); without an informational version the
+    /// Splits an informational version into the tool version (the part before <c>+</c>) and the commit (the part after it, <c>unknown</c> when there is none); without an informational version the
     /// tool version is <paramref name="assemblyVersion"/>, or <c>0.0.0</c> when that is null too.
     /// </summary>
     /// <param name="informationalVersion">The <see cref="AssemblyInformationalVersionAttribute.InformationalVersion"/>, or null.</param>
     /// <param name="assemblyVersion">The assembly version, the fallback.</param>
     /// <returns>The tool version and the commit.</returns>
-    public static (string ToolVersion, string? GitCommit) ParseVersion(string? informationalVersion, Version? assemblyVersion)
+    public static (string ToolVersion, string GitCommit) ParseVersion(string? informationalVersion, Version? assemblyVersion)
     {
         string fallback = assemblyVersion?.ToString() ?? FallbackVersion;
         if (string.IsNullOrWhiteSpace(informationalVersion))
         {
-            return (fallback, null);
+            return (fallback, RunInfo.UnknownCommit);
         }
 
         int plus = informationalVersion.IndexOf('+', StringComparison.Ordinal);
         if (plus < 0)
         {
-            return (informationalVersion.Trim(), null);
+            return (informationalVersion.Trim(), RunInfo.UnknownCommit);
         }
 
         string version = informationalVersion[..plus].Trim();
         string commit = informationalVersion[(plus + 1)..].Trim();
-        return (version.Length > 0 ? version : fallback, commit.Length > 0 ? commit : null);
+        return (version.Length > 0 ? version : fallback, commit.Length > 0 ? commit : RunInfo.UnknownCommit);
     }
 
     /// <summary>
@@ -404,8 +447,16 @@ public static class RunAssembler
         return (union.GrossJoules, union.NetJoules);
     }
 
-    // The copy of a reading through its constructor with another outcome and flags; every other member, the in-memory output text and window included, is kept.
-    private static StepReading Copy(StepReading reading, string outcome, ReadingFlags flags) =>
+    // The copy of a reading through its constructor: each optional argument that is given replaces the member of that name, every other member, the in-memory output text, the window and the
+    // judged agent included, is kept. A given quality replaces the quality and its reason together (the reason may be null for a scored step).
+    private static StepReading Copy(
+        StepReading reading,
+        string? outcome = null,
+        ReadingFlags? flags = null,
+        Metric? joulesPerQualityPoint = null,
+        Metric? costPerQualityPoint = null,
+        Metric? quality = null,
+        string? qualityReason = null) =>
         new(
             reading.Task,
             reading.Repeat,
@@ -414,7 +465,7 @@ public static class RunAssembler
             reading.Tier,
             reading.StartUtc,
             reading.EndUtc,
-            outcome,
+            outcome ?? reading.Outcome,
             reading.LatencyMs,
             reading.TtftMs,
             reading.InputTokens,
@@ -426,19 +477,20 @@ public static class RunAssembler
             reading.Cost,
             reading.Retries,
             reading.WaitMs,
-            flags,
+            flags ?? reading.Flags,
             reading.Method,
             reading.SampleCount,
             reading.SampleRateHz,
             reading.ThrottleReasons,
-            reading.Quality,
-            reading.QualityReason,
-            reading.JoulesPerQualityPoint,
-            reading.CostPerQualityPoint,
+            quality ?? reading.Quality,
+            quality is null ? reading.QualityReason : qualityReason,
+            joulesPerQualityPoint ?? reading.JoulesPerQualityPoint,
+            costPerQualityPoint ?? reading.CostPerQualityPoint,
             reading.OutputSha256,
             reading.OutputChars,
             reading.OutputText,
-            reading.Window);
+            reading.Window,
+            reading.JudgedAgent);
 
     // The sum of a measured value over the steps; the label and the reason of the first step that lacks it otherwise; not-reported no-steps without a step.
     private static Metric Sum(IReadOnlyList<StepReading> steps, Func<StepReading, Metric> select, string unit)

@@ -56,7 +56,7 @@ public static class RunCheckpointFixtures
 
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
-            new RunInfo("run-fixture", Tier.Nvidia, ["summarise"], RunMode.Serialized, Repeat: 3, RunStartUtc, "0.0.0-test", GitCommit: null, status),
+            new RunInfo("run-fixture", Tier.Nvidia, ["summarise"], RunMode.Serialized, Repeat: 3, RunStartUtc, "0.0.0-test", GitCommit: RunInfo.UnknownCommit, status),
             new EnvironmentInfo(
                 GpuName: null,
                 DriverVersion: null,
@@ -80,11 +80,11 @@ public static class RunCheckpointFixtures
                 EnvironmentInfo.GpuBoardOnly,
                 new EnvironmentAssumptions(Metric.NotReported("not-configured"), Metric.NotReported("not-configured")),
                 [new EnvironmentModel("Planner", NemotronModel, Baseline: false)]),
-            Probe: null,
-            Baseline: null,
+            probe: null,
+            baseline: null,
             steps,
-            Judge: [],
+            judge: [],
             new Totals(notYet, notYet, notYet, notYet, new Dictionary<string, Metric>(), notYet, new JudgeTotals(notYet, notYet, new Dictionary<string, Metric>()),
-                Gco2e: Metric.NotApplicable("not-configured")));
+                gco2e: Metric.NotApplicable("not-configured")));
     }
 }

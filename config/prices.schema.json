@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agentjoules:prices-schema:1",
+  "title": "Agent Joules price table (REQ-009)",
+  "description": "config/prices.json: one row per priced model. Every row carries its source and the day it was read, and both prices are above 0, so a free tier or an unsourced price cannot be written as a price of 0. Passing this schema is necessary but not sufficient: the loader additionally requires a well-formed absolute https URI with a host, a non-blank modelId (by Unicode white space), a finite price and no repeated member.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["tier", "modelId", "inputUsdPer1M", "outputUsdPer1M", "sourceUrl", "retrievedDate"],
+    "properties": {
+      "tier": {
+        "description": "A tier whose cost comes from a per-token price; local and cloudgpu are priced by electricity and rental, but the name is accepted so a later change needs no schema change.",
+        "enum": ["local", "cloudgpu", "nvidia", "nebius"]
+      },
+      "modelId": {
+        "description": "The model ID as the tier's endpoint names it.",
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "inputUsdPer1M": {
+        "description": "USD per 1 000 000 input tokens, strictly above 0.",
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "outputUsdPer1M": {
+        "description": "USD per 1 000 000 output tokens, strictly above 0.",
+        "type": "number",
+        "exclusiveMinimum": 0
+      },
+      "sourceUrl": {
+        "description": "The https page the price was read from: only the characters RFC 3986 allows in a URI (letters, digits and -._~:/?#[]!$&'()*+,;=%), so no space, no control or non-ASCII character, no quote, angle bracket, caret or backslash, and no at sign, which means no credentials (userinfo) can be written. The lookahead after the end anchor refuses a final line feed, which a .NET regular expression would let the end anchor skip.",
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^https://[A-Za-z0-9\\-._~:/?#\\[\\]!$&'()*+,;=%]+$(?!\\n)"
+      },
+      "retrievedDate": {
+        "description": "The day the page was read, yyyy-MM-dd.",
+        "type": "string",
+        "format": "date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      }
+    }
+  }
+}

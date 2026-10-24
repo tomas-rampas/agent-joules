@@ -28,8 +28,13 @@ internal static class ConfigurationShape
         ("Meter:AllowBelowMinRate", Kind.Boolean),
         ("Baseline:Seconds", Kind.Number),
         ("Baseline:MaxCoefficientOfVariation", Kind.Number),
+        ("Judge:MaxOutputTokens", Kind.Integer),
         ("Workflow:Seed", Kind.Integer),
         ("CloudGpu:RequireSshVariables", Kind.Boolean),
+        ("CloudGpu:HourlyPriceUsd", Kind.Number),
+        ("Cost:ElectricityPricePerKwh", Kind.Number),
+        ("Cost:GCo2ePerKwh", Kind.Number),
+        ("Dashboard:PowerIntervalMs", Kind.Integer),
     ];
 
     // The scalar keys of one tier that can fail to convert, relative to Tiers:<tier>; checked for every tier the configuration holds.

@@ -129,5 +129,5 @@ public static class ContentPaths
     }
 
     private static ConfigurationException Refused(string key) =>
-        new($"{key} must be a relative path to a folder inside the working directory, without parent segments; the value is not shown");
+        new($"{key} must be a relative path inside the working directory, without parent segments; the value is not shown");
 }

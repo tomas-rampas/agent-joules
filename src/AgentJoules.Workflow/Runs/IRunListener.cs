@@ -6,7 +6,7 @@ namespace AgentJoules.Workflow.Runs;
 
 /// <summary>
 /// What the <see cref="RunOrchestrator"/> tells the user while a run goes on (REQ-017 criterion 6, EDGE-005, design 3.6 "Run console output"): every finished step when it finishes, the idle
-/// baseline of a measured tier, and the file and the totals of every tier that completed. The CLI implements it over its console reporter; the orchestrator never writes to a console itself.
+/// baseline of a measured tier, one warning for every tier run in which the judge failed for some steps (EDGE-012), and the file and the totals of every tier that completed. The CLI implements it over its console reporter; the orchestrator never writes to a console itself.
 /// </summary>
 public interface IRunListener
 {
@@ -30,6 +30,16 @@ public interface IRunListener
     /// <summary>The idle baseline of a measured tier was measured, before its first step; an unstable baseline carries <c>baseline-unstable</c> (EDGE-005).</summary>
     /// <param name="baseline">The baseline.</param>
     void BaselineMeasured(BaselineResult baseline);
+
+    /// <summary>
+    /// The judge could not score some of the steps it was sent in a tier run (EDGE-012): called once per tier run in which at least one judged step failed, after the final document was written and
+    /// before <see cref="TierCompleted"/>, and never for a tier whose judge was skipped. The exit code of the command is not affected by any judge failure.
+    /// </summary>
+    /// <param name="tier">The tier whose steps were judged.</param>
+    /// <param name="failedSteps">How many of the judged steps ended with a quality that is N/A; at least 1.</param>
+    /// <param name="judgedSteps">How many steps were sent to the judge.</param>
+    /// <param name="failureKinds">The distinct failure kinds in ordinal order: exception type names, <c>parse-error</c> or a refusal token; never a message.</param>
+    void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds);
 
     /// <summary>A tier completed and its final document was written.</summary>
     /// <param name="displayPath">The file as the user names it: the <c>--out</c> value as given, a forward slash and the file name.</param>

@@ -68,7 +68,7 @@ public sealed record Metric
 
     /// <summary>
     /// The unit of a quantity, for example <c>J</c> or <c>gCO2e</c>; omitted from the JSON when null.
-    /// Exactly one of <see cref="Unit"/> and <see cref="Currency"/> is set on a measured or estimated metric.
+    /// Exactly one of <see cref="Unit"/> and <see cref="Currency"/> is set on a measured or estimated metric; a model-judged metric carries at most one of them.
     /// </summary>
     public string? Unit { get; }
 
@@ -119,6 +119,16 @@ public sealed record Metric
         return new(value, MetricLabel.ModelJudged, null, unit, null);
     }
 
+    /// <summary>Creates a value derived from a judge score and a cost, with the currency of that cost, for example the cost per quality point.</summary>
+    /// <param name="value">The finite amount.</param>
+    /// <param name="currency">The non-blank currency code.</param>
+    public static Metric ModelJudgedCost(double value, string currency)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(currency);
+
+        return new(value, MetricLabel.ModelJudged, null, null, currency);
+    }
+
     /// <summary>Creates a metric for a value that does not exist for this step.</summary>
     /// <param name="reason">The non-blank explanation.</param>
     public static Metric NotApplicable(string reason) => new(null, MetricLabel.NotApplicable, reason, null, null);
@@ -128,7 +138,7 @@ public sealed record Metric
     public static Metric NotReported(string reason) => new(null, MetricLabel.NotReported, reason, null, null);
 
     // Measured and Estimated carry exactly one of unit and currency; the "primary" one (unit for Measured, currency for Estimated) is
-    // named when both are missing, the other when both are present. ModelJudged allows an optional unit and no currency.
+    // named when both are missing, the other when both are present. ModelJudged allows at most one of unit and currency, never both.
     // N/A and not-reported carry neither. A non-null qualifier is never blank.
     private static void ValidateQualifiers(MetricLabel label, string? unit, string? currency)
     {
@@ -151,9 +161,9 @@ public sealed record Metric
                 RequireExactlyOne(label, unit, currency, primary: nameof(currency), secondary: nameof(unit));
                 break;
             case MetricLabel.ModelJudged:
-                if (currency is not null)
+                if (unit is not null && currency is not null)
                 {
-                    throw new ArgumentException($"A {label} metric must not carry a currency.", nameof(currency));
+                    throw new ArgumentException($"A {label} metric carries a unit or a currency, not both.", nameof(currency));
                 }
 
                 break;

@@ -29,7 +29,7 @@ internal sealed class MinimumValueAttribute(double minimum) : ValidationAttribut
     /// <exception cref="InvalidOperationException">The value is not an int, long, float, double or decimal; the message names the member and the type, never the value.</exception>
     protected override ValidationResult? IsValid(object? value, ValidationContext? validationContext)
     {
-        // A null value is not this attribute's business; the properties it is applied to are never nullable.
+        // A null value is not this attribute's business: the nullable numbers it is applied to are optional, and an unset one passes.
         if (value is null)
         {
             return ValidationResult.Success;

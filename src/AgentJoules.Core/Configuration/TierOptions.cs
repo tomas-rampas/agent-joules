@@ -24,6 +24,9 @@ public sealed class TierOptions
     /// <summary>The agent names <see cref="AgentModelIds"/> may hold keys for.</summary>
     public static IReadOnlyList<string> KnownAgentNames { get; } = ["Planner", "Researcher", "Writer", "Reviewer"];
 
+    /// <summary>The agent name of a judge reading (<c>agent</c> in the <c>judge</c> array of a results file). It is not a workflow agent: it is not in <see cref="KnownAgentNames"/> and has no <see cref="AgentModelIds"/> entry.</summary>
+    public const string JudgeAgentName = "Judge";
+
     /// <summary>Key <c>Tiers:&lt;tier&gt;:BaseUrl</c>, default none: the base URL of the OpenAI-compatible endpoint (by convention it ends in <c>/v1</c>, which is not checked); must be set when <see cref="Enabled"/> is true, absolute, without user info, query or fragment, and https unless the host is loopback.</summary>
     public string? BaseUrl { get; set; }
 
@@ -113,6 +116,17 @@ public sealed class JudgeOptions
 
     /// <summary>Key <c>Judge:ModelId</c>, default none: the model ID of the judge, looked up in the section of <see cref="Tier"/>.</summary>
     public string? ModelId { get; set; }
+
+    /// <summary>The default of <see cref="MaxOutputTokens"/>.</summary>
+    public const int DefaultMaxOutputTokens = 32;
+
+    /// <summary>
+    /// Key <c>Judge:MaxOutputTokens</c>, default 32: the output cap of one judge call (sent as <c>max_completion_tokens</c> or <c>max_tokens</c> by the <c>MaxTokensField</c> of <see cref="Tier"/>); a whole number from 1 to 32768.
+    /// The requested reply is one digit from 1 to 5 (one token); the parser removes think blocks, and the empty block a model may put in front of the digit, with its line breaks, is assumed (not measured) to cost 7 tokens at most, so the reply is at most 8 tokens and the default
+    /// is that reply with a margin of four: 32.
+    /// </summary>
+    [MinimumValue(1, Maximum = 32768, ErrorMessage = "Judge:MaxOutputTokens must be a whole number from 1 to 32768")]
+    public int MaxOutputTokens { get; set; } = DefaultMaxOutputTokens;
 }
 
 /// <summary>The <c>Workflow</c> section of <c>AgentJoules</c>: settings of the agent workflow that every tier shares.</summary>

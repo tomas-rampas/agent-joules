@@ -5,6 +5,7 @@ using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.Configuration;
@@ -162,7 +163,7 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
 
         if (keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
         {
-            Tier judgeTier = TierNamed(current.Judge.Tier);
+            Tier judgeTier = JudgeTierName.Parse(current.Judge.Tier);
             ListedTier? existing = asked.Find(listed => listed.Tier == judgeTier);
             ListedTier verified = await AskAndVerifyAsync(judgeTier, TierOptions.NameOf(judgeTier), [judgeModel], existing, cancellationToken).ConfigureAwait(false);
             if (existing is null)
@@ -259,20 +260,6 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
         current.Tiers.TryGetValue(name, out TierOptions? tier) && tier is not null
             ? tier
             : throw new ConfigurationException("Tiers:" + name + " is not configured");
-
-    private static Tier TierNamed(string name)
-    {
-        // Exact, like the configuration validator: Judge:Tier is a tier name as written in the configuration.
-        foreach (Tier tier in Enum.GetValues<Tier>())
-        {
-            if (string.Equals(name, TierOptions.NameOf(tier), StringComparison.Ordinal))
-            {
-                return tier;
-            }
-        }
-
-        throw new ConfigurationException("Judge:Tier must be one of " + string.Join(", ", TierOptions.KnownNames) + "; the value is not shown");
-    }
 
     // One tier that was asked: what the endpoint listed, and the configured IDs found in them so far.
     private sealed class ListedTier(Tier tier, string name, Uri endpoint, ModelCatalog catalog)

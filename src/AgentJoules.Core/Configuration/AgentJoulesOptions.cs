@@ -30,15 +30,28 @@ public sealed class AgentJoulesOptions
     /// </summary>
     public Dictionary<string, TierOptions> Tiers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Section <c>Judge</c>: which tier and model score the answers; checked by <see cref="CrossFieldValidator"/>.</summary>
+    /// <summary>Section <c>Judge</c>: which tier and model score the answers and how long a reply may be; <c>Tier</c> is checked by <see cref="CrossFieldValidator"/>, <c>MaxOutputTokens</c> by the generated validator.</summary>
+    [ValidateObjectMembers]
     public JudgeOptions Judge { get; set; } = new();
 
     /// <summary>Section <c>Workflow</c>: settings of the agent workflow that every tier shares.</summary>
     public WorkflowOptions Workflow { get; set; } = new();
 
     /// <summary>Section <c>CloudGpu</c>: how the rented-GPU tier is reached; <c>RequireSshVariables</c> is false on the VM.</summary>
+    [ValidateObjectMembers]
     public CloudGpuOptions CloudGpu { get; set; } = new();
+
+    /// <summary>Section <c>Cost</c>: the electricity price, its currency and the optional carbon factor.</summary>
+    [ValidateObjectMembers]
+    public CostOptions Cost { get; set; } = new();
 
     /// <summary>Section <c>Paths</c>: the files a run reads, relative to the content root; every key has a default.</summary>
     public PathsOptions Paths { get; set; } = new();
+
+    /// <summary>Section <c>Report</c>: the settings of the <c>report</c> command; checked by <see cref="CrossFieldValidator"/>.</summary>
+    public ReportOptions Report { get; set; } = new();
+
+    /// <summary>Section <c>Dashboard</c>: how the live dashboard is fed (the power forwarding interval).</summary>
+    [ValidateObjectMembers]
+    public DashboardOptions Dashboard { get; set; } = new();
 }

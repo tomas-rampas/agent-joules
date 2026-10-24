@@ -208,6 +208,7 @@ Tasks:
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
 Docs impact: README.md sections Quick start, Judges without a GPU, CLI reference, Reproduce, Prior art; docs/build-log.md
+Docs impact (deferred from AJ-079, 2026-10-23): README section "Results schema" naming `docs/results-schema.json`, the update command `AGENTJOULES_UPDATE_SCHEMA=1 dotnet test --filter "FullyQualifiedName~CommittedSchemaMatchesGenerated"` and "then rebuild" (no M6 story names a field reference explicitly; the CLI reference section is the closest owner).
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated

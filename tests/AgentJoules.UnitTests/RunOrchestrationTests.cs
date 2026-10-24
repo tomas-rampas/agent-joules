@@ -517,7 +517,9 @@ public sealed partial class RunOrchestrationTests
         }
 
         Assert.Equal(("N/A", "not-cloudgpu"), (Text(environment.GetProperty("cloudCostUsd"), "label"), Text(environment.GetProperty("cloudCostUsd"), "reason")));
-        Assert.Equal(("not-reported", "not-configured"), (Text(environment.GetProperty("assumptions").GetProperty("electricityPrice"), "label"), Text(environment.GetProperty("assumptions").GetProperty("electricityPrice"), "reason")));
+        JsonElement price = environment.GetProperty("assumptions").GetProperty("electricityPrice");
+        Assert.Equal(("estimated", "EUR", 0.30), (Text(price, "label"), Text(price, "currency"), price.GetProperty("value").GetDouble()));
+        Assert.Equal(("N/A", "not-configured"), (Text(environment.GetProperty("assumptions").GetProperty("gco2ePerKwh"), "label"), Text(environment.GetProperty("assumptions").GetProperty("gco2ePerKwh"), "reason")));
         Assert.Equal(
             [.. Agents.Select(static agent => $"{agent} {ConfigurationFixtures.ShippedOptions().Tiers["nvidia"].ModelId} False")],
             environment.GetProperty("models").EnumerateArray().Select(static model => $"{Text(model, "agent")} {Text(model, "modelId")} {model.GetProperty("baseline").GetBoolean()}"));

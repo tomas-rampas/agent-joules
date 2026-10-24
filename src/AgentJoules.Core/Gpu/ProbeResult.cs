@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 
 using AgentJoules.Core.Energy;
+using AgentJoules.Core.Results;
 
 namespace AgentJoules.Core.Gpu;
 
@@ -26,18 +27,39 @@ namespace AgentJoules.Core.Gpu;
 /// <param name="SampleRateHz">The configured <c>Meter:SampleRateHz</c>.</param>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ProbeResult(
-    bool GpuPresent,
-    string? Name,
-    string? GpuUuid,
-    string? DriverVersion,
-    string? ComputeCapability,
-    string? VbiosVersion,
+    [property: JsonPropertyOrder(1)] bool GpuPresent,
+    [property: JsonPropertyOrder(2)] string? Name,
+    [property: JsonPropertyOrder(3)] string? GpuUuid,
+    [property: JsonPropertyOrder(4)] string? DriverVersion,
+    [property: JsonPropertyOrder(5)] string? ComputeCapability,
+    [property: JsonPropertyOrder(6)] string? VbiosVersion,
     double? PowerLimitW,
-    string? MigMode,
-    bool? EnergyCounterSupported,
-    string? Method,
+    [property: JsonPropertyOrder(8)] string? MigMode,
+    [property: JsonPropertyOrder(9)] bool? EnergyCounterSupported,
+    [property: JsonPropertyOrder(10)] string? Method,
     double? SampleRateHz)
 {
+    private const string PowerLimitMember = "probe.powerLimitW";
+    private const string SampleRateMember = "probe.sampleRateHz";
+
+    /// <summary>The enforced power limit in watts, or null; a finite number, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is infinite or not a number (the message names <c>probe.powerLimitW</c>, never the value).</exception>
+    [JsonPropertyOrder(7)]
+    public double? PowerLimitW
+    {
+        get;
+        init => field = ModelNumbers.FiniteOrNull(PowerLimitMember, value);
+    } = ModelNumbers.FiniteOrNull(PowerLimitMember, PowerLimitW);
+
+    /// <summary>The configured <c>Meter:SampleRateHz</c>, or null; a finite number, checked on construction, on <c>with</c> and on read.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is infinite or not a number (the message names <c>probe.sampleRateHz</c>, never the value).</exception>
+    [JsonPropertyOrder(11)]
+    public double? SampleRateHz
+    {
+        get;
+        init => field = ModelNumbers.FiniteOrNull(SampleRateMember, value);
+    } = ModelNumbers.FiniteOrNull(SampleRateMember, SampleRateHz);
+
     /// <summary>The result when no GPU is reachable: <see cref="GpuPresent"/> false and every other member null.</summary>
     public static ProbeResult NoGpu { get; } = new(false, null, null, null, null, null, null, null, null, null, null);
 

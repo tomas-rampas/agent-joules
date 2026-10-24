@@ -21,11 +21,16 @@ public sealed class TempWorkspace : IDisposable
     /// <summary>The path of <c>config/appsettings.json</c> inside the workspace; the file exists after <see cref="Create"/>.</summary>
     public string ConfigPath => Path.Combine(Root, "config", "appsettings.json");
 
-    /// <summary>Creates a workspace that holds a copy of the shipped <c>config/appsettings.json</c>, the file the CLI reads by default.</summary>
+    /// <summary>
+    /// Creates a workspace that holds a copy of the shipped <c>config/appsettings.json</c>, the file the CLI reads by default, and of the committed <c>config/prices.json</c>,
+    /// the default of <c>Paths:Prices</c>, which the <c>run</c> command loads after the tier selection and the task load and before the key check (AJ-071), and of the committed <c>config/judge-rubric.md</c>, the default of <c>Paths:Rubric</c>, which the production judge loads at the same place (AJ-076).
+    /// </summary>
     public static TempWorkspace Create()
     {
         TempWorkspace workspace = CreateEmpty();
         workspace.WriteFile(Path.Combine("config", "appsettings.json"), File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        workspace.WriteFile(Path.Combine("config", "prices.json"), File.ReadAllText(Path.Combine(ConfigurationFixtures.RepositoryRoot(), "config", "prices.json")));
+        workspace.WriteFile(Path.Combine("config", "judge-rubric.md"), File.ReadAllText(Path.Combine(ConfigurationFixtures.RepositoryRoot(), "config", "judge-rubric.md")));
         return workspace;
     }
 

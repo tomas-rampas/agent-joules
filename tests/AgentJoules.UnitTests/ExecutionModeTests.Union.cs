@@ -124,11 +124,12 @@ public sealed partial class ExecutionModeTests
         ];
         StepReading[] judge =
         [
-            .. Enumerable.Range(1, 4).Select(static index => StepReadingFixtures.Metered(
+            .. Enumerable.Range(1, 4).Select(index => StepReadingFixtures.Metered(
                 "Judge" + index,
                 window: new WindowSpan(0.5, 10.0),
                 cost: Metric.Estimated(9.0, "EUR"),
-                inputTokens: Metric.Measured(1000, "tokens"))),
+                inputTokens: Metric.Measured(1000, "tokens"),
+                judgedAgent: steps[index - 1].Agent)),
         ];
         List<WindowSpan[]> asked = [];
         UnionEnergy Union(IReadOnlyList<WindowSpan> spans)

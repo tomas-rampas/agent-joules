@@ -103,7 +103,7 @@ public sealed class ConcurrentUnionSteps(ConcurrentUnionContext context)
     {
         _context.Mode = RunMode.Concurrent;
         _context.Steps = [.. Enumerable.Range(1, workflow).Select(static index => StepReadingFixtures.Metered("Agent" + index, inputTokens: Metric.Measured(10 * index, "tokens")))];
-        _context.Judge = [.. Enumerable.Range(1, judge).Select(static index => StepReadingFixtures.Metered("Judge" + index, inputTokens: Metric.Measured(1000, "tokens")))];
+        _context.Judge = [.. Enumerable.Range(1, judge).Select(static index => StepReadingFixtures.Metered("Judge" + index, inputTokens: Metric.Measured(1000, "tokens"), judgedAgent: "Agent" + index))];
     }
 
     [When(@"^the run is assembled$")]

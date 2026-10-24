@@ -371,11 +371,12 @@ public sealed partial class RunOrchestrationTests
 
         public IReadOnlyList<string> Given { get; private set; } = [];
 
-        public Task<IReadOnlyList<StepReading>> ScoreAsync(IReadOnlyList<StepReading> okSteps, CancellationToken cancellationToken)
+        public Task<JudgeResult> ScoreAsync(JudgeRequest request, CancellationToken cancellationToken)
         {
             _ = Interlocked.Increment(ref _calls);
-            Given = [.. okSteps.Select(static step => $"{step.Task}/{step.Repeat}/{step.Agent}")];
-            return Task.FromResult(score(okSteps));
+            Given = [.. request.Steps.Select(static step => $"{step.Task}/{step.Repeat}/{step.Agent}")];
+            IReadOnlyList<StepReading> scored = score(request.Steps);
+            return Task.FromResult(new JudgeResult(scored, SelfJudged: false, JudgedSteps: request.Steps.Count, FailedSteps: 0, FailureKinds: []));
         }
     }
 
@@ -389,6 +390,8 @@ public sealed partial class RunOrchestrationTests
         public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
 
         public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
+
+        public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
 
         public void TierCompleted(string displayPath, Totals totals)
         {

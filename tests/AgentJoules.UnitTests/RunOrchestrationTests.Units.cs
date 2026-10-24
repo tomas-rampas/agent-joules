@@ -418,8 +418,8 @@ public sealed partial class RunOrchestrationTests
             Assert.Equal(EnvironmentInfo.GpuBoardOnly, environment.EnergyScope);
             Assert.Null(environment.PowerSource);
             Assert.Equal((null, null, null, null), (environment.InstancePreset, environment.Region, environment.ContainerImage, environment.ContainerDigest));
-            Assert.Equal((MetricLabel.NotReported, "not-configured"), (environment.Assumptions.ElectricityPrice.Label, environment.Assumptions.ElectricityPrice.Reason));
-            Assert.Equal((MetricLabel.NotReported, "not-configured"), (environment.Assumptions.Gco2ePerKwh.Label, environment.Assumptions.Gco2ePerKwh.Reason));
+            Assert.Equal(Metric.Estimated(0.30, "EUR"), environment.Assumptions.ElectricityPrice);
+            Assert.Equal((MetricLabel.NotApplicable, "not-configured"), (environment.Assumptions.Gco2ePerKwh.Label, environment.Assumptions.Gco2ePerKwh.Reason));
 
             // One row per agent in catalog order; a model ID without nemotron is a baseline model.
             Assert.Equal(
@@ -458,11 +458,11 @@ public sealed partial class RunOrchestrationTests
         [Theory]
         [InlineData("1.2.3+0123abc", "1.2.3", "0123abc")]
         [InlineData("1.2.3-beta.1+deadbeef", "1.2.3-beta.1", "deadbeef")]
-        [InlineData("1.2.3", "1.2.3", null)]
-        [InlineData("1.2.3+", "1.2.3", null)]
-        [InlineData(null, "4.5.6.7", null)]
-        [InlineData("", "4.5.6.7", null)]
-        public void The_tool_version_and_the_commit_come_from_the_informational_version(string? informational, string version, string? commit) =>
+        [InlineData("1.2.3", "1.2.3", "unknown")]
+        [InlineData("1.2.3+", "1.2.3", "unknown")]
+        [InlineData(null, "4.5.6.7", "unknown")]
+        [InlineData("", "4.5.6.7", "unknown")]
+        public void The_tool_version_and_the_commit_come_from_the_informational_version(string? informational, string version, string commit) =>
             Assert.Equal((version, commit), RunAssembler.ParseVersion(informational, new Version(4, 5, 6, 7)));
 
         [Theory]
@@ -778,6 +778,8 @@ public sealed partial class RunOrchestrationTests
 
         public void TierFailed(string displayPath, string agent, RunStatus status) => ThrowIfFailing();
 
+        public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => ThrowIfFailing();
+
         private void ThrowIfFailing()
         {
             if (Failure is not null)
@@ -817,7 +819,7 @@ public sealed partial class RunOrchestrationTests
         }
     }
 
-    /// <summary>AJ-056 T3 and T7: the no-op seams of M2 and their registration in the composition root.</summary>
+    /// <summary>AJ-056 T3 and T7 and AJ-076: the no-op seams and the judge service, and their registration in the composition root.</summary>
     [Trait("Spec", "REQ-017")]
     public sealed class Seams
     {
@@ -826,10 +828,14 @@ public sealed partial class RunOrchestrationTests
         {
             IReadOnlyList<StepReading> steps = [StepReadingFixtures.Metered(), StepReadingFixtures.NoUsage()];
 
-            IReadOnlyList<StepReading> scored = await new NoOpJudgeService().ScoreAsync(steps, CancellationToken.None);
+            var services = new MeteringServices(new UnmeteredEnergyMeter(TimeProvider.System), NoOpMeterGate.Instance, new InMemoryMetricsSink(), NotConfiguredCostCalculator.Instance, TestInstruments.Create(), TimeProvider.System);
 
-            Assert.Equal(steps, scored);
-            Assert.All(scored, static step => Assert.Equal((MetricLabel.NotApplicable, "not-scored"), (step.Quality.Label, step.Quality.Reason)));
+            JudgeResult scored = await new NoOpJudgeService().ScoreAsync(new JudgeRequest(Tier.Local, steps, [], services), CancellationToken.None);
+
+            Assert.Equal(steps, scored.Steps);
+            Assert.Equal((null, 0, 0), (scored.SelfJudged, scored.JudgedSteps, scored.FailedSteps));
+            Assert.Empty(scored.FailureKinds);
+            Assert.All(scored.Steps, static step => Assert.Equal((MetricLabel.NotApplicable, "not-scored"), (step.Quality.Label, step.Quality.Reason)));
         }
 
         [Fact]
@@ -844,16 +850,16 @@ public sealed partial class RunOrchestrationTests
         }
 
         [Fact]
-        public void The_composition_root_registers_the_no_op_seams_the_cost_calculator_and_the_console_listener()
+        public void The_composition_root_registers_the_judge_service_the_no_op_runtime_the_cost_calculator_and_the_console_listener()
         {
             using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
             var keys = new Cli.Hosting.KeyRegistry(new Core.Security.SecretRedactor());
 
             using IHost host = Cli.Hosting.AgentJoulesHostFactory.Build(null, null, new Cli.CliHostOverrides(WorkingDirectory: workspace.Root), keys, TextWriter.Null, TextWriter.Null);
 
-            _ = Assert.IsType<NoOpJudgeService>(host.Services.GetRequiredService<IJudgeService>());
+            _ = Assert.IsType<JudgeService>(host.Services.GetRequiredService<IJudgeService>());
             _ = Assert.IsType<NoOpLocalRuntime>(host.Services.GetRequiredService<ILocalRuntime>());
-            Assert.Same(NotConfiguredCostCalculator.Instance, host.Services.GetRequiredService<ICostCalculator>());
+            _ = Assert.IsType<CostCalculator>(host.Services.GetRequiredService<ICostCalculator>());
             _ = Assert.IsType<ConsoleRunListener>(host.Services.GetRequiredService<IRunListener>());
         }
     }

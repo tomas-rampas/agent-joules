@@ -183,10 +183,10 @@ public sealed partial class RetryPolicyTests
         Assert.Equal(4, running.Steps.Count);
         Assert.Equal(8, failed.Steps.Count);
 
-        // The same readings: the failed document holds the very instances of the checkpoint, so nothing was rebuilt, rounded or zero-filled.
+        // The same readings, by value: nothing was rebuilt, rounded or zero-filled. Since AJ-074 Assemble copies each reading to attach the derived metrics, so the contract is value equality, not identity, for these hosted readings (ThrottleReasons null; the generated record equality compares that collection by reference).
         for (int i = 0; i < running.Steps.Count; i++)
         {
-            Assert.Same(running.Steps[i], failed.Steps[i]);
+            Assert.Equal(running.Steps[i], failed.Steps[i]);
         }
 
         // On disk: the first four steps of the file are, to the character, the four steps of the checkpoint serialized by the writer's own serializer.
@@ -505,10 +505,10 @@ public sealed partial class RetryPolicyTests
 
             public int Calls => Volatile.Read(ref _calls);
 
-            public Task<IReadOnlyList<StepReading>> ScoreAsync(IReadOnlyList<StepReading> okSteps, CancellationToken cancellationToken)
+            public Task<JudgeResult> ScoreAsync(JudgeRequest request, CancellationToken cancellationToken)
             {
                 _ = Interlocked.Increment(ref _calls);
-                return Task.FromResult(okSteps);
+                return Task.FromResult(new JudgeResult(request.Steps, SelfJudged: false, JudgedSteps: 0, FailedSteps: 0, FailureKinds: []));
             }
         }
 
@@ -522,6 +522,8 @@ public sealed partial class RetryPolicyTests
             public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 
             public void TierCompleted(string displayPath, Totals totals) => inner.TierCompleted(displayPath, totals);
+
+            public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
 
             public void TierFailed(string displayPath, string agent, RunStatus status) => throw new IOException("console-detail-3b7e");
         }

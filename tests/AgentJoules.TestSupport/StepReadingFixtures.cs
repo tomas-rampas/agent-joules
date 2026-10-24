@@ -19,8 +19,15 @@ public static class StepReadingFixtures
     /// <param name="window">The in-memory meter window the run assembler reads (AJ-047), or null for none.</param>
     /// <param name="cost">The cost, or null for not-reported <c>not-priced</c>.</param>
     /// <param name="inputTokens">The prompt tokens, or null for a measured 120.</param>
+    /// <param name="netJoules">The net energy, or null for a measured 60 J.</param>
+    /// <param name="flags">The reading flags; a negative net needs <see cref="ReadingFlags.BelowBaseline"/>.</param>
+    /// <param name="quality">The judge quality, or null for N/A <c>not-scored</c>.</param>
+    /// <param name="outputText">The in-memory output text for the judge, or null.</param>
+    /// <param name="joulesPerQualityPoint">The joules per quality point, or null for N/A <c>not-scored</c>.</param>
+    /// <param name="costPerQualityPoint">The cost per quality point, or null for N/A <c>not-scored</c>.</param>
+    /// <param name="judgedAgent">For a judge reading, the workflow agent whose output was scored (it pairs the reading with the step of that agent); null for a workflow step.</param>
     /// <returns>The reading.</returns>
-    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null) =>
+    public static StepReading Metered(string agent = "Planner", Tier tier = Tier.Local, WindowSpan? window = null, Metric? cost = null, Metric? inputTokens = null, Metric? netJoules = null, ReadingFlags flags = ReadingFlags.None, Metric? quality = null, string? outputText = null, Metric? joulesPerQualityPoint = null, Metric? costPerQualityPoint = null, string? judgedAgent = null) =>
         new(
             task: "summarise",
             repeat: 1,
@@ -35,17 +42,22 @@ public static class StepReadingFixtures
             inputTokens: inputTokens ?? Metric.Measured(120, "tokens"),
             outputTokens: Metric.Measured(80, "tokens"),
             grossJoules: Metric.Measured(180, "J"),
-            netJoules: Metric.Measured(60, "J"),
+            netJoules: netJoules ?? Metric.Measured(60, "J"),
             avgW: Metric.Measured(90, "W"),
             peakW: Metric.Measured(110, "W"),
             cost: cost ?? Metric.NotReported("not-priced"),
             retries: 0,
             waitMs: 0,
-            flags: ReadingFlags.None,
+            flags: flags,
             method: EnergyMethod.Sampling,
             sampleCount: 21,
             sampleRateHz: 10.0,
-            window: window);
+            quality: quality,
+            joulesPerQualityPoint: joulesPerQualityPoint,
+            costPerQualityPoint: costPerQualityPoint,
+            outputText: outputText,
+            window: window,
+            judgedAgent: judgedAgent);
 
     /// <summary>
     /// The no-usage reading (AJ-042, EDGE-007): a metered step whose provider sent no usage, so both token metrics are not-reported with the reason
@@ -83,7 +95,12 @@ public static class StepReadingFixtures
     /// A reading of a hosted tier whose energy metrics come from the window of an <see cref="UnmeteredEnergyMeter"/>, so the values are
     /// those the meter produces and not a copy of the expected text.
     /// </summary>
-    public static async Task<StepReading> HostedAsync(Tier tier, string agent = "Planner")
+    /// <param name="tier">The hosted tier.</param>
+    /// <param name="agent">The agent name.</param>
+    /// <param name="quality">The judge quality, or null for N/A <c>not-scored</c>.</param>
+    /// <param name="cost">The cost, or null for not-reported <c>not-priced</c>.</param>
+    /// <returns>The reading.</returns>
+    public static async Task<StepReading> HostedAsync(Tier tier, string agent = "Planner", Metric? quality = null, Metric? cost = null)
     {
         FakeTimeProvider time = new();
         await using UnmeteredEnergyMeter meter = new(time);
@@ -109,9 +126,10 @@ public static class StepReadingFixtures
             netJoules: energy.NetJoules,
             avgW: energy.AverageWatts,
             peakW: energy.PeakWatts,
-            cost: Metric.NotReported("not-priced"),
+            cost: cost ?? Metric.NotReported("not-priced"),
             retries: 0,
             waitMs: 0,
-            flags: ReadingFlags.None);
+            flags: ReadingFlags.None,
+            quality: quality);
     }
 }

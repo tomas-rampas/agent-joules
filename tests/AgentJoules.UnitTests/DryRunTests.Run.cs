@@ -4,6 +4,7 @@ using System.Text.Json;
 using AgentJoules.Cli.Hosting;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Runs;
+using AgentJoules.Dashboard;
 using AgentJoules.Reporting.Results;
 using AgentJoules.TestSupport;
 using AgentJoules.Workflow;
@@ -29,7 +30,7 @@ public sealed partial class DryRunTests
     [Trait("Spec", "REQ-017")]
     public sealed class Run
     {
-        private static readonly string[] EightOptions = ["--tier", "--task", "--mode", "--out", "--baseline-seconds", "--repeat", "--no-console-telemetry", "--dry-run"];
+        private static readonly string[] NineOptions = ["--tier", "--task", "--mode", "--out", "--baseline-seconds", "--repeat", "--dry-run", "--dashboard", "--dashboard-port"];
 
         private static string LocalBaseUrl => Shipped.Tiers["local"].BaseUrl!;
 
@@ -77,20 +78,22 @@ public sealed partial class DryRunTests
 
         private static Task<CliRunResult> RunAsync(string arguments, RunCommandSetup setup) => RunCommandHarness.RunAsync(arguments, setup).WaitAsync(HangGuard);
 
-        // ---- criterion 1: the eight options ----
+        // ---- criterion 1: the nine options (REQ-017 with the two dashboard options of REQ-032, AJ-091 T-1) ----
 
         [Fact]
-        public async Task Help_lists_eight_options()
+        public async Task Help_lists_nine_options()
         {
             CliRunResult result = await CliHarness.RunAsync("run --help").WaitAsync(HangGuard);
 
             Assert.Equal(0, result.ExitCode);
             string[] tokens = result.Stdout.Split([' ', '\n', '\r', ','], StringSplitOptions.RemoveEmptyEntries);
-            Assert.All(EightOptions, option => Assert.Contains(option, tokens));
+            Assert.All(NineOptions, option => Assert.Contains(option, tokens));
             Assert.Contains("--config", tokens);
+            Assert.Contains("--no-console-telemetry", tokens);
 
-            // The dashboard options are M3 (REQ-032).
-            Assert.DoesNotContain("--dashboard", result.Stdout, StringComparison.Ordinal);
+            // The default of --dashboard-port is asserted here and through DashboardServer.DefaultPort only (P-79).
+            Assert.Contains($"[default: {DashboardServer.DefaultPort}]", result.Stdout, StringComparison.Ordinal);
+            Assert.Equal(5178, DashboardServer.DefaultPort);
             Assert.Empty(result.Stderr);
         }
 

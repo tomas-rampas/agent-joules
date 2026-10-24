@@ -122,6 +122,7 @@ public sealed class ConfigValidationTests
     [InlineData(typeof(GpuOptions))]
     [InlineData(typeof(MeterOptions))]
     [InlineData(typeof(BaselineOptions))]
+    [InlineData(typeof(CostOptions))]
     public void TheOptionTypesAreSealedMutableClassesWithPlainGetAndSet(Type type)
     {
         Assert.True(type.IsClass);
@@ -654,7 +655,8 @@ public sealed class ConfigValidationTests
         ];
 
         Assert.NotEmpty(annotated);
-        Assert.All(annotated, property => Assert.Contains(property.PropertyType, numeric));
+        // A nullable number (CloudGpu:HourlyPriceUsd, Cost:GCo2ePerKwh) is optional: unset passes, a set value is checked as the number it is.
+        Assert.All(annotated, property => Assert.Contains(Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType, numeric));
     }
 
     // ---- a binding failure never shows a configured value ----
@@ -713,7 +715,7 @@ public sealed class ConfigValidationTests
     [InlineData("Gpu:Idx", "3")]
     [InlineData("Meter:Methd", "counter")]
     [InlineData("Baseline:Secs", "5")]
-    [InlineData("Cost", "1")]
+    [InlineData("Costs", "1")]
     public void AnUnknownKeyIsRejectedNamingIt(string key, string value)
     {
         ConfigurationException failure = Rejected((key, value));
@@ -798,9 +800,382 @@ public sealed class ConfigValidationTests
         Assert.Equal(1, hits);
     }
 
+    [Theory]
+    [InlineData("free-tier-no-price")]
+    [InlineData("price-not-found")]
+    [InlineData("contract-price-2026")]
+    public void AMissingPriceReasonOfLowercaseWordsJoinedByHyphensValidates(string reason)
+    {
+        AgentJoulesOptions options = Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", reason));
+
+        Assert.Equal(reason, options.Tiers["nvidia"].MissingPriceReason);
+    }
+
+    [Theory]
+    [InlineData("two words")]
+    [InlineData("tab\there")]
+    [InlineData("bell\a")]
+    [InlineData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+    [InlineData("Upper-case")]
+    [InlineData("-leading")]
+    [InlineData("trailing-")]
+    [InlineData("double--hyphen")]
+    [InlineData("under_score")]
+    [InlineData("   ")]
+    public void AMissingPriceReasonWithASpaceAControlCharacterOrAnotherShapeFailsNamingTheKeyWithoutTheValue(string reason)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", reason));
+
+        Assert.Contains("Tiers:nvidia:MissingPriceReason must be", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("the value is not shown", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        if (reason.Trim().Length > 2)
+        {
+            Assert.DoesNotContain(reason, failure.Message, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void AMissingPriceReasonOf64CharactersValidatesAndOf65FailsWithoutTheValue()
+    {
+        string longest = new('a', CrossFieldValidator.MaxReasonLength);
+        string tooLong = new('b', CrossFieldValidator.MaxReasonLength + 1);
+
+        Assert.Equal(longest, Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", longest)).Tiers["nvidia"].MissingPriceReason);
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:MissingPriceReason", tooLong));
+
+        Assert.Contains("Tiers:nvidia:MissingPriceReason must be", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(tooLong, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheShippedMissingPriceReasonValidates()
+    {
+        Assert.Equal("free-tier-no-price", ConfigurationFixtures.ShippedOptions().Tiers["nvidia"].MissingPriceReason);
+    }
+
     private static bool IsBuildOutput(string path)
     {
         string[] segments = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return segments.Contains("bin", StringComparer.OrdinalIgnoreCase) || segments.Contains("obj", StringComparer.OrdinalIgnoreCase);
+    }
+
+    // ---- AJ-072: the Cost section and CloudGpu:HourlyPriceUsd ----
+
+    [Theory]
+    [InlineData("Cost:ElectricityPricePerKwh", "0")]
+    [InlineData("Cost:ElectricityPricePerKwh", "-0.5")]
+    [InlineData("Cost:ElectricityPricePerKwh", "NaN")]
+    [InlineData("Cost:ElectricityPricePerKwh", "Infinity")]
+    [InlineData("Cost:Currency", "")]
+    [InlineData("Cost:Currency", "eur")]
+    [InlineData("Cost:Currency", "EURO")]
+    [InlineData("Cost:Currency", "E1R")]
+    [InlineData("Cost:Currency", " EU")]
+    [InlineData("Cost:GCo2ePerKwh", "0")]
+    [InlineData("Cost:GCo2ePerKwh", "-5")]
+    [InlineData("Cost:GCo2ePerKwh", "NaN")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "0")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "-1")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "Infinity")]
+    public void AnInvalidCostOrRentalValueExitsTwoNamingTheKey(string key, string value)
+    {
+        ConfigurationException failure = Rejected((key, value));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains(key, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Cost:ElectricityPricePerKwh", "-7.123")]
+    [InlineData("Cost:ElectricityPricePerKwh", "not-a-number-zz")]
+    [InlineData("Cost:Currency", "xq9")]
+    [InlineData("Cost:GCo2ePerKwh", "-8.456")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "-9.789")]
+    [InlineData("CloudGpu:HourlyPriceUsd", "not-a-number-zz")]
+    public void ACostOrRentalFailureNamesTheKeyAndNeverTheValue(string key, string value)
+    {
+        ConfigurationException failure = Rejected((key, value));
+
+        Assert.Contains(key, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(value, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ACostSectionWithEveryKeySetAndARentalPriceValidate()
+    {
+        AgentJoulesOptions options = Load(
+            ("Cost:ElectricityPricePerKwh", "0.25"),
+            ("Cost:Currency", "SEK"),
+            ("Cost:GCo2ePerKwh", "400"),
+            ("CloudGpu:HourlyPriceUsd", "3.6"));
+
+        Assert.Equal(0.25, options.Cost.ElectricityPricePerKwh, Tolerance);
+        Assert.Equal("SEK", options.Cost.Currency);
+        Assert.Equal(400.0, options.Cost.GCo2ePerKwh!.Value, Tolerance);
+        Assert.Equal(3.6, options.CloudGpu.HourlyPriceUsd!.Value, Tolerance);
+    }
+
+    [Fact]
+    public void TheCostDefaultsAreThirtyCentsInEuroWithNoFactorAndNoRentalPrice()
+    {
+        var options = new AgentJoulesOptions();
+
+        Assert.Equal(0.30, options.Cost.ElectricityPricePerKwh, Tolerance);
+        Assert.Equal("EUR", options.Cost.Currency);
+        Assert.Null(options.Cost.GCo2ePerKwh);
+        Assert.Null(options.CloudGpu.HourlyPriceUsd);
+        OptionsLoader.ValidateOrThrow(options);
+    }
+
+    [Fact]
+    public void TheShippedFileHoldsTheElectricityPriceAndCurrencyButNoFactorAndNoRentalPrice()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement root = document.RootElement.GetProperty(AgentJoulesOptions.SectionName);
+        JsonElement cost = root.GetProperty("Cost");
+        AgentJoulesOptions options = OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath()));
+
+        Assert.Equal(0.30, cost.GetProperty("ElectricityPricePerKwh").GetDouble(), Tolerance);
+        Assert.Equal("EUR", cost.GetProperty("Currency").GetString());
+        Assert.False(cost.TryGetProperty("GCo2ePerKwh", out _));
+        Assert.False(root.GetProperty("CloudGpu").TryGetProperty("HourlyPriceUsd", out _));
+        Assert.Null(options.Cost.GCo2ePerKwh);
+        Assert.Null(options.CloudGpu.HourlyPriceUsd);
+    }
+
+    [Fact]
+    public void AnUnknownCostKeyIsRejectedNamingIt()
+    {
+        ConfigurationException failure = Rejected(("Cost:Currncy", "EUR"));
+
+        Assert.Contains("Cost:Currncy", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("eur")]
+    public void AProgrammaticCurrencyThatIsNotACodeFailsNamingTheKeyOnly(string currency)
+    {
+        var options = new AgentJoulesOptions();
+        options.Cost.Currency = currency;
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => OptionsLoader.ValidateOrThrow(options));
+
+        Assert.Equal("Cost:Currency must be three upper-case letters", failure.Message);
+    }
+
+    [Fact]
+    public void ACurrencyCodeIsExactlyThreeUpperCaseAsciiLetters()
+    {
+        string accented = string.Concat("E", ((char)0xC9).ToString(), "R");
+
+        string[] codes = ["EUR", "USD", "SEK"];
+        string?[] notCodes = [null, string.Empty, " ", "   ", "eur", "Eur", "EU", "EURO", "E1R", "E R", "EUR ", accented];
+
+        Assert.All(codes, code => Assert.True(CostOptions.IsCurrencyCode(code), code));
+        Assert.All(notCodes, code => Assert.False(CostOptions.IsCurrencyCode(code)));
+    }
+
+    // ---- AJ-086 (REQ-030): Report:RepositoryUrl ----
+
+
+    private static string ReportUrl(string rest) => string.Concat(Uri.UriSchemeHttps, "://", "example.test/", rest);
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void TheShippedFileSetsTheRepositoryUrlOfTheProject()
+    {
+        AgentJoulesOptions options = ConfigurationFixtures.ShippedOptions();
+
+        Assert.Equal(string.Concat(Uri.UriSchemeHttps, "://", "github.com/tomas-rampas/agent-joules"), options.Report.RepositoryUrl);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ThereIsNoRepositoryUrlUnlessOneIsConfigured()
+    {
+        AgentJoulesOptions options = Load();
+
+        Assert.Null(options.Report.RepositoryUrl);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void AnAbsoluteHttpsRepositoryUrlIsAccepted()
+    {
+        string[] urls = [ReportUrl("owner/repo"), ReportUrl(string.Empty), string.Concat(Uri.UriSchemeHttps, "://", "example.test:8443/owner/repo")];
+
+        Assert.All(urls, url => Assert.Equal(url, Load(("Report:RepositoryUrl", url)).Report.RepositoryUrl));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ARepositoryUrlThatIsNotAbsoluteHttpsWithoutUserInfoQueryOrFragmentIsRefusedWithoutShowingIt()
+    {
+        string secret = string.Concat("nvapi", "-", "Zq9_xK3", "_mP7w");
+        string[] refused =
+        [
+            string.Concat(Uri.UriSchemeHttp, "://", "example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeFtp, "://", "example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", "user:", secret, "@example.test/owner/repo"),
+            string.Concat(Uri.UriSchemeHttps, "://", secret, "@example.test/owner/repo"),
+            ReportUrl("owner/repo?a=1"),
+            ReportUrl("owner/repo?"),
+            ReportUrl("owner/repo#top"),
+            ReportUrl("owner/repo#"),
+            "owner/repo",
+            "example.test/owner/repo",
+            "   ",
+            "/owner/repo",
+        ];
+
+        foreach (string url in refused)
+        {
+            ConfigurationException failure = Rejected(("Report:RepositoryUrl", url));
+
+            Assert.Equal(ReportOptions.RepositoryUrlMessage, failure.Message);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void ARepositoryUrlWithAKeyInThePathOrSurroundingSpaceIsRefusedHere()
+    {
+        string key = string.Concat("nvapi", "-", "Zq9xK3mP7wAbCdEf");
+        string[] refused =
+        [
+            ReportUrl("owner/" + key),
+            ReportUrl(key + "/repo"),
+            " " + ReportUrl("owner/repo"),
+            ReportUrl("owner/repo") + " ",
+            ReportUrl("owner/repo") + "\t",
+        ];
+
+        foreach (string url in refused)
+        {
+            ConfigurationException failure = Rejected(("Report:RepositoryUrl", url));
+
+            Assert.Equal(ReportOptions.RepositoryUrlMessage, failure.Message);
+            Assert.DoesNotContain(key, failure.Message, StringComparison.Ordinal);
+            Assert.False(ReportOptions.IsRepositoryUrl(url, out Uri? uri));
+            Assert.Null(uri);
+        }
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-030")]
+    public void TheReportSectionHoldsNoOtherKey()
+    {
+        ConfigurationException failure = Rejected(("Report:Other", "x"));
+
+        Assert.Equal("Report:Other is not a known option; check the spelling", failure.Message);
+    }
+
+    // ---- AJ-089: Dashboard:PowerIntervalMs ----
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("25")]
+    [InlineData("49")]
+    [InlineData("1001")]
+    public void Power_interval_out_of_range_exits_2(string interval)
+    {
+        ConfigurationException failure = Rejected(("Dashboard:PowerIntervalMs", interval));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Dashboard:PowerIntervalMs must be a whole number from 50 to 1000", failure.Message);
+        Assert.DoesNotContain(interval, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("50")]
+    [InlineData("100")]
+    [InlineData("1000")]
+    public void Power_interval_within_range_passes(string interval)
+    {
+        Assert.Equal(int.Parse(interval, CultureInfo.InvariantCulture), Load(("Dashboard:PowerIntervalMs", interval)).Dashboard.PowerIntervalMs);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-032")]
+    [InlineData("100.5")]
+    [InlineData("fast")]
+    public void Power_interval_that_is_not_a_whole_number_exits_2_without_echoing_it(string interval)
+    {
+        ConfigurationException failure = Rejected(("Dashboard:PowerIntervalMs", interval));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Dashboard:PowerIntervalMs must be an integer", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(interval, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-032")]
+    public void The_power_interval_defaults_to_100_and_the_shipped_file_says_so()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement root = document.RootElement.GetProperty(AgentJoulesOptions.SectionName);
+
+        Assert.Equal(100, root.GetProperty("Dashboard").GetProperty("PowerIntervalMs").GetInt32());
+        Assert.Equal("Dashboard", root.EnumerateObject().Last().Name);
+        Assert.Equal(100, new AgentJoulesOptions().Dashboard.PowerIntervalMs);
+        Assert.Equal(100, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Dashboard.PowerIntervalMs);
+        Assert.Equal(100, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Dashboard.PowerIntervalMs);
+    }
+
+    // ---- M3 exit: Judge:MaxOutputTokens ----
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("32769")]
+    public void Judge_max_output_tokens_out_of_range_exits_2(string tokens)
+    {
+        ConfigurationException failure = Rejected(("Judge:MaxOutputTokens", tokens));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Judge:MaxOutputTokens must be a whole number from 1 to 32768", failure.Message);
+        Assert.DoesNotContain(tokens, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("1")]
+    [InlineData("32")]
+    [InlineData("32768")]
+    public void Judge_max_output_tokens_within_range_passes(string tokens)
+    {
+        Assert.Equal(int.Parse(tokens, CultureInfo.InvariantCulture), Load(("Judge:MaxOutputTokens", tokens)).Judge.MaxOutputTokens);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-010")]
+    [InlineData("32.5")]
+    [InlineData("many")]
+    public void Judge_max_output_tokens_that_is_not_a_whole_number_exits_2_without_echoing_it(string tokens)
+    {
+        ConfigurationException failure = Rejected(("Judge:MaxOutputTokens", tokens));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Judge:MaxOutputTokens must be an integer", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(tokens, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-010")]
+    public void The_judge_reply_cap_defaults_to_32_and_the_shipped_file_says_so()
+    {
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ConfigurationFixtures.AppSettingsPath()));
+        JsonElement judge = document.RootElement.GetProperty(AgentJoulesOptions.SectionName).GetProperty("Judge");
+
+        Assert.Equal(32, JudgeOptions.DefaultMaxOutputTokens);
+        Assert.Equal(32, judge.GetProperty("MaxOutputTokens").GetInt32());
+        Assert.Equal(32, new AgentJoulesOptions().Judge.MaxOutputTokens);
+        Assert.Equal(32, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Judge.MaxOutputTokens);
+        Assert.Equal(32, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Judge.MaxOutputTokens);
     }
 }

@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Joules live dashboard</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --panel: #1a2129;
+  --fg: #e6edf3;
+  --muted: #9aa7b4;
+  --accent: #58a6ff;
+  --measured: #3fb950;
+  --estimated: #d29922;
+  --na: #9aa7b4;
+  --grid: #3a4450;
+  --agent-1: #58a6ff;
+  --agent-2: #f778ba;
+  --agent-3: #bc8cff;
+  --agent-4: #39c5cf;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --font-size-base: 15px;
+  --font-size-small: 13px;
+  --font-size-value: 22px;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --fg: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --measured: #1a7f37;
+    --estimated: #8a5a00;
+    --na: #57606a;
+    --grid: #c8d1da;
+    --agent-1: #0969da;
+    --agent-2: #bf3989;
+    --agent-3: #8250df;
+    --agent-4: #1b7c83;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { color-scheme: dark light; }
+body {
+  margin: 0 auto;
+  padding: var(--space-3);
+  max-width: 1600px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+}
+h1, h2 { margin: 0; font-weight: 600; }
+h1 { font-size: var(--font-size-value); }
+h2 { font-size: var(--font-size-base); }
+.muted { color: var(--muted); }
+#header { background: var(--panel); border-radius: var(--radius); padding: var(--space-3); }
+#header .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+}
+#header .item { min-width: 0; }
+.hk { color: var(--muted); font-size: var(--font-size-small); margin-right: var(--space-1); }
+.banner {
+  border: 1px solid var(--estimated);
+  color: var(--estimated);
+  border-radius: var(--radius);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-small);
+}
+#agents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+#agents-empty { grid-column: 1 / -1; margin: 0; }
+.card {
+  min-width: 0;
+  background: var(--panel);
+  border-radius: var(--radius);
+  border-left: 4px solid var(--agent);
+  padding: var(--space-3);
+}
+.card .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+.card .name { font-weight: 600; overflow-wrap: anywhere; }
+.pill {
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-small);
+}
+.flag-extra {
+  border: 1px dashed var(--fg);
+  color: var(--fg);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-small);
+}
+.pill.running { color: var(--accent); border-color: var(--accent); }
+.pill.ok { color: var(--measured); border-color: var(--measured); }
+.pill.bad { color: var(--fg); border-style: dashed; border-color: var(--fg); }
+.row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0; }
+.key { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: var(--font-size-small); }
+.val {
+  flex: 0 0 auto;
+  width: 13ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  flex: 0 0 auto;
+  width: 14ch;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-small);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge.empty { visibility: hidden; }
+.val.long, .badge.long {
+  width: auto;
+  max-width: 60%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+.badge.measured { color: var(--measured); border-color: var(--measured); }
+.badge.estimated { color: var(--estimated); border-color: var(--estimated); }
+.badge.judged { color: var(--accent); border-color: var(--accent); }
+.badge.na { color: var(--na); border-color: var(--na); }
+.badge.notreported { color: var(--na); border: 1px dashed var(--na); }
+#chart { background: var(--panel); border-radius: var(--radius); padding: var(--space-3); min-width: 0; }
+#chart .axis { color: var(--muted); font-size: var(--font-size-small); margin: var(--space-1) 0; }
+#axis-x { text-align: center; }
+#canvas { display: block; width: 100%; height: 320px; border-radius: var(--radius); }
+.legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-2); font-size: var(--font-size-small); }
+.lg { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.sw { display: inline-block; width: 18px; height: 10px; border-radius: var(--radius); }
+.sw.dash { height: 0; border-top: 2px dashed var(--muted); border-radius: 0; }
+.sw.band { background: var(--estimated); opacity: 0.2; }
+#footer { margin-top: var(--space-3); color: var(--muted); font-size: var(--font-size-small); overflow-wrap: anywhere; }
+#footer p { margin: var(--space-1) 0; }
+#footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header id="header">
+  <h1>Agent Joules</h1>
+  <div class="meta">
+    <span class="item"><span class="hk">Tier</span><span id="hdr-tier">-</span></span>
+    <span class="item"><span class="hk">Models</span><span id="hdr-models">-</span></span>
+    <span class="item"><span class="hk">Precision</span><span id="hdr-precision">-</span></span>
+    <span class="item"><span class="hk">Mode</span><span id="hdr-mode">-</span></span>
+    <span class="item"><span class="hk">Progress</span><span id="hdr-progress">-</span></span>
+    <span class="item"><span class="hk">Flags</span><span id="hdr-flags">-</span></span>
+    <span id="hdr-replay-marker" class="banner" hidden>replay</span>
+    <span id="hdr-replay" class="banner" hidden>power shown as recorded per-step average</span>
+    <span id="hdr-reconnecting" class="banner" hidden>reconnecting</span>
+  </div>
+</header>
+<section id="agents" aria-label="Agents">
+  <p id="agents-empty" class="muted">Waiting for the first snapshot of the run.</p>
+</section>
+<p id="agents-omitted" class="muted" hidden>More agents ran than the page tracks (12): the further agents are not shown.</p>
+<p id="snapshot-degraded" class="muted" hidden>This view is incomplete: the server could not serialize the whole state and sent a reduced snapshot.</p>
+<section id="chart">
+  <h2>Board power</h2>
+  <div class="axis" id="axis-y">W: GPU board power over the last 120 seconds</div>
+  <canvas id="canvas" role="img" aria-label="Board power in watts over the last 120 seconds, with the idle baseline"></canvas>
+  <div class="axis" id="axis-x">seconds since the run started</div>
+  <div id="legend" class="legend">
+    <span id="legend-agents" class="legend"></span>
+    <span class="lg"><span class="sw dash"></span>idle baseline (mean W)</span>
+    <span class="lg"><span class="sw band"></span>shared-window</span>
+  </div>
+  <p id="chart-note" class="muted"></p>
+</section>
+<footer id="footer">
+  <p>Energy is GPU-board energy only.</p>
+  <p id="power-note">NVML power on this GPU class (Ampere and newer, except GA100) is a one-second driver average; the chart shows that average at the forwarding interval, not instantaneous power.</p>
+  <p>Values tagged estimated are running estimates computed from the power samples of the active step; the measured value replaces them when the step completes, and estimates never enter results files.</p>
+  <p><a id="repo-link" href="{{repo.url}}">Repository README</a></p>
+</footer>
+<script>
+"use strict";
+
+// Push-driven page: the stream handlers only mutate the state object and set the dirty flag; one frame loop repaints the canvas and the changed text nodes at most once per display frame.
+// Everything that arrives is checked before it is used: a malformed item is ignored or shown as a missing value, and never stops the page.
+
+function freshState() {
+  return {
+    connected: true,
+    hasSnapshot: false,
+    replay: false,
+    run: null,
+    environment: null,
+    powerLimitW: null,
+    baseline: null,
+    progress: null,
+    completed: null,
+    agents: [],
+    activeAgents: [],
+    agentsOmitted: 0,
+    snapshotDegraded: false,
+    lastStep: Object.create(null),
+    watts: null,
+    sampleSeconds: null,
+    points: [],
+    maxW: 0
+  };
+}
+
+let state = freshState();
+let dirty = true;
+let paletteStale = true;
+let cardsKey = "";
+let cells = Object.create(null);
+let palette = null;
+
+const hdr = {
+  tier: document.getElementById("hdr-tier"),
+  models: document.getElementById("hdr-models"),
+  precision: document.getElementById("hdr-precision"),
+  mode: document.getElementById("hdr-mode"),
+  progress: document.getElementById("hdr-progress"),
+  flags: document.getElementById("hdr-flags"),
+  replayMarker: document.getElementById("hdr-replay-marker"),
+  replay: document.getElementById("hdr-replay"),
+  reconnecting: document.getElementById("hdr-reconnecting")
+};
+const agentsEl = document.getElementById("agents");
+const agentsEmpty = document.getElementById("agents-empty");
+const agentsOmittedEl = document.getElementById("agents-omitted");
+const snapshotDegradedEl = document.getElementById("snapshot-degraded");
+
+// The texts the page sets itself: a badge or a sentence is chosen by a fixed key, never taken from the payload.
+const FIXED_TEXT = { extraAgent: "not a configured agent" };
+const legendAgentsEl = document.getElementById("legend-agents");
+const chartNote = document.getElementById("chart-note");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+function resetState() {
+  state = freshState();
+}
+
+// ---- checks for what arrives ----
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function objectsOf(list) {
+  return Array.isArray(list) ? list.filter(isObject) : [];
+}
+
+function textsOf(list) {
+  return Array.isArray(list) ? list.filter(function (entry) { return typeof entry === "string"; }) : [];
+}
+
+function numberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function labelled(metric) {
+  return isObject(metric) && typeof metric.label === "string" ? metric : null;
+}
+
+function plain(value) {
+  return typeof value === "string" || typeof value === "number" ? String(value) : "-";
+}
+
+function addPoint(seconds, watts) {
+  state.points.push({ t: seconds, w: watts, agents: state.activeAgents.slice() });
+  state.maxW = Math.max(state.maxW, watts);
+  while (state.points.length > 4000) {
+    state.points.shift();
+  }
+}
+
+// ---- the stream handlers: state only ----
+
+function handleSnapshot(item, data) {
+  resetState();
+  state.connected = true;
+  state.hasSnapshot = true;
+  state.replay = item.replay === true;
+  state.run = isObject(data.run) ? data.run : null;
+  state.environment = isObject(data.environment) ? data.environment : null;
+  state.powerLimitW = numberOrNull(data.powerLimitW);
+  state.baseline = isObject(data.baseline) ? data.baseline : null;
+  state.progress = isObject(data.progress) ? data.progress : null;
+  state.completed = isObject(data.completed) ? data.completed : null;
+  state.snapshotDegraded = data.snapshotDegraded === true;
+  applyAgents(data);
+  objectsOf(data.steps).forEach(function (entry) {
+    if (isObject(entry.step) && typeof entry.step.agent === "string") {
+      state.lastStep[entry.step.agent] = { step: entry.step, flags: textsOf(entry.flags) };
+    }
+  });
+
+  // the last power sample of the run, so that a late connect or a reconnect shows the power again (no history travels)
+  state.watts = labelled(data.watts);
+  state.sampleSeconds = numberOrNull(data.sampleSeconds);
+  if (state.watts !== null && state.sampleSeconds !== null && typeof state.watts.value === "number") {
+    addPoint(state.sampleSeconds, state.watts.value);
+  }
+}
+
+function applyAgents(data) {
+  if (Array.isArray(data.agents)) {
+    state.agents = objectsOf(data.agents).filter(function (agent) { return typeof agent.agent === "string"; });
+  }
+  if (Array.isArray(data.activeAgents)) {
+    state.activeAgents = textsOf(data.activeAgents);
+  }
+  const omitted = numberOrNull(data.agentsOmitted);
+  if (omitted !== null) {
+    state.agentsOmitted = omitted;
+  }
+}
+
+function handleRunStarted(item, data) {
+  state.replay = item.replay === true;
+  state.run = isObject(data.run) ? data.run : null;
+  state.environment = isObject(data.environment) ? data.environment : null;
+  state.powerLimitW = numberOrNull(data.powerLimitW);
+}
+
+function handleBaseline(item, data) {
+  state.baseline = isObject(data.baseline) ? data.baseline : null;
+}
+
+function handleProgress(item, data) {
+  state.progress = data;
+}
+
+function handleStepStarted(item, data) {
+  applyAgents(data);
+}
+
+function handleStepProgress(item, data) {
+  applyAgents(data);
+}
+
+function handleStepCompleted(item, data) {
+  if (isObject(data.step) && typeof data.step.agent === "string") {
+    state.lastStep[data.step.agent] = { step: data.step, flags: textsOf(data.flags) };
+  }
+  applyAgents(data);
+}
+
+function handlePower(item, data) {
+  state.watts = labelled(data.watts);
+  state.sampleSeconds = numberOrNull(data.sampleSeconds);
+  applyAgents(data);
+  if (state.watts !== null && state.sampleSeconds !== null && typeof state.watts.value === "number") {
+    addPoint(state.sampleSeconds, state.watts.value);
+  }
+}
+
+function handleRunCompleted(item, data) {
+  state.completed = data;
+}
+
+function onEvent(message) {
+  let item = null;
+  try {
+    item = JSON.parse(message.data);
+  } catch (failure) {
+    item = null;
+  }
+  if (!isObject(item) || typeof item.type !== "string") {
+    return;
+  }
+  const data = isObject(item.data) ? item.data : {};
+  try {
+    switch (item.type) {
+      case "snapshot": handleSnapshot(item, data); break;
+      case "run-started": handleRunStarted(item, data); break;
+      case "baseline": handleBaseline(item, data); break;
+      case "progress": handleProgress(item, data); break;
+      case "step-started": handleStepStarted(item, data); break;
+      case "step-progress": handleStepProgress(item, data); break;
+      case "step-completed": handleStepCompleted(item, data); break;
+      case "power": handlePower(item, data); break;
+      case "run-completed": handleRunCompleted(item, data); break;
+      default: break;
+    }
+  } catch (failure) {
+    // a handler that meets a shape it cannot use leaves the state as it was
+  }
+  dirty = true;
+}
+
+// ---- formatting: one formatter, a value that does not exist prints its label ----
+
+function formatNumber(value, unit) {
+  const whole = unit === "tokens" || unit === "ms" || unit === "chunks" || Number.isInteger(value);
+  return whole ? String(Math.round(value)) : value.toFixed(Math.abs(value) >= 100 ? 0 : 1);
+}
+
+function fmt(metric) {
+  if (!isObject(metric) || typeof metric.label !== "string") {
+    return { text: "-", label: "", note: "" };
+  }
+  if (metric.value === null) {
+    return { text: metric.label, label: metric.label, note: typeof metric.reason === "string" && metric.reason !== "" ? metric.reason : metric.label };
+  }
+  if (typeof metric.value !== "number" || !Number.isFinite(metric.value)) {
+    return { text: "-", label: "", note: "" };
+  }
+  const unit = typeof metric.unit === "string" ? metric.unit : (typeof metric.currency === "string" ? metric.currency : "");
+  const text = formatNumber(metric.value, unit);
+  return { text: unit ? text + " " + unit : text, label: metric.label, note: metric.label };
+}
+
+function labelClass(label) {
+  if (label === "measured") { return "measured"; }
+  if (label === "estimated") { return "estimated"; }
+  if (label === "model-judged") { return "judged"; }
+  if (label === "not-reported") { return "notreported"; }
+  return "na";
+}
+
+function statusClass(status) {
+  if (status === "running") { return "running"; }
+  if (status === "ok") { return "ok"; }
+  if (status === "waiting") { return "waiting"; }
+  return "bad";
+}
+
+function setText(node, text) {
+  if (node.lastText !== text) {
+    node.lastText = text;
+    node.textContent = text;
+  }
+}
+
+function setClass(node, name) {
+  if (node.className !== name) {
+    node.className = name;
+  }
+}
+
+function agentColour(name) {
+  const index = state.agents.findIndex(function (agent) { return agent.agent === name; });
+  return palette.agents[(index < 0 ? 0 : index) % 4];
+}
+
+// ---- the only place that creates elements: the agent cards and the legend entries, when the agent list arrives ----
+
+function buildAgentCards(names, configured) {
+  function make(tag, className, parent) {
+    const node = document.createElement(tag);
+    if (className) {
+      node.className = className;
+    }
+    parent.appendChild(node);
+    return node;
+  }
+  while (agentsEl.firstChild) {
+    agentsEl.removeChild(agentsEl.firstChild);
+  }
+  while (legendAgentsEl.firstChild) {
+    legendAgentsEl.removeChild(legendAgentsEl.firstChild);
+  }
+  const rows = [
+    ["watts", "GPU power now"],
+    ["running", "Running net energy"],
+    ["chunks", "Output chunks (running)"],
+    ["net", "Net energy (last step)"],
+    ["cumulative", "Net energy (cumulative)"],
+    ["avg", "Average power (last step)"],
+    ["tokens-in", "Input tokens (cumulative)"],
+    ["tokens-out", "Output tokens (cumulative)"],
+    ["latency", "Latency (last step)"],
+    ["flags", "Flags"]
+  ];
+  cells = Object.create(null);
+  names.forEach(function (name, index) {
+    const colour = "var(--agent-" + ((index % 4) + 1) + ")";
+    const card = make("article", "card", agentsEl);
+    card.style.setProperty("--agent", colour);
+    const head = make("div", "head", card);
+    const title = make("span", "name", head);
+    title.textContent = name;
+    const extra = make("span", "flag-extra", head);
+    extra.textContent = FIXED_TEXT.extraAgent;
+    extra.hidden = configured[index];
+    const pill = make("span", "pill waiting", head);
+    const entry = { pill: pill, rows: Object.create(null) };
+    rows.forEach(function (row) {
+      const line = make("div", "row", card);
+      const key = make("span", "key", line);
+      key.textContent = row[1];
+      const val = make("span", "val", line);
+      const badge = make("span", "badge empty", line);
+      entry.rows[row[0]] = { val: val, badge: badge };
+    });
+    cells[name] = entry;
+    const item = make("span", "lg", legendAgentsEl);
+    const swatch = make("span", "sw", item);
+    swatch.style.setProperty("background", colour);
+    const label = make("span", "", item);
+    label.textContent = name;
+  });
+}
+
+// ---- painting: text nodes that changed, then the canvas ----
+
+function show(entry, key, metric) {
+  const row = entry.rows[key];
+  const view = fmt(metric);
+  setText(row.val, view.text);
+  setClass(row.val, view.text.length > 13 ? "val long" : "val");
+  setText(row.badge, view.note);
+  setClass(row.badge, view.label ? "badge " + labelClass(view.label) + (view.note.length > 14 ? " long" : "") : "badge empty");
+}
+
+function paintHeader() {
+  const run = state.run;
+  const environment = state.environment;
+  setText(hdr.tier, run ? plain(run.tier) : "-");
+  setText(hdr.models, environment ? objectsOf(environment.models).map(function (m) { return plain(m.agent) + " " + plain(m.modelId); }).join(", ") || "-" : "-");
+  setText(hdr.precision, environment && typeof environment.precision === "string" && environment.precision !== "" ? environment.precision : "not recorded");
+  setText(hdr.mode, run ? plain(run.mode) : "-");
+  const p = state.progress;
+  let progress = "-";
+  if (p) {
+    const task = typeof p.task === "string" && p.task !== "" ? p.task : "not-reported";
+    progress = task + ": task " + plain(p.taskIndex) + " of " + plain(p.taskCount) + ", repeat " + plain(p.repeat) + " of " + plain(p.repeatCount);
+  }
+  if (state.completed) {
+    progress = "run " + plain(isObject(state.completed.run) ? state.completed.run.status : null);
+  }
+  const source = state.completed && isObject(state.completed.run) ? state.completed.run : run;
+  const flags = source ? textsOf(source.flags) : [];
+  setText(hdr.flags, flags.length > 0 ? flags.join(", ") : "none");
+  setText(hdr.progress, progress);
+  hdr.replayMarker.hidden = !state.replay;
+  hdr.replay.hidden = !state.replay;
+  hdr.reconnecting.hidden = state.connected;
+}
+
+function paintCards() {
+  state.agents.forEach(function (agent) {
+    const entry = cells[agent.agent];
+    if (!entry) {
+      return;
+    }
+    const status = plain(agent.status);
+    const running = status === "running";
+    const last = state.lastStep[agent.agent];
+    const step = last ? last.step : null;
+    setText(entry.pill, status);
+    setClass(entry.pill, "pill " + statusClass(status));
+    show(entry, "watts", running ? state.watts : null);
+    show(entry, "running", agent.runningNetJoules);
+    show(entry, "chunks", agent.runningOutputChunks);
+    show(entry, "net", step ? step.netJoules : null);
+    show(entry, "cumulative", agent.cumulativeNetJoules);
+    show(entry, "avg", step ? step.avgW : null);
+    show(entry, "tokens-in", agent.cumulativeInputTokens);
+    show(entry, "tokens-out", agent.cumulativeOutputTokens);
+    show(entry, "latency", step ? step.latencyMs : null);
+    const runningFlags = textsOf(agent.flags);
+    const flags = runningFlags.length > 0 ? runningFlags : (last ? last.flags : []);
+    const row = entry.rows.flags;
+    const text = flags.length > 0 ? flags.join(", ") : "none";
+    setText(row.val, text);
+    setClass(row.val, text.length > 13 ? "val long" : "val");
+    setText(row.badge, "");
+    setClass(row.badge, "badge empty");
+  });
+}
+
+function readPalette() {
+  const css = getComputedStyle(document.documentElement);
+  function get(name) {
+    return css.getPropertyValue(name).trim();
+  }
+  palette = {
+    panel: get("--panel"),
+    fg: get("--fg"),
+    muted: get("--muted"),
+    grid: get("--grid"),
+    estimated: get("--estimated"),
+    small: get("--font-size-small"),
+    agents: [get("--agent-1"), get("--agent-2"), get("--agent-3"), get("--agent-4")]
+  };
+}
+
+function paintChart() {
+  if (paletteStale) {
+    readPalette();
+    paletteStale = false;
+  }
+  const ratio = window.devicePixelRatio ? window.devicePixelRatio : 1;
+  const box = canvas.getBoundingClientRect();
+  const width = Math.max(200, Math.round(box.width));
+  const height = Math.max(160, Math.round(box.height));
+  if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.fillStyle = palette.panel;
+  ctx.fillRect(0, 0, width, height);
+  ctx.font = palette.small + " system-ui, sans-serif";
+
+  const left = 52;
+  const right = width - 12;
+  const top = 12;
+  const bottom = height - 26;
+  const points = state.points;
+  const tmax = points.length > 0 ? points[points.length - 1].t : (state.sampleSeconds === null ? 0 : state.sampleSeconds);
+  const x0 = tmax > 120 ? tmax - 120 : 0;
+  const x1 = tmax > 120 ? tmax : 120;
+  const limit = typeof state.powerLimitW === "number" && state.powerLimitW > 0 ? state.powerLimitW : Math.max(10, state.maxW * 1.1);
+  const yMax = Math.max(limit, state.maxW);
+  function px(t) { return left + (right - left) * ((t - x0) / (x1 - x0)); }
+  function py(w) { return bottom - (bottom - top) * (w / yMax); }
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = palette.grid;
+  ctx.fillStyle = palette.muted;
+  ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i++) {
+    const y = bottom - ((bottom - top) * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+    ctx.fillText(String(Math.round((yMax * i) / 4)), left - 6, y + 4);
+  }
+  // the time axis: thirteen ticks at the most, one every ten seconds of the window
+  ctx.textAlign = "center";
+  for (let i = 0; i <= 12; i++) {
+    const t = x0 + 10 * i;
+    ctx.beginPath();
+    ctx.moveTo(px(t), top);
+    ctx.lineTo(px(t), bottom);
+    ctx.stroke();
+    ctx.fillText(String(Math.round(t)), px(t), bottom + 16);
+  }
+
+  // shared-window: a band, clipped to the plot, where two agents are active at once
+  ctx.fillStyle = palette.estimated;
+  ctx.globalAlpha = 0.2;
+  function band(from, to) {
+    const a = Math.max(left, px(from));
+    const b = Math.min(right, px(to));
+    if (b > a) {
+      ctx.fillRect(a, top, b - a, bottom - top);
+    }
+  }
+  let bandStart = null;
+  points.forEach(function (point) {
+    const shared = point.agents.length > 1;
+    if (shared && bandStart === null) {
+      bandStart = point.t;
+    }
+    if (!shared && bandStart !== null) {
+      band(bandStart, point.t);
+      bandStart = null;
+    }
+  });
+  if (bandStart !== null && points.length > 0) {
+    band(bandStart, points[points.length - 1].t);
+  }
+  ctx.globalAlpha = 1;
+
+  // idle baseline: a dashed reference line at the mean of the baseline, with the label of the mean
+  const baseline = state.baseline;
+  const meanView = baseline ? fmt(baseline.meanW) : null;
+  const mean = meanView && isObject(baseline.meanW) && typeof baseline.meanW.value === "number" ? baseline.meanW.value : null;
+  if (mean !== null) {
+    ctx.strokeStyle = palette.muted;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(left, py(mean));
+    ctx.lineTo(right, py(mean));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = palette.muted;
+    ctx.textAlign = "left";
+    ctx.fillText("idle baseline " + meanView.text + " " + meanView.label, left + 6, py(mean) - 4);
+  }
+
+  // power: one segment per pair of samples, coloured by the agent that was active
+  ctx.lineWidth = 2;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (b.t < x0) {
+      continue;
+    }
+    ctx.strokeStyle = b.agents.length === 1 ? agentColour(b.agents[0]) : (b.agents.length === 0 ? palette.muted : palette.fg);
+    ctx.beginPath();
+    ctx.moveTo(px(a.t), py(a.w));
+    ctx.lineTo(px(b.t), py(b.w));
+    ctx.stroke();
+  }
+  if (points.length === 1) {
+    ctx.fillStyle = points[0].agents.length === 1 ? agentColour(points[0].agents[0]) : palette.fg;
+    ctx.beginPath();
+    ctx.arc(px(points[0].t), py(points[0].w), 3, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  // a tier without GPU power forwards a power metric with no value: the chart says so with the label of the metric
+  const noPower = state.watts !== null && state.watts.value === null;
+  if (points.length === 0 && !noPower) {
+    ctx.fillStyle = palette.muted;
+    ctx.textAlign = "center";
+    ctx.fillText("Waiting for power samples", (left + right) / 2, (top + bottom) / 2);
+  }
+  const noPowerView = fmt(state.watts);
+  setText(chartNote, noPower ? noPowerView.text + " (" + noPowerView.note + "): this tier has no GPU board power to draw." : "");
+}
+
+function paint() {
+  const names = state.agents.map(function (agent) { return agent.agent; });
+  const configured = state.agents.map(function (agent) { return agent.configured === true; });
+  const key = names.join("|") + "/" + configured.join(",");
+  if (key !== cardsKey) {
+    buildAgentCards(names, configured);
+    cardsKey = key;
+  }
+  agentsEmpty.hidden = names.length > 0;
+  agentsOmittedEl.hidden = !(state.agentsOmitted > 0);
+  snapshotDegradedEl.hidden = !state.snapshotDegraded;
+  paintHeader();
+  paintCards();
+  paintChart();
+}
+
+// ---- the one repaint loop: it does nothing while the tab is hidden, and it keeps running whatever a repaint does ----
+
+function schedule() {
+  requestAnimationFrame(frame);
+}
+
+function frame() {
+  if (document.hidden) {
+    schedule();
+    return;
+  }
+  try {
+    if (dirty) {
+      dirty = false;
+      paint();
+    }
+  } finally {
+    schedule();
+  }
+}
+
+document.addEventListener("visibilitychange", function () {
+  dirty = true;
+});
+
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function () {
+    paletteStale = true;
+    dirty = true;
+  });
+}
+
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(function () { dirty = true; }).observe(canvas);
+}
+
+// ---- the one stream; the built-in reconnect is the only reconnect, and it keeps the last state until the next snapshot ----
+
+const source = new EventSource("/events");
+source.addEventListener("aj", onEvent);
+source.onerror = function () {
+  state.connected = false;
+  dirty = true;
+};
+
+schedule();
+</script>
+</body>
+</html>

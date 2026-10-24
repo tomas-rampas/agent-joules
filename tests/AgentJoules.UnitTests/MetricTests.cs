@@ -284,7 +284,8 @@ public sealed class MetricTests
     [InlineData("""{"value":1,"label":"estimated","currency":"USD","unit":"J"}""", "unit")]
     [InlineData("""{"value":null,"label":"N/A","reason":"x","currency":"USD"}""", "currency")]
     [InlineData("""{"value":1,"label":"measured","unit":"J","currency":"USD"}""", "currency")]
-    [InlineData("""{"value":1,"label":"model-judged","currency":"USD"}""", "currency")]
+    [InlineData("""{"value":1,"label":"model-judged","unit":"points","currency":"USD"}""", "currency")]
+    [InlineData("""{"value":1,"label":"model-judged","currency":"  "}""", "currency")]
     public void Deserialize_ViolatingTheInvariants_ThrowsTheUnwrappedArgumentException(string json, string parameter)
     {
         ArgumentException failure = AssertRejectedWithArgumentException(() => Deserialize(json));
@@ -483,7 +484,7 @@ public sealed class MetricTests
         Assert.Equal(Metric.NotApplicable("x"), metric);
     }
 
-    // ---- Unit or currency: measured and estimated carry exactly one, model-judged an optional unit ----
+    // ---- Unit or currency: measured and estimated carry exactly one, model-judged at most one of unit and currency ----
 
     [Fact]
     public void MeasuredCost_SerializesTheCurrencyAndNoUnit()
@@ -552,6 +553,50 @@ public sealed class MetricTests
         ArgumentException failure = Assert.ThrowsAny<ArgumentException>(() => Metric.ModelJudged(1, unit!));
 
         Assert.Equal("unit", failure.ParamName);
+    }
+
+    // ---- AJ-074: a model-judged value carries at most one of unit and currency ----
+
+    [Fact]
+    public void ModelJudgedCost_CarriesTheCurrencyAndNoUnitAndRoundTrips()
+    {
+        Metric metric = Metric.ModelJudgedCost(0.02, "EUR");
+
+        Assert.Equal(MetricLabel.ModelJudged, metric.Label);
+        Assert.Equal(0.02, metric.Value);
+        Assert.Equal("EUR", metric.Currency);
+        Assert.Null(metric.Unit);
+        Assert.Null(metric.Reason);
+        Assert.Equal("""{"value":0.02,"label":"model-judged","currency":"EUR"}""", JsonSerializer.Serialize(metric));
+        Assert.Equal(metric, Deserialize(JsonSerializer.Serialize(metric)));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ModelJudgedCost_WithoutCurrency_ThrowsArgumentExceptionNamingTheCurrency(string? currency)
+    {
+        ArgumentException failure = Assert.ThrowsAny<ArgumentException>(() => Metric.ModelJudgedCost(1, currency!));
+
+        Assert.Equal("currency", failure.ParamName);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void ModelJudgedCost_WithNonFiniteValue_ThrowsArgumentException(double value)
+    {
+        ArgumentException failure = Assert.Throws<ArgumentException>(() => Metric.ModelJudgedCost(value, "EUR"));
+
+        Assert.Equal("value", failure.ParamName);
+    }
+
+    [Fact]
+    public void Deserialize_ModelJudgedWithACurrencyAlone_BuildsTheMetricAndWithBothUnitAndCurrency_Throws()
+    {
+        Assert.Equal(Metric.ModelJudgedCost(0.5, "USD"), Deserialize("""{"value":0.5,"label":"model-judged","currency":"USD"}"""));
+        Assert.Equal("currency", AssertRejectedWithArgumentException(() => Deserialize("""{"value":0.5,"label":"model-judged","unit":"points","currency":"USD"}""")).ParamName);
     }
 
     [Theory]
@@ -721,7 +766,7 @@ public sealed class MetricTests
     }
 
     [Fact]
-    public void Metric_PublicStaticMethods_AreExactlyTheSevenFactoriesAndTheModelJudgedOverload()
+    public void Metric_PublicStaticMethods_AreExactlyTheFactories()
     {
         string[] factories = [.. typeof(Metric)
             .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
@@ -729,7 +774,7 @@ public sealed class MetricTests
             .Select(method => method.Name)
             .Order(StringComparer.Ordinal)];
 
-        string[] expectedNames = ["Estimated", "EstimatedQuantity", "Measured", "MeasuredCost", "ModelJudged", "ModelJudged", "NotApplicable", "NotReported"];
+        string[] expectedNames = ["Estimated", "EstimatedQuantity", "Measured", "MeasuredCost", "ModelJudged", "ModelJudged", "ModelJudgedCost", "NotApplicable", "NotReported"];
         Assert.Equal(expectedNames, factories);
     }
 

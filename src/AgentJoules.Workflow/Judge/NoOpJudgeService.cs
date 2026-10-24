@@ -1,20 +1,18 @@
-using AgentJoules.Core.Results;
-
 namespace AgentJoules.Workflow.Judge;
 
 /// <summary>
-/// The <see cref="IJudgeService"/> of M2: it makes no call and returns the steps unchanged, so every quality stays N/A <c>not-scored</c>, the <c>judge</c> array of the run stays empty and
-/// <c>totals.judge</c> stays N/A. M3 replaces it.
+/// An <see cref="IJudgeService"/> that makes no call and returns the steps unchanged, so every quality stays N/A <c>not-scored</c>, the <c>judge</c> array of the run stays empty and
+/// <c>totals.judge</c> stays N/A. The production registration is <see cref="JudgeService"/>; this type is the double the test harness registers when a test does not exercise the judge.
 /// </summary>
 public sealed class NoOpJudgeService : IJudgeService
 {
     /// <inheritdoc />
-    /// <returns><paramref name="okSteps"/> itself.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="okSteps"/> is null.</exception>
-    public Task<IReadOnlyList<StepReading>> ScoreAsync(IReadOnlyList<StepReading> okSteps, CancellationToken cancellationToken)
+    /// <returns>The steps of <paramref name="request"/> itself, nothing judged, nothing failed and no self-judging statement (null).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
+    public Task<JudgeResult> ScoreAsync(JudgeRequest request, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(okSteps);
+        ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(okSteps);
+        return Task.FromResult(new JudgeResult(request.Steps, SelfJudged: null, JudgedSteps: 0, FailedSteps: 0, FailureKinds: []));
     }
 }

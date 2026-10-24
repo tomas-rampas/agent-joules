@@ -7,7 +7,7 @@ namespace AgentJoules.Cli.Output;
 
 /// <summary>
 /// The <see cref="IRunListener"/> of the CLI (REQ-017 criterion 6, EDGE-005): every event of a run becomes the console output of <see cref="ConsoleReporter"/>, the step lines and the closing
-/// lines of a tier on standard output, the baseline warning on standard error, each through the redacting writers of the command.
+/// lines of a tier on standard output, the baseline warning and the judge warning (EDGE-012) on standard error, each through the redacting writers of the command.
 /// </summary>
 /// <param name="reporter">The reporter of the command.</param>
 internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListener
@@ -26,6 +26,10 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     /// <inheritdoc />
     public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) =>
         _reporter.ReportCheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
+
+    /// <inheritdoc />
+    public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) =>
+        _reporter.ReportJudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
 
     /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => _reporter.ReportTierFailed(displayPath, agent, status);

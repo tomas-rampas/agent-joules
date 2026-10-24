@@ -7,7 +7,7 @@ namespace AgentJoules.Core.Cost;
 /// <summary>
 /// The only way the metering decorator obtains the cost of a step (REQ-008, design 3.2): the decorator holds no price, no currency and no
 /// arithmetic, it asks this seam and puts the answer into the reading. M2 ships <see cref="NotConfiguredCostCalculator"/>; the price-table
-/// calculator of M3 replaces it by registration.
+/// calculator of M3 (<see cref="CostCalculator"/>) replaces it by registration.
 /// </summary>
 /// <remarks>
 /// One instance is shared by every metered client of a run, and clients run concurrently in concurrent mode, so an implementation must be thread-safe.

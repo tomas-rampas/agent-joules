@@ -120,6 +120,59 @@ public sealed partial class RunOrchestrationTests
         Assert.Equal(sum, totals.GetProperty("grossJoules").GetProperty("value").GetDouble(), precision: 9);
     }
 
+    // AJ-072: the Cost section reaches the written document through the orchestrator (BuildEnvironment and Assemble), not only through the assembler's unit tests.
+    [Fact]
+    public async Task The_cost_options_reach_the_written_document_assumptions_emission_and_costs()
+    {
+        using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
+        TimeSpan baseline = TimeSpan.FromSeconds(5);
+        TimerTrackingTimeProvider? clock = null;
+        double? start = null;
+
+        // 30 W until the baseline wait is over, 60 W after it: every step draws more than the idle baseline, so its net is positive and its cost exists.
+        (RunCommandSetup setup, TimerTrackingTimeProvider time, _, _) = LocalRun(workspace, gpu => gpu.WattsAt = seconds =>
+        {
+            if (clock is null || !clock.History.Contains(baseline))
+            {
+                return 30.0;
+            }
+
+            start ??= seconds;
+            return seconds - start.Value > baseline.TotalSeconds ? 60.0 : 30.0;
+        });
+        clock = time;
+        setup.Settings["AgentJoules:Cost:ElectricityPricePerKwh"] = "0.25";
+        setup.Settings["AgentJoules:Cost:Currency"] = "SEK";
+        setup.Settings["AgentJoules:Cost:GCo2ePerKwh"] = "400";
+
+        CliRunResult result = await RunLocalAsync($"run --tier local --task {TaskNames[0]} --repeat 1 --baseline-seconds 5", setup, time);
+
+        AssertExit(0, result);
+        using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
+        JsonElement root = document.RootElement;
+        JsonElement assumptions = root.GetProperty("environment").GetProperty("assumptions");
+        JsonElement price = assumptions.GetProperty("electricityPrice");
+        JsonElement factor = assumptions.GetProperty("gco2ePerKwh");
+        Assert.Equal(("estimated", "SEK", 0.25), (Text(price, "label"), Text(price, "currency"), price.GetProperty("value").GetDouble()));
+        Assert.Equal(("estimated", "gCO2e/kWh", 400.0), (Text(factor, "label"), Text(factor, "unit"), factor.GetProperty("value").GetDouble()));
+
+        JsonElement totals = root.GetProperty("totals");
+        JsonElement net = totals.GetProperty("netJoules");
+        Assert.Equal("measured", Text(net, "label"));
+        double netKwh = net.GetProperty("value").GetDouble() / 3.6e6;
+        Assert.True(netKwh > 0.0, "the net energy of the steps is positive");
+
+        JsonElement gco2e = totals.GetProperty("gco2e");
+        Assert.Equal(("estimated", "gCO2e"), (Text(gco2e, "label"), Text(gco2e, "unit")));
+        Assert.Equal(netKwh * 400.0, gco2e.GetProperty("value").GetDouble(), precision: 9);
+
+        JsonProperty currency = Assert.Single(totals.GetProperty("costByCurrency").EnumerateObject());
+        Assert.Equal("SEK", currency.Name);
+        Assert.Equal("estimated", Text(currency.Value, "label"));
+        Assert.Equal(netKwh * 0.25, currency.Value.GetProperty("value").GetDouble(), precision: 9);
+        Assert.All(RunOrchestrationFixtures.Steps(document), static step => Assert.Equal("SEK", Text(step.GetProperty("cost"), "currency")));
+    }
+
     [Fact]
     public async Task A_hosted_tier_never_opens_the_GPU_or_calls_the_runtime()
     {
@@ -579,6 +632,8 @@ public sealed partial class RunOrchestrationTests
             public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 
             public void TierCompleted(string displayPath, Totals totals) => inner.TierCompleted(displayPath, totals);
+
+            public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
         }
     }
 }

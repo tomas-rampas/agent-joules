@@ -26,14 +26,17 @@ namespace AgentJoules.Core.Results;
 /// the sampling-fallback flag only with the sampling method, throttle reasons from the five names together with the throttled flag). A hosted tier
 /// (nvidia, nebius) holds N/A with the reason <c>hosted-tier</c> in all four energy metrics, no method, samples, rate or throttle reasons and none
 /// of the energy flags, because its GPU is not measured; a local or cloudgpu reading never carries that reason and names its method whenever the
-/// gross energy is measured. Quality and the two derived metrics are filled by the judge in a later story; until then they are N/A with the reason
-/// <c>not-scored</c>, never a number. A document with a member this type does not know is rejected, and one that omits a member without a default
+/// gross energy is measured. Quality is filled by the judge in a later story; until then it is N/A with the reason <c>not-scored</c>, never a number. The two derived metrics
+/// default to N/A <c>not-scored</c> too, but only until <c>RunAssembler.Assemble</c> replaces them with the derived values (a step without a quality score then holds N/A <c>missing-input</c>). A document with a member this type does not know is rejected, and one that omits a member without a default
 /// is rejected when the serializer options set <c>RespectRequiredConstructorParameters</c>.
 /// </para>
 /// <para>
 /// <see cref="OutputText"/> lives in memory only, for the judge; it is never serialized and never printed by <see cref="object.ToString"/>, and the
 /// file keeps <see cref="OutputSha256"/> and <see cref="OutputChars"/> instead. <see cref="Window"/> lives in memory only too, for the run assembler (the
 /// <c>shared-window</c> flag and the union of the windows of a concurrent run, REQ-013); it is never serialized and never printed either.
+/// </para>
+/// <para>
+/// Record equality compares collection members by reference; compare documents member by member (tests: ResultsEquality) or by their serialised form.
 /// </para>
 /// </remarks>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -75,6 +78,7 @@ public sealed record StepReading
     /// <param name="outputChars">The length of the output text in characters; null when there is none; not negative.</param>
     /// <param name="outputText">The output text, kept in memory for the judge and never serialized.</param>
     /// <param name="window">The meter's window of this step, kept in memory for the run assembler and never serialized; null when it is not known (a reading read back from a file); when set, both bounds are finite and the stop is after the start.</param>
+    /// <param name="judgedAgent">For a judge reading, the name of the workflow agent whose step output was scored; with the task and the repeat it names exactly one step. Null for a workflow step; when set it is not blank.</param>
     /// <exception cref="ArgumentNullException">A metric is null.</exception>
     /// <exception cref="ArgumentException">Another argument violates the rule named above.</exception>
     [JsonConstructor]
@@ -110,11 +114,16 @@ public sealed record StepReading
         string? outputSha256 = null,
         int? outputChars = null,
         string? outputText = null,
-        WindowSpan? window = null)
+        WindowSpan? window = null,
+        string? judgedAgent = null)
     {
         RequireText(nameof(task), task);
         RequireText(nameof(agent), agent);
         RequireText(nameof(modelId), modelId);
+        if (judgedAgent is not null)
+        {
+            RequireText(nameof(judgedAgent), judgedAgent);
+        }
 
         if (repeat < 1)
         {
@@ -219,6 +228,19 @@ public sealed record StepReading
             }
         }
 
+        // The judge and cost members: the shape of each is fixed by what produces it, so a document read back is held to the same rules as one built in memory.
+        RequireCostShape(nameof(cost), cost);
+        RequireNotNegative(nameof(cost), cost);
+        Metric resolvedQuality = quality ?? Metric.NotApplicable(NotScored);
+        Metric resolvedJoules = joulesPerQualityPoint ?? Metric.NotApplicable(NotScored);
+        Metric resolvedCostPoint = costPerQualityPoint ?? Metric.NotApplicable(NotScored);
+        RequireJudgedShape(nameof(quality), resolvedQuality, withCurrency: false);
+        RequireJudgedShape(nameof(joulesPerQualityPoint), resolvedJoules, withCurrency: false);
+        RequireJudgedShape(nameof(costPerQualityPoint), resolvedCostPoint, withCurrency: true);
+        RequireScoreRange(nameof(quality), resolvedQuality);
+        RequireNotNegative(nameof(joulesPerQualityPoint), resolvedJoules);
+        RequireNotNegative(nameof(costPerQualityPoint), resolvedCostPoint);
+
         ValidateOutputFingerprint(outputSha256, outputChars);
         if (window is { } span && !(double.IsFinite(span.StartSeconds) && double.IsFinite(span.StopSeconds) && span.StopSeconds > span.StartSeconds))
         {
@@ -257,6 +279,7 @@ public sealed record StepReading
         ThrottleReasons = reasons;
         OutputText = outputText;
         Window = window;
+        JudgedAgent = judgedAgent;
     }
 
     /// <summary>The task the workflow ran.</summary>
@@ -333,10 +356,10 @@ public sealed record StepReading
     /// <summary>Why there is no score; <c>not-scored</c> until the judge has run.</summary>
     public string? QualityReason { get; }
 
-    /// <summary>Net joules per quality point; N/A with the reason <c>not-scored</c> until the judge has run.</summary>
+    /// <summary>Net joules per quality point; N/A <c>not-scored</c> on a fresh reading; <c>RunAssembler.Assemble</c> replaces it with the value from <c>DerivedMetrics</c>, or N/A <c>missing-input</c> or <c>below-baseline</c>.</summary>
     public Metric JoulesPerQualityPoint { get; }
 
-    /// <summary>Cost per quality point; N/A with the reason <c>not-scored</c> until the judge has run.</summary>
+    /// <summary>Cost per quality point; N/A <c>not-scored</c> on a fresh reading; <c>RunAssembler.Assemble</c> replaces it with the value from <c>DerivedMetrics</c>, or N/A <c>missing-input</c>.</summary>
     public Metric CostPerQualityPoint { get; }
 
     /// <summary>The qualifiers of this reading, serialized as an array of vocabulary strings whatever the options of the caller say.</summary>
@@ -360,8 +383,12 @@ public sealed record StepReading
     [JsonIgnore]
     public WindowSpan? Window { get; }
 
+    /// <summary>For a judge reading, the name of the workflow agent whose step output was scored; null for a workflow step, in which case the member is not written.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? JudgedAgent { get; }
+
     // The record-generated printer would include OutputText, so a log line or an exception message that formats a reading would leak the model
-    // output. This one prints every member except the text (its length is OutputChars) and the in-memory window, which is not part of the file.
+    // output. This one prints every member of the file (the judged agent included) and leaves out the text (its length is OutputChars) and the in-memory window, which is not part of the file.
     private bool PrintMembers(StringBuilder builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
@@ -370,7 +397,7 @@ public sealed record StepReading
         builder.Append(CultureInfo.InvariantCulture, $"Outcome = {Outcome}, Retries = {Retries}, WaitMs = {WaitMs}, LatencyMs = {LatencyMs}, TtftMs = {TtftMs}, InputTokens = {InputTokens}, OutputTokens = {OutputTokens}, ");
         builder.Append(CultureInfo.InvariantCulture, $"GrossJoules = {GrossJoules}, NetJoules = {NetJoules}, AvgW = {AvgW}, PeakW = {PeakW}, Method = {Method}, SampleCount = {SampleCount}, SampleRateHz = {SampleRateHz}, ");
         builder.Append(CultureInfo.InvariantCulture, $"Cost = {Cost}, Quality = {Quality}, QualityReason = {QualityReason}, JoulesPerQualityPoint = {JoulesPerQualityPoint}, CostPerQualityPoint = {CostPerQualityPoint}, ");
-        builder.Append(CultureInfo.InvariantCulture, $"Flags = {Flags}, OutputSha256 = {OutputSha256}, OutputChars = {OutputChars}, ThrottleReasons = {(ThrottleReasons is null ? "null" : string.Join("|", ThrottleReasons))}");
+        builder.Append(CultureInfo.InvariantCulture, $"Flags = {Flags}, OutputSha256 = {OutputSha256}, OutputChars = {OutputChars}, ThrottleReasons = {(ThrottleReasons is null ? "null" : string.Join("|", ThrottleReasons))}, JudgedAgent = {JudgedAgent}");
         return true;
     }
 
@@ -392,6 +419,69 @@ public sealed record StepReading
         if (value.Offset != TimeSpan.Zero)
         {
             throw Rejected(parameter, $"The timestamp must be UTC, but its offset is {value.Offset}.");
+        }
+    }
+
+    // The cost is an estimate in a currency (a price table or a rate times a measured quantity) or an explicit absence; it is never measured and never model-judged.
+    private static void RequireCostShape(string parameter, Metric metric)
+    {
+        if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
+        {
+            return;
+        }
+
+        if (metric.Label != MetricLabel.Estimated)
+        {
+            throw Rejected(parameter, $"The cost must be estimated, not-reported or N/A, but it is {metric.Label}.");
+        }
+
+        if (metric.Currency is null)
+        {
+            throw Rejected(parameter, $"An estimated cost must carry a currency.");
+        }
+    }
+
+    // A judge score and the joules per point are model-judged numbers without a unit and without a currency, or an explicit absence; the cost per point is model-judged with a currency and no unit.
+    private static void RequireJudgedShape(string parameter, Metric metric, bool withCurrency)
+    {
+        if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
+        {
+            return;
+        }
+
+        if (metric.Label != MetricLabel.ModelJudged)
+        {
+            throw Rejected(parameter, $"The metric must be model-judged, not-reported or N/A, but it is {metric.Label}.");
+        }
+
+        if (metric.Unit is not null)
+        {
+            throw Rejected(parameter, $"A model-judged metric in this member must not carry a unit.");
+        }
+
+        if (withCurrency != (metric.Currency is not null))
+        {
+            throw withCurrency
+                ? Rejected(parameter, $"A model-judged cost per point must carry a currency.")
+                : Rejected(parameter, $"A model-judged metric in this member must not carry a currency.");
+        }
+    }
+
+    // A valued cost or ratio is finite and never negative: a negative net always gives N/A below-baseline, so no negative ratio can be produced, and a cost is never negative.
+    private static void RequireNotNegative(string parameter, Metric metric)
+    {
+        if (metric.Value is { } value && !(double.IsFinite(value) && value >= 0.0))
+        {
+            throw Rejected(parameter, $"A valued metric in this member must be finite and not negative.");
+        }
+    }
+
+    // The judge parser only produces an integer from 1 to 5, so a model-judged quality outside that scale cannot come from the judge.
+    private static void RequireScoreRange(string parameter, Metric metric)
+    {
+        if (metric.Value is { } value && !(double.IsFinite(value) && value >= 1.0 && value <= 5.0 && Math.Floor(value) == value))
+        {
+            throw Rejected(parameter, $"A quality score must be a whole number from 1 to 5.");
         }
     }
 
