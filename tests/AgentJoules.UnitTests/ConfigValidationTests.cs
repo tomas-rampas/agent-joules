@@ -2098,4 +2098,156 @@ public sealed class ConfigValidationTests
         Assert.Equal("Local:Runtime must be ollama or nim", failure.Message);
         Assert.DoesNotContain(runtime, failure.Message, StringComparison.Ordinal);
     }
+
+    // ---- AJ-108: ReasoningMode and the chat_template_kwargs.enable_thinking member of ExtraBodyJson agree (REQ-018, P-2) ----
+
+    private const string ThinkingOff = """{"chat_template_kwargs":{"enable_thinking":false}}""";
+    private const string ThinkingOn = """{"chat_template_kwargs":{"enable_thinking":true}}""";
+    private const string DisagreementMessage = "Tiers:nvidia:ReasoningMode disagrees with ExtraBodyJson chat_template_kwargs.enable_thinking";
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [InlineData("off", ThinkingOn)]
+    [InlineData("on", ThinkingOff)]
+    [InlineData("unsupported", ThinkingOff)]
+    [InlineData("unsupported", ThinkingOn)]
+    public void A_reasoning_mode_that_disagrees_with_the_enable_thinking_toggle_exits_2_with_one_message(string mode, string json)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal(DisagreementMessage, failure.Message);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [InlineData("off", ThinkingOff)]
+    [InlineData("on", ThinkingOn)]
+    [InlineData("off", """{"other_member":1}""")]
+    [InlineData("on", """{"chat_template_kwargs":{"other_member":true}}""")]
+    [InlineData("unsupported", """{"other_member":1}""")]
+    [InlineData("unsupported", """{"chat_template_kwargs":{}}""")]
+    public void A_reasoning_mode_that_agrees_with_the_toggle_or_a_body_without_the_member_is_accepted(string mode, string json)
+    {
+        AgentJoulesOptions options = Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(mode, options.Tiers["nvidia"].ReasoningMode);
+        Assert.Equal(json, options.Tiers["nvidia"].ExtraBodyJson);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_tier_with_no_extra_body_is_not_checked_against_the_toggle()
+    {
+        Assert.Equal("on", Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "on")).Tiers["nvidia"].ReasoningMode);
+        Assert.Equal("unsupported", Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "unsupported")).Tiers["nvidia"].ReasoningMode);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_unknown_reasoning_word_is_reported_once_and_not_also_as_a_disagreement()
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "maybe"), ("Tiers:nvidia:ExtraBodyJson", ThinkingOff));
+
+        Assert.Contains("Tiers:nvidia:ReasoningMode must be", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("disagrees", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("maybe", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_disagreement_is_reported_next_to_the_other_failures_of_the_tier()
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "off"), ("Tiers:nvidia:ExtraBodyJson", ThinkingOn), ("Tiers:nvidia:TimeoutSeconds", "0"));
+
+        Assert.Contains(DisagreementMessage, failure.Message, StringComparison.Ordinal);
+        Assert.Contains("Tiers:nvidia:TimeoutSeconds must be greater than 0", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_shipped_configuration_carries_the_verified_toggle_of_each_tier_and_agrees_with_itself()
+    {
+        // Loading validates: the consistency rule accepts the shipped file as it is.
+        AgentJoulesOptions shipped = ConfigurationFixtures.ShippedOptions();
+
+        foreach (string name in new[] { "nvidia", "nebius" })
+        {
+            TierOptions hosted = shipped.Tiers[name];
+            Assert.Equal("off", hosted.ReasoningMode);
+            Assert.True(ConfigurationJson.TryParseObject(hosted.ExtraBodyJson ?? string.Empty, out JsonObject? body), $"Tiers:{name}:ExtraBodyJson is not a JSON object.");
+            Assert.False(body!["chat_template_kwargs"]!["enable_thinking"]!.GetValue<bool>());
+
+            // The shipped body is exactly the verified toggle and nothing else (a second member would pass the checks above).
+            Assert.True(JsonNode.DeepEquals(JsonNode.Parse(hosted.ExtraBodyJson!), JsonNode.Parse(ThinkingOff)), $"Tiers:{name}:ExtraBodyJson is not exactly the verified toggle.");
+
+            // The hosted tiers keep the default cap field.
+            Assert.Equal("max_completion_tokens", hosted.MaxTokensField);
+
+            // One mechanism per tier: the verified body toggle replaced the /no_think prefix of the M3 exit.
+            Assert.Null(hosted.SystemPromptPrefix);
+        }
+
+        TierOptions local = shipped.Tiers["local"];
+        Assert.Equal("off", local.ReasoningMode);
+        Assert.Null(local.ExtraBodyJson);
+        Assert.Equal("detailed thinking off", local.SystemPromptPrefix);
+
+        // The local server rejects max_completion_tokens (found live, AJ-108): the local tier carries its cap as max_tokens.
+        Assert.Equal("max_tokens", local.MaxTokensField);
+    }
+
+    public static TheoryData<string, string> ToggleShapesThatAreNotABoolean() =>
+        new()
+        {
+            { "off", """{"chat_template_kwargs":{"enable_thinking":"false"}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":"true"}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":1}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":0}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":null}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":[]}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":{}}}""" },
+            { "off", """{"chat_template_kwargs":true}""" },
+            { "off", """{"chat_template_kwargs":[]}""" },
+            { "off", """{"chat_template_kwargs":null}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":"false"}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":"true"}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":1}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":0}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":null}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":[]}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":{}}}""" },
+            { "on", """{"chat_template_kwargs":true}""" },
+            { "on", """{"chat_template_kwargs":[]}""" },
+            { "on", """{"chat_template_kwargs":null}""" },
+        };
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [MemberData(nameof(ToggleShapesThatAreNotABoolean))]
+    public void A_toggle_or_kwargs_that_is_not_a_json_boolean_exits_2_with_a_constant_message(string mode, string json)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Tiers:nvidia:ExtraBodyJson chat_template_kwargs.enable_thinking must be true or false", failure.Message);
+        Assert.DoesNotContain(json, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-004")]
+    public void A_lone_surrogate_escape_in_a_member_name_exits_2_and_never_shows_the_text()
+    {
+        // The escape is assembled at run time so that this file stays ASCII and the compiler does not decode it.
+        string json = "{\"a" + "\\u" + "d800" + "\":1}";
+
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Tiers:nvidia:ExtraBodyJson must be a JSON object; the value is not shown", failure.Message);
+        Assert.DoesNotContain(json, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("d800", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(JsonObjectProblem.NotAnObject, ConfigurationJson.Check(json, out JsonObject? value));
+        Assert.Null(value);
+    }
 }

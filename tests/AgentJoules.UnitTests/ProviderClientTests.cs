@@ -348,6 +348,12 @@ public sealed class ProviderClientTests
         Assert.Equal(ExitCode.InvalidArguments, notObject.ExitCode);
         Assert.DoesNotContain("limit_of_tokens", badField.Message, StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => new RequestBodyPatchHandler(null, " "));
+
+        // A lone surrogate escape in a member name (assembled here so the file stays ASCII) is refused like any other bad object, and its text is not shown.
+        string loneSurrogate = "{\"a" + "\\u" + "d800" + "\":1}";
+        ConfigurationException surrogate = Assert.Throws<ConfigurationException>(() => new RequestBodyPatchHandler(loneSurrogate, "max_tokens"));
+        Assert.Equal(ExitCode.InvalidArguments, surrogate.ExitCode);
+        Assert.DoesNotContain("d800", surrogate.Message, StringComparison.Ordinal);
         using RequestBodyPatchHandler blank = new("   ", "max_tokens");
         using RequestBodyPatchHandler forAbsentTier = RequestBodyPatchHandler.For(null);
     }
@@ -462,9 +468,17 @@ public sealed class ProviderClientTests
     [InlineData("unsupported")]
     public void Reasoning_mode_of_the_environment_is_taken_from_the_tier_configuration(string mode)
     {
+        // The shipped nvidia tier carries the reasoning-off toggle (AJ-108); a mode other than off has to replace it, or ReasoningMode would disagree with it.
+        string toggle = mode switch
+        {
+            "on" => """{"chat_template_kwargs":{"enable_thinking":true}}""",
+            "unsupported" => "{}",
+            _ => """{"chat_template_kwargs":{"enable_thinking":false}}""",
+        };
         IConfiguration configuration = ConfigurationFixtures.FromJsonFile(
             ConfigurationFixtures.AppSettingsPath(),
-            (AgentJoulesOptions.SectionName + ":Tiers:nvidia:ReasoningMode", mode));
+            (AgentJoulesOptions.SectionName + ":Tiers:nvidia:ReasoningMode", mode),
+            (AgentJoulesOptions.SectionName + ":Tiers:nvidia:ExtraBodyJson", toggle));
 
         AgentJoulesOptions options = OptionsLoader.Load(configuration);
 

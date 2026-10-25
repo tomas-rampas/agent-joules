@@ -607,6 +607,7 @@ Demo relevance: no (the report header quotes the tag).
 
 ### AJ-108: Verify streaming usage and the reasoning toggle per tier
 Covers: REQ-018
+Note (2026-10-24, AJ-108): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-108-streaming-usage-and-reasoning.feature (the table's StreamingUsageAndReasoning.feature); the verified toggles are the body field chat_template_kwargs enable_thinking false on nvidia and nebius and the system prompt "detailed thinking off" on the NIM; the nvidia /no_think prefix of the M3 exit was replaced; streaming usage is reported by the NIM, by nebius and by nvidia (the nvidia streams of 2026-10-24 all returned the ResourceExhausted chunk; the retry of 2026-10-25 02:28Z reported prompt 23 and completion 43); the ADR-09 decision: no buffered fallback while the runtime is the NIM; built in a detached worktree and applied onto milestone/M4; the live metered calls of 2026-10-25 (criterion 5) found two local defects, fixed before the commit: the NIM answers a JSON content type with a charset parameter with HTTP 415 (AJ-106's JsonContent now sends bare application/json) and rejects max_completion_tokens with HTTP 400 (Tiers:local:MaxTokensField max_tokens); the local run then completed with every token count measured, the baseline-unstable flag (CV 0.52) and the throttled flag on all 12 steps.
 User story: As a reader of the results, I want the streaming usage behaviour and the reasoning mode verified and recorded for every tier, so that tokens and the thinking setting in the tables are facts and not assumptions.
 Acceptance criteria:
 1. For each of `local`, `nvidia` and `nebius`, `docs/endpoints.md` records one streaming call made with `stream_options.include_usage`: the line `Streaming usage: reported` or `Streaming usage: not-reported`, and the input and output token counts as `<measured>` copies when reported.
@@ -666,9 +667,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/StreamingUsageAndReasoning.feature; MeteredChatClientTests (REQ-023 list) for the no-usage label path; gated class StreamingUsageTests (design 6.3).
 Docs impact: docs/endpoints.md (per-tier lines `Streaming usage:`, `Reasoning toggle:`, `Reasoning result:`), docs/build-log.md, config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ run --tier all --dry-run` exit code 0 recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ run --tier all --dry-run` exit code 0 recorded in docs/build-log.md
 Demo relevance: no (the report header shows the reasoning mode per tier).
 
 ### AJ-109: Compute the counter versus sampling calibration

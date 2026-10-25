@@ -218,7 +218,12 @@ public sealed class TierConfigurationTests
     [InlineData("AGENTJOULES__Tiers__NVIDIA__ReasoningMode", "on")]
     public void An_environment_style_key_matches_without_regard_to_case(string name, string value)
     {
-        IConfiguration configuration = ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath(), (ConfigurationFixtures.NormaliseEnvironmentKey(name), value));
+        // The shipped nvidia tier carries the reasoning-off toggle (AJ-108), and ReasoningMode must agree with it: the toggle is overridden through the same spelling of the key, so the two keys prove the case rule together.
+        string toggleName = name.Replace("ReasoningMode", "ExtraBodyJson", StringComparison.OrdinalIgnoreCase);
+        IConfiguration configuration = ConfigurationFixtures.FromJsonFile(
+            ConfigurationFixtures.AppSettingsPath(),
+            (ConfigurationFixtures.NormaliseEnvironmentKey(name), value),
+            (ConfigurationFixtures.NormaliseEnvironmentKey(toggleName), """{"chat_template_kwargs":{"enable_thinking":true}}"""));
 
         AgentJoulesOptions options = OptionsLoader.Load(configuration);
 
@@ -388,7 +393,15 @@ public sealed class TierConfigurationTests
     [InlineData("unsupported")]
     public void Each_reasoning_mode_word_validates(string mode)
     {
-        Assert.Equal(mode, OptionsLoader.Load(OnTopOfTheFile(("Tiers:nvidia:ReasoningMode", mode))).Tiers["nvidia"].ReasoningMode);
+        // The shipped nvidia tier carries the reasoning-off toggle (AJ-108); a mode other than off has to replace it, or ReasoningMode would disagree with it.
+        string toggle = mode switch
+        {
+            "on" => """{"chat_template_kwargs":{"enable_thinking":true}}""",
+            "unsupported" => "{}",
+            _ => """{"chat_template_kwargs":{"enable_thinking":false}}""",
+        };
+
+        Assert.Equal(mode, OptionsLoader.Load(OnTopOfTheFile(("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", toggle))).Tiers["nvidia"].ReasoningMode);
     }
 
     [Fact]

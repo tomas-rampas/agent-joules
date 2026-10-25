@@ -43,6 +43,12 @@ public static class ConfigurationJson
             value = JsonNode.Parse(json, nodeOptions: null, new JsonDocumentOptions { AllowDuplicateProperties = false }) as JsonObject;
             return value is not null ? JsonObjectProblem.None : JsonObjectProblem.NotAnObject;
         }
+        catch (InvalidOperationException)
+        {
+            // A member name with an escape that is not text (a lone surrogate, \ud800) is accepted by the reader and refused when the tree decodes the name. It is not a repeated name.
+            value = null;
+            return JsonObjectProblem.NotAnObject;
+        }
         catch (Exception failure) when (failure is JsonException or ArgumentException)
         {
             // The strict parse failed. Parsing again with duplicates allowed tells a repeated name from text that is not JSON at all.
@@ -74,7 +80,7 @@ public static class ConfigurationJson
             using JsonDocument document = JsonDocument.Parse(json, new JsonDocumentOptions { AllowDuplicateProperties = true });
             return document.RootElement.ValueKind == JsonValueKind.Object;
         }
-        catch (Exception failure) when (failure is JsonException or ArgumentException)
+        catch (Exception failure) when (failure is JsonException or ArgumentException or InvalidOperationException)
         {
             return false;
         }
