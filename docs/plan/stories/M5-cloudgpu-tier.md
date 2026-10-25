@@ -311,6 +311,7 @@ Demo relevance: no.
 
 ### AJ-124: Use power sampling when the energy counter is unsupported on the VM
 Covers: EDGE-015
+Note (2026-10-25, AJ-124): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-124-sampling-fallback.feature; the calibration suffix comes from a new calibrate --suffix option (the command has no tier option); the probe suffix, the sampling fallback, the header line and the README row word existed.
 User story: As a reader of the cloudgpu row, I want the report to say when the VM GPU gave no energy counter and sampling was used instead, so that the method behind the number is never hidden and nothing is estimated to fill a gap.
 Acceptance criteria:
 1. With the fake NVML returning NOT_SUPPORTED for the counter and the tier configured as `cloudgpu`, every reading has `method` `sampling` and the flag `sampling-fallback`, and the console prints the fallback line; with the counter supported the method is `counter` and the flag is absent.
@@ -379,9 +380,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/SamplingFallback.feature; unit classes CalibrationTests and PowerIntegrationTests (design 6.1) with `[Trait("Spec","EDGE-015")]`.
 Docs impact: docs/build-log.md; README sampling disclosure through the generated block (M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no fallback value is estimated or defaulted to 0
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no fallback value is estimated or defaulted to 0
 Demo relevance: no.
 
 ### AJ-125: Create the VM when asked, deliver the CLI and probe the GPU over SSH

@@ -15,6 +15,7 @@ using AgentJoules.Reporting.Json;
 using AgentJoules.Reporting.Results;
 using AgentJoules.Reporting.Schema;
 using AgentJoules.TestSupport;
+using AgentJoules.TestSupport.Evidence;
 using AgentJoules.Workflow.Agents;
 using AgentJoules.Workflow.Local;
 using AgentJoules.Workflow.Runs;
@@ -240,7 +241,7 @@ public sealed partial class CalibrationTests
     [Theory]
     [InlineData("calibration-20261021T100000Z.json", true)]
     [InlineData("calibration-20261021T100000Z.json\n", false)]
-    [InlineData("calibration-20261021T100000Z-local.json", false)]
+    [InlineData("calibration-20261021T100000Z-local.json", true)]
     [InlineData("calibration-20261021T100000.json", false)]
     [InlineData("Calibration-20261021T100000Z.json", false)]
     [InlineData("calibration-20261021T100000Z.jsonl", false)]
@@ -918,4 +919,136 @@ public sealed partial class CalibrationTests
 
     [GeneratedRegex(@"^counter=(?<counter>\S+(?: J)?) sampling=(?<sampling>\S+(?: J)?) difference=(?<difference>\S+) window=(?<window>\S+) s samples=(?<samples>\d+)$", RegexOptions.ExplicitCapture | RegexOptions.CultureInvariant)]
     private static partial Regex MyRegex();
+
+    /// <summary>
+    /// AJ-124 (EDGE-015): the calibration and the probe file of the cloudgpu tier when the VM GPU gives no energy counter. A nested class so that the <c>Spec=EDGE-015</c> trait does not tag the other calibration tests.
+    /// </summary>
+    [Trait("Spec", "EDGE-015")]
+    public sealed class CloudGpuNaming
+    {
+        private const string SuffixedName = "calibration-20261021T100000Z-cloudgpu.json";
+
+        [Fact]
+        public void The_name_carries_the_suffix_after_the_timestamp()
+        {
+            var start = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.FromHours(2));
+
+            Assert.Equal(SuffixedName, CalibrationFile.Name(start, "cloudgpu"));
+            Assert.Equal("calibration-20261021T100000Z.json", CalibrationFile.Name(start));
+            Assert.Equal("calibration-20261021T100000Z.json", CalibrationFile.Name(start, null));
+            _ = Assert.Throws<ArgumentException>(() => CalibrationFile.Name(start, "../x"));
+        }
+
+        [Theory]
+        [InlineData("calibration-20261021T100000Z-cloudgpu.json", true)]
+        [InlineData("calibration-20261021T100000Z-A1.json", true)]
+        [InlineData("calibration-20261021T100000Z.json", true)]
+        [InlineData("calibration-20261021T100000Z-cloudgpu.json\n", false)]
+        [InlineData("calibration-20261021T100000Z-.json", false)]
+        [InlineData("calibration-20261021T100000Z-cloud-gpu.json", false)]
+        [InlineData("calibration-20261021T100000Z-cloud_gpu.json", false)]
+        [InlineData("calibration-20261021T100000Z-abcdefghijklmnopqrstu.json", false)]
+        [InlineData("calibration-20261021T100000Z-cloudgpu.json.partial", false)]
+        [InlineData("calibration-20261021T100000Z-cloudgpu.jsonl", false)]
+        public void A_suffixed_name_is_a_calibration_file_name_only_for_one_to_twenty_letters_or_digits(string name, bool expected) =>
+            Assert.Equal(expected, CalibrationFile.IsValid(name));
+
+        [Fact]
+        public void The_twenty_character_suffix_is_the_longest_that_is_accepted()
+        {
+            Assert.True(CalibrationFile.IsValid("calibration-20261021T100000Z-abcdefghijklmnopqrst.json"));
+            Assert.False(CalibrationFile.IsValidSuffix("abcdefghijklmnopqrstu"));
+            Assert.True(CalibrationFile.IsValidSuffix("abcdefghijklmnopqrst"));
+            Assert.False(CalibrationFile.IsValidSuffix("cloud\n"));
+            Assert.False(CalibrationFile.IsValidSuffix(string.Empty));
+        }
+
+        [Fact]
+        public void The_laptop_calibration_evidence_does_not_read_a_suffixed_cloudgpu_calibration_file()
+        {
+            using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+            string laptop = workspace.WriteFile(Path.Combine("results", "calibration-20261023T090000Z.json"), "{}");
+            _ = workspace.WriteFile(Path.Combine("results", "calibration-20261024T090000Z-cloudgpu.json"), "{}");
+
+            var reader = new CommittedEvidenceReader(workspace.Root);
+
+            Assert.Equal([laptop], reader.CalibrationFiles());
+        }
+
+        [Fact]
+        public void A_suffixed_name_is_never_a_run_file_name()
+        {
+            string name = CalibrationFile.Name(new DateTimeOffset(2026, 10, 21, 10, 0, 0, TimeSpan.Zero), "cloudgpu");
+
+            Assert.False(RunFileName.IsValid(name));
+        }
+
+        [Fact]
+        public async Task Calibrate_with_the_cloudgpu_suffix_writes_the_suffixed_file_and_it_validates()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            CliRunResult result = await RunAsync(rig, $"calibrate --task {TaskName} --seconds 1 --suffix cloudgpu --no-console-telemetry");
+
+            Assert.True(result.ExitCode == 0, Fail(result));
+            string path = Assert.Single(CalibrationFiles(rig));
+            Assert.Equal(SuffixedName, Path.GetFileName(path));
+            using JsonDocument file = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Empty(SchemaValidator.Validate(file.RootElement, SchemaTarget.Calibration));
+            Assert.Contains("calibration: results/" + SuffixedName, RunOrchestrationFixtures.StdoutLines(result));
+        }
+
+        [Theory]
+        [InlineData("cloud-gpu")]
+        [InlineData("../x")]
+        [InlineData("abcdefghijklmnopqrstu")]
+        [InlineData("\"\"")]
+        public async Task A_bad_suffix_exits_2_and_writes_nothing(string suffix)
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            CliRunResult result = await RunAsync(rig, $"calibrate --task {TaskName} --seconds 1 --suffix {suffix}");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("--suffix", result.Stderr, StringComparison.Ordinal);
+            Assert.Empty(CalibrationFiles(rig));
+            Assert.Equal(0, rig.Local.Count(FakeRoute.ChatCompletions));
+        }
+
+        [Fact]
+        public async Task An_unsupported_counter_is_N_A_with_the_probe_reason_and_no_zero_counter_value()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            Script(rig, counterSupported: false);
+
+            CliRunResult result = await RunAsync(rig, $"calibrate --task {TaskName} --seconds 60 --suffix cloudgpu --no-console-telemetry");
+
+            Assert.True(result.ExitCode == 0, Fail(result));
+            string text = File.ReadAllText(Assert.Single(CalibrationFiles(rig)));
+            using JsonDocument file = JsonDocument.Parse(text);
+            JsonElement root = file.RootElement;
+            JsonElement counter = root.GetProperty("counterJoules");
+            Assert.Equal(JsonValueKind.Null, counter.GetProperty("value").ValueKind);
+            Assert.Equal("N/A", counter.GetProperty("label").GetString());
+            Assert.StartsWith("counter-not-supported: ", counter.GetProperty("reason").GetString(), StringComparison.Ordinal);
+            Assert.NotEmpty(counter.GetProperty("reason").GetString()!["counter-not-supported: ".Length..]);
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("relativeDifference").GetProperty("value").ValueKind);
+            Assert.Equal("N/A", root.GetProperty("relativeDifference").GetProperty("label").GetString());
+            Assert.Equal("measured", root.GetProperty("samplingJoules").GetProperty("label").GetString());
+            Assert.DoesNotMatch(@"""counterJoules"":\s*\{\s*""value"":\s*0[,.\s}]", text);
+            Assert.Empty(SchemaValidator.Validate(root, SchemaTarget.Calibration));
+        }
+
+        [Fact]
+        public async Task Probe_with_json_save_and_the_cloudgpu_suffix_writes_the_suffixed_probe_file()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            CliRunResult result = await RunAsync(rig, "probe --json --save --suffix cloudgpu");
+
+            Assert.True(result.ExitCode == 0, Fail(result));
+            string name = Path.GetFileName(Assert.Single(Directory.EnumerateFiles(Path.Combine(rig.Root, RunOrchestrationFixtures.ResultsFolder), "probe-*")));
+            Assert.Matches(@"^probe-\d{8}T\d{6}Z-cloudgpu\.json$", name);
+        }
+    }
 }
