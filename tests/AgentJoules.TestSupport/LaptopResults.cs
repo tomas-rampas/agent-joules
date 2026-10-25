@@ -40,49 +40,28 @@ public static partial class LaptopResults
     /// <returns>The full path, or null when the folder holds none.</returns>
     public static string? NewestCalibration(string? folder = null) => Newest(CalibrationName(), folder ?? ResultsFolder());
 
-    /// <summary>The files under <c>results/</c> that git tracks (<c>git ls-files results/</c>): the committed view, in which a file that exists only in the working tree is absent.</summary>
-    /// <returns>The repository-relative paths with forward slashes, in git's order.</returns>
-    /// <exception cref="InvalidOperationException">git is not installed, or the call failed.</exception>
-    public static IReadOnlyList<string> CommittedResultsFiles()
+    /// <summary>
+    /// The files under <c>results/</c> in the HEAD commit (<c>git ls-tree -r --name-only HEAD -- results/</c>): the one committed view every evidence test uses. The view is HEAD, not the index: a file that is only staged,
+    /// only untracked or only in the working tree is absent. Callers read the content of a listed name from its working-tree path, which equals HEAD when the tree is clean.
+    /// </summary>
+    /// <param name="repositoryRoot">The folder of the git repository; the repository of this test run when null.</param>
+    /// <returns>The repository-relative paths with forward slashes, in git's order; empty when HEAD holds no file under <c>results/</c>.</returns>
+    /// <exception cref="InvalidOperationException">git is not installed, or the call failed (a repository without a commit included).</exception>
+    public static IReadOnlyList<string> CommittedResultsFiles(string? repositoryRoot = null)
     {
-        var info = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = ConfigurationFixtures.RepositoryRoot(),
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        info.ArgumentList.Add("ls-files");
-        info.ArgumentList.Add("results/");
-        using var process = new Process { StartInfo = info };
+        GitResult result;
         try
         {
-            if (!process.Start())
-            {
-                throw new InvalidOperationException("git did not start");
-            }
+            result = GitRunner.Run(repositoryRoot ?? ConfigurationFixtures.RepositoryRoot(), "ls-tree", "-r", "--name-only", "HEAD", "--", "results/");
         }
-        catch (System.ComponentModel.Win32Exception exception)
+        catch (InvalidOperationException exception)
         {
-            throw new InvalidOperationException("git is not installed or not on PATH, so the committed view of results/ cannot be read", exception);
+            throw new InvalidOperationException("the committed view of results/ cannot be read: " + exception.Message, exception);
         }
 
-        process.StandardInput.Close();
-        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
-        Task<string> stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(30_000))
-        {
-            process.Kill(entireProcessTree: true);
-            throw new InvalidOperationException("git ls-files results/ did not exit within 30 s");
-        }
-
-        string output = stdout.GetAwaiter().GetResult();
-        _ = stderr.GetAwaiter().GetResult();
-        return process.ExitCode == 0
-            ? [.. output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(static line => line.Trim()).Where(static line => line.Length > 0)]
-            : throw new InvalidOperationException("git ls-files results/ exited with " + process.ExitCode.ToString(CultureInfo.InvariantCulture));
+        return result.ExitCode == 0
+            ? [.. result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(static line => line.Trim()).Where(static line => line.Length > 0)]
+            : throw new InvalidOperationException("git ls-tree HEAD results/ exited with " + result.ExitCode.ToString(CultureInfo.InvariantCulture));
     }
 
     /// <summary>The message of a gated check that finds no committed file of a kind.</summary>

@@ -18,13 +18,22 @@ namespace AgentJoules.UnitTests;
 /// </summary>
 public sealed class LaptopCampaignFileTests
 {
-    /// <summary>One row per committed run file: every <c>results/</c> file that the name rule of criterion 5 counts.</summary>
+    private static readonly string[] CampaignTierSuffixes = ["-local.json", "-nvidia.json", "-nebius.json"];
+
+    /// <summary>
+    /// One row per committed run file of the laptop campaign tiers: every file of the HEAD tree under <c>results/</c> that the name rule of criterion 5 counts and whose tier is local, nvidia or nebius (a committed
+    /// <c>-cloudgpu</c> file is not a row of this class; M5 AJ-127 adds its own checks). A working-tree file that is not committed is not a row (K2, M4 peer review m-2).
+    /// </summary>
     public static TheoryData<string> CommittedRunFiles()
     {
         TheoryData<string> rows = [];
         foreach (string path in LaptopCampaign.CommittedRunFiles())
         {
-            rows.Add(Path.GetFileName(path));
+            string name = Path.GetFileName(path);
+            if (CampaignTierSuffixes.Any(suffix => name.EndsWith(suffix, StringComparison.Ordinal) || name.EndsWith(suffix[..^".json".Length] + "-baseline.json", StringComparison.Ordinal)))
+            {
+                rows.Add(name);
+            }
         }
 
         return rows;
@@ -171,7 +180,7 @@ public sealed class LaptopCampaignFileTests
     {
         foreach (Tier tier in LaptopCampaign.Tiers)
         {
-            string path = LaptopCampaign.LatestRunFile(tier) ?? throw new XunitException($"results/ holds no completed or partial {tier} run file (AJ-114)");
+            string path = LaptopCampaign.LatestCommittedRunFile(tier) ?? throw new XunitException($"HEAD holds no completed or partial {tier} run file in results/ (AJ-114)");
             JsonNode run = LaptopCampaign.Read(path);
             IReadOnlyList<string> shape = LaptopCampaign.ShapeFailures(run);
 
@@ -188,7 +197,8 @@ public sealed class LaptopCampaignFileTests
     [Trait("Spec", "REQ-021")]
     public async Task Validate_on_the_committed_results_folder_exits_0_and_counts_the_run_files()
     {
-        int count = LaptopCampaign.CommittedRunFiles().Count;
+        // `validate results/` reads the working-tree folder, so the expected count is the working-tree one.
+        int count = LaptopCampaign.CommittedRunFiles(LaptopResults.ResultsFolder()).Count;
 
         CliRunResult result = await CliHarness.RunTokensAsync(["validate", "results/"], new CliHostOverrides(WorkingDirectory: ConfigurationFixtures.RepositoryRoot()));
 

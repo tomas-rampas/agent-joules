@@ -62,6 +62,15 @@ public sealed class TempWorkspace : IDisposable
     {
         try
         {
+            // git writes read-only loose objects on Windows, and Directory.Delete would throw on them.
+            if (Directory.Exists(Root))
+            {
+                foreach (string file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+                {
+                    File.SetAttributes(file, FileAttributes.Normal);
+                }
+            }
+
             Directory.Delete(Root, recursive: true);
         }
         catch (IOException)

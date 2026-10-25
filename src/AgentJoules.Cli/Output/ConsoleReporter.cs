@@ -133,6 +133,11 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine("saved: " + relativePath);
     }
 
+    /// <summary>Tells the user that the run waits before the idle baseline window (<c>Baseline:SettleSeconds</c>, K1): one result line, <c>Settle: 2 s before the baseline window</c>, with the seconds in the invariant culture.</summary>
+    /// <param name="seconds">The settle interval in seconds; above 0.</param>
+    public void ReportSettle(double seconds) =>
+        Output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"Settle: {seconds:0.###} s before the baseline window"));
+
     /// <summary>
     /// Warns about an unstable idle baseline: when <see cref="ReadingFlags.BaselineUnstable"/> is set, writes exactly one line to the
     /// error writer, <c>Warning: idle baseline unstable (CV 0.20 &gt; 0.10)</c>, with the coefficient of variation and the threshold

@@ -99,7 +99,7 @@ public sealed record ReportRow(
 /// <param name="GpuOffloadPercent">The share of the model held in GPU memory in percent (0 to 100), or null when the file states none (a hosted tier); null is never shown as 0.</param>
 /// <param name="Precision">The model precision, or null.</param>
 /// <param name="ReasoningMode">The reasoning mode of the tier, or null.</param>
-/// <param name="PowerSource">The laptop's power source during the run, mains or battery (the values ac and battery), or null.</param>
+/// <param name="PowerSource">The laptop's power source during the run: ac, battery or unknown, or null when none was asked.</param>
 /// <param name="Models">The model each agent used, as the file lists them.</param>
 /// <param name="JudgeModelIds">The distinct model IDs of the judge readings, ordinal.</param>
 /// <param name="JudgedStepModelIds">The distinct model IDs of the workflow steps that have a judge reading (the steps that were sent to the judge), ordinal; empty when no step was judged.</param>

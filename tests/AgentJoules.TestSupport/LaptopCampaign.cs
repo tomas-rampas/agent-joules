@@ -47,7 +47,31 @@ public static partial class LaptopCampaign
     /// </summary>
     public static readonly IReadOnlyList<Tier> PendingTiers = [];
 
-    /// <summary>The newest accepted run file of a tier.</summary>
+    /// <summary>
+    /// The newest accepted run file of a tier in the committed view: the HEAD names of <see cref="LaptopResults.CommittedResultsFiles"/> go through <see cref="RunFileSelector.Select"/>, as in
+    /// <see cref="CommittedEvidenceReader.LatestLocalRunFile"/>, so an untracked, staged or unselectable working-tree file is never the pick. The content is read from the working-tree path of the committed name.
+    /// </summary>
+    /// <param name="tier">The tier.</param>
+    /// <param name="repositoryRoot">The folder of the git repository; the repository of this test run when null.</param>
+    /// <returns>The full path, or null when HEAD holds no completed or partial file of the tier.</returns>
+    /// <exception cref="InvalidDataException">A committed run file of the tier cannot be used (the message is <c>&lt;file&gt;: &lt;reason&gt;</c>).</exception>
+    /// <exception cref="InvalidOperationException">git is not installed, or the call failed.</exception>
+    public static string? LatestCommittedRunFile(Tier tier, string? repositoryRoot = null)
+    {
+        string suffix = "-" + TierOptions.NameOf(tier);
+        string[] candidates =
+        [
+            .. CommittedRunFiles(null, repositoryRoot)
+                .Where(path => Path.GetFileNameWithoutExtension(path).EndsWith(suffix, StringComparison.Ordinal) || Path.GetFileNameWithoutExtension(path).EndsWith(suffix + "-baseline", StringComparison.Ordinal)),
+        ];
+        RunFileSelection selection = RunFileSelector.Select(candidates);
+
+        return selection.Problems.Count > 0
+            ? throw new InvalidDataException($"{selection.Problems[0].FileName}: {selection.Problems[0].Reason}")
+            : selection.Latest.GetValueOrDefault(tier);
+    }
+
+    /// <summary>The newest accepted run file of a tier in the working tree (a fresh uncommitted file counts); <see cref="LatestCommittedRunFile"/> is the committed view.</summary>
     /// <param name="tier">The tier.</param>
     /// <param name="folder">The folder to look in; the <c>results</c> folder of the repository when null.</param>
     /// <returns>The full path, or null when the folder is absent or holds no completed or partial file of the tier.</returns>
@@ -84,11 +108,26 @@ public static partial class LaptopCampaign
     }
 
     /// <summary>The files of <c>results/</c> that count for <c>AJ validate results/</c> (criterion 5): <c>^[0-9]{8}T[0-9]{6}Z-(local|cloudgpu|nvidia|nebius)(-baseline)?\.json$</c>.</summary>
-    /// <param name="folder">The folder; the <c>results</c> folder of the repository when null.</param>
+    /// <param name="folder">The folder whose files all count; when null, the committed view: the names of <see cref="LaptopResults.CommittedResultsFiles"/> (the HEAD tree), so an untracked or staged file in the working tree is not a row. The content of a committed name is read from its working-tree path, which equals HEAD when the tree is clean.</param>
+    /// <param name="repositoryRoot">The folder of the git repository for the committed view; the repository of this test run when null.</param>
     /// <returns>The full paths in ordinal order; empty when the folder is absent or holds none.</returns>
-    public static IReadOnlyList<string> CommittedRunFiles(string? folder = null)
+    /// <exception cref="InvalidOperationException">The committed view is wanted and git is not installed, or the call failed.</exception>
+    public static IReadOnlyList<string> CommittedRunFiles(string? folder = null, string? repositoryRoot = null)
     {
-        string results = folder ?? LaptopResults.ResultsFolder();
+        if (folder is null)
+        {
+            string root = repositoryRoot ?? ConfigurationFixtures.RepositoryRoot();
+            return
+            [
+                .. LaptopResults.CommittedResultsFiles(root)
+                    .Where(static name => name.IndexOf('/', "results/".Length) < 0 && CountedName().IsMatch(name["results/".Length..]))
+                    .Select(name => Path.GetFullPath(Path.Combine(root, name)))
+                    .Where(File.Exists)
+                    .Order(StringComparer.Ordinal),
+            ];
+        }
+
+        string results = folder;
         return Directory.Exists(results)
             ? [.. Directory.EnumerateFiles(results).Where(static path => CountedName().IsMatch(Path.GetFileName(path))).Order(StringComparer.Ordinal)]
             : [];

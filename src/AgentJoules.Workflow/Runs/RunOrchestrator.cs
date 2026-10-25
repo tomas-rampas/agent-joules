@@ -188,9 +188,19 @@ public sealed class RunOrchestrator(
 
                 // A description that cannot come from a measurement (an offload that is not a number or lies outside 0 to 100) stops the run before the baseline, not at the first write.
                 _ = RunAssembler.RunFlagsOf(progress.Runtime);
+
+                // Baseline:SettleSeconds (K1): the wait, through the injected clock, between the warm-up (and the description that follows it) and the baseline window; 0 waits nothing and tells nothing.
+                double settleSeconds = options.Baseline.SettleSeconds;
+                if (settleSeconds > 0.0)
+                {
+                    listening.Tell(listener => listener.SettleStarted(settleSeconds));
+                    await Task.Delay(TimeSpan.FromSeconds(settleSeconds), _time, cancellationToken).ConfigureAwait(false);
+                }
+
                 progress.Baseline = await meter
                     .MeasureBaselineAsync(TimeSpan.FromSeconds(plan.BaselineSeconds), options.Baseline.MaxCoefficientOfVariation, cancellationToken)
                     .ConfigureAwait(false);
+                progress.Baseline = progress.Baseline with { SettleSeconds = settleSeconds };
                 BaselineResult measured = progress.Baseline;
                 listening.Tell(listener => listener.BaselineMeasured(measured));
                 _live.EmitSafely(new BaselineEvent(_time.GetUtcNow(), false, measured));

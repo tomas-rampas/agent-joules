@@ -31,6 +31,12 @@ public interface IRunListener
     /// <param name="baseline">The baseline.</param>
     void BaselineMeasured(BaselineResult baseline);
 
+    /// <summary>The run waits <paramref name="seconds"/> between the warm-up and the idle baseline window (<c>Baseline:SettleSeconds</c>, K1): called once per measured tier run, only when the interval is above 0. The default does nothing, so a listener that does not print it stays valid.</summary>
+    /// <param name="seconds">The settle interval in seconds; above 0.</param>
+    void SettleStarted(double seconds)
+    {
+    }
+
     /// <summary>
     /// The judge could not score some of the steps it was sent in a tier run (EDGE-012): called once per tier run in which at least one judged step failed, after the final document was written and
     /// before <see cref="TierCompleted"/>, and never for a tier whose judge was skipped. The exit code of the command is not affected by any judge failure.

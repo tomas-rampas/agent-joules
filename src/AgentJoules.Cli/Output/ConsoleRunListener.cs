@@ -21,6 +21,9 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     public void BaselineMeasured(BaselineResult baseline) => _reporter.ReportBaseline(baseline);
 
     /// <inheritdoc />
+    public void SettleStarted(double seconds) => _reporter.ReportSettle(seconds);
+
+    /// <inheritdoc />
     public void TierCompleted(string displayPath, Totals totals) => _reporter.ReportTierCompleted(displayPath, totals);
 
     /// <inheritdoc />

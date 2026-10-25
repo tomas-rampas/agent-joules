@@ -27,6 +27,7 @@ internal static class ConfigurationShape
         ("Meter:SampleRateHz", Kind.Number),
         ("Meter:AllowBelowMinRate", Kind.Boolean),
         ("Baseline:Seconds", Kind.Number),
+        ("Baseline:SettleSeconds", Kind.Number),
         ("Baseline:MaxCoefficientOfVariation", Kind.Number),
         ("Judge:MaxOutputTokens", Kind.Integer),
         ("Workflow:Seed", Kind.Integer),

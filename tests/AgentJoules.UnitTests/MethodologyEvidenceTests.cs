@@ -8,7 +8,7 @@ namespace AgentJoules.UnitTests;
 /// <summary>
 /// The evidence contract of <c>docs/methodology.md</c> (the final M4 review, M-1, m-1 and m-4; REQ-022, prompt section 6 honesty rule 1): every quoted number is read from a committed file under <c>results/</c>, so a
 /// document that cites a file that is not committed, or quotes a value the cited file does not store, fails. The committed document and the committed files are read as they are; each mutation test changes one quote
-/// of the committed document and expects the one rule it breaks to name both values. The committed view of <c>results/</c> is <c>git ls-files results/</c>; a working-tree file does not count.
+/// of the committed document and expects the one rule it breaks to name both values. The committed view of <c>results/</c> is the HEAD tree (<c>git ls-tree -r --name-only HEAD -- results/</c>); a working-tree or staged file does not count.
 /// </summary>
 [Trait("Spec", "REQ-022")]
 public sealed class MethodologyEvidenceTests

@@ -195,6 +195,11 @@ public static class SchemaGenerator
             member["minimum"] = 0;
             member["maximum"] = 100;
         }
+        else if ((declaring == typeof(EnvironmentInfo) || declaring == typeof(CalibrationEnvironment)) && name == "powerSource")
+        {
+            // The vocabulary of the detector, taken from the code: a value outside it is never written (RunAssembler and CalibrationService normalise it), so the file states it.
+            member["enum"] = new JsonArray([.. new[] { PowerSources.Ac, PowerSources.Battery, PowerSources.Unknown }.Select(static text => (JsonNode?)JsonValue.Create(text)), null]);
+        }
         else if (declaring == typeof(EnvironmentInfo) && name == "energyScope")
         {
             member["const"] = EnvironmentInfo.GpuBoardOnly;
@@ -224,6 +229,7 @@ public static class SchemaGenerator
             case "maxCoefficientOfVariation":
                 member["exclusiveMinimum"] = 0;
                 break;
+            case "settleSeconds":
             case "sampleCount":
             case "coefficientOfVariation":
                 member["minimum"] = 0;

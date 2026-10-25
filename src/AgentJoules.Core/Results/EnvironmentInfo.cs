@@ -18,7 +18,7 @@ namespace AgentJoules.Core.Results;
 /// <param name="RuntimeVersion">The version of the local runtime, or null.</param>
 /// <param name="GpuOffloadPercent">The share of the model offloaded to the GPU, or null.</param>
 /// <param name="ModelLoadSeconds">The seconds the unmetered warm-up took to load the model, or null.</param>
-/// <param name="PowerSource">Where the power figures come from, or null.</param>
+/// <param name="PowerSource">Where the power figures come from: ac, battery or unknown, or null when none was asked.</param>
 /// <param name="ReasoningMode">The reasoning mode of the tier, or null.</param>
 /// <param name="Temperature">The sampling temperature, or null.</param>
 /// <param name="Provider">The provider of the tier (for example <c>nebius-ai-cloud</c> for cloudgpu), or null.</param>

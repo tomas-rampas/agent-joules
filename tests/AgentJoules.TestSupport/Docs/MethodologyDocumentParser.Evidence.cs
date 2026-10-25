@@ -7,7 +7,7 @@ namespace AgentJoules.TestSupport.Docs;
 /// <summary>
 /// The evidence half of the contract of <c>docs/methodology.md</c> (the final M4 review, M-1, m-1 and m-4; REQ-022 and prompt section 6, honesty rule 1): <see cref="CheckEvidence"/> reads the markdown against the
 /// committed files under <c>results/</c> and <c>tasks/</c> so that the document cannot go stale silently. The rules: every <c>results/*.json</c> name the document cites is a committed file (the list of
-/// <c>git ls-files results/</c>, never a working-tree file); the baseline-unstable example quotes the mean, standard deviation, sample count, window seconds and coefficient of variation of the latest committed local run
+/// <c>git ls-tree -r --name-only HEAD -- results/</c>, never a working-tree file or the index); the baseline-unstable example quotes the mean, standard deviation, sample count, window seconds and coefficient of variation of the latest committed local run
 /// rounded to three decimals; the throttled statement quotes that run's throttled step count, reason, peak range (rounded to one decimal) and embedded <c>powerLimitW</c>; the power limit item quotes the
 /// <c>powerLimitW</c> of that run's embedded probe and of every committed probe it names, and names the latest committed probe; the offload item quotes <c>gpuOffloadPercent</c> of the run; the output caps item quotes the
 /// caps of <c>tasks/*.json</c> and, per tier, the count of steps whose output tokens equal their task's cap in the latest committed run file of the tier; the REQ-032 compositing sentence is followed by the open
@@ -19,7 +19,7 @@ public static partial class MethodologyDocumentParser
     public const string OpenApplicationsSentence = "The 2026-10-25 campaign that produced the published local file ran with the user's other GPU applications open (the user's decision of 12:32Z recorded in the AJ-114 entry of docs/build-log.md), so that load sits in the baseline and in every local window.";
 
     /// <summary>The Baseline sentence that discloses the missing settle interval (m-4).</summary>
-    public const string BaselineSettleSentence = "The baseline window starts right after the warm-up call returns, with no settle interval, so the warm-up's power tail can inflate the baseline mean and so understate net joules; the run file stores the baseline summary, not its samples.";
+    public const string BaselineSettleSentence = "The baseline window starts after the warm-up call returns and the runtime version call that follows it (a few milliseconds), plus the configured settle interval Baseline:SettleSeconds (default 0, as in the published runs).";
 
     private const string BaselineHeading = "Baseline";
     private static readonly string[] Tiers = ["local", "nebius", "nvidia"];
@@ -40,7 +40,7 @@ public static partial class MethodologyDocumentParser
 
     /// <summary>Checks the document against the committed evidence.</summary>
     /// <param name="markdown">The text of the document; carriage returns are ignored.</param>
-    /// <param name="committedFiles">The repository-relative paths of the committed files under <c>results/</c> (<c>git ls-files results/</c>).</param>
+    /// <param name="committedFiles">The repository-relative paths of the committed files under <c>results/</c> (<c>git ls-tree -r --name-only HEAD -- results/</c>).</param>
     /// <param name="readFile">Reads a repository-relative path; returns null when the file does not exist.</param>
     /// <param name="taskCaps">The <c>maxOutputTokens</c> per task name.</param>
     /// <returns>One message per broken rule; empty when the document passes.</returns>
@@ -58,16 +58,19 @@ public static partial class MethodologyDocumentParser
         List<string> failures = [];
 
         // Rule 1: every cited results file is a committed file.
-        // A run file named without its folder (the first draft cited 20261025T024349Z-local.json) is the same citation.
-        foreach (string cited in ResultsFileName().Matches(text).Select(static match => match.Value).Concat(RunFileName().Matches(text).Select(static match => "results/" + match.Value)).Distinct(StringComparer.Ordinal))
+        // A run file, a probe or a calibration file named without its folder (the first draft cited 20261025T024349Z-local.json) is the same citation.
+        foreach (string cited in ResultsFileName().Matches(text).Select(static match => match.Value)
+            .Concat(RunFileName().Matches(text).Select(static match => "results/" + match.Value))
+            .Concat(BareFileName().Matches(text).Select(static match => "results/" + match.Value))
+            .Distinct(StringComparer.Ordinal))
         {
             if (!committedFiles.Contains(cited, StringComparer.Ordinal))
             {
-                failures.Add($"the document cites {cited}, which is not a committed file under results/ (git ls-files results/)");
+                failures.Add($"the document cites {cited}, which is not a committed file under results/ (git ls-tree HEAD results/)");
             }
         }
 
-        string? localName = Latest(committedFiles, "local");
+        string? localName = Latest(committedFiles, "local", readFile);
         JsonElement? run = localName is null ? null : Load(localName, readFile, failures);
         string? limitations = SectionText(sections, LimitationsHeading);
         string[] limitationLines = sections.FirstOrDefault(static section => string.Equals(section.Name, LimitationsHeading, StringComparison.Ordinal))?.Lines ?? [];
@@ -100,8 +103,41 @@ public static partial class MethodologyDocumentParser
         return failures;
     }
 
-    private static string? Latest(IReadOnlyCollection<string> committedFiles, string tier) =>
-        committedFiles.Where(path => Regex.IsMatch(path, @"^results/\d{8}T\d{6}Z-" + tier + @"\.json\z", RegexOptions.CultureInvariant)).Order(StringComparer.Ordinal).LastOrDefault();
+    // The newest committed primary file of a tier that RunFileSelector.Latest would accept (see IsSelectableRunFile).
+    private static string? Latest(IReadOnlyCollection<string> committedFiles, string tier, Func<string, string?> readFile) =>
+        committedFiles
+            .Where(path => Regex.IsMatch(path, @"^results/\d{8}T\d{6}Z-" + tier + @"\.json\z", RegexOptions.CultureInvariant))
+            .OrderDescending(StringComparer.Ordinal)
+            .FirstOrDefault(path => readFile(path) is not { } json || IsSelectableRunFile(json));
+
+    /// <summary>
+    /// Whether <c>RunFileSelector.Latest</c> would accept a run file, judged from its text: <c>run.status</c> is <c>completed</c> or <c>partial</c> and <c>run.flags</c> lacks <c>non-publishable</c>; the statuses
+    /// <c>running</c>, <c>failed</c> and <c>incomplete</c> are skipped. A file that cannot be read or has no <c>run</c> header is not skipped here: the selector reports it as a problem, and the caller's load of it fails visibly.
+    /// </summary>
+    /// <param name="json">The text of the run file.</param>
+    /// <returns>False when the selector skips the file; true otherwise.</returns>
+    public static bool IsSelectableRunFile(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("run", out JsonElement run) || run.ValueKind != JsonValueKind.Object)
+            {
+                return true;
+            }
+
+            string? status = run.TryGetProperty("status", out JsonElement statusElement) && statusElement.ValueKind == JsonValueKind.String ? statusElement.GetString() : null;
+            return status is not ("running" or "failed" or "incomplete")
+                && !(run.TryGetProperty("flags", out JsonElement flags) && flags.ValueKind == JsonValueKind.Array
+                    && flags.EnumerateArray().Any(static flag => flag.ValueKind == JsonValueKind.String && string.Equals(flag.GetString(), "non-publishable", StringComparison.Ordinal)));
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
+    }
 
     private static JsonElement? Load(string name, Func<string, string?> readFile, List<string> failures)
     {
@@ -242,7 +278,7 @@ public static partial class MethodologyDocumentParser
 
         foreach (string tier in Tiers)
         {
-            string? name = Latest(committedFiles, tier);
+            string? name = Latest(committedFiles, tier, readFile);
             Match quote = Regex.Match(line, @"(\d+) of (\d+) " + tier + @" steps \((results/[^)]+?\.json)\)", RegexOptions.CultureInvariant);
             if (name is null || !quote.Success)
             {
@@ -283,6 +319,9 @@ public static partial class MethodologyDocumentParser
 
     [GeneratedRegex(@"\d{8}T\d{6}Z-(?:local|nvidia|nebius|cloudgpu)\.json(?![\w-])", RegexOptions.CultureInvariant)]
     private static partial Regex RunFileName();
+
+    [GeneratedRegex(@"(?<![\w-])(?:probe|calibration)-\d{8}T\d{6}Z(?:-[\w.-]*?)?\.json(?![\w-])", RegexOptions.CultureInvariant)]
+    private static partial Regex BareFileName();
 
     [GeneratedRegex(@"results/probe-\d{8}T\d{6}Z\.json(?![\w-])", RegexOptions.CultureInvariant)]
     private static partial Regex ProbeFileName();

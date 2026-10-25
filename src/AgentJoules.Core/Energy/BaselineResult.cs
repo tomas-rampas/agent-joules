@@ -148,6 +148,12 @@ public sealed record BaselineResult
     /// <summary>The length of the baseline window in seconds: stop minus start.</summary>
     public double Seconds { get; }
 
+    /// <summary>
+    /// The configured <c>Baseline:SettleSeconds</c>, the wait between the warm-up and the baseline window, in seconds: a configuration echo, 0 when none was configured and in files written before it existed.
+    /// Not part of the window <see cref="Seconds"/>; set by the run flow, not by the calculator.
+    /// </summary>
+    public double SettleSeconds { get; init; }
+
     /// <summary>The number of samples the statistics were computed over.</summary>
     public int SampleCount { get; }
 

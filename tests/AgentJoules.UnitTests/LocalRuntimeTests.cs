@@ -656,7 +656,7 @@ public sealed class LocalRuntimeTests
             CliRunResult result = await rig.RunAsync();
 
             AssertExit(5, result);
-            Assert.Contains("NIM not reachable at http://localhost:8000/v1; start the container as recorded in docs/nim-local-attempt.md", Joined(result), StringComparison.Ordinal);
+            Assert.Contains("NIM not reachable at " + LocalRunRig.NimBaseUrl() + "; start the container as recorded in docs/nim-local-attempt.md", Joined(result), StringComparison.Ordinal);
             Assert.Empty(rig.RunFiles());
         }
 
@@ -669,8 +669,24 @@ public sealed class LocalRuntimeTests
             CliRunResult result = await rig.RunAsync();
 
             AssertExit(5, result);
-            Assert.Contains("NIM not reachable at http://localhost:8000/v1; start the container as recorded in docs/nim-local-attempt.md", Joined(result), StringComparison.Ordinal);
+            Assert.Contains("NIM not reachable at " + LocalRunRig.NimBaseUrl() + "; start the container as recorded in docs/nim-local-attempt.md", Joined(result), StringComparison.Ordinal);
             Assert.Equal(0, rig.Local.Count(FakeRoute.ChatCompletions));
+        }
+
+        [Fact]
+        public async Task The_nim_rig_talks_to_a_fake_host_that_is_neither_localhost_nor_a_loopback_address()
+        {
+            var baseUrl = new Uri(LocalRunRig.NimBaseUrl());
+            Assert.NotEqual("localhost", baseUrl.Host, StringComparer.OrdinalIgnoreCase);
+            Assert.False(baseUrl.IsLoopback, "The NIM rig must not point at a live address: " + baseUrl.Host);
+            Assert.False(System.Net.IPAddress.TryParse(baseUrl.IdnHost, out System.Net.IPAddress? address) && System.Net.IPAddress.IsLoopback(address), "The host is a loopback address: " + baseUrl.Host);
+
+            using LocalRunRig rig = LocalRunRig.Nim();
+            AssertExit(0, await rig.RunAsync());
+
+            Uri warmUp = rig.Local.RequestsFor(FakeRoute.ChatCompletions)[0].Uri;
+            Assert.False(warmUp.IsLoopback, "The warm-up went to " + warmUp.Host);
+            Assert.Equal(baseUrl.Host, warmUp.Host);
         }
 
         [Fact]
@@ -1390,7 +1406,7 @@ public sealed class LocalRuntimeTests
 
             RecordedRequest warmUp = rig.Local.RequestsFor(FakeRoute.ChatCompletions)[0];
             Assert.Equal("POST", warmUp.Method);
-            Assert.Equal(ShippedLocal(static tier => tier.BaseUrl).TrimEnd('/') + "/chat/completions", warmUp.Uri.AbsoluteUri);
+            Assert.Equal(LocalRunRig.NimBaseUrl().TrimEnd('/') + "/chat/completions", warmUp.Uri.AbsoluteUri);
             Assert.Equal("application/json", warmUp.MediaType);
             Assert.False(warmUp.HasBearerToken);
 
@@ -1444,7 +1460,7 @@ public sealed class LocalRuntimeTests
             CliRunResult result = await rig.RunAsync();
 
             AssertExit(5, result);
-            string expected = $"the warm-up of {ShippedLocal(static tier => tier.ModelId)} failed with HTTP {status} at {ShippedLocal(static tier => tier.BaseUrl).TrimEnd('/')}";
+            string expected = $"the warm-up of {ShippedLocal(static tier => tier.ModelId)} failed with HTTP {status} at {LocalRunRig.NimBaseUrl().TrimEnd('/')}";
             Assert.Contains(expected, result.Stderr, StringComparison.Ordinal);
             Assert.DoesNotContain("NIM not reachable", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
             Assert.DoesNotContain("body-marker-9e27", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
