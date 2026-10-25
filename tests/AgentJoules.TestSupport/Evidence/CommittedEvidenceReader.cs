@@ -74,10 +74,13 @@ public sealed class CommittedEvidenceReader
             : selection.Latest.GetValueOrDefault(Tier.Local);
     }
 
-    /// <summary>The committed calibration files, <c>results/calibration-*.json</c>.</summary>
+    /// <summary>The committed laptop calibration files, <c>results/calibration-&lt;stamp&gt;.json</c>: a suffixed name (<c>-cloudgpu</c>, AJ-124) is the evidence of another machine and is not read as the laptop's.</summary>
     /// <returns>The full paths in ordinal order; empty when there is none.</returns>
     public IReadOnlyList<string> CalibrationFiles() =>
-        [.. ResultsFiles().Where(static path => CalibrationFile.IsValid(Path.GetFileName(path)))];
+        [.. ResultsFiles().Where(static path => IsLaptopCalibrationName(Path.GetFileName(path)))];
+
+    // An un-suffixed name has the length of a name made without a suffix.
+    private static bool IsLaptopCalibrationName(string name) => CalibrationFile.IsValid(name) && name.Length == CalibrationFile.Name(DateTimeOffset.UnixEpoch).Length;
 
     // The files directly in results/ that count: every file of the folder, or the committed names that exist in the working tree, in ordinal order.
     private IEnumerable<string> ResultsFiles()

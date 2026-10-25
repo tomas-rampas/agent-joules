@@ -3,6 +3,7 @@ using System.Reflection;
 
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Tasks;
+using AgentJoules.Metering;
 using AgentJoules.Workflow.Agents;
 
 using Microsoft.Agents.AI;
@@ -91,7 +92,7 @@ public sealed class AgentJoulesWorkflowFactory
                     output = final;
                     break;
                 case ExecutorFailedEvent executorFailed:
-                    failed ??= (executorFailed.ExecutorId, executorFailed.Data);
+                    failed = PreferFailure(failed, (executorFailed.ExecutorId, executorFailed.Data));
                     break;
                 case WorkflowErrorEvent workflowError:
                     // The Reviewer runs in the delivery hook of its superstep, so its failure arrives here, or not at all (see below); an error that no agent owns is a fault of the engine.
@@ -113,6 +114,13 @@ public sealed class AgentJoulesWorkflowFactory
                 ? throw EngineFault(engineFault)
                 : output ?? throw new InvalidOperationException("The workflow ended without a final output.");
     }
+
+    // The first failure is kept, except that a refusal of the stopped gate (the sibling that was queued behind a dropped call, AJ-123) gives way to a failure that is not one: the refusal can be reported
+    // before the call that dropped has finished publishing its reading, and the run must be told by the call that failed, not by the call that was turned away (gatekeeper B-1).
+    internal static (string Agent, Exception? Failure)? PreferFailure((string Agent, Exception? Failure)? kept, (string Agent, Exception? Failure) next) =>
+        kept is null || (IsRefusal(kept.Value.Failure) && !IsRefusal(next.Failure)) ? next : kept;
+
+    private static bool IsRefusal(Exception? failure) => failure is not null && Unwrap(failure) is IncompleteRunException;
 
     // An error of the run that no agent owns is a bug of the engine or of the graph, not a failed step: it is not exit code 5. Only the type of the fault is named.
     internal static InvalidOperationException EngineFault(Exception fault) =>

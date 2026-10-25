@@ -49,4 +49,7 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
 
     /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => _reporter.ReportTierFailed(displayPath, agent, status);
+
+    /// <inheritdoc />
+    public void ConnectionLost() => _reporter.ReportConnectionLost();
 }

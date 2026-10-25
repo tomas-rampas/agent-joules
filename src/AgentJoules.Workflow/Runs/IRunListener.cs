@@ -89,4 +89,12 @@ public interface IRunListener
     /// <param name="agent">The name of the agent whose step failed.</param>
     /// <param name="status">The status the partial file carries: <see cref="RunStatus.Failed"/>, or <see cref="RunStatus.Incomplete"/> when the connection dropped after the first update.</param>
     void TierFailed(string displayPath, string agent, RunStatus status);
+
+    /// <summary>
+    /// The connection of the cloudgpu tier dropped during a call (AJ-123, EDGE-016): the step is <c>incomplete</c>, no further call and no retry follows, and the user must look at the VM in the provider console.
+    /// Called after <see cref="TierFailed"/> (or after <see cref="CheckpointFailed"/> when the partial file could not be written) and before the failure leaves the orchestrator. The default does nothing.
+    /// </summary>
+    void ConnectionLost()
+    {
+    }
 }

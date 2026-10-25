@@ -245,6 +245,7 @@ Demo relevance: no.
 
 ### AJ-123: Keep incomplete cloudgpu run files out of reports
 Covers: EDGE-016
+Note (2026-10-25, AJ-123): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-123-incomplete-runs.feature; criterion 2 read literally: the fan-out sibling is stopped at the meter gate after a cloudgpu drop (StopAfterDropMeterGate), so the run file holds the Planner and the dropped step only; the connection-lost line is a listener method; seven production files changed (the gate and its IStoppableMeterGate interface, MeteredChatClient, the orchestrator, the listener, the console reporter and listener) plus the workflow factory's failure choice from fix round 1.
 User story: As a reader of the report, I want a run that was cut off by a lost VM or a broken connection to be kept as evidence but never shown as a result, so that no partial energy figure is read as complete.
 Acceptance criteria:
 1. A transport failure during a streaming call (an `IOException`, a `SocketException` or an `HttpRequestException` without a status code) yields a step with `outcome` `incomplete`; host shutdown (Ctrl+C, SIGTERM, SIGHUP) is not re-specified here: AJ-034 (M1) delivers the `ApplicationStopping` signal path and the exit-5 mapping, and AJ-056-T6a (M2) marks in-flight steps `incomplete`, sets `run.status` `incomplete` and writes the checkpoint; this story reuses both; the run file gets `run.status` `incomplete`, is kept on disk, the command exits 5 and asks the user to check the VM state in the console.
@@ -303,9 +304,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/IncompleteRuns.feature; unit classes IncompleteRunTests and ReportRenderingTests (REQ-023 list) with `[Trait("Spec","EDGE-016")]`.
 Docs impact: docs/build-log.md; the incident entry in `docs/cloudgpu-run.md` in AJ-128.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] an incomplete file never appears in a README results fixture
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] an incomplete file never appears in a README results fixture
 Demo relevance: no.
 
 ### AJ-124: Use power sampling when the energy counter is unsupported on the VM

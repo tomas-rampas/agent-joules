@@ -1,7 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
 
+using AgentJoules.Metering;
+using AgentJoules.Workflow.Judge;
 using AgentJoules.Workflow.Runs;
+
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Xunit;
 
@@ -44,6 +49,15 @@ public sealed class CloudGpuBudgetRig : IDisposable
         _rig.Setup.Endpoints["nebius"] = RunOrchestrationFixtures.Endpoint(Time, TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>Gives the nebius tier a fake endpoint of its own, so that <c>run --tier nebius</c> runs against it (AJ-123: the stop of the gate is a cloudgpu behaviour only).</summary>
+    /// <returns>The fake of the nebius tier.</returns>
+    public FakeHttpMessageHandler UseNebius()
+    {
+        FakeHttpMessageHandler nebius = RunOrchestrationFixtures.Endpoint(Time, TimeSpan.FromSeconds(1));
+        _rig.Setup.Endpoints["nebius"] = nebius;
+        return nebius;
+    }
+
     /// <summary>Wraps the console listener of the command in a decorator, as <see cref="RunListenerFixtures.Decorate"/> does.</summary>
     /// <param name="wrap">Builds the decorator around the console listener.</param>
     public void DecorateListener(Func<IRunListener, IRunListener> wrap) => RunListenerFixtures.Decorate(_rig.Setup, wrap);
@@ -52,11 +66,12 @@ public sealed class CloudGpuBudgetRig : IDisposable
     public CliRunResult? Result => _rig.Result;
 
     /// <summary>Creates the rig; the caller disposes it.</summary>
+    /// <param name="responseDelay">Real time every answer of the fake is held back (the handler's <see cref="FakeHttpMessageHandler.ResponseDelay"/>, not the fake clock): it lets the calls of the workflow overlap in time as on a network; zero answers at once.</param>
     /// <returns>The rig.</returns>
-    public static CloudGpuBudgetRig Create()
+    public static CloudGpuBudgetRig Create(TimeSpan responseDelay = default)
     {
         LocalRunRig rig = LocalRunRig.Nim();
-        var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1) };
+        var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1), ResponseDelay = responseDelay };
         rig.Setup.Endpoints["cloudgpu"] = cloud;
 
         // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself; the run here is a fake and has no host.
@@ -89,6 +104,34 @@ public sealed class CloudGpuBudgetRig : IDisposable
             }
         };
 
+    /// <summary>
+    /// Makes the gate of the run a <see cref="QueueObservingMeterGate"/> and holds every cut stream of the cloudgpu fake open until a caller waits for the gate behind the dropping one, so the sibling really queues before the
+    /// connection drops (AJ-123). Call it before <see cref="RunAsync"/>.
+    /// </summary>
+    /// <param name="releaseLag">Real time the releaser of the gate stays busy after it gave the slot on; see <see cref="QueueObservingMeterGate"/>.</param>
+    /// <param name="endpoint">The fake whose cut streams are held; the cloudgpu fake when null.</param>
+    /// <returns>The gate, which the rig's host disposes.</returns>
+    public QueueObservingMeterGate HoldDropUntilSiblingQueues(TimeSpan releaseLag = default, FakeHttpMessageHandler? endpoint = null)
+    {
+        var gate = new QueueObservingMeterGate(releaseLag);
+        RunOrchestrationFixtures.AddServices(_rig.Setup, services =>
+        {
+            _ = services.RemoveAll<IMeterGate>();
+            _ = services.AddSingleton<IMeterGate>(_ => gate);
+        });
+        (endpoint ?? Cloud).HoldDropUntil = gate.WaiterQueued;
+        return gate;
+    }
+
+    /// <summary>Registers <paramref name="judge"/> in place of the no-op judge of the rig.</summary>
+    /// <param name="judge">The judge.</param>
+    public void UseJudge(IJudgeService judge) =>
+        RunOrchestrationFixtures.AddServices(_rig.Setup, services =>
+        {
+            _ = services.RemoveAll<IJudgeService>();
+            _ = services.AddSingleton(judge);
+        });
+
     /// <summary>Runs <paramref name="arguments"/> on the fake clock.</summary>
     /// <param name="arguments">The command line.</param>
     /// <returns>The result.</returns>
@@ -101,6 +144,10 @@ public sealed class CloudGpuBudgetRig : IDisposable
     /// <summary>The run files the command wrote.</summary>
     /// <returns>The full paths; empty when none.</returns>
     public string[] RunFiles() => _rig.RunFiles();
+
+    /// <summary>Runs the report command on the results folder of the run and returns the text of <c>summary.md</c> (AJ-123).</summary>
+    /// <returns>The Markdown summary.</returns>
+    public Task<string> SummaryAsync() => _rig.SummaryAsync();
 
     /// <summary>The completions one (task, repeat) of the committed task takes on the cloudgpu fake, found by running one repeat on a rig of its own.</summary>
     /// <param name="task">The task name.</param>

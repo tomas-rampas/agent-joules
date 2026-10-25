@@ -172,11 +172,11 @@ public sealed partial class CloudGpuSteps
 
     [When(@"^I run ""([^""]*)""$")]
     [Scope(Feature = BudgetFeature)]
-    public async Task WhenIRun(string command) => _ = await BudgetRig().RunAsync(command).WaitAsync(BudgetHangGuard);
+    public async Task WhenIRunBudget(string command) => _ = await BudgetRig().RunAsync(command).WaitAsync(BudgetHangGuard);
 
     [Then(@"^the exit code is (\d+)$")]
     [Scope(Feature = BudgetFeature)]
-    public void ThenTheExitCodeIs(int expected)
+    public void ThenTheExitCodeIsBudget(int expected)
     {
         CliRunResult result = BudgetResult();
         ExitIs(expected, result);

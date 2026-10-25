@@ -302,6 +302,10 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         Output.WriteLine($"status: {word} at {TextEcho.ForMessage(agent)}");
     }
 
+    /// <summary>Tells the user that the connection of the cloudgpu tier dropped (AJ-123, EDGE-016): one warning line on the error writer, <c>Warning: connection lost; no further call and no retry was made. Check the VM state in the console</c>.</summary>
+    public void ReportConnectionLost() =>
+        _error.WriteLine("Warning: connection lost; no further call and no retry was made. Check the VM state in the console");
+
     // A value in the invariant culture, or the label text of a value that does not exist (never 0).
     private static string Format(Metric metric, string format) =>
         metric.Value is { } value ? value.ToString(format, CultureInfo.InvariantCulture) : MetricLabelText.Of(metric.Label);

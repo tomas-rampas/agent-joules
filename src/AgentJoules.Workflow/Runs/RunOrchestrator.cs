@@ -252,7 +252,9 @@ public sealed class RunOrchestrator(
 
             // With a dashboard that also takes readings, the workflow readings fan out to the listener sink (which keeps them for the file) first and to the dashboard second.
             IMetricsSink workflowSink = _live is IMetricsSink liveReadings ? new FanOutMetricsSink(_logger, listening, liveReadings) : listening;
-            var services = new MeteringServices(meter, _gate, workflowSink, _cost, _instruments, _time) { Live = _live };
+            // The cloudgpu tier (AJ-123, EDGE-016) stops issuing requests once a call ends incomplete: its gate refuses the sibling that is queued behind the drop. Other tiers keep the gate of the mode.
+            IMeterGate tierGate = tier == Tier.CloudGpu ? new StopAfterDropMeterGate(_gate) : _gate;
+            var services = new MeteringServices(meter, tierGate, workflowSink, _cost, _instruments, _time) { Live = _live };
             AgentFactory factory = _agentFactory(services);
             for (int taskIndex = 0; taskIndex < plan.Tasks.Count; taskIndex++)
             {
@@ -297,9 +299,9 @@ public sealed class RunOrchestrator(
 
             progress.StopReason = stopReason;
 
-            // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced and the null live sink, so a judge reading never reaches the workflow sink, the listener (no step line) or the dashboard.
+            // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced, the null live sink and the plain gate of the mode (a dropped judge call must not stop the workflow gate, m-3), so a judge reading never reaches the workflow sink, the listener (no step line) or the dashboard.
             IReadOnlyList<StepReading> workflow = sink.Snapshot();
-            JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance }, cancellationToken).ConfigureAwait(false);
+            JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance, Gate = _gate }, cancellationToken).ConfigureAwait(false);
             RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), stopReason is null ? RunStatus.Completed : RunStatus.Partial, judged?.SelfJudged);
             try
             {
@@ -422,15 +424,32 @@ public sealed class RunOrchestrator(
         return scored;
     }
 
+    // The status of the partial file and the failure that leaves (M-1). The reported failure is the real one (the workflow keeps a failure over a refusal), so it keeps its own agent, type and status code, and the status
+    // follows its own agent's latest reading. Only when it is the sibling's refusal after a drop, which has no reading of its own, do the status and the agent come from the incomplete reading of the (task, repeat) that failed.
+    internal static (RunStatus Status, StepFailedException Failure) SettleFailure(IReadOnlyList<StepReading> steps, (string Task, int Repeat)? current, StepFailedException failure)
+    {
+        StepReading? latest = steps.LastOrDefault(step => string.Equals(step.Agent, failure.Agent, StringComparison.Ordinal));
+        StepReading? incomplete = failure.FailureType == nameof(IncompleteRunException) && current is { } at
+            ? steps.LastOrDefault(step => step.Outcome == StepOutcomes.Incomplete
+                && string.Equals(step.Task, at.Task, StringComparison.Ordinal)
+                && step.Repeat == at.Repeat)
+            : null;
+        RunStatus status = latest?.Outcome == StepOutcomes.Incomplete || incomplete is not null ? RunStatus.Incomplete : RunStatus.Failed;
+        return incomplete is not null && !string.Equals(incomplete.Agent, failure.Agent, StringComparison.Ordinal)
+            ? (status, new StepFailedException(incomplete.Agent, failure.FailureType))
+            : (status, failure);
+    }
+
     // The partial file of a step failure (EDGE-006): the document of the readings published so far, which are the same instances the earlier checkpoints held, with the status failed, or incomplete
-    // when the failing agent's latest reading is incomplete (a drop after the first update, EDGE-016). No judge call: a stopped tier is not scored. The write has a token of its own, bounded like
+    // when the failing agent's latest reading is incomplete (a drop after the first update, EDGE-016), or when the failure is the sibling's refusal and a reading of the (task, repeat) is incomplete, in which case that reading's
+    // agent is named. No judge call: a stopped tier is not scored. The write has a token of its own, bounded like
     // the shutdown write, and a failed write is logged and told with its type only. The token cancels the asynchronous part of the write only: the synchronous file operations of the writer (delete,
     // create, flush, move) are not cancellable and finish once started, so the budget bounds the await, not the disk. Returns the failure carrying the display path of the file, or null when the file could not be written.
     private async Task<StepFailedException?> WriteFailedAsync(RunPlan plan, TierProgress progress, InMemoryMetricsSink sink, InMemoryMetricsSink judgeSink, RunListenerSink listening, ShutdownSignal shutdown, StepFailedException failure)
     {
         IReadOnlyList<StepReading> steps = sink.Snapshot();
-        StepReading? latest = steps.LastOrDefault(step => string.Equals(step.Agent, failure.Agent, StringComparison.Ordinal));
-        RunStatus status = latest?.Outcome == StepOutcomes.Incomplete ? RunStatus.Incomplete : RunStatus.Failed;
+        (RunStatus status, failure) = SettleFailure(steps, progress.Current, failure);
+
         RunDocument document = progress.Document(steps, judgeSink.Snapshot(), status);
         try
         {
@@ -444,13 +463,25 @@ public sealed class RunOrchestrator(
             RunLog.StepFailureCheckpointFailed(_logger, type);
             listening.Tell(listener => listener.CheckpointFailed(type, progress.CheckpointWritten, CheckpointKind.StepFailure));
             EmitCompleted(document);
+            TellConnectionLost(progress.Tier, status, listening);
             return null;
         }
 
         EmitCompleted(document);
         string displayPath = RunAssembler.DisplayPath(plan.OutputDisplay, progress.Writer.FilePath);
         listening.Tell(listener => listener.TierFailed(displayPath, failure.Agent, status));
+        TellConnectionLost(progress.Tier, status, listening);
         return failure.WithPartialFile(displayPath);
+    }
+
+    // A cloudgpu step that ended incomplete is a lost connection (EDGE-016, AJ-123): the failure leaves at once (the loop makes no further call and no retry follows, whatever the budget guard would say)
+    // and the user is asked to look at the VM. Other tiers keep their own wording.
+    private static void TellConnectionLost(Tier tier, RunStatus status, RunListenerSink listening)
+    {
+        if (tier == Tier.CloudGpu && status == RunStatus.Incomplete)
+        {
+            listening.Tell(listener => listener.ConnectionLost());
+        }
     }
 
     // The shutdown checkpoint: the in-flight steps of the interrupted (task, repeat) become incomplete, the document is written with a token of its own, and then the listener is told.
