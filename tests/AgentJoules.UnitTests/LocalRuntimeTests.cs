@@ -1,3 +1,5 @@
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -1482,6 +1484,76 @@ public sealed class LocalRuntimeTests
 
         // ---- the load limit is the tier's own timeout, counted on the injected clock ----
 
+        // ---- the content type of a JSON request: the NIM answers a charset parameter with HTTP 415 ----
+
+        [Fact]
+        public async Task The_nim_warm_up_request_carries_the_content_type_application_json_without_a_charset()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            var probe = new ContentTypeProbe(rig.Local, "/chat/completions");
+            rig.Setup.Endpoints["local"] = probe;
+
+            AssertExit(0, await rig.RunAsync());
+
+            probe.AssertBareApplicationJson();
+        }
+
+        [Fact]
+        public async Task The_ollama_warm_up_request_carries_the_content_type_application_json_without_a_charset()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+            var probe = new ContentTypeProbe(rig.Local, "/api/generate");
+            rig.Setup.Endpoints["local"] = probe;
+
+            AssertExit(0, await rig.RunAsync());
+
+            probe.AssertBareApplicationJson();
+        }
+
+        [Fact]
+        public async Task The_json_content_is_utf_8_bytes_under_the_bare_media_type_application_json()
+        {
+            const string json = "{\"text\":\"caf\U000000e9 \U00002713\"}";
+
+            using StringContent content = LocalRuntimeHttp.JsonContent(json);
+
+            MediaTypeHeaderValue contentType = content.Headers.ContentType ?? throw new InvalidOperationException("The content has no content type");
+            Assert.Equal("application/json", contentType.MediaType);
+            Assert.Null(contentType.CharSet);
+            Assert.Empty(contentType.Parameters);
+            Assert.Equal("application/json", contentType.ToString());
+            Assert.Equal(Encoding.UTF8.GetBytes(json), await content.ReadAsByteArrayAsync());
+            Assert.Equal(Encoding.UTF8.GetByteCount(json), content.Headers.ContentLength);
+        }
+
+        // Stands where the primary handler stands and keeps the content type of the first POST whose path ends with the suffix: the recorder of the fake keeps the media type only, and the charset is what matters here.
+        private sealed class ContentTypeProbe(FakeHttpMessageHandler inner, string pathSuffix) : DelegatingHandler(inner)
+        {
+            private Snapshot? _first;
+
+            internal void AssertBareApplicationJson()
+            {
+                Snapshot seen = _first ?? throw new InvalidOperationException("No request reached " + pathSuffix);
+                Assert.Equal("application/json", seen.MediaType);
+                Assert.Null(seen.CharSet);
+                Assert.Equal(0, seen.ParameterCount);
+                Assert.Equal("application/json", seen.Text);
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                if (request.Method == HttpMethod.Post && request.RequestUri?.AbsolutePath.EndsWith(pathSuffix, StringComparison.Ordinal) == true)
+                {
+                    MediaTypeHeaderValue? type = request.Content?.Headers.ContentType;
+                    _ = Interlocked.CompareExchange(ref _first, new Snapshot(type?.MediaType, type?.CharSet, type?.Parameters.Count ?? -1, type?.ToString()), null);
+                }
+
+                return base.SendAsync(request, cancellationToken);
+            }
+
+            private sealed record Snapshot(string? MediaType, string? CharSet, int ParameterCount, string? Text);
+        }
+
         [Theory]
         [InlineData(300, 300000.0)]
         [InlineData(5, 5000.0)]
@@ -1522,18 +1594,30 @@ public sealed class LocalRuntimeTests
 
             // Not driven: the test moves the clock itself, so the baseline never starts.
             Task<CliRunResult> run = RunCommandHarness.RunAsync(LocalRunRig.StoryCommand, rig.Setup);
-            await hold.Reached.WaitAsync(TimeSpan.FromSeconds(30));
+            try
+            {
+                await hold.Reached.WaitAsync(TimeSpan.FromSeconds(30));
 
-            rig.Time.Advance(TimeSpan.FromSeconds(31));
-            await Task.Delay(200);
-            Assert.False(run.IsCompleted, "The warm-up ended at 31 s: the 30 s cap of the preflight must not apply to it.");
+                rig.Time.Advance(TimeSpan.FromSeconds(31));
+                await Task.Delay(200);
+                Assert.False(run.IsCompleted, "The warm-up ended at 31 s: the 30 s cap of the preflight must not apply to it.");
 
-            rig.Time.Advance(TimeSpan.FromSeconds(90));
-            CliRunResult result = await run.WaitAsync(TimeSpan.FromSeconds(30));
+                rig.Time.Advance(TimeSpan.FromSeconds(90));
+                CliRunResult result = await run.WaitAsync(TimeSpan.FromSeconds(30));
 
-            AssertExit(5, result);
-            Assert.Contains(expectedText, result.Stderr, StringComparison.Ordinal);
-            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+                AssertExit(5, result);
+                Assert.Contains(expectedText, result.Stderr, StringComparison.Ordinal);
+                Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+            }
+            finally
+            {
+                // A failed assertion must not leave the command holding the run gate for the tests that follow: move the clock past the limit of the tier so the held call is cancelled and the run ends.
+                if (!run.IsCompleted)
+                {
+                    rig.Time.Advance(TimeSpan.FromSeconds(600));
+                    _ = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(30)));
+                }
+            }
         }
 
         // ---- the set of tags is the resolved per-agent set; the first one is described ----

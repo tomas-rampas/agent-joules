@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
@@ -47,10 +48,13 @@ internal static class LocalRuntimeHttp
         return await SendAsync(client, request, readBody, limit, unreachable, failed: null, clock: null, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>The JSON text of a request body as content.</summary>
+    /// <summary>
+    /// The JSON text of a request body as UTF-8 content under the bare media type <c>application/json</c>. The type carries no <c>charset</c> parameter on purpose: the NIM container answers
+    /// <c>application/json; charset=utf-8</c> with HTTP 415 and the bare type with HTTP 200 (measured 2026-10-25), and JSON is UTF-8 by definition.
+    /// </summary>
     /// <param name="jsonBody">The JSON text.</param>
     /// <returns>The content.</returns>
-    internal static StringContent JsonContent(string jsonBody) => new(jsonBody, Encoding.UTF8, "application/json");
+    internal static StringContent JsonContent(string jsonBody) => new(jsonBody, Encoding.UTF8) { Headers = { ContentType = new MediaTypeHeaderValue("application/json") } };
 
     /// <summary>The message of a warm-up that a running runtime answered with an error status: the model, the status number and the configured base, never a byte of the response.</summary>
     /// <param name="modelId">The model the warm-up loads.</param>
