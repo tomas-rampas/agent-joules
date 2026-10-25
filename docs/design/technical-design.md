@@ -929,6 +929,8 @@ Fakes (TestSupport): `FakeChatClient` (scripted text chunks, per-chunk delays ap
 | `LiveEstimateTests` | `DashboardSnapshot` fed `StepStartedEvent`, three `PowerEvent`s at 60 W with 20 W baseline 0.1 s apart and two `StepProgressEvent`s -> `runningNetJoules` is the trapezoid value labelled `estimated` and `runningOutputChunks` is 2 labelled `estimated`; then `StepCompletedEvent` -> both values are replaced by the reading's `netJoules` and `outputTokens` labelled `measured` and no estimate remains; hosted step -> running energy N/A `hosted-tier`; `StepProgressEvent` throttling: 50 streaming updates within 0.3 s of fake time emit at most 4 progress events (REQ-032 R3) |
 | `DashboardSinkTests` | 1 500 events with no reader -> the connection channel holds the newest 1 000; `Emit` returns while the pump is faulted; a throwing target inside `FanOutMetricsSink` leaves the in-memory sink complete; `step-completed` payloads carry server-side cumulative values that stay correct when earlier events were dropped (EDGE-019) |
 
+Amended 2026-10-25 (AJ-115): 6.1 gains the classes CommittedEvidenceTests (the committed-file facts and the hermetic rule tests), LaptopCampaignFileTests (the ungated theory over every committed run file and the campaign rules) and, in 6.3, the gated LaptopCampaignTests, LaptopProbeTests and CalibrationLiveTests; the reader is tests/AgentJoules.TestSupport/Evidence/CommittedEvidenceReader.cs; the README sentence sits outside the generated results block.
+
 ### 6.2 BDD with Reqnroll (`tests/AgentJoules.Specs`)
 
 Stories are written later by product-owner from this design; these conventions are binding for them and for the step code.

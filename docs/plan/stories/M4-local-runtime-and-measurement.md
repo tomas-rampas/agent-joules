@@ -1010,6 +1010,7 @@ Demo relevance: no.
 
 ### AJ-114: Run the laptop measurement campaign for local, nvidia and nebius
 Covers: REQ-018, REQ-020, REQ-021
+Note (2026-10-25, AJ-114): the campaign ran on 2026-10-25 13:17:59Z to 13:57:50Z (the probe, the all-tier run of 13:19Z that completed the local tier and failed nvidia, the nebius re-run of 13:34Z and the nvidia re-run of 13:51Z) on the committed code 4f479c2 with the user's decision to keep their other GPU applications open, recorded in the build-log entry; the committed files are listed there; AJ-115 gates the committed evidence. Gate reading (2026-10-25): the all-tier run stops at a failed tier, so a tier not reached after the failure (nebius) is re-run alone like the failing tier; the three committed files therefore come from three commands, recorded in the entry; a committed run file with status failed fails the ungated theory after the gate fix.
 User story: As the author, I want one committed run file each for `local`, `nvidia` and `nebius` produced by a fixed command sequence, so that every published laptop and hosted number traces to a file that validates.
 Acceptance criteria:
 1. Start state: `git status --porcelain` prints nothing, `dotnet build -warnaserror -tl:off` exits 0, the AJ-110 preflight conditions hold, and the AJ-111 calibration file is committed.
@@ -1081,13 +1082,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/LaptopCampaign.feature; SchemaValidationTests (REQ-023 list) for the file shapes; gated class LaptopCampaignTests (design 6.3).
 Docs impact: docs/build-log.md (commands, exit codes, `Validated <n> files`, incidents), results/ (three run files and the probe).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ validate results/` exit code 0 and the `Validated <n> files` line are recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ validate results/` exit code 0 and the `Validated <n> files` line are recorded in docs/build-log.md
 Demo relevance: yes: the report, README block and posts quote exactly these files.
 
 ### AJ-115: Gate the committed local evidence and the README runtime statements
 Covers: REQ-020, REQ-021, EDGE-010
+Note (2026-10-25, AJ-115): feature file tests/AgentJoules.Specs/Features/Reporting/AJ-115-committed-evidence.feature (the table names CommittedEvidence.feature); the evidence tests read the latest committed local run file results/20261025T131930Z-local.json, the committed calibration file and the README sentence; EDGE-010's ollama branch is hermetic under the nim decision.
 User story: As a reviewer, I want a test suite that checks the committed laptop evidence and the README statements against each other, so that a missing runtime disclosure, a short baseline or a missing NIM link fails the build.
 Acceptance criteria:
 1. Tests in `CommittedEvidenceTests` read the latest `local` run file (via `RunFileSelector`) and require: `environment.localRuntime` in {nim, ollama}; the model tag present in the `## local` section of `docs/endpoints.md`; a numeric `gpuOffloadPercent`, with `partial-offload` in `run.flags` when it is below 100; `baseline.seconds` of at least 30; `run.repeat` of at least 3; a numeric `environment.modelLoadSeconds`; `environment.powerSource` in {ac, battery, unknown}.
@@ -1153,8 +1155,8 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/CommittedEvidence.feature; unit class CommittedEvidenceTests with `[Trait("Spec","REQ-020")]`, `[Trait("Spec","REQ-021")]` and `[Trait("Spec","EDGE-010")]`.
 Docs impact: README.md (sentence `Local numbers were produced with <runtime> running <tag>.`), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
 - [ ] M5 may start only after this story is committed (local Definition of Done items)
 Demo relevance: no.
 
