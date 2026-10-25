@@ -68,6 +68,9 @@ internal static class RunCommand
     private const string Serialized = "serialized";
     private const string Concurrent = "concurrent";
 
+    // The clock skew a CloudGpu:TierStartUtc may be ahead of the command's clock before it is a configuration failure.
+    private static readonly TimeSpan FutureTierStartSkew = TimeSpan.FromSeconds(60);
+
     private static readonly string[] TierValues = [.. TierOptions.KnownNames, "all"];
 
     internal static Command Create(CommandHost host)
@@ -211,6 +214,12 @@ internal static class RunCommand
 
         IReadOnlyList<Tier> tiers = preflight.SelectTiers(request.Tier);
         IReadOnlyList<TaskDefinition> tasks = LoadTasks(contentRoot, options.Paths.Tasks, request.Task);
+
+        // A tier start in the future would give a negative elapsed time and the 4-hour box would silently never apply (AJ-122): a configuration failure, checked on the clock of the command (60 s of skew allowed).
+        if (tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is { } tierStart && tierStart > startUtc + FutureTierStartSkew)
+        {
+            throw new ConfigurationException("CloudGpu:TierStartUtc is in the future; the value is not shown");
+        }
 
         // Paths:Prices is read now, a dry run included (AJ-071): the calculator is built on first resolution, and resolving it here turns a missing or invalid price file into exit 2 before any check or request.
         _ = services.GetRequiredService<ICostCalculator>();

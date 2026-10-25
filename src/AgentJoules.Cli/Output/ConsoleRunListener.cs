@@ -24,6 +24,15 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     public void SettleStarted(double seconds) => _reporter.ReportSettle(seconds);
 
     /// <inheritdoc />
+    public void BudgetNote(string note) => _reporter.ReportBudgetNote(note);
+
+    /// <inheritdoc />
+    public void BudgetTiersSkipped(IReadOnlyList<string> tiers) => _reporter.ReportBudgetTiersSkipped(tiers);
+
+    /// <inheritdoc />
+    public void BudgetStopped(string reason) => _reporter.ReportBudgetStopped(reason);
+
+    /// <inheritdoc />
     public void TierCompleted(string displayPath, Totals totals) => _reporter.ReportTierCompleted(displayPath, totals);
 
     /// <inheritdoc />

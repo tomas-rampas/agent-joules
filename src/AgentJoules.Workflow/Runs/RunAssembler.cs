@@ -54,7 +54,7 @@ public static class RunAssembler
     /// <summary>The reason of <c>environment.cloudCostUsd</c> on every tier other than <c>cloudgpu</c>: no VM is rented.</summary>
     public const string NotCloudGpuReason = "not-cloudgpu";
 
-    /// <summary>The reason of <c>environment.cloudCostUsd</c> on <c>cloudgpu</c> while no cost was observed (M5 fills it).</summary>
+    /// <summary>The reason of <c>environment.cloudCostUsd</c> on <c>cloudgpu</c> while no cost was observed (<c>CloudGpu:ObservedCostUsd</c> not set, AJ-122).</summary>
     public const string NotObservedReason = "not-observed";
 
     /// <summary>The reason of every currency of <c>costByCurrency</c> when at least one step carries no cost: a partial sum would understate the run.</summary>
@@ -120,7 +120,7 @@ public static class RunAssembler
     /// <summary>
     /// Builds the <c>environment</c> of a tier run from the sources the design names (design 3.4 "Environment fields"): the GPU identity of a measured tier, the local runtime's description and
     /// warm-up time, the tier options and the process. Every field without a source in M2 is null (<c>instancePreset</c>, <c>region</c>, <c>containerImage</c>
-    /// and <c>containerDigest</c> until M5), never a guess.
+    /// and <c>containerDigest</c> unless the cloudgpu tier sets them in <c>CloudGpu</c>, AJ-122), never a guess.
     /// </summary>
     /// <param name="tier">The tier of the run.</param>
     /// <param name="tierOptions">The options of the tier: reasoning mode, precision and the model of each agent.</param>
@@ -129,12 +129,13 @@ public static class RunAssembler
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
     /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
     /// <param name="powerSource">The detected power source (<see cref="PowerSources"/>), written as <c>powerSource</c>; a value outside the vocabulary is written as <c>unknown</c>, and null (none was asked) leaves the field null.</param>
+    /// <param name="cloudGpu">The <c>CloudGpu</c> section (AJ-122): on the cloudgpu tier it fills provider, instance preset, region, container image and digest, and the observed cost; null (or another tier) leaves them as for a tier without a rented VM.</param>
     /// <returns>The environment.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tierOptions"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier is not defined, or <paramref name="modelLoad"/> is negative.</exception>
     /// <exception cref="ArgumentException">The reasoning mode of the tier is not off, on or unsupported.</exception>
     /// <exception cref="Core.Cli.ConfigurationException">An agent of the tier has no model ID.</exception>
-    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null, string? powerSource = null)
+    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null, string? powerSource = null, CloudGpuOptions? cloudGpu = null)
     {
         ArgumentNullException.ThrowIfNull(tierOptions);
         if (modelLoad < TimeSpan.Zero)
@@ -143,6 +144,12 @@ public static class RunAssembler
         }
 
         string provider = ProviderOf(tier);
+        CloudGpuOptions? rented = tier == Tier.CloudGpu ? cloudGpu : null;
+        if (Text(rented?.Provider) is { } named)
+        {
+            provider = named;
+        }
+
         EnvironmentModel[] models =
         [
             .. AgentCatalog.Names.Select(agent =>
@@ -166,19 +173,24 @@ public static class RunAssembler
             ReasoningMode: TierEnvironmentFacts.From(tierOptions).ReasoningMode,
             Temperature: 0.0,
             Provider: provider,
-            InstancePreset: null,
-            Region: null,
+            InstancePreset: Text(rented?.InstancePreset),
+            Region: Text(rented?.Region),
             GpuUuid: gpu?.Uuid,
-            ContainerImage: null,
-            ContainerDigest: null,
+            ContainerImage: Text(rented?.ContainerImage),
+            ContainerDigest: Text(rented?.ContainerDigest),
             Precision: PrecisionOf(runtime, tierOptions),
-            CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(NotObservedReason) : Metric.NotApplicable(NotCloudGpuReason),
+            CloudCostUsd: tier != Tier.CloudGpu
+                ? Metric.NotApplicable(NotCloudGpuReason)
+                : rented?.ObservedCostUsd is { } observed ? Metric.MeasuredCost(observed, CostCalculator.CloudGpuCurrency) : Metric.NotReported(NotObservedReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
             Assumptions: new EnvironmentAssumptions(
                 Metric.Estimated(assumed.ElectricityPricePerKwh, assumed.Currency),
                 assumed.GCo2ePerKwh is { } factor ? Metric.EstimatedQuantity(factor, GramsPerKwhUnit) : Metric.NotApplicable(CostCalculator.NotConfiguredReason)),
             Models: models);
     }
+
+    // A setting that is blank states nothing: null, never an empty string.
+    private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     // A runtime that names itself states the precision of what it serves: the quantization level of Ollama, or the configured value of a NIM container. A null there is a precision nobody stated, and it stays null:
     // Tiers:<t>:Precision is the NIM value (BF16 in the shipped configuration) and must not label an Ollama model. A tier without a named runtime (a hosted tier, the no-op runtime) takes the configured precision.
@@ -229,17 +241,18 @@ public static class RunAssembler
     /// <param name="status">The status of the document.</param>
     /// <param name="selfJudged">Whether the judge model is the model of any step, or null when the judge has not run.</param>
     /// <param name="flags">The run flags (<see cref="RunFlagsOf(LocalRuntimeInfo?)"/>), or null for none.</param>
+    /// <param name="stopReason">Why a partial run stopped (AJ-122: <c>cost-cap</c> or <c>time-box</c>), or null.</param>
     /// <returns>The run member.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is null or blank.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="taskNames"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined.</exception>
-    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null, IReadOnlyList<string>? flags = null)
+    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null, IReadOnlyList<string>? flags = null, string? stopReason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, CurrentVersion.ToolVersion, CurrentVersion.GitCommit, status, Flags: flags, SelfJudged: selfJudged);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, CurrentVersion.ToolVersion, CurrentVersion.GitCommit, status, Flags: flags, StopReason: stopReason, SelfJudged: selfJudged);
     }
 
     /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its shared-window flag (<see cref="MarkSharedWindows"/>), its duplicate-output flag (<see cref="MarkDuplicateOutputs"/>) and its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>

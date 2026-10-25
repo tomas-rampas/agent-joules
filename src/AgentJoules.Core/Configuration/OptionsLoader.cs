@@ -49,6 +49,12 @@ public static class OptionsLoader
             throw new ConfigurationException(string.Join('\n', shape));
         }
 
+        // An instant without an offset would be bound as local time: refused before the bind (CloudGpu:TierStartUtc), and every other type problem is named with it.
+        if (ConfigurationShape.InstantProblems(section).Count > 0)
+        {
+            throw new ConfigurationException(string.Join('\n', ConfigurationShape.TypeProblems(section)));
+        }
+
         try
         {
             // The unknown-key switch is a backstop: the shape check has named them already.

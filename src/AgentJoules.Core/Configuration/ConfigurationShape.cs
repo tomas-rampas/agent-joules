@@ -18,6 +18,7 @@ internal static class ConfigurationShape
         Integer,
         Number,
         Boolean,
+        Instant,
     }
 
     // The scalar keys that can fail to convert, in the order of the options, with the parse rules of the binder.
@@ -33,6 +34,10 @@ internal static class ConfigurationShape
         ("Workflow:Seed", Kind.Integer),
         ("CloudGpu:RequireSshVariables", Kind.Boolean),
         ("CloudGpu:HourlyPriceUsd", Kind.Number),
+        ("CloudGpu:ObservedCostUsd", Kind.Number),
+        ("CloudGpu:CostStopUsd", Kind.Number),
+        ("CloudGpu:TimeBoxHours", Kind.Number),
+        ("CloudGpu:TierStartUtc", Kind.Instant),
         ("Cost:ElectricityPricePerKwh", Kind.Number),
         ("Cost:GCo2ePerKwh", Kind.Number),
         ("Dashboard:PowerIntervalMs", Kind.Integer),
@@ -82,6 +87,18 @@ internal static class ConfigurationShape
             {
                 CheckConverts(tier, key, kind, $"{nameof(AgentJoulesOptions.Tiers)}:{ConfigurationMessages.Segment(tier.Key)}:{key}", problems);
             }
+        }
+
+        return problems;
+    }
+
+    /// <summary>Lists, one line each, every instant key under <paramref name="root"/> that has no explicit offset or is not a date and time. The binder accepts an offset-less value as local time, so this runs before the bind; the value is not shown.</summary>
+    internal static List<string> InstantProblems(IConfigurationSection root)
+    {
+        List<string> problems = [];
+        foreach ((string key, Kind kind) in TypedKeys.Where(static typed => typed.Kind == Kind.Instant))
+        {
+            CheckConverts(root, key, kind, key, problems);
         }
 
         return problems;
@@ -189,10 +206,20 @@ internal static class ConfigurationShape
         }
     }
 
+    private static readonly string[] InstantFormats =
+    [
+        "yyyy-MM-dd'T'HH:mm:ssK",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+        "yyyy-MM-dd HH:mm:ssK",
+        "yyyy-MM-dd HH:mm:ss.FFFFFFFK",
+    ];
+
     private static bool Converts(string value, Kind kind) => kind switch
     {
         Kind.Integer => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
         Kind.Number => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _),
+        // An instant states its offset (Z or +hh:mm): a value without one is read as local time by the binder, so a date-only or offset-less value is refused here.
+        Kind.Instant => DateTime.TryParseExact(value, InstantFormats, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out DateTime instant) && instant.Kind != DateTimeKind.Unspecified,
         _ => bool.TryParse(value, out _),
     };
 
@@ -200,6 +227,7 @@ internal static class ConfigurationShape
     {
         Kind.Integer => "an integer",
         Kind.Number => "a number",
+        Kind.Instant => "a date and time with an offset such as 2026-10-25T09:00:00Z",
         _ => "true or false",
     };
 }

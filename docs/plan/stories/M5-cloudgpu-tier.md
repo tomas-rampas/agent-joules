@@ -174,6 +174,7 @@ Demo relevance: no.
 
 ### AJ-122: Enforce the 4-hour and USD 25 stop with a fake clock
 Covers: EDGE-017
+Note (2026-10-25, AJ-122): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-122-budget-guard.feature; CloudGpuBudgetGuard with BudgetDecision(Stop, Reason, Note); the budget lines go to stderr with a Warning prefix; a budget stop ends the whole plan and names the skipped tiers (fix round 1); TierStartUtc needs an offset, a future start exits 2, TimeBoxHours at most 4; the judge and the final write still run after a mid-run stop; the cloudgpu EnvironmentInfo fields are filled from CloudGpuOptions here for AJ-127.
 User story: As the user paying for the VM, I want the run to stop starting new work once the billing page shows USD 25 or four hours have passed, so that the total spend stays below the USD 30 cap.
 Acceptance criteria:
 1. `CloudGpuBudgetGuard.Check()` returns `Stop` with reason `cost-cap` when `CloudGpu:ObservedCostUsd` is at least `CloudGpu:CostStopUsd` (25) and `time-box` when `now - CloudGpu:TierStartUtc` is at least `CloudGpu:TimeBoxHours` (4), otherwise `Continue`; when both hold at the same check the reason is `cost-cap`.
@@ -237,9 +238,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/BudgetGuard.feature; unit class CloudGpuTests (design 6.1) with `[Trait("Spec","EDGE-017")]`.
 Docs impact: docs/build-log.md (stop procedure: stop runs, copy results, tell the user to delete the VM, record the reason); `docs/cloudgpu-run.md` Cost section in AJ-128.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no test waits on the wall clock
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no test waits on the wall clock
 Demo relevance: no.
 
 ### AJ-123: Keep incomplete cloudgpu run files out of reports

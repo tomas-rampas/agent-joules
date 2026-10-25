@@ -127,17 +127,23 @@ public sealed class RunOrchestrator(
 
         var shutdown = new ShutdownSignal();
         using CancellationTokenRegistration registration = cancellationToken.Register(static state => ((ShutdownSignal)state!).Mark(), shutdown);
-        foreach (Tier tier in plan.Tiers)
+        for (int index = 0; index < plan.Tiers.Count; index++)
         {
             // A cancellation between tiers starts nothing: no GPU is opened and no file is written for a tier that never ran.
             cancellationToken.ThrowIfCancellationRequested();
-            await RunTierAsync(plan, tier, shutdown, cancellationToken).ConfigureAwait(false);
+            Tier[] later = [.. plan.Tiers.Skip(index + 1)];
+            if (await RunTierAsync(plan, plan.Tiers[index], later, shutdown, cancellationToken).ConfigureAwait(false))
+            {
+                // A budget stop ends the whole plan (EDGE-017): the builder is told to delete the VM, so no later tier starts.
+                break;
+            }
         }
 
         return (int)ExitCode.Success;
     }
 
-    private async Task RunTierAsync(RunPlan plan, Tier tier, ShutdownSignal shutdown, CancellationToken cancellationToken)
+    // Returns true when the budget guard stopped the tier: the plan then starts no later tier. The tiers that would have followed are told before the stop line, which stays the last one.
+    private async Task<bool> RunTierAsync(RunPlan plan, Tier tier, Tier[] later, ShutdownSignal shutdown, CancellationToken cancellationToken)
     {
         AgentJoulesOptions options = _options.Value;
         string name = TierOptions.NameOf(tier);
@@ -145,14 +151,43 @@ public sealed class RunOrchestrator(
             ? configured
             : throw new ConfigurationException("Tiers:" + name + " is not configured");
 
-        var progress = new TierProgress(plan, tier, tierOptions, options.Cost, plan.Writers[tier]);
+        var progress = new TierProgress(plan, tier, tierOptions, options.Cost, options.CloudGpu, plan.Writers[tier]);
         var sink = new InMemoryMetricsSink();
         var judgeSink = new InMemoryMetricsSink();
         var listening = new RunListenerSink(sink, _listener, _logger, cancellationToken);
         IGpuTelemetrySource? source = null;
+        // The budget guard of the cloudgpu tier (AJ-122, EDGE-017) on the clock of the run; the other tiers have none.
+        CloudGpuBudgetGuard? budget = tier == Tier.CloudGpu ? new CloudGpuBudgetGuard(_time, options.CloudGpu) : null;
+        bool budgetNoted = false;
+        string? stopReason = null;
+
+        // The decision at one check; the one note of the guard (the tier start is not set) is told once per tier run.
+        BudgetDecision CheckBudget()
+        {
+            if (budget is null)
+            {
+                return new BudgetDecision(false, null);
+            }
+
+            BudgetDecision decision = budget.Check();
+            if (decision.Note is { } note && !budgetNoted)
+            {
+                budgetNoted = true;
+                listening.Tell(listener => listener.BudgetNote(note));
+            }
+
+            return decision;
+        }
+
         IEnergyMeter? meter = null;
         try
         {
+            // Before the run, before the GPU is opened and before any workflow call: a stop here is a precondition (exit code 6), not a partial file.
+            if (CheckBudget() is { Stop: true } blocked)
+            {
+                throw new MeasurementPreconditionException($"tier {name} is stopped by the budget guard ({blocked.Reason}): no work started; copy any results and delete the VM now");
+            }
+
             // Once per tier run, before the baseline (REQ-021): a laptop on its battery draws another GPU power than on mains. The detector never throws; a value outside the vocabulary is not written.
             progress.PowerSource = PowerSources.Normalize(_powerSource.Detect());
             if (TierKinds.IsMeasured(tier))
@@ -224,6 +259,13 @@ public sealed class RunOrchestrator(
                 TaskDefinition task = plan.Tasks[taskIndex];
                 for (int repeat = 1; repeat <= plan.Repeat; repeat++)
                 {
+                    // Before every (task, repeat) (AJ-122): a stop here starts no further iteration and the finished ones are kept as a partial file.
+                    if (CheckBudget() is { Stop: true } stopped)
+                    {
+                        stopReason = stopped.Reason;
+                        break;
+                    }
+
                     // The live view's progress at the start of each (task, repeat), 1-based.
                     _live.EmitSafely(new ProgressEvent(_time.GetUtcNow(), false, task.Name, taskIndex + 1, plan.Tasks.Count, repeat, plan.Repeat));
                     try
@@ -246,12 +288,19 @@ public sealed class RunOrchestrator(
                     await progress.Writer.WriteAsync(progress.Document(sink.Snapshot(), judgeSink.Snapshot(), RunStatus.Running), cancellationToken).ConfigureAwait(false);
                     progress.CheckpointWritten = true;
                 }
+
+                if (stopReason is not null)
+                {
+                    break;
+                }
             }
+
+            progress.StopReason = stopReason;
 
             // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced and the null live sink, so a judge reading never reaches the workflow sink, the listener (no step line) or the dashboard.
             IReadOnlyList<StepReading> workflow = sink.Snapshot();
             JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance }, cancellationToken).ConfigureAwait(false);
-            RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), RunStatus.Completed, judged?.SelfJudged);
+            RunDocument completed = progress.Document(judged?.Steps ?? workflow, judgeSink.Snapshot(), stopReason is null ? RunStatus.Completed : RunStatus.Partial, judged?.SelfJudged);
             try
             {
                 await progress.Writer.WriteAsync(completed, cancellationToken).ConfigureAwait(false);
@@ -275,6 +324,20 @@ public sealed class RunOrchestrator(
 
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
             _live.EmitSafely(new RunCompletedEvent(_time.GetUtcNow(), false, completed.Run, completed.Totals));
+
+            if (stopReason is { } stoppedFor)
+            {
+                if (later.Length > 0)
+                {
+                    string[] skipped = [.. later.Select(TierOptions.NameOf)];
+                    listening.Tell(listener => listener.BudgetTiersSkipped(skipped));
+                }
+
+                listening.Tell(listener => listener.BudgetStopped(stoppedFor));
+                return true;
+            }
+
+            return false;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -465,7 +528,7 @@ public sealed class RunOrchestrator(
     }
 
     // What one tier run has collected so far, and the document of any of its writes.
-    private sealed class TierProgress(RunPlan plan, Tier tier, TierOptions tierOptions, CostOptions costOptions, IRunCheckpointWriter writer)
+    private sealed class TierProgress(RunPlan plan, Tier tier, TierOptions tierOptions, CostOptions costOptions, CloudGpuOptions cloudGpuOptions, IRunCheckpointWriter writer)
     {
         private readonly string[] _taskNames = [.. plan.Tasks.Select(static task => task.Name)];
 
@@ -474,6 +537,11 @@ public sealed class RunOrchestrator(
         public TierOptions TierOptions { get; } = tierOptions;
 
         public CostOptions CostOptions { get; } = costOptions;
+
+        public CloudGpuOptions CloudGpuOptions { get; } = cloudGpuOptions;
+
+        // Why the budget guard ended the tier early (cost-cap or time-box), or null; set once the loop ended, for the final document.
+        public string? StopReason { get; set; }
 
         public IRunCheckpointWriter Writer { get; } = writer;
 
@@ -506,13 +574,13 @@ public sealed class RunOrchestrator(
         public RunDocument Document(IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, RunStatus status, bool? selfJudged = null)
         {
             RunInfo run = RunInfoOf(status, selfJudged);
-            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource);
+            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource, CloudGpuOptions);
             return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, judge, WallClockMs, Union, CostOptions);
         }
 
         // The live view's start of this tier run: the run as running and the environment known so far (the GPU of a measured tier, not yet its runtime or load time), with the power limit of the probe.
         public RunStartedEvent Started(DateTimeOffset atUtc) =>
-            new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource), Probe?.PowerLimitW);
+            new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource, CloudGpuOptions), Probe?.PowerLimitW);
 
         // The run flags of every write: partial-offload from the runtime's description, non-publishable when a measured tier's idle baseline is shorter than 30 s (a hosted tier has no baseline).
         private RunInfo RunInfoOf(RunStatus status, bool? selfJudged) =>
@@ -525,6 +593,7 @@ public sealed class RunOrchestrator(
                 plan.StartUtc,
                 status,
                 selfJudged,
-                RunAssembler.RunFlagsOf(Runtime, TierKinds.IsMeasured(Tier) ? plan.BaselineSeconds : null));
+                RunAssembler.RunFlagsOf(Runtime, TierKinds.IsMeasured(Tier) ? plan.BaselineSeconds : null),
+                StopReason);
     }
 }

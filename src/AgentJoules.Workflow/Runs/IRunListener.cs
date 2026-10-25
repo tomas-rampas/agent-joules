@@ -58,6 +58,24 @@ public interface IRunListener
     /// <param name="failureDetails">The reason lines, possibly empty.</param>
     void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string> failureDetails) => JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
 
+    /// <summary>The budget guard of the cloudgpu tier has a fact to tell once per tier run (AJ-122): <c>TierStartUtc not set: the 4-hour box is not enforced</c>. The default does nothing.</summary>
+    /// <param name="note">The sentence to tell.</param>
+    void BudgetNote(string note)
+    {
+    }
+
+    /// <summary>The budget guard stopped the cloudgpu tier and the plan has later tiers (AJ-122, EDGE-017): they do not start. Called once, after <see cref="TierCompleted"/> and before <see cref="BudgetStopped"/>, so the stop line stays the last one. The default does nothing.</summary>
+    /// <param name="tiers">The names of the skipped tiers, in plan order; at least one.</param>
+    void BudgetTiersSkipped(IReadOnlyList<string> tiers)
+    {
+    }
+
+    /// <summary>The budget guard stopped the cloudgpu tier between two iterations (AJ-122, EDGE-017): called after the partial file was written and after <see cref="TierCompleted"/>, so the line it prints is the last one. The default does nothing.</summary>
+    /// <param name="reason">The stop reason: <c>cost-cap</c> or <c>time-box</c>.</param>
+    void BudgetStopped(string reason)
+    {
+    }
+
     /// <summary>A tier completed and its final document was written.</summary>
     /// <param name="displayPath">The file as the user names it: the <c>--out</c> value as given, a forward slash and the file name.</param>
     /// <param name="totals">The totals of the final document.</param>

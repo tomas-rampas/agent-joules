@@ -62,6 +62,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         ValidateJudge(options, failures);
         ValidateReport(options.Report, failures);
         ValidateLocal(options, failures);
+        ValidateCloudGpu(options.CloudGpu, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
@@ -246,6 +247,15 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             && string.IsNullOrWhiteSpace(localTier.Precision))
         {
             failures.Add("Tiers:local:Precision must be set when Local:Runtime is nim");
+        }
+    }
+
+    // CloudGpu:CostStopUsd (AJ-122, EDGE-017) is the observed cost at which no new work starts; above the USD 30 cap of the budget it would let the run spend past it. A NaN is left to the annotation.
+    private static void ValidateCloudGpu(CloudGpuOptions cloudGpu, List<string> failures)
+    {
+        if (cloudGpu.CostStopUsd > CloudGpuOptions.MaximumCostStopUsd)
+        {
+            failures.Add("CloudGpu:CostStopUsd is above the USD 30 cap; set it to 30 or less");
         }
     }
 
