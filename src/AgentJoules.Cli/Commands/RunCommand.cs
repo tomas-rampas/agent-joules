@@ -323,10 +323,16 @@ internal static class RunCommand
                 reporter.ReportNote(note);
             }
 
+            // A baseline shorter than 30 s is told once per command, before the first tier (REQ-021, AJ-106); the run goes on and its files carry non-publishable. Only a measured tier has a baseline.
+            double baselineSeconds = request.BaselineSeconds ?? options.Baseline.Seconds;
+            if (baselineSeconds < BaselineOptions.PublishableSeconds && tiers.Any(TierKinds.IsMeasured))
+            {
+                reporter.ReportShortBaseline();
+            }
+
             // Prompt honesty rule 6: the scope of the joules, once per command (the orchestrator loops the tiers), before the first step line. A dry run prints no joules and never reaches this.
             reporter.ReportEnergyScope();
 
-            double baselineSeconds = request.BaselineSeconds ?? options.Baseline.Seconds;
             var plan = new RunPlan(tiers, tasks, request.Mode, request.Repeat, baselineSeconds, writers, keys, models, startUtc, request.Out);
             return await services.GetRequiredService<IRunOrchestrator>().RunAsync(plan, cancellationToken);
         }

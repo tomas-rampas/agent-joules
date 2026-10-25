@@ -192,8 +192,8 @@ public static class ServiceCollectionExtensions
             IOptions<AgentJoulesOptions> options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>();
             return options.Value.Local.Runtime switch
             {
-                LocalOptions.Ollama => new OllamaRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options),
-                LocalOptions.Nim => new NimRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options),
+                LocalOptions.Ollama => new OllamaRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options, provider.GetRequiredService<TimeProvider>()),
+                LocalOptions.Nim => new NimRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options, provider.GetRequiredService<TimeProvider>()),
                 _ => new NoOpLocalRuntime(),
             };
         });

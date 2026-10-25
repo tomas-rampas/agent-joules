@@ -86,6 +86,12 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine($"Warning: the dashboard did not start ({TextEcho.ForMessage(reason)}); the run continues without it");
     }
 
+    /// <summary>
+    /// Warns that the idle baseline of a measured tier is shorter than 30 s (REQ-021, AJ-106): exactly <c>Warning: baseline shorter than 30 s is not publishable</c> as one line to the error writer. The run goes on and
+    /// its files carry the run flag <c>non-publishable</c>. The command calls it once, before the first tier, and only when a measured tier is selected and the baseline is shorter than <see cref="BaselineOptions.PublishableSeconds"/>.
+    /// </summary>
+    public void ReportShortBaseline() => _error.WriteLine("Warning: baseline shorter than 30 s is not publishable");
+
     /// <summary>Writes one note of the command (for example the note of a power interval shorter than the sampling period) as one line to the error writer.</summary>
     /// <param name="note">The note.</param>
     /// <exception cref="ArgumentException"><paramref name="note"/> is null or blank.</exception>

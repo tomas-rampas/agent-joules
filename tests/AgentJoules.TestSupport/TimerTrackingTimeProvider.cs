@@ -22,6 +22,11 @@ namespace AgentJoules.TestSupport;
 /// the next wait had started: that wait then ended one period early and the last step of its advance landed in the code that followed it (a measurement
 /// window one sampling period long, the CI failure of run 39660315559).
 /// </para>
+/// <para>
+/// A timer that backs a <see cref="CancellationTokenSource"/> (its state is the source: <c>new CancellationTokenSource(delay, time)</c>, the time limit of a call such as the warm-up of a local runtime) is a limit and not a wait
+/// the code blocks on: it is neither recorded in <see cref="History"/> nor reported on <see cref="DueTimes"/> nor handed to <see cref="TimerCreated"/>, so the driver never advances the clock to a limit that nothing waits for.
+/// It still fires when a test advances the clock past it.
+/// </para>
 /// </remarks>
 public sealed class TimerTrackingTimeProvider : FakeTimeProvider
 {
@@ -47,16 +52,22 @@ public sealed class TimerTrackingTimeProvider : FakeTimeProvider
         }
     }
 
+    /// <summary>A hook called with the due time and the period of every timer that is created and not created stopped (AJ-106: the operation recorder reads the meter start and the baseline wait from it); null for none. Set before the run starts.</summary>
+    public Action<TimeSpan, TimeSpan>? TimerCreated { get; set; }
+
     /// <inheritdoc />
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         ITimer timer = base.CreateTimer(callback, state, dueTime, period);
-        if (dueTime != Timeout.InfiniteTimeSpan)
+        if (dueTime != Timeout.InfiniteTimeSpan && state is not CancellationTokenSource)
         {
             lock (_gate)
             {
                 _history.Add(dueTime);
             }
+
+            // Before the due time is reported, so whatever the hook records comes before anything the driver's next step sets going.
+            TimerCreated?.Invoke(dueTime, period);
 
             if (!IsPeriodic(period))
             {

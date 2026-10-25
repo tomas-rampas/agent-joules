@@ -14,29 +14,34 @@ namespace AgentJoules.Workflow.Local;
 /// The Ollama runtime behind the local tier (EDGE-009, REQ-020, design 3.4 "Local runtimes"). <see cref="CheckAvailableAsync"/> asks the native route <c>GET &lt;native base&gt;/api/version</c>, where the native base
 /// is the base URL of the tier without its trailing <c>/v1</c> segment, so a runtime that is not running is reported as <c>Ollama not reachable at &lt;native base&gt;; start it with "ollama serve"</c> (exit code 5)
 /// instead of as a bare connection error from the models route. <see cref="DescribeAsync"/> states what the <c>environment</c> of a local run discloses (AJ-105): the version from <c>/api/version</c>, the GPU offload
-/// from <c>GET /api/ps</c> and the quantization level from <c>POST /api/show</c>. The warm-up is the no-op behaviour of M2 for now.
+/// from <c>GET /api/ps</c> and the quantization level from <c>POST /api/show</c>. <see cref="WarmUpAsync"/> (AJ-106) loads a model before the idle baseline with <c>POST &lt;native base&gt;/api/generate</c>, an empty prompt
+/// and <c>keep_alive</c> of <see cref="KeepAlive"/>, and returns how long the call took on the injected clock.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Every request goes through the named <see cref="HttpClient"/> of the local tier (<see cref="ProviderClientFactory.HttpClientName(string)"/>), the pipeline the completions and the models route use, so a test
 /// fake or the deny-all handler of the harness applies to it and a redirect is not followed. It carries no key: the native routes of Ollama need none. Its time limit is the lesser of the
-/// <c>TimeoutSeconds</c> of the tier and <see cref="ModelCatalogClient.PreflightTimeoutSeconds"/>, the limit of the models route. No text of a response leaves this class: the messages hold the endpoint, which the
+/// <c>TimeoutSeconds</c> of the tier and <see cref="ModelCatalogClient.PreflightTimeoutSeconds"/>, the limit of the models route; the warm-up alone runs under the full <c>TimeoutSeconds</c> of the tier, counted on the injected clock (loading a large model can take longer than 30 s). No text of a response leaves this class: the messages hold the endpoint, which the
 /// configuration validator keeps free of user information, query and fragment, the configured tags and a fixed phrase.
 /// </para>
 /// <para>
-/// The GPU offload is <c>size_vram / size x 100</c> of every distinct configured tag (<c>Tiers:local:ModelId</c> and each <c>AgentModelIds</c> value) in the process list, rounded to one decimal and kept within 0 to 100;
+/// The GPU offload is <c>size_vram / size x 100</c> of every distinct tag the agents call (<see cref="TierOptions.ResolvedModelIds"/>: the <c>AgentModelIds</c> entry of each agent, else <c>Tiers:local:ModelId</c>; the warm-up loads the same set) in the process list, rounded to one decimal and kept within 0 to 100;
 /// the runtime reports the lowest of them, because the worst offload governs the disclosure. A value below 100 is never rounded up to 100, so a model that is partly on the CPU is never presented as a full-GPU one. Nothing is
 /// guessed: a tag that is not in the list, a <c>size</c> of 0, none or negative, no or a negative <c>size_vram</c>, or a list that cannot be read stops the run with <see cref="MeasurementPreconditionException"/> (exit code 6). The precision is
-/// <c>details.quantization_level</c> of the answer for <c>Tiers:local:ModelId</c>, and null when the answer holds none.
+/// <c>details.quantization_level</c> of the answer for the first resolved tag (<c>Tiers:local:ModelId</c> when an agent calls it), and null when the answer holds none.
 /// </para>
 /// </remarks>
 /// <param name="factory">The provider client factory; it validates the local tier and gives its endpoint and network timeout.</param>
 /// <param name="httpClients">The factory of the named <see cref="HttpClient"/> of each tier.</param>
 /// <param name="options">The options, for the configured tags of the local tier.</param>
-public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options) : ILocalRuntime
+/// <param name="time">The clock that measures the warm-up call; the system clock when null.</param>
+public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options, TimeProvider? time = null) : ILocalRuntime
 {
     /// <summary>The name of the runtime, the value of <c>Local:Runtime</c> that selects it.</summary>
     public const string RuntimeName = LocalOptions.Ollama;
+
+    /// <summary>How long Ollama keeps the model loaded after the last request (<c>keep_alive</c> of the warm-up): 30 minutes, longer than the idle baseline, the tasks and the repeats of a run.</summary>
+    public const string KeepAlive = "30m";
 
     /// <summary>The start of every message that says the GPU offload could not be determined (exit code 6).</summary>
     internal const string OffloadUndetermined = "the GPU offload could not be determined";
@@ -45,11 +50,13 @@ public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFact
     private const string VersionRoute = "/api/version";
     private const string ProcessListRoute = "/api/ps";
     private const string ShowRoute = "/api/show";
+    private const string GenerateRoute = "/api/generate";
     private const int MaxDisclosureLength = 64;
 
     private readonly ProviderClientFactory _factory = factory ?? throw new ArgumentNullException(nameof(factory));
     private readonly IHttpClientFactory _httpClients = httpClients ?? throw new ArgumentNullException(nameof(httpClients));
     private readonly IOptions<AgentJoulesOptions> _options = options ?? throw new ArgumentNullException(nameof(options));
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
 
     /// <inheritdoc />
     public string Name => RuntimeName;
@@ -94,7 +101,7 @@ public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFact
     }
 
     /// <inheritdoc />
-    /// <returns>The runtime name, the version, the lowest GPU offload over the configured tags and the quantization level of <c>Tiers:local:ModelId</c>; the version and the precision are null when the runtime states none.</returns>
+    /// <returns>The runtime name, the version, the lowest GPU offload over the tags the agents call (<see cref="TierOptions.ResolvedModelIds"/>) and the quantization level of the first of them (<c>Tiers:local:ModelId</c> when an agent calls it); the version and the precision are null when the runtime states none.</returns>
     /// <exception cref="ConfigurationException">The local tier is not configured, has no model tag, or its base URL or timeout is not usable (exit code 2).</exception>
     /// <exception cref="EndpointUnreachableException">A request was refused, timed out or answered a status other than success (exit code 5, the <c>ollama serve</c> message).</exception>
     /// <exception cref="MeasurementPreconditionException">The process list does not state the offload of a configured tag: the tag is not listed, its <c>size</c> is 0, missing or negative, its <c>size_vram</c> is missing or negative, or the list is unreadable (exit code 6).</exception>
@@ -128,13 +135,22 @@ public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFact
     }
 
     /// <inheritdoc />
-    /// <returns>Null: the warm-up of Ollama is filled in by AJ-106, so no load is observed yet.</returns>
+    /// <returns>The wall time of the load, measured on the injected clock around the call.</returns>
     /// <exception cref="ArgumentException"><paramref name="modelId"/> is null or blank.</exception>
-    public Task<TimeSpan?> WarmUpAsync(string modelId, CancellationToken cancellationToken)
+    /// <exception cref="ConfigurationException">The local tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
+    /// <exception cref="EndpointUnreachableException">The connection was refused or nothing answered within the timeout of the tier (the <c>ollama serve</c> message), or the runtime answered a status other than success (<c>the warm-up of &lt;tag&gt; failed with HTTP &lt;status&gt; at &lt;native base&gt;</c>, never the body); exit code 5.</exception>
+    public async Task<TimeSpan?> WarmUpAsync(string modelId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<TimeSpan?>(null);
+
+        (HttpClient client, string native, _, string unreachable) = Prepare();
+        TimeSpan limit = LocalRuntimeHttp.LoadLimitOf(_factory.SettingsFor(Tier.Local));
+        string body = new JsonObject { ["model"] = modelId, ["prompt"] = string.Empty, ["keep_alive"] = KeepAlive, ["stream"] = false }.ToJsonString();
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(native + GenerateRoute)) { Content = LocalRuntimeHttp.JsonContent(body) };
+
+        // A running Ollama that answers an error is not a stopped one: the message names the tag, the status and the endpoint, not "ollama serve".
+        return await LocalRuntimeHttp.TimeWarmUpAsync(_time, client, request, limit, unreachable, status => LocalRuntimeHttp.WarmUpFailed(modelId, status, native), cancellationToken).ConfigureAwait(false);
     }
 
     // The client, the native base without a trailing slash, the time limit and the unreachable message of the local tier; the factory validates the tier.
@@ -147,15 +163,15 @@ public sealed class OllamaRuntime(ProviderClientFactory factory, IHttpClientFact
         return (client, native, LocalRuntimeHttp.LimitOf(settings), $"Ollama not reachable at {native}; start it with \"ollama serve\"");
     }
 
-    // Tiers:local:ModelId first, then each AgentModelIds value, blanks left out, each tag once (ordinal).
+    // The tags the agents call, TierOptions.ResolvedModelIds(): the AgentModelIds entry of each agent else Tiers:local:ModelId, each tag once (ordinal), Tiers:local:ModelId first when an agent uses it.
     private string[] ConfiguredTags()
     {
         TierOptions tier = _options.Value.Tiers.TryGetValue(TierOptions.NameOf(Tier.Local), out TierOptions? configured) && configured is not null
             ? configured
             : throw new ConfigurationException("Tiers:local is not configured");
-        string[] tags = [.. new[] { tier.ModelId }.Concat(tier.AgentModelIds.Values).Where(static tag => !string.IsNullOrWhiteSpace(tag)).Select(static tag => tag!).Distinct(StringComparer.Ordinal)];
 
-        return tags.Length > 0 ? tags : throw new ConfigurationException("Tiers:local has no ModelId and no AgentModelIds entry; set Tiers:local:ModelId");
+        // The same set the warm-up loads (the orchestrator takes it from here too): the model of each agent, each tag once, Tiers:local:ModelId first when an agent uses it.
+        return [.. tier.ResolvedModelIds()];
     }
 
     // The lowest offload over the tags, in the order of the tags; the first tag that has no usable entry ends the run, naming the tag and the route.

@@ -21,6 +21,9 @@ internal static class LocalRuntimeHttp
 
     private const int ReadChunkBytes = 16 * 1024;
 
+    // The longest wait CancellationTokenSource.CancelAfter accepts: uint.MaxValue - 1 ms.
+    private static readonly TimeSpan MaxLoadLimit = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
     /// <summary>Sends one request and reads its JSON body when asked to.</summary>
     /// <param name="client">The named client of the local tier.</param>
     /// <param name="method">The HTTP method.</param>
@@ -35,20 +38,57 @@ internal static class LocalRuntimeHttp
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     internal static async Task<JsonDocument?> SendAsync(HttpClient client, HttpMethod method, Uri uri, string? jsonBody, bool readBody, TimeSpan limit, string unreachable, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(method, uri);
+        var request = new HttpRequestMessage(method, uri);
         if (jsonBody is not null)
         {
-            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            request.Content = JsonContent(jsonBody);
         }
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(limit);
+        return await SendAsync(client, request, readBody, limit, unreachable, failed: null, clock: null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The JSON text of a request body as content.</summary>
+    /// <param name="jsonBody">The JSON text.</param>
+    /// <returns>The content.</returns>
+    internal static StringContent JsonContent(string jsonBody) => new(jsonBody, Encoding.UTF8, "application/json");
+
+    /// <summary>The message of a warm-up that a running runtime answered with an error status: the model, the status number and the configured base, never a byte of the response.</summary>
+    /// <param name="modelId">The model the warm-up loads.</param>
+    /// <param name="status">The HTTP status.</param>
+    /// <param name="endpoint">The configured base of the runtime.</param>
+    /// <returns>The text.</returns>
+    internal static string WarmUpFailed(string modelId, int status, string endpoint) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"the warm-up of {modelId} failed with HTTP {status} at {endpoint}");
+
+    /// <summary>
+    /// Sends a request that is already built (the NIM warm-up builds it with the factory of the models request, so a configured key travels with it) and reads its JSON body when asked to. The request is disposed here.
+    /// </summary>
+    /// <param name="client">The named client of the local tier.</param>
+    /// <param name="request">The request; this method takes it over.</param>
+    /// <param name="readBody">True to read and parse the body; false to look at the status only.</param>
+    /// <param name="limit">The time limit of the request.</param>
+    /// <param name="unreachable">The message of the <see cref="EndpointUnreachableException"/> for a refused connection, an error of the transport or a timeout.</param>
+    /// <param name="failed">The message for an answer whose status is not a success, given the status number; null takes <paramref name="unreachable"/> for that case too. It never holds the body.</param>
+    /// <param name="clock">The clock the limit runs on, or null for the system clock; a warm-up passes the injected clock so that a test sees the limit on a fake one.</param>
+    /// <param name="cancellationToken">Cancels the request; a cancellation by the caller is not an unreachable runtime.</param>
+    /// <returns>The parsed body (the caller disposes it), or null when the body was not read, is too large or is not JSON.</returns>
+    /// <exception cref="EndpointUnreachableException">The connection was refused, nothing answered within the limit or the status is not a success.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    internal static async Task<JsonDocument?> SendAsync(HttpClient client, HttpRequestMessage request, bool readBody, TimeSpan limit, string unreachable, Func<int, string>? failed, TimeProvider? clock, CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage owned = request;
+        using CancellationTokenSource? limitSource = clock is null ? null : new CancellationTokenSource(limit, clock);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, limitSource?.Token ?? CancellationToken.None);
+        if (limitSource is null)
+        {
+            timeout.CancelAfter(limit);
+        }
 
         try
         {
-            using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+            using HttpResponseMessage response = await client.SendAsync(owned, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
             return !response.IsSuccessStatusCode
-                ? throw new EndpointUnreachableException(unreachable)
+                ? throw new EndpointUnreachableException(failed is null ? unreachable : failed((int)response.StatusCode))
                 : readBody ? await ParseAsync(response, timeout.Token).ConfigureAwait(false) : null;
         }
         catch (Exception failure) when (failure is HttpRequestException or IOException)
@@ -114,6 +154,39 @@ internal static class LocalRuntimeHttp
 
         return text.Length is 0 || text.Length > maxLength || text.Any(char.IsControl) ? null : text;
     }
+
+    /// <summary>
+    /// Sends the warm-up request of a runtime (a POST with a JSON body) and measures how long it took on <paramref name="time"/>, from the moment before the request is sent to the moment its answer was read: the load
+    /// time of the model (<c>environment.modelLoadSeconds</c>, AJ-106). The request goes through the plain named client of the local tier, never the metered or the retrying client, and the answer is read to its end
+    /// but not kept.
+    /// </summary>
+    /// <param name="time">The clock of the run.</param>
+    /// <param name="client">The named client of the local tier.</param>
+    /// <param name="request">The warm-up request with its content; this method takes it over.</param>
+    /// <param name="limit">The time limit of the call (<see cref="LoadLimitOf"/>).</param>
+    /// <param name="unreachable">The message of the <see cref="EndpointUnreachableException"/> for a refused connection, an error of the transport or a timeout of the limit.</param>
+    /// <param name="failed">The message for an answer whose status is not a success, given the status number.</param>
+    /// <param name="cancellationToken">Cancels the request; a cancellation by the caller is not an unreachable runtime.</param>
+    /// <returns>The wall time of the call.</returns>
+    /// <exception cref="EndpointUnreachableException">The connection was refused, nothing answered within the limit or the status is not a success.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    internal static async Task<TimeSpan> TimeWarmUpAsync(TimeProvider time, HttpClient client, HttpRequestMessage request, TimeSpan limit, string unreachable, Func<int, string> failed, CancellationToken cancellationToken)
+    {
+        long started = time.GetTimestamp();
+        using (await SendAsync(client, request, readBody: true, limit, unreachable, failed, time, cancellationToken).ConfigureAwait(false))
+        {
+        }
+
+        return time.GetElapsedTime(started);
+    }
+
+    /// <summary>
+    /// The time limit of a warm-up call: the network timeout of the tier, cut to the longest wait a timer accepts. It is not the 30 s limit of the availability and description requests: loading a large model into GPU memory can
+    /// take longer, and the tier's own timeout (<c>Tiers:local:TimeoutSeconds</c>, 300 by default) is the limit an operator already set for a call of the model.
+    /// </summary>
+    /// <param name="settings">The settings of the local tier.</param>
+    /// <returns>The limit.</returns>
+    internal static TimeSpan LoadLimitOf(ProviderClientSettings settings) => settings.NetworkTimeout < MaxLoadLimit ? settings.NetworkTimeout : MaxLoadLimit;
 
     /// <summary>The time limit of a request of the local tier: the lesser of the tier's timeout and the preflight limit.</summary>
     /// <param name="settings">The settings of the local tier.</param>

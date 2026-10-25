@@ -511,11 +511,13 @@ public sealed partial class RunOrchestrationTests
         Assert.Equal(EnvironmentInfo.GpuBoardOnly, Text(environment, "energyScope"));
         Assert.False(string.IsNullOrWhiteSpace(Text(environment, "os")));
         Assert.Equal(Environment.Version.ToString(), Text(environment, "dotnetVersion"));
-        foreach (string absent in new[] { "gpuName", "driverVersion", "gpuUuid", "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds", "powerSource", "precision", "instancePreset", "region", "containerImage", "containerDigest" })
+        foreach (string absent in new[] { "gpuName", "driverVersion", "gpuUuid", "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds", "precision", "instancePreset", "region", "containerImage", "containerDigest" })
         {
             Assert.True(environment.GetProperty(absent).ValueKind == JsonValueKind.Null, absent);
         }
 
+        // The machine runs the client of a hosted tier too, so its power source is recorded (AJ-106); the harness detector never reads the host.
+        Assert.Equal("unknown", Text(environment, "powerSource"));
         Assert.Equal(("N/A", "not-cloudgpu"), (Text(environment.GetProperty("cloudCostUsd"), "label"), Text(environment.GetProperty("cloudCostUsd"), "reason")));
         JsonElement price = environment.GetProperty("assumptions").GetProperty("electricityPrice");
         Assert.Equal(("estimated", "EUR", 0.30), (Text(price, "label"), Text(price, "currency"), price.GetProperty("value").GetDouble()));

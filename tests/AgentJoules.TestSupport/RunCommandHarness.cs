@@ -1,4 +1,5 @@
 using AgentJoules.Cli;
+using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Nvml;
 using AgentJoules.Workflow.Judge;
@@ -32,6 +33,12 @@ public sealed class RunCommandSetup
 
     /// <summary>True to keep the production judge (the hosted judge of AJ-076, which reads the rubric and calls <c>Judge:Tier</c>) instead of the no-op judge the harness registers by default.</summary>
     public bool UseProductionJudge { get; set; }
+
+    /// <summary>
+    /// The <see cref="IPowerSourceDetector"/> every host of these overrides gets (AJ-106, EDGE-011): it answers <see cref="PowerSources.Unknown"/> unless a test sets <see cref="FakePowerSourceDetector.Value"/>, and never reads the host's
+    /// power state, so a run under the harness does not depend on whether the machine is on its battery.
+    /// </summary>
+    public FakePowerSourceDetector PowerSource { get; } = new();
 
     /// <summary>The scripted GPU the real <see cref="NvmlGpuTelemetrySourceFactory"/> opens, or null for the harness default (no GPU is reachable).</summary>
     public ScriptedNvmlApi? Gpu { get; set; }
@@ -86,11 +93,16 @@ public sealed class RunCommandSetup
         Action<IServiceCollection>? extra = Services;
         bool production = UseProductionOrchestrator;
         bool productionJudge = UseProductionJudge;
+        FakePowerSourceDetector powerSource = PowerSource;
 
         return new CliHostOverrides(
             Services: services =>
             {
                 _ = Interlocked.Increment(ref _hostBuilds);
+
+                // Before the test's own registrations, so a detector a test registers wins: the harness never reads the host's power state.
+                _ = services.RemoveAll<IPowerSourceDetector>();
+                _ = services.AddSingleton<IPowerSourceDetector>(powerSource);
 
                 // Before the test's own registrations, so a judge a test registers wins; the production judge only when the setup asks for it.
                 if (!productionJudge)

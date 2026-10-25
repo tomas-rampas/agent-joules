@@ -161,6 +161,9 @@ public sealed class ScriptedNvmlApi : INvmlApi
     /// </summary>
     public Func<string, Exception?>? FaultFor { get; set; }
 
+    /// <summary>The recorder that is told <see cref="OperationRecorder.Probe"/> each time a new session starts (the count of <see cref="Init"/> goes from 0 to 1), or null for none (AJ-106).</summary>
+    public OperationRecorder? Recorder { get; set; }
+
     /// <summary>The return code <see cref="Init"/> reports; anything but Success starts no session.</summary>
     public NvmlReturn InitReturn { get; set; } = NvmlReturn.Success;
 
@@ -250,6 +253,7 @@ public sealed class ScriptedNvmlApi : INvmlApi
             if (_initRefCount++ == 0)
             {
                 _generation++;
+                Recorder?.Record(OperationRecorder.Probe);
             }
 
             return NvmlReturn.Success;

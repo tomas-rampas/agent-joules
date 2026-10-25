@@ -32,6 +32,7 @@ public sealed class HoldingHttpMessageHandler(FakeHttpMessageHandler inner, Fake
         {
             FakeRoute.Models => request.Method == HttpMethod.Get && request.RequestUri?.AbsolutePath.EndsWith("/models", StringComparison.Ordinal) == true,
             FakeRoute.ChatCompletions => request.Method == HttpMethod.Post && request.RequestUri?.AbsolutePath.EndsWith("/chat/completions", StringComparison.Ordinal) == true,
+            FakeRoute.OllamaGenerate => request.Method == HttpMethod.Post && request.RequestUri?.AbsolutePath.EndsWith("/api/generate", StringComparison.Ordinal) == true,
             _ => false,
         };
 

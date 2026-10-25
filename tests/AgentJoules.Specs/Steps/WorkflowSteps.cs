@@ -1,5 +1,7 @@
 using System.Text.Json;
 
+using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 using AgentJoules.Specs.Support;
 using AgentJoules.TestSupport;
 
@@ -230,6 +232,191 @@ public sealed class LocalRuntimeDisclosureSteps(LocalRuntimeDisclosureContext co
     private void AssertExit(int expected)
     {
         Assert.True(expected == Result.ExitCode, $"Expected exit code {expected} but got {Result.ExitCode}; stderr: {Result.Stderr}");
+        Assert.Empty(Result.DeniedRequests);
+    }
+}
+
+/// <summary>
+/// AJ-106: order warm-up, idle baseline and repeats in local runs (REQ-021). Scoped to the feature because sentences such as "I run" and "the exit code is 5" are bound by the classes above for their own features. The
+/// state lives in <see cref="WarmupBaselineRepeatContext"/>; the file-selection scenario uses the <see cref="RunFileSelectionContext"/> of AJ-081. Every run scenario runs the real <c>run</c> command through the harness on
+/// a fake clock against loopback fakes that stand where Ollama and the hosted tiers stand, and reads what the rig recorded (the order of the operations) and the run file the command wrote.
+/// </summary>
+[Binding]
+[Scope(Feature = "Order warm-up, idle baseline and repeats in local runs")]
+public sealed class WarmupBaselineRepeatSteps(WarmupBaselineRepeatContext context, RunFileSelectionContext selection)
+{
+    private const string OlderStamp = "20261022T093000Z";
+    private const string NewerStamp = "20261023T093000Z";
+    private const int AgentsPerRepeat = 4;
+    private const int PromptTokensPerCall = 7;
+
+    private readonly WarmupBaselineRepeatContext _context = context;
+    private readonly RunFileSelectionContext _selection = selection;
+
+    private CliRunResult Result => _context.Rig.Result ?? throw new XunitException("The command has not run yet.");
+
+    private string Output => Result.Stdout + "\n" + Result.Stderr;
+
+    [Given(@"^a local run with fakes recording every operation$")]
+    public static void GivenALocalRunWithFakesRecordingEveryOperation()
+    {
+        // The rig records every operation of every run (the probe, the meter start, the warm-up, the baseline wait and each completion); nothing is prepared here.
+    }
+
+    [Given(@"^the Ollama runtime is used$")]
+    public static void GivenTheOllamaRuntimeIsUsed()
+    {
+        // The rig of these scenarios is the Ollama rig (Local:Runtime ollama); nothing is prepared here.
+    }
+
+    [Given(@"^the fake power source detector returns ""([^""]*)""$")]
+    public void GivenTheFakePowerSourceDetectorReturns(string value) => _context.PowerSource = value;
+
+    [Given(@"^the fake Ollama endpoint refuses the warm-up request$")]
+    public void GivenTheFakeOllamaEndpointRefusesTheWarmUpRequest() => _context.RefuseWarmUp = true;
+
+    [Given(@"^a valid local run file and a newer local run file whose run\.flags contain ""non-publishable""$")]
+    public void GivenAValidAndANewerNonPublishableLocalRunFile()
+    {
+        string valid = _selection.WriteRunFile(OlderStamp, Tier.Local, "completed", []);
+        string newer = _selection.WriteRunFile(NewerStamp, Tier.Local, "completed", [RunFlagNames.NonPublishable]);
+        _selection.Remember(newer, valid);
+    }
+
+    [When(@"^I run ""([^""]*)""$")]
+    public async Task WhenIRun(string arguments) => await _context.RunAsync(arguments);
+
+    [When(@"^the warm-up call is made$")]
+    public async Task WhenTheWarmUpCallIsMade() => await _context.RunAsync(LocalRunRig.StoryCommand);
+
+    [When(@"^the latest file for tier ""([^""]*)"" is selected$")]
+    public void WhenTheLatestFileIsSelected(string tier)
+    {
+        Assert.Equal("local", tier);
+        _selection.SelectLatest(Tier.Local);
+    }
+
+    [Then(@"^the recorded order is probe, meter start, warm-up, baseline window, task calls$")]
+    public void ThenTheRecordedOrderIs()
+    {
+        AssertExit(0);
+        Assert.Equal("probe, meter-start, warm-up, baseline, task-call x4", _context.Rig.Recorder.Describe());
+    }
+
+    [Then(@"^no step reading exists for the warm-up call$")]
+    public void ThenNoStepReadingExistsForTheWarmUpCall()
+    {
+        // One repeat of one task is four steps, one per completion of the workflow; the warm-up call is a fifth request to the endpoint that is in no list of the file.
+        using JsonDocument document = _context.ReadRunFile();
+        JsonElement root = document.RootElement;
+        Assert.Equal(AgentsPerRepeat, root.GetProperty("steps").GetArrayLength());
+        Assert.Equal(AgentsPerRepeat, _context.Rig.Recorder.Count(OperationRecorder.TaskCall));
+        Assert.Equal(1, _context.Rig.Recorder.Count(OperationRecorder.WarmUp));
+        Assert.Equal(0, root.GetProperty("judge").GetArrayLength());
+        Assert.Equal((double)(AgentsPerRepeat * PromptTokensPerCall), root.GetProperty("totals").GetProperty("inputTokens").GetProperty("value").GetDouble());
+    }
+
+    [Then(@"^the request body contains keep_alive ""([^""]*)"" and an empty prompt$")]
+    public void ThenTheRequestBodyContainsKeepAliveAndAnEmptyPrompt(string keepAlive)
+    {
+        AssertExit(0);
+        RecordedRequest request = _context.Rig.Local.RequestsFor(FakeRoute.OllamaGenerate)[0];
+        System.Text.Json.Nodes.JsonObject body = request.Json ?? throw new XunitException("The warm-up request has no JSON body.");
+        Assert.Equal(keepAlive, (string?)body["keep_alive"]);
+        Assert.Equal(string.Empty, (string?)body["prompt"]);
+        Assert.Equal(OllamaFixtures.StoryTag, (string?)body["model"]);
+    }
+
+    [Then(@"^environment\.modelLoadSeconds equals the fake warm-up duration$")]
+    public void ThenTheModelLoadSecondsEqualTheFakeWarmUpDuration()
+    {
+        // Every distinct tag is warmed once and the scenario configures one tag, so the sum is the one scripted duration.
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal(WarmupBaselineRepeatContext.FakeWarmUp.TotalSeconds, document.RootElement.GetProperty("environment").GetProperty("modelLoadSeconds").GetDouble());
+    }
+
+    [Then(@"^the run file has (\d+) steps with repeat values 1, 2 and 3 four times each$")]
+    public void ThenTheRunFileHasStepsWithRepeatValues(int steps)
+    {
+        AssertExit(0);
+        using JsonDocument document = _context.ReadRunFile();
+        int[] repeats = [.. document.RootElement.GetProperty("steps").EnumerateArray().Select(static step => step.GetProperty("repeat").GetInt32())];
+        Assert.Equal(steps, repeats.Length);
+        Assert.Equal([(1, 4), (2, 4), (3, 4)], repeats.GroupBy(static repeat => repeat).OrderBy(static group => group.Key).Select(static group => (group.Key, group.Count())));
+    }
+
+    [Then(@"^run\.repeat is (\d+)$")]
+    public void ThenRunRepeatIs(int repeat)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal(repeat, document.RootElement.GetProperty("run").GetProperty("repeat").GetInt32());
+    }
+
+    [Then(@"^environment\.powerSource is ""([^""]*)""$")]
+    public void ThenThePowerSourceIs(string value)
+    {
+        AssertExit(0);
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal(value, document.RootElement.GetProperty("environment").GetProperty("powerSource").GetString());
+    }
+
+    [Then(@"^the exit code is (\d+)$")]
+    public void ThenTheExitCodeIs(int expected) => AssertExit(expected);
+
+    [Then(@"^the output contains ""([^""]*)""$")]
+    public void ThenTheOutputContains(string text) => Assert.Contains(text, Output, StringComparison.Ordinal);
+
+    [Then(@"^baseline\.seconds is (\d+)$")]
+    public void ThenBaselineSecondsIs(int seconds)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal((double)seconds, document.RootElement.GetProperty("baseline").GetProperty("seconds").GetDouble());
+    }
+
+    [Then(@"^run\.flags contains ""([^""]*)""$")]
+    public void ThenTheFlagsContain(string flag)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Contains(flag, RunFlags(document));
+    }
+
+    [Then(@"^run\.flags does not contain ""([^""]*)""$")]
+    public void ThenTheFlagsDoNotContain(string flag)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.DoesNotContain(flag, RunFlags(document));
+    }
+
+    [Then(@"^the valid local run file is returned$")]
+    public void ThenTheValidLocalRunFileIsReturned() => Assert.Equal(_selection.OlderName, _selection.LatestName());
+
+    [Then(@"^no baseline window was opened$")]
+    public void ThenNoBaselineWindowWasOpened()
+    {
+        // The refused warm-up ended the command before the meter waited on its baseline, and the endpoint saw no completion.
+        Assert.Equal(0, _context.Rig.Recorder.Count(OperationRecorder.Baseline));
+        Assert.Equal(0, _context.Rig.Recorder.Count(OperationRecorder.TaskCall));
+        Assert.Equal(1, _context.Rig.Recorder.Count(OperationRecorder.WarmUp));
+        Assert.Empty(_context.Rig.RunFiles());
+    }
+
+    [Then(@"^no warm-up call and no baseline window were recorded$")]
+    public void ThenNoWarmUpCallAndNoBaselineWindowWereRecorded()
+    {
+        AssertExit(0);
+        OperationRecorder recorder = _context.Rig.Recorder;
+        Assert.Equal(0, recorder.Count(OperationRecorder.WarmUp));
+        Assert.Equal(0, recorder.Count(OperationRecorder.Baseline));
+        Assert.Equal(0, recorder.Count(OperationRecorder.Probe));
+        Assert.Equal(AgentsPerRepeat, recorder.Count(OperationRecorder.TaskCall));
+        Assert.Empty(_context.Rig.Local.Requests);
+    }
+
+    private static string[] RunFlags(JsonDocument document) => [.. document.RootElement.GetProperty("run").GetProperty("flags").EnumerateArray().Select(static flag => flag.GetString()!)];
+
+    private void AssertExit(int expected)
+    {
+        Assert.True(expected == Result.ExitCode, $"Expected exit code {expected} but got {Result.ExitCode}; stdout: {Result.Stdout}; stderr: {Result.Stderr}");
         Assert.Empty(Result.DeniedRequests);
     }
 }

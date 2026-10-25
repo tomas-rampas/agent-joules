@@ -105,6 +105,19 @@ public sealed class TierOptions
             ? ModelId
             : throw new ConfigurationException("The tier has no ModelId and no AgentModelIds entry for the agent " + ConfigurationMessages.Segment(agent) + "; set Tiers:<tier>:ModelId");
     }
+
+    /// <summary>
+    /// The model IDs the agents of this tier call (<see cref="ResolveModelId"/> for every name of <see cref="KnownAgentNames"/>), each once (ordinal), the plain <see cref="ModelId"/> first when an agent uses it. The warm-up of a local
+    /// runtime and its description both take the tags from here, so the models that are loaded and the models that are read back cannot be different sets.
+    /// </summary>
+    /// <returns>The distinct model IDs; never empty.</returns>
+    /// <exception cref="ConfigurationException">An agent has no entry and the tier has no <see cref="ModelId"/>.</exception>
+    public IReadOnlyList<string> ResolvedModelIds()
+    {
+        string[] resolved = [.. KnownAgentNames.Select(ResolveModelId).Distinct(StringComparer.Ordinal)];
+        int primary = string.IsNullOrWhiteSpace(ModelId) ? -1 : Array.IndexOf(resolved, ModelId);
+        return primary > 0 ? [resolved[primary], .. resolved.Where((_, index) => index != primary)] : resolved;
+    }
 }
 
 /// <summary>The <c>Judge</c> section of <c>AgentJoules</c>: which tier and model score the answers.</summary>

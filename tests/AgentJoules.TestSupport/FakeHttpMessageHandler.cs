@@ -31,6 +31,9 @@ public enum FakeRoute
 
     /// <summary><c>GET .../v1/version</c>, the route a NIM container answers with <c>{"release":"...","api":"..."}</c> (AJ-105).</summary>
     NimVersion = 7,
+
+    /// <summary><c>POST .../api/generate</c>, the native route of the Ollama warm-up: answers <c>{"model":"&lt;tag&gt;","done":true}</c> after the scripted time on the fake clock (AJ-106).</summary>
+    OllamaGenerate = 8,
 }
 
 /// <summary>
@@ -137,6 +140,8 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     private const string VersionSuffix = "/api/version";
     private const string PsSuffix = "/api/ps";
     private const string ShowSuffix = "/api/show";
+    private const string GenerateSuffix = "/api/generate";
+    private const string NimWarmUpPrompt = "Reply with the single word ready.";
     private const string NimVersionSuffix = "/v1/version";
     private const string ChatSuffix = "/chat/completions";
     private const string DefaultModel = "fake-model";
@@ -145,6 +150,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     private readonly List<RecordedRequest> _requests = [];
     private readonly Dictionary<FakeRoute, Queue<FakeAnswer>> _scripted = [];
     private readonly Dictionary<FakeRoute, FakeAnswer> _lastAnswer = [];
+    private readonly HashSet<FakeRoute> _refusedRoutes = [];
 
     private bool _connectionRefused;
     private Action<FakeRoute, HttpResponseMessage>? _customizeResponse;
@@ -192,6 +198,19 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             {
                 _connectionRefused = value;
             }
+        }
+    }
+
+    /// <summary>The recorder that is told <see cref="OperationRecorder.WarmUp"/> for the warm-up call (<c>POST /api/generate</c>, or the short chat completion of the NIM warm-up) and <see cref="OperationRecorder.TaskCall"/> for every other chat completion; null for none (AJ-106).</summary>
+    public OperationRecorder? Recorder { get; init; }
+
+    /// <summary>Refuses the connections of one route only: the request is recorded and an <see cref="HttpRequestException"/> with an inner <see cref="SocketException"/> is thrown, while the other routes answer as before.</summary>
+    /// <param name="route">The route that refuses.</param>
+    public void RefuseConnections(FakeRoute route)
+    {
+        lock (_gate)
+        {
+            _ = _refusedRoutes.Add(route);
         }
     }
 
@@ -305,9 +324,10 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         FakeRoute route = Classify(request);
         string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         Record(request, route, body);
+        RecordOperation(route, body);
 
         (bool refused, Action<FakeRoute, HttpResponseMessage>? customize) = Settings();
-        if (refused)
+        if (refused || RouteRefused(route))
         {
             AdvanceClock(DefaultDuration);
             throw new HttpRequestException("Connection refused", new SocketException((int)SocketError.ConnectionRefused));
@@ -330,6 +350,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             FakeRoute.OllamaVersion => Json(new JsonObject { ["version"] = OllamaVersion }.ToJsonString()),
             FakeRoute.OllamaPs => Json(OllamaPsBody),
             FakeRoute.OllamaShow => Json(OllamaShowBody),
+            FakeRoute.OllamaGenerate => Json(new JsonObject { ["model"] = ModelOf(body), ["done"] = true }.ToJsonString()),
             FakeRoute.NimVersion => Json(new JsonObject { ["release"] = NimRelease, ["api"] = "3.1.0" }.ToJsonString()),
             FakeRoute.ChatCompletions => Chat(body, answer),
             _ => Error((int)HttpStatusCode.NotFound),
@@ -352,6 +373,60 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         return response;
     }
 
+    private bool RouteRefused(FakeRoute route)
+    {
+        lock (_gate)
+        {
+            return _refusedRoutes.Contains(route);
+        }
+    }
+
+    // The operation order of AJ-106: the warm-up is the Ollama generate call or the one short chat completion of the NIM warm-up (its fixed prompt and its 8-token limit); every other completion is a task call.
+    private void RecordOperation(FakeRoute route, string? body)
+    {
+        if (Recorder is null)
+        {
+            return;
+        }
+
+        if (route == FakeRoute.OllamaGenerate)
+        {
+            Recorder.Record(OperationRecorder.WarmUp);
+        }
+        else if (route == FakeRoute.ChatCompletions)
+        {
+            Recorder.Record(IsNimWarmUp(body) ? OperationRecorder.WarmUp : OperationRecorder.TaskCall);
+        }
+    }
+
+    private static bool IsNimWarmUp(string? body)
+    {
+        try
+        {
+            return body is not null
+                && JsonNode.Parse(body) is JsonObject request
+                && request["max_tokens"] is JsonValue limit && limit.TryGetValue(out int tokens) && tokens == 8
+                && request["messages"] is JsonArray { Count: 1 } messages
+                && messages[0]?["content"] is JsonValue content && content.TryGetValue(out string? prompt) && string.Equals(prompt, NimWarmUpPrompt, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string ModelOf(string? body)
+    {
+        try
+        {
+            return body is not null && JsonNode.Parse(body) is JsonObject request && request["model"] is JsonValue value && value.TryGetValue(out string? model) && !string.IsNullOrEmpty(model) ? model : DefaultModel;
+        }
+        catch (JsonException)
+        {
+            return DefaultModel;
+        }
+    }
+
     private void AdvanceClock(TimeSpan duration)
     {
         if (duration <= TimeSpan.Zero)
@@ -369,6 +444,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             : request.Method == HttpMethod.Get && path.EndsWith(VersionSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaVersion
             : request.Method == HttpMethod.Get && path.EndsWith(PsSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaPs
             : request.Method == HttpMethod.Post && path.EndsWith(ShowSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaShow
+            : request.Method == HttpMethod.Post && path.EndsWith(GenerateSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaGenerate
             : request.Method == HttpMethod.Get && path.EndsWith(NimVersionSuffix, StringComparison.Ordinal) ? FakeRoute.NimVersion
             : request.Method == HttpMethod.Post && path.EndsWith(ChatSuffix, StringComparison.Ordinal) ? FakeRoute.ChatCompletions
             : FakeRoute.Other;

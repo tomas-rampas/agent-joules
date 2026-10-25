@@ -453,6 +453,7 @@ Demo relevance: yes: the report header shows runtime, tag and offload next to th
 
 ### AJ-106: Order warm-up, idle baseline and repeats in local runs
 Covers: REQ-021
+Note (2026-10-24, AJ-106): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-106-warmup-baseline-repeat.feature (the table's WarmupBaselineRepeat.feature); the recorded order is probe, meter-start, warm-up, baseline, task calls (OperationRecorder); the Ollama warm-up is POST /api/generate with keep_alive 30m, the NIM warm-up one short chat completion through the plain client; the power source comes from IPowerSourceDetector (GetSystemPowerStatus on Windows, /sys/class/power_supply on Linux, unknown in the harness) and is recorded for every tier; a baseline below 30 s warns once and flags non-publishable; built in a detached worktree and applied onto milestone/M4. Gate readings (2026-10-25): criterion 6 is structural after the fix round (ApplyIsolation registers UnknownPowerSourceDetector under non-null CliHostOverrides; the harness fake overrides it); the Linux reader's decision order is amended (Device-scope supplies skipped; an unreadable Mains state, a USB-type source without Mains or Mains offline alone give unknown); a non-2xx warm-up answer exits 5 with `the warm-up of <tag> failed with HTTP <status> at <base>` while refused connections and timeouts keep the serve or container text; the NIM warm-up carries a configured local key like the models request; T7 (the keep-alive advice and risk R-06) sits in the build-log entry and the README sentence lands with the M6 quick start; on the real clock baseline.seconds is the measured window (30.004 to 30.016 s), so AJ-114 and AJ-115 read the non-publishable flag beside the seconds; the cloudgpu warm-up is AJ-127's.
 User story: As a reader of the local numbers, I want every local run to warm the model up, measure the idle baseline with the model resident and repeat each task, so that load time is excluded and run-to-run spread is visible.
 Acceptance criteria:
 1. In a local run the recorded call order is: probe, meter start, one unmetered warm-up call (Ollama `POST /api/generate` with `keep_alive` of `30m`, NIM one short chat completion), baseline window, then task calls; the warm-up produces no step reading and no judge reading.
@@ -531,15 +532,16 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature; unit classes LocalRuntimeTests and AttributionBaselineTests (REQ-023 list) with `[Trait("Spec","REQ-021")]`.
 Docs impact: docs/build-log.md (call order, `OLLAMA_KEEP_ALIVE=30m` advice for the README quick start, risk R-06).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] warm-up traffic is absent from `steps`, `judge` and `totals` in a fixture run file
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] warm-up traffic is absent from `steps`, `judge` and `totals` in a fixture run file
 Demo relevance: no.
 Resolved: the prompt defines the run flag `non-publishable` for a baseline below 30 s; the option stays free for tests, the warning and the flag come from criterion 4, the run file is never "latest", and publishability is double-checked where evidence is committed, by AJ-114 (`baseline.seconds >= 30` checked with jq) and AJ-115 (`CommittedEvidenceTests`).
 
 ### AJ-107: Select and record the local model in docs/endpoints.md
 Covers: REQ-018, REQ-020, EDGE-009, REQ-012
 Note (2026-10-21, M2 exit): REQ-012 added because criterion 5 is the live `run --tier local --dry-run` exit 0 that REQ-012 and the M2 exit carry to M4 (M2 full spec pass, remark 3), so the trait is not lost.
+Note (2026-10-24, AJ-107-T1): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-107-local-model-record.feature (the table's LocalModelRecord.feature) with LocalModelRecordSteps and the gated LocalModelListingTests delivered with AJ-106; the decision is nim, so criteria 1, 2 and the Qwen entry of 3 do not apply and the local section holds the NIM listing; the live checks of criteria 4 and 5 and the record are the orchestrator's (see the AJ-107 entry when written).
 User story: As a reader of the local numbers, I want the local model verified on this machine and recorded with its tag, size and processor split, so that the published local tier names a model that was actually served.
 Acceptance criteria:
 1. When the AJ-103 decision is `ollama`: `ollama pull nemotron-3-nano:30b` succeeds (or the failure is recorded), `ollama list`, `ollama show nemotron-3-nano:30b` and `ollama ps` after a warm-up are recorded in the `## local` section with the quantization, the size and the processor split written as `<measured>` copies; the Ollama library page is checked for smaller Nemotron tags and the result is recorded.

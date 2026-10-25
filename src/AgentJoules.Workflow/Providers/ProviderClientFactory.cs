@@ -153,14 +153,27 @@ public sealed class ProviderClientFactory(IHttpClientFactory httpClients, IOptio
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
     /// <exception cref="ConfigurationException">The tier is not configured, its base URL or timeout is not usable, or it has a key and its base URL is plain http on a host that is not loopback.</exception>
     /// <exception cref="MissingKeyException">The tier names a key variable that has no value (exit code 3).</exception>
-    internal HttpRequestMessage CreateModelsRequest(Tier tier)
+    internal HttpRequestMessage CreateModelsRequest(Tier tier) => CreateRequest(tier, HttpMethod.Get, "/models");
+
+    /// <summary>
+    /// Builds a request to <c>{BaseUrl}{route}</c> of <paramref name="tier"/> with the key of the tier as a bearer token, or without an <c>Authorization</c> header for a tier that has no <c>ApiKeyVariable</c>: the one
+    /// factory of the models request of the preflight and of the NIM warm-up (AJ-106), so a key configured for the local tier travels with both exactly the same way and under the same https-or-loopback rule.
+    /// </summary>
+    /// <param name="tier">A defined tier.</param>
+    /// <param name="method">The HTTP method.</param>
+    /// <param name="route">The route below the base URL, starting with a slash, for example <c>/models</c>.</param>
+    /// <returns>The request, without content; the caller disposes it.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
+    /// <exception cref="ConfigurationException">The tier is not configured, its base URL or timeout is not usable, or it has a key and its base URL is plain http on a host that is not loopback.</exception>
+    /// <exception cref="MissingKeyException">The tier names a key variable that has no value (exit code 3).</exception>
+    internal HttpRequestMessage CreateRequest(Tier tier, HttpMethod method, string route)
     {
         string name = TierOptions.NameOf(tier);
         string? key = ReadKey(name);
         ProviderClientSettings settings = SettingsFor(tier);
         RequireSecureEndpoint(name, key, settings.Endpoint);
 
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(settings.Endpoint.AbsoluteUri.TrimEnd('/') + "/models"));
+        var request = new HttpRequestMessage(method, new Uri(settings.Endpoint.AbsoluteUri.TrimEnd('/') + route));
         if (key is not null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);

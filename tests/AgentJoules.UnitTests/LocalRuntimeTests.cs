@@ -7,6 +7,7 @@ using AgentJoules.Core.Runs;
 using AgentJoules.Reporting.Render;
 using AgentJoules.TestSupport;
 using AgentJoules.Workflow.Local;
+using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -402,6 +403,7 @@ public sealed class LocalRuntimeTests
         [Theory]
         [InlineData(1000L, 620L, 62.0)]
         [InlineData(10000L, 1225L, 12.3)]
+        [InlineData(80L, 23L, 28.8)]
         [InlineData(1000L, 1000L, 100.0)]
         [InlineData(3L, 1L, 33.3)]
         [InlineData(3L, 2L, 66.7)]
@@ -726,7 +728,7 @@ public sealed class LocalRuntimeTests
             var recorder = new RecordingOrchestrator();
             RunOrchestrationFixtures.AddServices(rig.Setup, recorder.Register);
 
-            CliRunResult result = await rig.RunAsync("run --tier local --task incident-brief --repeat 2 --baseline-seconds 5");
+            CliRunResult result = await rig.RunAsync("run --tier local --task incident-brief --repeat 2 --baseline-seconds 30");
 
             AssertExit(0, result);
             RunDocument[] writes = [.. recorder.Documents];
@@ -746,7 +748,7 @@ public sealed class LocalRuntimeTests
             var recorder = new RecordingOrchestrator();
             RunOrchestrationFixtures.AddServices(rig.Setup, recorder.Register);
 
-            AssertExit(0, await rig.RunAsync("run --tier local --task incident-brief --repeat 2 --baseline-seconds 5"));
+            AssertExit(0, await rig.RunAsync("run --tier local --task incident-brief --repeat 2 --baseline-seconds 30"));
 
             Assert.NotEmpty(recorder.Documents);
             Assert.All(recorder.Documents, static write => Assert.Empty(write.Run.Flags));
@@ -948,6 +950,9 @@ public sealed class LocalRuntimeTests
             Assert.Equal("FP8", environment.GetProperty("precision").GetString());
             Assert.Equal(JsonValueKind.Null, environment.GetProperty("localRuntime").ValueKind);
             Assert.Equal(JsonValueKind.Null, environment.GetProperty("gpuOffloadPercent").ValueKind);
+            Assert.Equal(JsonValueKind.Null, environment.GetProperty("modelLoadSeconds").ValueKind);
+            Assert.Equal(0, rig.Local.Count(FakeRoute.OllamaGenerate) + rig.Local.Count(FakeRoute.ChatCompletions));
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.WarmUp));
             Assert.Empty(Flags(document.RootElement.GetProperty("run")));
         }
 
@@ -1183,6 +1188,368 @@ public sealed class LocalRuntimeTests
             public Task<LocalRuntimeInfo> DescribeAsync(CancellationToken cancellationToken) => Task.FromResult(description);
 
             public Task<TimeSpan?> WarmUpAsync(string modelId, CancellationToken cancellationToken) => Task.FromResult<TimeSpan?>(null);
+        }
+    }
+
+    /// <summary>
+    /// AJ-106 (REQ-021): the unmetered warm-up of the local runtimes: Ollama <c>POST /api/generate</c> with <c>keep_alive</c> of <c>30m</c> and an empty prompt, the NIM container's one short chat completion, the load time
+    /// they return, and the failure that ends the run with exit 5 before the baseline window opens. Every test runs the real <c>run --tier local</c> command through <see cref="LocalRunRig"/> on a fake clock against a
+    /// loopback fake that stands where the runtime stands; no live endpoint is called and no key but the fake one exists.
+    /// </summary>
+    [Trait("Spec", "REQ-021")]
+    public sealed class WarmUp
+    {
+        private const long Size = 1000;
+        private const string WarmUpPrompt = "Reply with the single word ready.";
+        private static readonly TimeSpan LoadTime = TimeSpan.FromSeconds(7.5);
+
+        private static string Full(params string[] tags) => OllamaFixtures.Ps([.. tags.Select(static tag => OllamaFixtures.PsEntry(tag, Size, Size))]);
+
+        private static void AssertExit(int expected, CliRunResult result) =>
+            Assert.True(expected == result.ExitCode, $"Expected exit code {expected} but got {result.ExitCode}; stdout: {result.Stdout}; stderr: {result.Stderr}");
+
+        private static double LoadSeconds(LocalRunRig rig)
+        {
+            using JsonDocument document = rig.ReadRunFile();
+            return document.RootElement.GetProperty("environment").GetProperty("modelLoadSeconds").GetDouble();
+        }
+
+        private static string ShippedLocal(Func<TierOptions, string?> member) =>
+            member(ConfigurationFixtures.ShippedOptions().Tiers["local"]) ?? throw new InvalidOperationException("The shipped configuration holds no such value for the local tier");
+
+        // ---- Ollama: POST /api/generate ----
+
+        [Fact]
+        public async Task The_ollama_warm_up_posts_generate_to_the_native_base_with_keep_alive_30m_and_an_empty_prompt()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+
+            AssertExit(0, await rig.RunAsync());
+
+            RecordedRequest request = Assert.Single(rig.Local.RequestsFor(FakeRoute.OllamaGenerate));
+            Assert.Equal("POST", request.Method);
+            Assert.Equal(OllamaFixtures.NativeBaseUrl() + "/api/generate", request.Uri.AbsoluteUri);
+            Assert.Equal("application/json", request.MediaType);
+            Assert.False(request.HasBearerToken);
+
+            JsonObject body = request.Json ?? throw new InvalidOperationException("The warm-up request has no JSON object body");
+            Assert.Equal(OllamaFixtures.StoryTag, (string?)body["model"]);
+            Assert.Equal(string.Empty, (string?)body["prompt"]);
+            Assert.Equal("30m", (string?)body["keep_alive"]);
+            Assert.Equal(false, (bool?)body["stream"]);
+            Assert.Equal(["keep_alive", "model", "prompt", "stream"], body.Select(static member => member.Key).Order(StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public async Task The_load_time_is_the_wall_time_of_the_warm_up_call_on_the_clock_of_the_run()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+            rig.Local.SetAnswers(FakeRoute.OllamaGenerate, FakeAnswer.Ok(LoadTime));
+
+            AssertExit(0, await rig.RunAsync());
+
+            Assert.Equal(LoadTime.TotalSeconds, LoadSeconds(rig));
+        }
+
+        [Fact]
+        public async Task A_fast_warm_up_is_a_small_number_and_never_null_or_zero_by_default()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+            rig.Local.SetAnswers(FakeRoute.OllamaGenerate, FakeAnswer.Ok(TimeSpan.FromMilliseconds(250)));
+
+            AssertExit(0, await rig.RunAsync());
+
+            Assert.Equal(0.25, LoadSeconds(rig));
+        }
+
+        [Fact]
+        public async Task Each_distinct_tag_is_warmed_once_and_the_load_time_is_the_sum()
+        {
+            var perAgent = new Dictionary<string, string>(StringComparer.Ordinal) { ["Writer"] = OllamaFixtures.OtherTag };
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag, OllamaFixtures.OtherTag), agentModelIds: perAgent);
+            rig.Local.SetAnswers(FakeRoute.OllamaGenerate, FakeAnswer.Ok(TimeSpan.FromSeconds(2)), FakeAnswer.Ok(TimeSpan.FromSeconds(3)));
+
+            AssertExit(0, await rig.RunAsync());
+
+            string[] warmed = [.. rig.Local.RequestsFor(FakeRoute.OllamaGenerate).Select(static request => (string?)request.Json!["model"] ?? string.Empty)];
+            Assert.Equal(2, warmed.Length);
+            Assert.Equal([OllamaFixtures.StoryTag, OllamaFixtures.OtherTag], warmed.Order(StringComparer.Ordinal));
+            Assert.Equal(5.0, LoadSeconds(rig));
+        }
+
+        [Fact]
+        public async Task The_warm_up_and_the_description_use_the_tags_the_agents_call_not_an_unused_model_id()
+        {
+            // Every agent has its own entry, so Tiers:local:ModelId is called by nobody: it is neither loaded nor required in the process list.
+            var perAgent = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Planner"] = OllamaFixtures.OtherTag,
+                ["Researcher"] = OllamaFixtures.OtherTag,
+                ["Writer"] = OllamaFixtures.OtherTag,
+                ["Reviewer"] = OllamaFixtures.OtherTag,
+            };
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.OtherTag), agentModelIds: perAgent);
+
+            AssertExit(0, await rig.RunAsync());
+
+            RecordedRequest warmed = Assert.Single(rig.Local.RequestsFor(FakeRoute.OllamaGenerate));
+            Assert.Equal(OllamaFixtures.OtherTag, (string?)warmed.Json!["model"]);
+        }
+
+        [Fact]
+        public async Task One_tag_for_every_agent_is_warmed_once()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+
+            AssertExit(0, await rig.RunAsync("run --tier local --task incident-brief --repeat 3"));
+
+            Assert.Equal(1, rig.Local.Count(FakeRoute.OllamaGenerate));
+            Assert.Equal(1, rig.Recorder.Count(OperationRecorder.WarmUp));
+        }
+
+        [Fact]
+        public async Task The_warm_up_comes_before_the_description_and_before_the_first_completion()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+
+            AssertExit(0, await rig.RunAsync());
+
+            FakeRoute[] routes = [.. rig.Local.Requests.Select(static request => request.Route)];
+            int warmUp = Array.IndexOf(routes, FakeRoute.OllamaGenerate);
+            Assert.True(warmUp >= 0, "The warm-up request was not made");
+            Assert.True(warmUp < routes.LastIndexOf(FakeRoute.OllamaVersion), "The description asks /api/version after the warm-up");
+            Assert.True(warmUp < Array.IndexOf(routes, FakeRoute.OllamaPs), "The process list is read after the warm-up has loaded the model");
+            Assert.True(Array.IndexOf(routes, FakeRoute.OllamaPs) < Array.IndexOf(routes, FakeRoute.ChatCompletions), "The first completion comes after the description");
+        }
+
+        // ---- the failure ends the run with exit 5 before the baseline window ----
+
+        [Fact]
+        public async Task A_refused_warm_up_exits_5_with_ollama_serve_before_the_baseline_window_opens()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+            rig.Local.RefuseConnections(FakeRoute.OllamaGenerate);
+
+            CliRunResult result = await rig.RunAsync();
+
+            AssertExit(5, result);
+            Assert.Contains($"Ollama not reachable at {OllamaFixtures.NativeBaseUrl()}; start it with \"ollama serve\"", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Equal(0, rig.Local.Count(FakeRoute.OllamaPs));
+            Assert.Equal(0, rig.Local.Count(FakeRoute.ChatCompletions));
+            Assert.Empty(rig.RunFiles());
+            Assert.DoesNotContain(ProviderClientFixtures.FakeKey(), result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData(404)]
+        [InlineData(500)]
+        [InlineData(503)]
+        public async Task A_warm_up_answered_with_an_error_status_exits_5_naming_the_tag_the_status_and_the_endpoint_before_the_baseline_window_opens(int status)
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+            rig.Local.SetAnswers(FakeRoute.OllamaGenerate, new FakeAnswer(status, ErrorBody: "{\"error\":\"body-marker-5d1c\"}"));
+
+            CliRunResult result = await rig.RunAsync();
+
+            AssertExit(5, result);
+            Assert.Contains($"the warm-up of {OllamaFixtures.StoryTag} failed with HTTP {status} at {OllamaFixtures.NativeBaseUrl()}", result.Stderr, StringComparison.Ordinal);
+
+            // A running runtime that answers an error is not a stopped one, and the answer is never echoed.
+            Assert.DoesNotContain("ollama serve", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("body-marker-5d1c", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Fact]
+        public async Task A_warm_up_that_fails_for_the_second_tag_still_ends_before_the_baseline_window()
+        {
+            var perAgent = new Dictionary<string, string>(StringComparer.Ordinal) { ["Writer"] = OllamaFixtures.OtherTag };
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag, OllamaFixtures.OtherTag), agentModelIds: perAgent);
+            rig.Local.SetStatuses(FakeRoute.OllamaGenerate, 200, 500);
+
+            CliRunResult result = await rig.RunAsync();
+
+            AssertExit(5, result);
+            Assert.Equal(2, rig.Local.Count(FakeRoute.OllamaGenerate));
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+            Assert.Empty(rig.RunFiles());
+        }
+
+        // ---- NIM: one short chat completion through the plain client ----
+
+        [Fact]
+        public async Task The_nim_warm_up_is_one_short_chat_completion_with_the_fixed_prompt_and_no_key()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            AssertExit(0, await rig.RunAsync());
+
+            RecordedRequest warmUp = rig.Local.RequestsFor(FakeRoute.ChatCompletions)[0];
+            Assert.Equal("POST", warmUp.Method);
+            Assert.Equal(ShippedLocal(static tier => tier.BaseUrl).TrimEnd('/') + "/chat/completions", warmUp.Uri.AbsoluteUri);
+            Assert.Equal("application/json", warmUp.MediaType);
+            Assert.False(warmUp.HasBearerToken);
+
+            JsonObject body = warmUp.Json ?? throw new InvalidOperationException("The warm-up request has no JSON object body");
+            Assert.Equal(ShippedLocal(static tier => tier.ModelId), (string?)body["model"]);
+            Assert.Equal(8, (int?)body["max_tokens"]);
+            Assert.Equal(0.0, (double?)body["temperature"]);
+            JsonObject message = Assert.IsType<JsonObject>(Assert.Single(body["messages"]!.AsArray()));
+            Assert.Equal("user", (string?)message["role"]);
+            Assert.Equal(WarmUpPrompt, (string?)message["content"]);
+            Assert.Equal(["max_tokens", "messages", "model", "temperature"], body.Select(static member => member.Key).Order(StringComparer.Ordinal));
+            Assert.Equal(1, rig.Recorder.Count(OperationRecorder.WarmUp));
+        }
+
+        [Fact]
+        public async Task The_nim_load_time_is_the_wall_time_of_the_warm_up_completion()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            rig.Local.SetAnswers(FakeRoute.ChatCompletions, FakeAnswer.Ok(LoadTime), FakeAnswer.Ok(TimeSpan.FromSeconds(1)));
+
+            AssertExit(0, await rig.RunAsync());
+
+            Assert.Equal(LoadTime.TotalSeconds, LoadSeconds(rig));
+        }
+
+        [Fact]
+        public async Task A_refused_nim_warm_up_exits_5_with_the_container_record_before_the_baseline_window_opens()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            rig.Local.RefuseConnections(FakeRoute.ChatCompletions);
+
+            CliRunResult result = await rig.RunAsync();
+
+            AssertExit(5, result);
+            Assert.Contains("NIM not reachable at", result.Stderr, StringComparison.Ordinal);
+            Assert.Contains("docs/nim-local-attempt.md", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Theory]
+        [InlineData(401)]
+        [InlineData(403)]
+        [InlineData(500)]
+        [InlineData(503)]
+        public async Task A_nim_warm_up_answered_with_an_error_status_exits_5_naming_the_model_the_status_and_the_endpoint(int status)
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            rig.Local.SetAnswers(FakeRoute.ChatCompletions, new FakeAnswer(status, ErrorBody: "{\"detail\":\"body-marker-9e27\"}"));
+
+            CliRunResult result = await rig.RunAsync();
+
+            AssertExit(5, result);
+            string expected = $"the warm-up of {ShippedLocal(static tier => tier.ModelId)} failed with HTTP {status} at {ShippedLocal(static tier => tier.BaseUrl).TrimEnd('/')}";
+            Assert.Contains(expected, result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("NIM not reachable", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("body-marker-9e27", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Empty(rig.RunFiles());
+        }
+
+        // ---- the NIM warm-up request is built by the factory of the models request: a configured key travels with it ----
+
+        [Fact]
+        public async Task A_key_configured_for_the_local_tier_travels_with_the_nim_warm_up_as_it_does_with_the_models_request()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            rig.Setup.Settings["AgentJoules:Tiers:local:ApiKeyVariable"] = "LOCAL_TEST_API_KEY";
+            rig.Setup.Settings["LOCAL_TEST_API_KEY"] = ProviderClientFixtures.FakeKey();
+
+            AssertExit(0, await rig.RunAsync());
+
+            RecordedRequest models = Assert.Single(rig.Local.RequestsFor(FakeRoute.Models));
+            RecordedRequest warmUp = rig.Local.RequestsFor(FakeRoute.ChatCompletions)[0];
+            Assert.True(models.HasBearerToken);
+            Assert.Equal((models.HasBearerToken, models.AuthorizationScheme), (warmUp.HasBearerToken, warmUp.AuthorizationScheme));
+            Assert.Equal("Bearer", warmUp.AuthorizationScheme);
+            Assert.Equal(1, rig.Recorder.Count(OperationRecorder.WarmUp));
+        }
+
+        [Fact]
+        public async Task Without_a_key_the_nim_warm_up_carries_no_authorization_header()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            AssertExit(0, await rig.RunAsync());
+
+            Assert.False(Assert.Single(rig.Local.RequestsFor(FakeRoute.Models)).HasBearerToken);
+            Assert.Null(rig.Local.RequestsFor(FakeRoute.ChatCompletions)[0].AuthorizationScheme);
+        }
+
+        // ---- the load limit is the tier's own timeout, counted on the injected clock ----
+
+        [Theory]
+        [InlineData(300, 300000.0)]
+        [InlineData(5, 5000.0)]
+        [InlineData(31, 31000.0)]
+        [InlineData(int.MaxValue, 4294967294.0)]
+        public void The_load_limit_is_the_timeout_of_the_tier_cut_to_the_longest_wait_of_a_timer_and_not_the_30_s_preflight_cap(int timeoutSeconds, double expectedMilliseconds)
+        {
+            var settings = new ProviderClientSettings(new Uri("http://localhost:1/v1"), TimeSpan.FromSeconds(timeoutSeconds), 0);
+
+            Assert.Equal(TimeSpan.FromMilliseconds(expectedMilliseconds), LocalRuntimeHttp.LoadLimitOf(settings));
+            Assert.True(LocalRuntimeHttp.LoadLimitOf(settings) > TimeSpan.FromSeconds(30) || timeoutSeconds <= 30);
+        }
+
+        [Fact]
+        public async Task The_ollama_warm_up_is_still_waited_for_past_30_s_and_ends_with_exit_5_at_the_timeout_of_the_tier_on_the_fake_clock()
+        {
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag));
+
+            await AssertHeldWarmUpTimesOutOnTheFakeClockAsync(rig, FakeRoute.OllamaGenerate, $"Ollama not reachable at {OllamaFixtures.NativeBaseUrl()}; start it with \"ollama serve\"");
+        }
+
+        [Fact]
+        public async Task The_nim_warm_up_is_still_waited_for_past_30_s_and_ends_with_exit_5_at_the_timeout_of_the_tier_on_the_fake_clock()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            // The first completion the container sees is the warm-up.
+            await AssertHeldWarmUpTimesOutOnTheFakeClockAsync(rig, FakeRoute.ChatCompletions, "NIM not reachable at");
+        }
+
+        // The warm-up request is held until its token is cancelled. 31 s of fake time later (past the 30 s cap of the preflight) the call is still pending; once the 120 s timeout of the tier has passed on the same clock it
+        // is cancelled and the run ends with exit 5 and the unreachable text of the runtime.
+        private static async Task AssertHeldWarmUpTimesOutOnTheFakeClockAsync(LocalRunRig rig, FakeRoute route, string expectedText)
+        {
+            rig.Setup.Settings["AgentJoules:Tiers:local:TimeoutSeconds"] = "120";
+            var hold = new HoldingHttpMessageHandler(rig.Local, route, 1);
+            rig.Setup.Endpoints["local"] = hold;
+
+            // Not driven: the test moves the clock itself, so the baseline never starts.
+            Task<CliRunResult> run = RunCommandHarness.RunAsync(LocalRunRig.StoryCommand, rig.Setup);
+            await hold.Reached.WaitAsync(TimeSpan.FromSeconds(30));
+
+            rig.Time.Advance(TimeSpan.FromSeconds(31));
+            await Task.Delay(200);
+            Assert.False(run.IsCompleted, "The warm-up ended at 31 s: the 30 s cap of the preflight must not apply to it.");
+
+            rig.Time.Advance(TimeSpan.FromSeconds(90));
+            CliRunResult result = await run.WaitAsync(TimeSpan.FromSeconds(30));
+
+            AssertExit(5, result);
+            Assert.Contains(expectedText, result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+        }
+
+        // ---- the set of tags is the resolved per-agent set; the first one is described ----
+
+        [Fact]
+        public async Task When_one_agent_has_its_own_tag_the_model_id_comes_first_in_the_warm_up_and_in_the_description()
+        {
+            // Planner is the first known agent and has its own tag; the others use Tiers:local:ModelId. The plain model ID is still the one that is described and loaded first.
+            var perAgent = new Dictionary<string, string>(StringComparer.Ordinal) { ["Planner"] = OllamaFixtures.OtherTag };
+            using LocalRunRig rig = LocalRunRig.Ollama(Full(OllamaFixtures.StoryTag, OllamaFixtures.OtherTag), agentModelIds: perAgent);
+
+            AssertExit(0, await rig.RunAsync());
+
+            string[] warmed = [.. rig.Local.RequestsFor(FakeRoute.OllamaGenerate).Select(static request => (string?)request.Json!["model"] ?? string.Empty)];
+            Assert.Equal([OllamaFixtures.StoryTag, OllamaFixtures.OtherTag], warmed);
+            Assert.Equal(OllamaFixtures.StoryTag, (string?)Assert.Single(rig.Local.RequestsFor(FakeRoute.OllamaShow)).Json!["model"]);
         }
     }
 }

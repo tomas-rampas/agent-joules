@@ -118,7 +118,7 @@ public static class RunAssembler
 
     /// <summary>
     /// Builds the <c>environment</c> of a tier run from the sources the design names (design 3.4 "Environment fields"): the GPU identity of a measured tier, the local runtime's description and
-    /// warm-up time, the tier options and the process. Every field without a source in M2 is null (<c>powerSource</c> until AJ-106; <c>instancePreset</c>, <c>region</c>, <c>containerImage</c>
+    /// warm-up time, the tier options and the process. Every field without a source in M2 is null (<c>instancePreset</c>, <c>region</c>, <c>containerImage</c>
     /// and <c>containerDigest</c> until M5), never a guess.
     /// </summary>
     /// <param name="tier">The tier of the run.</param>
@@ -127,12 +127,13 @@ public static class RunAssembler
     /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier). A runtime that names itself states <c>precision</c> as it is, null included; only a tier without a named runtime takes <c>Tiers:&lt;t&gt;:Precision</c>.</param>
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
     /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
+    /// <param name="powerSource">The detected power source (<see cref="PowerSources"/>), written as <c>powerSource</c>; a value outside the vocabulary is written as <c>unknown</c>, and null (none was asked) leaves the field null.</param>
     /// <returns>The environment.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tierOptions"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier is not defined, or <paramref name="modelLoad"/> is negative.</exception>
     /// <exception cref="ArgumentException">The reasoning mode of the tier is not off, on or unsupported.</exception>
     /// <exception cref="Core.Cli.ConfigurationException">An agent of the tier has no model ID.</exception>
-    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null)
+    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null, string? powerSource = null)
     {
         ArgumentNullException.ThrowIfNull(tierOptions);
         if (modelLoad < TimeSpan.Zero)
@@ -160,7 +161,7 @@ public static class RunAssembler
             RuntimeVersion: runtime?.Version,
             GpuOffloadPercent: runtime?.GpuOffloadPercent,
             ModelLoadSeconds: modelLoad?.TotalSeconds,
-            PowerSource: null,
+            PowerSource: powerSource is null ? null : PowerSources.Normalize(powerSource),
             ReasoningMode: TierEnvironmentFacts.From(tierOptions).ReasoningMode,
             Temperature: 0.0,
             Provider: provider,
@@ -199,6 +200,20 @@ public static class RunAssembler
             : !double.IsFinite(offload) || offload < 0.0 || offload > 100.0
                 ? throw new Core.Cli.MeasurementPreconditionException("the GPU offload could not be determined: the runtime reported a value outside 0 to 100")
                 : offload < 100.0 ? [RunFlagNames.PartialOffload] : [];
+    }
+
+    /// <summary>
+    /// The run-level flags of a tier run (REQ-020, REQ-021): those of <see cref="RunFlagsOf(LocalRuntimeInfo?)"/>, and <see cref="RunFlagNames.NonPublishable"/> when the idle baseline of the tier is shorter than
+    /// <see cref="BaselineOptions.PublishableSeconds"/> (30 s). A hosted tier has no baseline and passes null, so it is never flagged for one.
+    /// </summary>
+    /// <param name="runtime">The description of the local runtime, or null when none was asked (a hosted tier).</param>
+    /// <param name="baselineSeconds">The length of the idle baseline of a measured tier in seconds, or null for a tier without a baseline.</param>
+    /// <returns>The flags, in the order of <see cref="RunFlagNames.All"/>; empty when none applies.</returns>
+    /// <exception cref="Core.Cli.MeasurementPreconditionException">The offload is NaN, infinite or outside 0 to 100 (exit code 6).</exception>
+    public static IReadOnlyList<string> RunFlagsOf(LocalRuntimeInfo? runtime, double? baselineSeconds)
+    {
+        IReadOnlyList<string> flags = RunFlagsOf(runtime);
+        return baselineSeconds is { } seconds && seconds < BaselineOptions.PublishableSeconds ? [.. flags, RunFlagNames.NonPublishable] : flags;
     }
 
     /// <summary>

@@ -115,10 +115,13 @@ public sealed partial class RunOrchestrationTests
         AssertExit(0, result);
         using JsonDocument document = RunOrchestrationFixtures.Read(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root)));
         JsonElement environment = document.RootElement.GetProperty("environment");
-        foreach (string absent in new[] { "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds", "powerSource" })
+        foreach (string absent in new[] { "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds" })
         {
             Assert.True(environment.GetProperty(absent).ValueKind == JsonValueKind.Null, absent);
         }
+
+        // The power source is read for every tier run (AJ-106); the harness detector never reads the host, so it is unknown.
+        Assert.Equal("unknown", Text(environment, "powerSource"));
 
         // With no named runtime the precision falls back to Tiers:local:Precision of the shipped configuration (BF16 since the AJ-103 NIM decision); a runtime that names itself states its own (AJ-105).
         Assert.Equal(ConfigurationFixtures.ShippedOptions().Tiers["local"].Precision, environment.GetProperty("precision").GetString());
@@ -600,6 +603,12 @@ public sealed partial class RunOrchestrationTests
             {
                 if (request.Method == HttpMethod.Post && request.RequestUri?.AbsolutePath.EndsWith("/chat/completions", StringComparison.Ordinal) == true)
                 {
+                    // The unmetered warm-up of the NIM runtime (AJ-106) is not a completion of the workflow: it is neither counted nor held, and it takes no fake time.
+                    if (request.Content is not null && (await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Contains("Reply with the single word ready.", StringComparison.Ordinal))
+                    {
+                        return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    }
+
                     int number = Interlocked.Increment(ref _completions);
                     if (number == holdCompletion)
                     {

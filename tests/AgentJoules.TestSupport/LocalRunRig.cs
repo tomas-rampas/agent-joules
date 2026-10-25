@@ -21,13 +21,24 @@ public sealed class LocalRunRig : IDisposable
     private readonly TempWorkspace _workspace;
     private int _reports;
 
-    private LocalRunRig(TempWorkspace workspace, TimerTrackingTimeProvider time, FakeHttpMessageHandler local, RunCommandSetup setup)
+    private LocalRunRig(TempWorkspace workspace, TimerTrackingTimeProvider time, FakeHttpMessageHandler local, FakeHttpMessageHandler hosted, RunCommandSetup setup, OperationRecorder recorder)
     {
         _workspace = workspace;
         Time = time;
         Local = local;
+        Hosted = hosted;
         Setup = setup;
+        Recorder = recorder;
     }
+
+    /// <summary>
+    /// The recorder of the operations of the run (AJ-106): the probe of the GPU, the meter start, the warm-up call, the baseline window and the completions of the workflow, in the order they happened. It starts with the
+    /// orchestrator, so the preflight's own GPU session is not in it.
+    /// </summary>
+    public OperationRecorder Recorder { get; }
+
+    /// <summary>The fake that stands where the hosted tiers stand (the judge tier and a hosted run's completions); it records its completions as task calls.</summary>
+    public FakeHttpMessageHandler Hosted { get; }
 
     /// <summary>The fake clock of the run.</summary>
     public TimerTrackingTimeProvider Time { get; }
@@ -58,7 +69,7 @@ public sealed class LocalRunRig : IDisposable
         string configured = tag ?? OllamaFixtures.StoryTag;
         string[] tags = [.. listedTags ?? [configured, .. (agentModelIds ?? new Dictionary<string, string>()).Values]];
         return Create(
-            time => new FakeHttpMessageHandler { ModelIds = tags, OllamaStyleModels = true, Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), OllamaPsBody = psBody, OllamaShowBody = showBody ?? OllamaFixtures.Show("Q4_K_M") },
+            (time, recorder) => new FakeHttpMessageHandler { ModelIds = tags, OllamaStyleModels = true, Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), OllamaPsBody = psBody, OllamaShowBody = showBody ?? OllamaFixtures.Show("Q4_K_M"), Recorder = recorder },
             [
                 ("AgentJoules:Local:Runtime", "ollama"),
                 ("AgentJoules:Tiers:local:BaseUrl", OllamaFixtures.LocalBaseUrl()),
@@ -74,7 +85,7 @@ public sealed class LocalRunRig : IDisposable
     /// <returns>The rig; the caller disposes it.</returns>
     public static LocalRunRig Nim(string? precision = null) =>
         Create(
-            static time => new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = time, DefaultDuration = TimeSpan.FromSeconds(1) },
+            static (time, recorder) => new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), Recorder = recorder },
             precision is null ? [] : [("AgentJoules:Tiers:local:Precision", precision)]);
 
     /// <summary>Runs <paramref name="arguments"/> on the fake clock and keeps the result.</summary>
@@ -115,18 +126,24 @@ public sealed class LocalRunRig : IDisposable
         return output;
     }
 
-    private static LocalRunRig Create(Func<TimerTrackingTimeProvider, FakeHttpMessageHandler> makeLocal, IEnumerable<(string Key, string? Value)> extra)
+    private static LocalRunRig Create(Func<TimerTrackingTimeProvider, OperationRecorder, FakeHttpMessageHandler> makeLocal, IEnumerable<(string Key, string? Value)> extra)
     {
         TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
         TimerTrackingTimeProvider time = RunOrchestrationFixtures.Clock();
-        var gpu = new ScriptedNvmlApi(time) { ConstantPowerWatts = 30.0 };
-        FakeHttpMessageHandler local = makeLocal(time);
+        var recorder = new OperationRecorder();
+
+        // The meter's sampling timer is the only periodic one and the idle baseline's wait the only one-shot timer of a run on this clock (the waits of the retry and the dashboard are not reached), so the clock tells them apart.
+        time.TimerCreated = (_, period) => recorder.Record(period != Timeout.InfiniteTimeSpan && period != TimeSpan.Zero ? OperationRecorder.MeterStart : OperationRecorder.Baseline);
+        var gpu = new ScriptedNvmlApi(time) { ConstantPowerWatts = 30.0, Recorder = recorder };
+        FakeHttpMessageHandler local = makeLocal(time, recorder);
+        FakeHttpMessageHandler hosted = new() { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), Recorder = recorder };
         RunCommandSetup setup = RunOrchestrationFixtures.Production(
             workspace.Root,
-            new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["local"] = local, ["nvidia"] = RunOrchestrationFixtures.Endpoint(time, TimeSpan.FromSeconds(1)) },
+            new Dictionary<string, HttpMessageHandler>(StringComparer.Ordinal) { ["local"] = local, ["nvidia"] = hosted },
             [.. extra]);
         setup.Gpu = gpu;
         RunOrchestrationFixtures.UseClock(setup, time);
-        return new LocalRunRig(workspace, time, local, setup);
+        RunOrchestrationFixtures.AddServices(setup, recorder.Register);
+        return new LocalRunRig(workspace, time, local, hosted, setup, recorder);
     }
 }

@@ -1,9 +1,11 @@
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Live;
 using AgentJoules.Nvml;
+using AgentJoules.Nvml.Platform;
 using AgentJoules.Workflow;
 using AgentJoules.Workflow.Runs;
 
@@ -226,16 +228,21 @@ internal static class AgentJoulesHostFactory
         services.TryAddSingleton<ILiveEventSink>(NullLiveEventSink.Instance);
 
         services.AddSingleton<IGpuTelemetrySourceFactory>(static _ => new NvmlGpuTelemetrySourceFactory(new NvmlApi()));
+
+        // The power source of the machine (REQ-021, AJ-106): the Windows API or sysfs reader; a test harness registers one that never reads the host.
+        services.TryAddSingleton<IPowerSourceDetector>(static _ => new PowerSourceDetector());
     }
 
-    // The deny-by-default services of design 3.6 (b) under test overrides: no GPU is reachable unless the test overrides register one. Applied after the command's services
-    // and before the test overrides; the deny-all HTTP handler is the harness's own, installed through the test overrides.
+    // The deny-by-default services of design 3.6 (b) under test overrides: no GPU is reachable and the power source is unknown unless the test overrides register otherwise (EDGE-011, AJ-106: a run never reads the
+    // host's power state under test overrides). Applied after the command's services and before the test overrides; the deny-all HTTP handler is the harness's own, installed through the test overrides.
     private static void ApplyIsolation(IServiceCollection services, CliHostOverrides? overrides)
     {
         if (overrides is not null)
         {
             services.RemoveAll<IGpuTelemetrySourceFactory>();
             services.AddSingleton<IGpuTelemetrySourceFactory, UnavailableGpuTelemetrySourceFactory>();
+            services.RemoveAll<IPowerSourceDetector>();
+            services.AddSingleton<IPowerSourceDetector, UnknownPowerSourceDetector>();
         }
     }
 }
