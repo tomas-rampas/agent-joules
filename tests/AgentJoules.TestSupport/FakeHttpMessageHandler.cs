@@ -22,6 +22,15 @@ public enum FakeRoute
 
     /// <summary><c>GET .../api/version</c>, the native route Ollama answers with <c>{"version":"..."}</c> (AJ-104).</summary>
     OllamaVersion = 4,
+
+    /// <summary><c>GET .../api/ps</c>, the native route that lists the loaded models with <c>size</c> and <c>size_vram</c> (AJ-105).</summary>
+    OllamaPs = 5,
+
+    /// <summary><c>POST .../api/show</c>, the native route that describes a model, <c>details.quantization_level</c> included (AJ-105).</summary>
+    OllamaShow = 6,
+
+    /// <summary><c>GET .../v1/version</c>, the route a NIM container answers with <c>{"release":"...","api":"..."}</c> (AJ-105).</summary>
+    NimVersion = 7,
 }
 
 /// <summary>
@@ -126,6 +135,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 {
     private const string ModelsSuffix = "/models";
     private const string VersionSuffix = "/api/version";
+    private const string PsSuffix = "/api/ps";
+    private const string ShowSuffix = "/api/show";
+    private const string NimVersionSuffix = "/v1/version";
     private const string ChatSuffix = "/chat/completions";
     private const string DefaultModel = "fake-model";
 
@@ -157,6 +169,15 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 
     /// <summary>The <c>version</c> the Ollama version route answers.</summary>
     public string OllamaVersion { get; init; } = "0.40.10";
+
+    /// <summary>The body the <c>/api/ps</c> route answers: the loaded models with <c>size</c> and <c>size_vram</c>; the measured empty list while nothing is loaded by default (build the others with <see cref="OllamaFixtures.Ps(string[])"/>).</summary>
+    public string OllamaPsBody { get; init; } = OllamaFixtures.Ps();
+
+    /// <summary>The body the <c>/api/show</c> route answers; the measured shape of Ollama 0.40.10 with the quantization level <c>Q4_K_M</c> by default (<see cref="OllamaFixtures.Show(string?)"/>).</summary>
+    public string OllamaShowBody { get; init; } = OllamaFixtures.Show("Q4_K_M");
+
+    /// <summary>The <c>release</c> the NIM version route answers.</summary>
+    public string NimRelease { get; init; } = "1.8.5";
 
     /// <summary>How long every answer is held back (a real wait, bounded by the request token); zero answers at once.</summary>
     public TimeSpan ResponseDelay { get; init; } = TimeSpan.Zero;
@@ -307,6 +328,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         {
             FakeRoute.Models => Json(ModelsBody()),
             FakeRoute.OllamaVersion => Json(new JsonObject { ["version"] = OllamaVersion }.ToJsonString()),
+            FakeRoute.OllamaPs => Json(OllamaPsBody),
+            FakeRoute.OllamaShow => Json(OllamaShowBody),
+            FakeRoute.NimVersion => Json(new JsonObject { ["release"] = NimRelease, ["api"] = "3.1.0" }.ToJsonString()),
             FakeRoute.ChatCompletions => Chat(body, answer),
             _ => Error((int)HttpStatusCode.NotFound),
         };
@@ -343,6 +367,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         string path = request.RequestUri?.AbsolutePath ?? string.Empty;
         return request.Method == HttpMethod.Get && path.EndsWith(ModelsSuffix, StringComparison.Ordinal) ? FakeRoute.Models
             : request.Method == HttpMethod.Get && path.EndsWith(VersionSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaVersion
+            : request.Method == HttpMethod.Get && path.EndsWith(PsSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaPs
+            : request.Method == HttpMethod.Post && path.EndsWith(ShowSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaShow
+            : request.Method == HttpMethod.Get && path.EndsWith(NimVersionSuffix, StringComparison.Ordinal) ? FakeRoute.NimVersion
             : request.Method == HttpMethod.Post && path.EndsWith(ChatSuffix, StringComparison.Ordinal) ? FakeRoute.ChatCompletions
             : FakeRoute.Other;
     }

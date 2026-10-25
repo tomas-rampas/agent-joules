@@ -171,12 +171,13 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the <see cref="ILocalRuntime"/> the <c>Local:Runtime</c> setting selects (AJ-104, design 3.4 "Local runtimes"): <c>ollama</c> gives the <see cref="OllamaRuntime"/>, which asks the preflight's
-    /// availability check; every other value (<c>nim</c> until AJ-105 adds its runtime) keeps the <see cref="NoOpLocalRuntime"/> of M2.
+    /// Registers the <see cref="ILocalRuntime"/> the <c>Local:Runtime</c> setting selects (AJ-104, AJ-105, design 3.4 "Local runtimes"): <c>ollama</c> gives the <see cref="OllamaRuntime"/> and <c>nim</c> the
+    /// <see cref="NimRuntime"/>, which ask the preflight's availability check and describe themselves for the <c>environment</c> of a run; any other value (the validator refuses it at the start) keeps the
+    /// <see cref="NoOpLocalRuntime"/> of M2.
     /// </summary>
     /// <remarks>
     /// A factory, so the setting is read when the runtime is first resolved, after the options were validated. The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes
-    /// nothing, and a test replaces it with <c>RemoveAll&lt;ILocalRuntime&gt;()</c> followed by <c>AddSingleton</c>. The Ollama runtime asks through the named HTTP client of the local tier, so the
+    /// nothing, and a test replaces it with <c>RemoveAll&lt;ILocalRuntime&gt;()</c> followed by <c>AddSingleton</c>. The Ollama and NIM runtimes ask through the named HTTP client of the local tier, so the
     /// provider clients (<see cref="AddAgentJoulesProviderClients(IServiceCollection)"/>) must be registered; the host does.
     /// </remarks>
     /// <param name="services">The collection to add the runtime to.</param>
@@ -187,9 +188,15 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ILocalRuntime>(static provider =>
-            string.Equals(provider.GetRequiredService<IOptions<AgentJoulesOptions>>().Value.Local.Runtime, LocalOptions.Ollama, StringComparison.Ordinal)
-                ? new OllamaRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>())
-                : new NoOpLocalRuntime());
+        {
+            IOptions<AgentJoulesOptions> options = provider.GetRequiredService<IOptions<AgentJoulesOptions>>();
+            return options.Value.Local.Runtime switch
+            {
+                LocalOptions.Ollama => new OllamaRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options),
+                LocalOptions.Nim => new NimRuntime(provider.GetRequiredService<ProviderClientFactory>(), provider.GetRequiredService<IHttpClientFactory>(), options),
+                _ => new NoOpLocalRuntime(),
+            };
+        });
         return services;
     }
 

@@ -28,8 +28,9 @@ namespace AgentJoules.Workflow.Runs;
 /// <remarks>
 /// <para>
 /// A measured tier (<c>local</c>, <c>cloudgpu</c>) opens the GPU at <c>Gpu:Index</c> (the preflight closed its own session), selects the meter method, starts a
-/// <see cref="SampledEnergyMeter"/>, calls the unmetered warm-up of the <see cref="ILocalRuntime"/> (a no-op in M2) and asks the runtime to describe itself, then measures the idle baseline for
-/// the plan's baseline length; the meter and the GPU are released in a <c>finally</c>. A hosted tier (<c>nvidia</c>, <c>nebius</c>) uses an <see cref="UnmeteredEnergyMeter"/>, never opens the
+/// <see cref="SampledEnergyMeter"/>, calls the unmetered warm-up of the <see cref="ILocalRuntime"/> (a no-op until AJ-106) and, for the local tier only, asks the runtime to describe itself, then measures the idle baseline for
+/// the plan's baseline length; the meter and the GPU are released in a <c>finally</c>. A GPU offload below 100 in that description adds the run flag <c>partial-offload</c> to every write of the tier, checkpoints and
+/// the final file alike (<see cref="RunAssembler.RunFlagsOf(LocalRuntimeInfo?)"/>, AJ-105); an offload that is not a number from 0 to 100 stops the run with exit code 6 before the baseline. A hosted tier (<c>nvidia</c>, <c>nebius</c>) uses an <see cref="UnmeteredEnergyMeter"/>, never opens the
 /// GPU and records no probe and no baseline. The sampling-fallback disclosure is the command's (it prints it once); the orchestrator never prints it.
 /// </para>
 /// <para>
@@ -165,9 +166,22 @@ public sealed class RunOrchestrator(
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
 
                 // The live view's run starts once the GPU is known and before the warm-up and the baseline (AJ-091, P-72).
+                // The local tier alone is served by the local runtime (a cloudgpu run sends it nothing and keeps Tiers:cloudgpu:Precision). A runtime that names itself is known by name from here on: a run
+                // interrupted before its description is written states the runtime, a precision and an offload of null and no flag, never the configured precision of another runtime.
+                if (tier == Tier.Local && !string.Equals(_localRuntime.Name, NoOpLocalRuntime.NoneName, StringComparison.Ordinal))
+                {
+                    progress.Runtime = new LocalRuntimeInfo(_localRuntime.Name, null, null, null);
+                }
+
                 _live.EmitSafely(progress.Started(_time.GetUtcNow()));
                 progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
-                progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
+                if (tier == Tier.Local)
+                {
+                    progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                // A description that cannot come from a measurement (an offload that is not a number or lies outside 0 to 100) stops the run before the baseline, not at the first write.
+                _ = RunAssembler.RunFlagsOf(progress.Runtime);
                 progress.Baseline = await meter
                     .MeasureBaselineAsync(TimeSpan.FromSeconds(plan.BaselineSeconds), options.Baseline.MaxCoefficientOfVariation, cancellationToken)
                     .ConfigureAwait(false);
@@ -494,6 +508,6 @@ public sealed class RunOrchestrator(
             new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions), Probe?.PowerLimitW);
 
         private RunInfo RunInfoOf(RunStatus status, bool? selfJudged) =>
-            RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged);
+            RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged, RunAssembler.RunFlagsOf(Runtime));
     }
 }

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using AgentJoules.Specs.Support;
 using AgentJoules.TestSupport;
 
@@ -105,5 +107,129 @@ public sealed class WorkflowSteps(OllamaFailuresContext context)
         Assert.True(endpoint.RequestCount >= 1, "The fake endpoint was never asked.");
         Assert.DoesNotContain(endpoint.Requests, request => request.Uri.AbsolutePath.EndsWith(suffix, StringComparison.Ordinal));
         Assert.DoesNotContain(ProviderClientFixtures.FakeKey(), Output, StringComparison.Ordinal);
+    }
+}
+
+
+/// <summary>
+/// AJ-105: disclose the local runtime, tag, offload and precision in every local run (REQ-020). Scoped to the feature because sentences such as "I run" and "the exit code is 6" are bound by the AJ-104 class above
+/// for its own feature. The state lives in <see cref="LocalRuntimeDisclosureContext"/>. Every scenario runs the real <c>run --tier local</c> command through the harness on a fake clock against a loopback fake
+/// that stands where Ollama or a NIM container stands, then reads the run file the command wrote and the header the report command renders from it.
+/// </summary>
+[Binding]
+[Scope(Feature = "Disclose the local runtime, tag, offload and precision")]
+public sealed class LocalRuntimeDisclosureSteps(LocalRuntimeDisclosureContext context)
+{
+    private readonly LocalRuntimeDisclosureContext _context = context;
+
+    private CliRunResult Result => _context.Rig.Result ?? throw new XunitException("The command has not run yet.");
+
+    [Given(@"^the fake /api/ps reports size_vram equal to size for the configured tag$")]
+    public void GivenTheFakePsReportsFullOffload() => _context.VramPercent = 100;
+
+    [Given(@"^Local:Runtime is ""([^""]*)"" and Tiers:local:Precision is ""([^""]*)""$")]
+    public void GivenTheRuntimeAndThePrecision(string runtime, string precision)
+    {
+        Assert.Equal("nim", runtime);
+        _context.Nim = true;
+        _context.NimPrecision = precision;
+    }
+
+    [Given(@"^the fake /api/show reports quantization level ""([^""]*)""$")]
+    public void GivenTheFakeShowReportsTheQuantizationLevel(string level) => _context.Quantization = level;
+
+    [Given(@"^the fake /api/ps reports size_vram at (\d+) percent of size$")]
+    public void GivenTheFakePsReportsAShare(int percent) => _context.VramPercent = percent;
+
+    [Given(@"^the fake /api/ps lists no model after warm-up$")]
+    public void GivenTheFakePsListsNoModel() => _context.NoModelListed = true;
+
+    [Given(@"^the fake /api/ps reports size 0 for the configured tag$")]
+    public void GivenTheFakePsReportsSizeZero() => _context.ZeroSize = true;
+
+    [When(@"^I run ""([^""]*)""$")]
+    public async Task WhenIRun(string arguments) => await _context.RunAsync(arguments);
+
+    [Then(@"^environment\.localRuntime is ""([^""]*)"" and environment\.gpuOffloadPercent is (\d+)$")]
+    public void ThenTheRuntimeAndTheOffload(string runtime, int offload)
+    {
+        AssertExit(0);
+        using JsonDocument document = _context.ReadRunFile();
+        JsonElement environment = document.RootElement.GetProperty("environment");
+        Assert.Equal(runtime, environment.GetProperty("localRuntime").GetString());
+        Assert.Equal((double)offload, environment.GetProperty("gpuOffloadPercent").GetDouble());
+    }
+
+    [Then(@"^environment\.gpuOffloadPercent is (\d+)$")]
+    public void ThenTheOffloadIs(int offload)
+    {
+        AssertExit(0);
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal((double)offload, document.RootElement.GetProperty("environment").GetProperty("gpuOffloadPercent").GetDouble());
+    }
+
+    [Then(@"^environment\.precision is ""([^""]*)""$")]
+    public void ThenThePrecisionIs(string precision)
+    {
+        AssertExit(0);
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Equal(precision, document.RootElement.GetProperty("environment").GetProperty("precision").GetString());
+    }
+
+    [Then(@"^run\.flags does not contain ""([^""]*)""$")]
+    public void ThenTheFlagsDoNotContain(string flag)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.DoesNotContain(flag, RunFlags(document));
+    }
+
+    [Then(@"^run\.flags contains ""([^""]*)""$")]
+    public void ThenTheFlagsContain(string flag)
+    {
+        using JsonDocument document = _context.ReadRunFile();
+        Assert.Contains(flag, RunFlags(document));
+    }
+
+    [Then(@"^the rendered report header contains ""([^""]*)""$")]
+    public async Task ThenTheRenderedHeaderContains(string text)
+    {
+        // The header is the text above the table of summary.md; the HTML page renders the same lines.
+        string summary = await _context.Rig.SummaryAsync();
+        string header = summary[..summary.IndexOf("\n| ", StringComparison.Ordinal)];
+        Assert.Contains("Flags: " + text, header, StringComparison.Ordinal);
+
+        string html = await _context.Rig.HtmlAsync();
+        Assert.Contains("Flags: " + text, html, StringComparison.Ordinal);
+    }
+
+    [Then(@"^the exit code is (\d+)$")]
+    public void ThenTheExitCodeIs(int expected) => AssertExit(expected);
+
+    [Then(@"^the output says the offload could not be determined$")]
+    public void ThenTheOutputSaysTheOffloadCouldNotBeDetermined()
+    {
+        string output = Result.Stdout + "\n" + Result.Stderr;
+        Assert.Contains("the GPU offload could not be determined", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(ProviderClientFixtures.FakeKey(), output, StringComparison.Ordinal);
+    }
+
+    [Then(@"^the run file contains no gpuOffloadPercent value of 0$")]
+    public void ThenTheRunFileHoldsNoZeroOffload()
+    {
+        // The run stopped before it measured anything, so there may be no file at all; a file, if one exists, must not state a 0 for a size that was never read.
+        foreach (string path in _context.Rig.RunFiles())
+        {
+            using JsonDocument document = RunOrchestrationFixtures.Read(path);
+            JsonElement offload = document.RootElement.GetProperty("environment").GetProperty("gpuOffloadPercent");
+            Assert.True(offload.ValueKind == JsonValueKind.Null || offload.GetDouble() != 0.0, "A zero size must never be written as a 0 percent offload.");
+        }
+    }
+
+    private static string[] RunFlags(JsonDocument document) => [.. document.RootElement.GetProperty("run").GetProperty("flags").EnumerateArray().Select(static flag => flag.GetString()!)];
+
+    private void AssertExit(int expected)
+    {
+        Assert.True(expected == Result.ExitCode, $"Expected exit code {expected} but got {Result.ExitCode}; stderr: {Result.Stderr}");
+        Assert.Empty(Result.DeniedRequests);
     }
 }

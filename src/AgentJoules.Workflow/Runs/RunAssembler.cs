@@ -124,7 +124,7 @@ public static class RunAssembler
     /// <param name="tier">The tier of the run.</param>
     /// <param name="tierOptions">The options of the tier: reasoning mode, precision and the model of each agent.</param>
     /// <param name="gpu">The identity of the measured GPU, or null for a hosted tier.</param>
-    /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier).</param>
+    /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier). A runtime that names itself states <c>precision</c> as it is, null included; only a tier without a named runtime takes <c>Tiers:&lt;t&gt;:Precision</c>.</param>
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
     /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
     /// <returns>The environment.</returns>
@@ -169,7 +169,7 @@ public static class RunAssembler
             GpuUuid: gpu?.Uuid,
             ContainerImage: null,
             ContainerDigest: null,
-            Precision: runtime?.Precision ?? (string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision),
+            Precision: PrecisionOf(runtime, tierOptions),
             CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(NotObservedReason) : Metric.NotApplicable(NotCloudGpuReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
             Assumptions: new EnvironmentAssumptions(
@@ -178,8 +178,31 @@ public static class RunAssembler
             Models: models);
     }
 
+    // A runtime that names itself states the precision of what it serves: the quantization level of Ollama, or the configured value of a NIM container. A null there is a precision nobody stated, and it stays null:
+    // Tiers:<t>:Precision is the NIM value (BF16 in the shipped configuration) and must not label an Ollama model. A tier without a named runtime (a hosted tier, the no-op runtime) takes the configured precision.
+    private static string? PrecisionOf(LocalRuntimeInfo? runtime, TierOptions tierOptions) =>
+        runtime?.Name is not null
+            ? runtime.Precision
+            : string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision;
+
     /// <summary>
-    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
+    /// The run-level flags a local runtime's description implies (REQ-020, AJ-105): <see cref="RunFlagNames.PartialOffload"/> when the GPU offload is a number below 100, and none when it is 100 or unknown. An unknown
+    /// offload (null) is not 0 and sets no flag. The description is checked first: a value that is not a number or lies outside 0 to 100 cannot come from a measurement and stops the run.
+    /// </summary>
+    /// <param name="runtime">The description of the local runtime, or null when none was asked (a hosted tier).</param>
+    /// <returns>The flags, in the order of <see cref="RunFlagNames.All"/>; empty when none applies.</returns>
+    /// <exception cref="Core.Cli.MeasurementPreconditionException">The offload is NaN, infinite or outside 0 to 100 (exit code 6).</exception>
+    public static IReadOnlyList<string> RunFlagsOf(LocalRuntimeInfo? runtime)
+    {
+        return runtime?.GpuOffloadPercent is not { } offload
+            ? []
+            : !double.IsFinite(offload) || offload < 0.0 || offload > 100.0
+                ? throw new Core.Cli.MeasurementPreconditionException("the GPU offload could not be determined: the runtime reported a value outside 0 to 100")
+                : offload < 100.0 ? [RunFlagNames.PartialOffload] : [];
+    }
+
+    /// <summary>
+    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, the given run flags (none by default), no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
     /// </summary>
     /// <param name="id">The run id: the file name of the run file without its extension.</param>
     /// <param name="tier">The tier of the run.</param>
@@ -189,17 +212,18 @@ public static class RunAssembler
     /// <param name="startUtc">The start of the command.</param>
     /// <param name="status">The status of the document.</param>
     /// <param name="selfJudged">Whether the judge model is the model of any step, or null when the judge has not run.</param>
+    /// <param name="flags">The run flags (<see cref="RunFlagsOf(LocalRuntimeInfo?)"/>), or null for none.</param>
     /// <returns>The run member.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is null or blank.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="taskNames"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined.</exception>
-    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null)
+    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null, IReadOnlyList<string>? flags = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, SelfJudged: selfJudged);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, Flags: flags, SelfJudged: selfJudged);
     }
 
     /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its shared-window flag (<see cref="MarkSharedWindows"/>), its duplicate-output flag (<see cref="MarkDuplicateOutputs"/>) and its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>

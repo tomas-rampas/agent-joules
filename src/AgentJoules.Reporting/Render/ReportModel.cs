@@ -96,6 +96,7 @@ public sealed record ReportRow(
 /// <param name="DriverVersion">The driver version, or null.</param>
 /// <param name="LocalRuntime">The local model runtime, or null.</param>
 /// <param name="RuntimeVersion">The version of the local runtime, or null.</param>
+/// <param name="GpuOffloadPercent">The share of the model held in GPU memory in percent (0 to 100), or null when the file states none (a hosted tier); null is never shown as 0.</param>
 /// <param name="Precision">The model precision, or null.</param>
 /// <param name="ReasoningMode">The reasoning mode of the tier, or null.</param>
 /// <param name="PowerSource">Where the power figures come from, or null.</param>
@@ -118,6 +119,7 @@ public sealed record TierReport(
     string? DriverVersion,
     string? LocalRuntime,
     string? RuntimeVersion,
+    double? GpuOffloadPercent,
     string? Precision,
     string? ReasoningMode,
     string? PowerSource,

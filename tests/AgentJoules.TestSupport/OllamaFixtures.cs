@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 using AgentJoules.Core.Runs;
 
 using Microsoft.Extensions.Time.Testing;
@@ -26,6 +28,69 @@ public static class OllamaFixtures
     /// <summary>The native base of <see cref="LocalBaseUrl"/> (no <c>/v1</c> segment), without a trailing slash, derived from it.</summary>
     /// <returns>The native base.</returns>
     public static string NativeBaseUrl() => LocalBaseUrl()[..^V1Segment.Length];
+
+    /// <summary>One entry of the <c>/api/ps</c> list in the documented shape (AJ-105): <c>name</c>, <c>model</c>, <c>size</c>, <c>size_vram</c>, <c>digest</c>, <c>details</c> and <c>expires_at</c>.</summary>
+    /// <param name="name">The tag; both <c>name</c> and <c>model</c> carry it.</param>
+    /// <param name="size">The <c>size</c> in bytes, or null to leave the member out.</param>
+    /// <param name="sizeVram">The <c>size_vram</c> in bytes, or null to leave the member out.</param>
+    /// <returns>The JSON text of the entry.</returns>
+    public static string PsEntry(string name, long? size, long? sizeVram)
+    {
+        var entry = new JsonObject { ["name"] = name, ["model"] = name };
+        if (size is { } total)
+        {
+            entry["size"] = total;
+        }
+
+        if (sizeVram is { } vram)
+        {
+            entry["size_vram"] = vram;
+        }
+
+        entry["digest"] = "0000000000000000000000000000000000000000000000000000000000000000";
+        entry["details"] = new JsonObject { ["format"] = "gguf", ["family"] = "nemotron_h", ["quantization_level"] = "Q4_K_M" };
+        entry["expires_at"] = "2026-10-24T20:30:00Z";
+        return entry.ToJsonString();
+    }
+
+    /// <summary>The answer of <c>/api/ps</c>: <c>{"models":[...]}</c>, the measured <c>{"models":[]}</c> when no entry is given.</summary>
+    /// <param name="entries">The entries, each built by <see cref="PsEntry(string, long?, long?)"/>.</param>
+    /// <returns>The JSON text.</returns>
+    public static string Ps(params string[] entries)
+    {
+        var models = new JsonArray();
+        foreach (string entry in entries)
+        {
+            models.Add(JsonNode.Parse(entry));
+        }
+
+        return new JsonObject { ["models"] = models }.ToJsonString();
+    }
+
+    /// <summary>The answer of <c>POST /api/show</c> in the measured shape of Ollama 0.40.10: the <c>details</c> object (format, family, parameter size, quantization level, runner) beside the other top-level members.</summary>
+    /// <param name="quantizationLevel">The <c>details.quantization_level</c>, or null to leave the member out.</param>
+    /// <returns>The JSON text.</returns>
+    public static string Show(string? quantizationLevel)
+    {
+        var details = new JsonObject { ["parent_model"] = string.Empty, ["format"] = "gguf", ["family"] = "nemotron_h", ["families"] = new JsonArray("nemotron_h"), ["parameter_size"] = "4.0B" };
+        if (quantizationLevel is not null)
+        {
+            details["quantization_level"] = quantizationLevel;
+        }
+
+        details["runner"] = "llamacpp";
+        return new JsonObject
+        {
+            ["license"] = string.Empty,
+            ["modelfile"] = string.Empty,
+            ["parameters"] = string.Empty,
+            ["template"] = string.Empty,
+            ["details"] = details,
+            ["model_info"] = new JsonObject(),
+            ["capabilities"] = new JsonArray("completion"),
+            ["modified_at"] = "2026-10-01T00:00:00Z",
+        }.ToJsonString();
+    }
 
     /// <summary>A fake that answers <c>/api/version</c> and lists <paramref name="tags"/> on <c>/v1/models</c> the way Ollama does.</summary>
     /// <param name="tags">The tags the models route lists.</param>

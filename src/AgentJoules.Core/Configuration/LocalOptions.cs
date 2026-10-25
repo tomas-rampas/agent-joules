@@ -3,7 +3,7 @@ namespace AgentJoules.Core.Configuration;
 /// <summary>The <c>Local</c> section of <c>AgentJoules</c> (REQ-019, design 3.8): which runtime serves the local tier.</summary>
 /// <remarks>
 /// A mutable class with plain get and set accessors so that the configuration binding generator binds it; <c>Local:Runtime</c> is checked by <see cref="CrossFieldValidator"/>, and its message names the key and never the value.
-/// The value is the decision line of <c>docs/nim-local-attempt.md</c> (AJ-103); the runtimes that select by it arrive with AJ-104 and AJ-105.
+/// The value is the decision line of <c>docs/nim-local-attempt.md</c> (AJ-103); the Ollama runtime (AJ-104) and the NIM runtime (AJ-105) select by it. With <c>nim</c>, <c>Tiers:local:Precision</c> must be set (<see cref="CrossFieldValidator"/>).
 /// </remarks>
 public sealed class LocalOptions
 {

@@ -396,7 +396,10 @@ public sealed partial class ReadmeBlockTests
         Assert.Equal("sampling", row[Column("flags")]);
         string[] lines = LinesOf(text);
         int bullet = Array.FindIndex(lines, line => line.StartsWith("- local:", StringComparison.Ordinal));
-        Assert.Equal("  - " + ReportSentences.SamplingFallback, lines[bullet + 1]);
+
+        // The local-runtime line (AJ-105) comes first under the bullet of a local run, the fallback sentence after it.
+        Assert.StartsWith("  - Local runtime: ollama ", lines[bullet + 1], StringComparison.Ordinal);
+        Assert.Equal("  - " + ReportSentences.SamplingFallback, lines[bullet + 2]);
         Assert.Equal(1, text.Split(ReportSentences.SamplingFallback).Length - 1);
     }
 

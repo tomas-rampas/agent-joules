@@ -103,6 +103,13 @@ public sealed partial class RunOrchestrationTests
         using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
         (RunCommandSetup setup, TimerTrackingTimeProvider time, _, _) = LocalRun(workspace);
 
+        // The shipped configuration selects the NIM runtime since AJ-105; this test is about a host with no runtime at all, so it swaps in the no-op runtime.
+        RunOrchestrationFixtures.AddServices(setup, services =>
+        {
+            _ = services.RemoveAll<ILocalRuntime>();
+            _ = services.AddSingleton<ILocalRuntime>(new NoOpLocalRuntime());
+        });
+
         CliRunResult result = await RunLocalAsync($"run --tier local --task {TaskNames[0]} --repeat 1 --baseline-seconds 2", setup, time);
 
         AssertExit(0, result);
@@ -113,7 +120,7 @@ public sealed partial class RunOrchestrationTests
             Assert.True(environment.GetProperty(absent).ValueKind == JsonValueKind.Null, absent);
         }
 
-        // The precision falls back to Tiers:local:Precision of the shipped configuration (BF16 since the AJ-103 NIM decision); AJ-105 fills it from the runtime.
+        // With no named runtime the precision falls back to Tiers:local:Precision of the shipped configuration (BF16 since the AJ-103 NIM decision); a runtime that names itself states its own (AJ-105).
         Assert.Equal(ConfigurationFixtures.ShippedOptions().Tiers["local"].Precision, environment.GetProperty("precision").GetString());
 
         // A measured serialized run sums the energy of its steps.

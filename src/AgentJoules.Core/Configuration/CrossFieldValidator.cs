@@ -60,7 +60,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 
         ValidateJudge(options, failures);
         ValidateReport(options.Report, failures);
-        ValidateLocal(options.Local, failures);
+        ValidateLocal(options, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
@@ -183,12 +183,21 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         }
     }
 
-    // Local:Runtime (AJ-102) is matched exactly and in lower case, as the decision line of docs/nim-local-attempt.md spells it; the message names the key and never the value.
-    private static void ValidateLocal(LocalOptions local, List<string> failures)
+    // Local:Runtime (AJ-102) is matched exactly and in lower case, as the decision line of docs/nim-local-attempt.md spells it; the message names the key and never the value. With the nim runtime
+    // (AJ-105) Tiers:local:Precision must be set: a NIM container states no precision of its own, so none is ever guessed for the run file (Ollama reads its quantization level from /api/show).
+    private static void ValidateLocal(AgentJoulesOptions options, List<string> failures)
     {
+        LocalOptions local = options.Local;
         if (!LocalOptions.Runtimes.Contains(local.Runtime, StringComparer.Ordinal))
         {
             failures.Add($"Local:Runtime must be {ConfigurationMessages.OrList(LocalOptions.Runtimes)}");
+        }
+        else if (string.Equals(local.Runtime, LocalOptions.Nim, StringComparison.Ordinal)
+            && options.Tiers.TryGetValue("local", out TierOptions? localTier)
+            && localTier is not null
+            && string.IsNullOrWhiteSpace(localTier.Precision))
+        {
+            failures.Add("Tiers:local:Precision must be set when Local:Runtime is nim");
         }
     }
 

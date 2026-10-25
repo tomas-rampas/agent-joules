@@ -135,8 +135,15 @@ public static class ReportHtmlRenderer
                 page.Append("<li>").Append(lines[index][BulletPrefix.Length..]);
                 if (index + 1 < bullets && lines[index + 1].StartsWith(NestedPrefix, StringComparison.Ordinal))
                 {
-                    index++;
-                    page.Append("<ul><li>").Append(lines[index][NestedPrefix.Length..]).Append("</li></ul>");
+                    // Every nested line under the bullet (the local-runtime line, the flags line, the sampling-fallback sentence) is an item of one nested list.
+                    page.Append("<ul>");
+                    while (index + 1 < bullets && lines[index + 1].StartsWith(NestedPrefix, StringComparison.Ordinal))
+                    {
+                        index++;
+                        page.Append("<li>").Append(lines[index][NestedPrefix.Length..]).Append("</li>");
+                    }
+
+                    page.Append("</ul>");
                 }
 
                 page.Append("</li>\n");

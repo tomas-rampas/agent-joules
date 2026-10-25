@@ -384,6 +384,7 @@ Demo relevance: no.
 
 ### AJ-105: Disclose the local runtime, tag, offload and precision in every local run
 Covers: REQ-020
+Note (2026-10-24, AJ-105): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-105-local-runtime-disclosure.feature (the table's LocalRuntimeDisclosure.feature); the offload is size_vram over size from GET /api/ps per configured tag (minimum over the tags, capped at 99.9 below full), the precision from POST /api/show (a runtime decides its own precision; the configuration fallback applies only without a named runtime), the NIM version from GET /v1/version with precision from Tiers:local:Precision (must be set when Local:Runtime is nim); a missing tag, a zero or missing size, a missing size_vram or an unreadable /api/ps body exits 6 before the baseline (a size_vram of 0 gives offload 0 with the flag); the partial-offload run flag and the header sub-lines; built in a detached worktree and applied onto milestone/M4. Gate readings (2026-10-25): criterion 1 is read for completed or partial files (a run interrupted before the description names the runtime and carries null offload and precision, never a guess; such a file is never selected as the latest); the orchestrator describes the local runtime only for the local tier (a cloudgpu run keeps its configured precision until M5); the loaded-entry fields of /api/ps (name, model, size, size_vram) come from the documented shape and are observed live by AJ-106 and AJ-107.
 User story: As a reader of the local numbers, I want each local run file to name the runtime, the exact tag, the GPU offload percentage and the precision, so that a partly CPU-bound run is never presented as a full-GPU run.
 Acceptance criteria:
 1. A local run file without `non-publishable` in `run.flags` has `environment.localRuntime` in {`nim`, `ollama`}, `environment.runtimeVersion`, `models[].modelId` equal to the exact tag, and a numeric `environment.gpuOffloadPercent`.
@@ -445,9 +446,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/LocalRuntimeDisclosure.feature; unit class LocalRuntimeTests with `[Trait("Spec","REQ-020")]`.
 Docs impact: docs/build-log.md (Ollama `/api/ps`, `/api/show` fields as verified); README sentence about the local runtime is written in AJ-115.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] a missing offload value is never written as 0 (`SchemaValidationTests` still green)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] a missing offload value is never written as 0 (`SchemaValidationTests` still green)
 Demo relevance: yes: the report header shows runtime, tag and offload next to the local joules.
 
 ### AJ-106: Order warm-up, idle baseline and repeats in local runs

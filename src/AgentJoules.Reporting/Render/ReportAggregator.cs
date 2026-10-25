@@ -174,6 +174,7 @@ public static class ReportAggregator
             environment.DriverVersion,
             environment.LocalRuntime,
             environment.RuntimeVersion,
+            environment.GpuOffloadPercent,
             environment.Precision,
             environment.ReasoningMode,
             environment.PowerSource,
