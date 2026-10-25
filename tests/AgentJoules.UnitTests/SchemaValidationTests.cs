@@ -1673,6 +1673,36 @@ public sealed class SchemaValidationTests
         Assert.NotEmpty(Failures(probe, SchemaTarget.RunFile));
     }
 
+    /// <summary>One row per committed laptop file, discovered when the tests are listed: every <c>results/probe-*.json</c> and every <c>results/calibration-*.json</c> (AJ-110, AJ-111).</summary>
+    public static TheoryData<string> CommittedLaptopFiles()
+    {
+        TheoryData<string> rows = [];
+        string folder = Path.Combine(ConfigurationFixtures.RepositoryRoot(), "results");
+        if (Directory.Exists(folder))
+        {
+            foreach (string path in Directory.EnumerateFiles(folder, "probe-*.json").Concat(Directory.EnumerateFiles(folder, "calibration-*.json")).Order(StringComparer.Ordinal))
+            {
+                rows.Add(Path.GetFileName(path));
+            }
+        }
+
+        return rows;
+    }
+
+    [Theory]
+    [MemberData(nameof(CommittedLaptopFiles))]
+    [Trait("Spec", "REQ-021")]
+    [Trait("Spec", "REQ-017")]
+    public void Every_committed_laptop_file_validates_against_its_definition(string fileName)
+    {
+        string path = Path.Combine(ConfigurationFixtures.RepositoryRoot(), "results", fileName);
+        SchemaTarget target = fileName.StartsWith("calibration-", StringComparison.Ordinal) ? SchemaTarget.Calibration : SchemaTarget.Probe;
+        JsonNode document = JsonNode.Parse(File.ReadAllText(path))!;
+
+        IReadOnlyList<SchemaFailure> failures = Failures(document, target);
+        Assert.True(failures.Count == 0, $"results/{fileName} does not validate against $defs/{(target == SchemaTarget.Calibration ? "calibration" : "probe")}: {Describe(failures)}");
+    }
+
     [Fact]
     public void A_probe_that_does_not_fit_the_probe_def_is_invalid_and_a_run_file_is_not_a_probe()
     {
