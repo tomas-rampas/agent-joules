@@ -749,6 +749,7 @@ Demo relevance: yes: the calibration result backs the claim that the counter and
 
 ### AJ-110: Run the preflight for the laptop measurement campaign
 Covers: REQ-021, REQ-017
+Note (2026-10-25, AJ-110): feature file tests/AgentJoules.Specs/Features/Cli/AJ-110-campaign-preflight.feature (the table's CampaignPreflight.feature); the preflight ran on 2026-10-25 (probe saved, dry-run exit 0, mains power, the compute-app listing recorded); the rule sentences the open-gate scenarios read are in the build-log entry. Gate reading (2026-10-25): the compute-app listing is recorded verbatim in the entry; Windows shell and NVIDIA app companion processes are not counted as the user's GPU applications (always present, part of the idle baseline); a listed GPU application is recorded and the user is asked to close it before the campaign; T2 was not put to the user during the session and is surfaced in the session report.
 Note (2026-10-21, M2 exit): REQ-017 added because criterion 2 is the live `AJ run --tier all --dry-run` exit 0 on the laptop that the REQ-017 acceptance names and the M2 exit carries to M4 (M2 full spec pass, remark 3), so the trait is not lost.
 User story: As the author, I want a fixed preflight (probe, dry-run, power and load conditions) committed before any measurement run, so that every published number comes from a known machine state.
 Acceptance criteria:
@@ -809,13 +810,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CampaignPreflight.feature; ProbeCommandTests (design 6.1) for the file shape; gated class LaptopProbeTests (design 6.3).
 Docs impact: docs/build-log.md (preflight conditions), results/probe-<yyyyMMddTHHmmssZ>.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the committed probe file validates against `$defs/probe` (`SchemaValidationTests`)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the committed probe file validates against `$defs/probe` (`SchemaValidationTests`)
 Demo relevance: yes: `AJ probe` on the laptop GPU is the first shot of the video.
 
 ### AJ-111: Run the calibration on the laptop and commit the file
 Covers: REQ-021
+Note (2026-10-25, AJ-111): feature file tests/AgentJoules.Specs/Features/Cli/AJ-111-calibration-live.feature (the table's CalibrationLive.feature); the calibration ran on the NIM (the configured local runtime); the file name is recorded in the build-log entry and quoted in docs/methodology.md.
 User story: As the author, I want one calibration run on the laptop committed with the results, so that the methodology document can quote the measured agreement of the two methods.
 Acceptance criteria:
 1. After AJ-110, `AJ calibrate --seconds 60` exits 0 on the laptop with the local runtime up and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -864,13 +866,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CalibrationLive.feature; SchemaValidationTests (REQ-023 list) for the file shape; gated class CalibrationLiveTests (design 6.3).
 Docs impact: docs/build-log.md (command, exit code, file name); the methodology quote is written in AJ-112.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the file name is recorded for AJ-112
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the file name is recorded for AJ-112
 Demo relevance: yes: the README states the relative difference and the file name.
 
 ### AJ-112: Write the methodology document with a contract test
 Covers: REQ-022
+Note (2026-10-25, AJ-112): feature file tests/AgentJoules.Specs/Features/Reporting/AJ-112-methodology-contract.feature (the table's MethodologyContract.feature); docs/methodology.md did not exist before, so the merge rule had nothing to merge; the three REQ-032 sentences are in Limitations; the contract test runs over the committed document and the committed calibration file.
 User story: As a skeptical reader, I want a methodology document that states what is measured, how and with which limits, so that no energy figure is read as more than it is.
 Acceptance criteria:
 1. Merge rule: M3 stories may already have written sentences into `docs/methodology.md`; this story creates the headings by merging, keeps every existing sentence verbatim (placed under the heading it belongs to, or under `Limitations` when none fits), and never overwrites the file; the contract test compares the pre-existing sentences with the result.
@@ -925,7 +928,8 @@ Feature: Write the methodology document with a contract test
     Given docs/methodology.md already holds a sentence written by an M3 story under no required heading
     When the headings are created by merging into the existing document
     Then the sentence is still present verbatim in the document
-    And the five required headings exist```
+    And the five required headings exist
+```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
@@ -938,9 +942,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/MethodologyContract.feature; unit class MethodologyDocumentTests with `[Trait("Spec","REQ-022")]`.
 Docs impact: docs/methodology.md (new), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every number in the document is copied from a named committed file; none is typed from memory
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every number in the document is copied from a named committed file; none is typed from memory
 Demo relevance: no (the README and article link it).
 
 ### AJ-113: Mark non-Nemotron local runs as baseline

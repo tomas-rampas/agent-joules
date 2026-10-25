@@ -217,9 +217,9 @@ Test mapping: `CostModelTests` (required test class, trait `Spec=REQ-009`); feat
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the rental-time rule (written in M4); the README labels the electricity price as an assumption (M6).
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [ ] docs listed above updated (the methodology part done 2026-10-25 by AJ-112, docs/methodology.md; the README electricity-price assumption label is M6)
 - [x] `dotnet test --filter "Spec=REQ-009"` shows at least one passed and no failed test for the local and cloudgpu tests
-- [ ] the below-baseline rule is confirmed or replaced by the architect and the outcome is noted in `docs/build-log.md`
+- [ ] the below-baseline rule is confirmed or replaced by the architect and the outcome is noted in `docs/build-log.md` (docs/methodology.md states the rule since 2026-10-25, AJ-112; the architect confirmation stays open)
 Demo relevance: yes: the local row shows cost in EUR next to joules, labelled as an estimate.
 Conflict: C-08 (design 9.2) - REQ-009 defines no cloudgpu cost; resolution (ADR-15): step cost = configured hourly GPU price x step wall time, `estimated`, USD, with the whole-run billed cost in `environment.cloudCostUsd`; no electricity model is applied to a rented VM.
 
@@ -334,7 +334,7 @@ Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); f
 Docs impact: `docs/build-log.md`; the metric definitions go into `docs/methodology.md` in M4.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated (done 2026-10-25 by AJ-112, docs/methodology.md)
 - [x] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
 Demo relevance: yes: the local rows show joules per quality point, labelled `model-judged`; hosted rows show N/A.
 
@@ -855,7 +855,7 @@ Test mapping: `ReportRenderingTests` (required test class, trait `Spec=REQ-016`)
 Docs impact: `docs/build-log.md`; `docs/methodology.md` states the median rule (written in M4).
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated (done 2026-10-25 by AJ-112, docs/methodology.md)
 - [x] the mixed-label assumption in criterion 4 is confirmed or replaced and the outcome noted in `docs/build-log.md`
 Demo relevance: yes: every table and chart row in the demo is one aggregate row.
 Conflict: C-07 (design 9.2) - the page requirement of one row per step conflicts with the median over repeats; resolution: a row is the aggregate of one `(tier, task, agent)` over its repeats.
