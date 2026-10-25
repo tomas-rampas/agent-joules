@@ -387,6 +387,7 @@ Demo relevance: no.
 
 ### AJ-125: Create the VM when asked, deliver the CLI and probe the GPU over SSH
 Covers: REQ-031
+Note (2026-10-25, AJ-125): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-125-vm-delivery-and-probe.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
 User story: As the user, I want to create exactly the VM the builder asks for and hand over only the SSH host and user as environment variables, so that the builder can deliver the CLI and prove the GPU is a dedicated L40S before any money is spent on a run.
 Acceptance criteria:
 1. Before the VM is requested: `dotnet test --filter "Spec=REQ-020"`, `--filter "Spec=REQ-021"` and `--filter "Spec=EDGE-010"` pass and the AJ-115 commit exists (the local Definition of Done items are committed); `dotnet publish src/AgentJoules.Cli -c Release -r linux-x64 --self-contained true -o artifacts/linux-x64` exits 0 on the laptop and `git check-ignore artifacts/linux-x64` prints the path (ADR-14); the delivery choice is recorded in `docs/cloudgpu-run.md`.
@@ -464,6 +465,7 @@ Demo relevance: yes: the cloudgpu probe shows the L40S, the MIG state and the co
 
 ### AJ-126: Serve Nemotron 3 Nano in FP8 with NIM on the VM
 Covers: REQ-031
+Note (2026-10-25, AJ-126): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-126-nim-serving.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
 User story: As a reader of the cloudgpu row, I want the NIM image, its digest and the FP8 profile recorded and verified by a live models call, so that the row names exactly what was served.
 Acceptance criteria:
 1. `docker login nvcr.io --username '$oauthtoken' --password-stdin` receives `NGC_API_KEY` through the SSH session only (delivered by the session environment or its standard input, never a command-line argument); `DOCKER_CONFIG` points to a memory-backed directory (for example under `/dev/shm`) deleted right after the pull, `docker logout nvcr.io` follows, and the container receives the key by variable name only; `grep -c "docker logout" docs/cloudgpu-run.md` prints 1 or more with the commands shown redacted (prompt section 8 as amended); `docker pull nvcr.io/nim/nvidia/nemotron-3-nano` (a tag recorded, `latest` or a tagged version) succeeds, which confirms the inferred pull string; the digest from `docker image inspect --format '{{index .RepoDigests 0}}'` is recorded as `ContainerDigest`.
@@ -536,6 +538,7 @@ Resolved: prompt section 8 (as amended) fixes the login procedure in criterion 1
 
 ### AJ-127: Run the cloudgpu workload on the VM and copy the results back
 Covers: REQ-031, EDGE-015, EDGE-016, EDGE-017
+Note (2026-10-25, AJ-127): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-127-cloudgpu-run.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
 User story: As the author, I want the same tasks, warm-up, baseline and repeats as the laptop run executed on the VM inside the box, with the results copied back and validated, so that the cloudgpu row is measured under the same protocol and kept separate from every laptop figure.
 Acceptance criteria:
 1. On the VM, inside `tmux`, with the session environment `AGENTJOULES__Tiers__cloudgpu__Enabled=true`, `AGENTJOULES__CloudGpu__RequireSshVariables=false`, `AGENTJOULES__CloudGpu__TierStartUtc`, `...__InstancePreset`, `...__Region`, `...__ContainerImage`, `...__ContainerDigest`, `...__HourlyPriceUsd` and the judge key (`NVIDIA_API_KEY`), `./AgentJoules.Cli run --tier cloudgpu --dry-run` exits 0 and its output is recorded in `docs/cloudgpu-run.md`.
