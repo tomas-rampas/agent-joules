@@ -385,7 +385,7 @@ Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); f
 Docs impact: `config/judge-rubric.md`; the README judge section (model ID, exclusion from totals, self-judging) is written in M6.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated
 - [x] `config/judge-rubric.md` is committed and loads without error
 Demo relevance: no.
 
@@ -456,7 +456,7 @@ Test mapping: `JudgeParsingTests` (required test class, trait `Spec=REQ-010`); f
 Docs impact: `docs/build-log.md`; the README judge section (model ID, exclusion from totals, self-judging) is written in M6.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated
 - [x] `dotnet test --filter "Spec=REQ-010"` shows at least one passed and no failed test
 Demo relevance: yes: the quality column in the demo table comes from this judge and is labelled `model-judged`.
 
@@ -522,7 +522,7 @@ Test mapping: `JudgeParsingTests.JudgeFailureNeverChangesTheExitCode` (a nested 
 Docs impact: `docs/build-log.md`; the README exit-code note that judge failures never change the exit code is written in M6.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated
 - [x] `dotnet test --filter "Spec=EDGE-012"` shows at least one passed and no failed test
 Demo relevance: no.
 
@@ -602,7 +602,7 @@ Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`
 Docs impact: `docs/build-log.md`; the field reference lives in the generated schema (AJ-079) and the README in M6.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated
 - [x] `dotnet test --filter "Spec=REQ-015"` shows at least one passed and no failed test for the model tests
 Demo relevance: no.
 
@@ -672,7 +672,7 @@ Test mapping: `SchemaValidationTests` (required test class, trait `Spec=REQ-015`
 Docs impact: `docs/results-schema.json`; README section "Results schema" (location, update command), deferred to M6 (AJ-131 Docs impact, 2026-10-23): the README field reference is M6's.
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] docs listed above updated
 - [x] `dotnet test --filter "FullyQualifiedName~CommittedSchemaMatchesGenerated"` exits 0
 Demo relevance: no.
 
@@ -1246,6 +1246,7 @@ Docs impact: README section "Testing" (`dotnet test`, `AGENTJOULES_INTEGRATION=1
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
+Note (2026-10-25, M5 kickoff): story not built, deferral confirmed by user decision 8 after the M4 exit; box stays open.
 - [ ] `dotnet test --list-tests` contains all six class names and `dotnet test` exits 0 with the gate variable unset
 Demo relevance: no.
 
@@ -1778,6 +1779,7 @@ Docs impact: `docs/methodology.md` (both dashboard facts); README "Live dashboar
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
+Note (2026-10-25, M5 kickoff): story not built, deferral confirmed by user decision 8 after the M4 exit; box stays open.
 - [ ] `dotnet test --filter "Spec=EDGE-019"` shows at least one passed and no failed test
 Demo relevance: no (the property it protects makes the live view safe to show).
 
