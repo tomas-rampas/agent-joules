@@ -61,22 +61,63 @@ public sealed class MeasurementPreconditionException : AgentJoulesException
 }
 
 /// <summary>
-/// A call was answered with HTTP 429 on every one of its attempts (EDGE-006); exits with <see cref="Cli.ExitCode.Unreachable"/> (5).
+/// A call was rejected as overloaded (HTTP 429, 503, 500 with ResourceExhausted, or the same as an error inside an event stream) on every one of its attempts (EDGE-006); exits with <see cref="Cli.ExitCode.Unreachable"/> (5).
 /// </summary>
 /// <remarks>
+/// <para>
 /// The message holds only the attempt count and the status code, and the exception wraps nothing: the response of a rejected call can echo the credential
 /// (the message of the provider's own exception carries the response body), so none of its text, headers or request URI may travel in this exception.
+/// </para>
+/// <para>
+/// One form states an error inside an event stream (a <see cref="ProviderErrorException"/> on every attempt): the message then reads <c>error code 500 in the event stream after 5 attempts</c> and never calls
+/// the code an HTTP status, because the response was a 200. That form keeps the last <see cref="ProviderErrorException"/>, whose text is masked and bounded by construction.
+/// </para>
 /// </remarks>
-/// <param name="attempts">The HTTP attempts made, from 1.</param>
-/// <param name="statusCode">The status of the last attempt.</param>
-/// <exception cref="ArgumentOutOfRangeException"><paramref name="attempts"/> is below 1 or <paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
-public sealed class RetriesExhaustedException(int attempts, int statusCode) : AgentJoulesException(ExitCode.Unreachable, Describe(attempts, statusCode))
+public sealed class RetriesExhaustedException : AgentJoulesException
 {
-    /// <summary>The HTTP attempts the call made.</summary>
-    public int Attempts { get; } = attempts;
+    /// <summary>Creates the exception for a call whose last attempt was answered with an HTTP status.</summary>
+    /// <param name="attempts">The HTTP attempts made, from 1.</param>
+    /// <param name="statusCode">The status of the last attempt.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="attempts"/> is below 1 or <paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
+    public RetriesExhaustedException(int attempts, int statusCode)
+        : base(ExitCode.Unreachable, Describe(attempts, statusCode))
+    {
+        Attempts = attempts;
+        StatusCode = statusCode;
+    }
 
-    /// <summary>The HTTP status of the last attempt.</summary>
-    public int StatusCode { get; } = statusCode;
+    /// <summary>Creates the exception for a call whose last attempt ended with an error inside the event stream.</summary>
+    /// <param name="attempts">The attempts made, from 1.</param>
+    /// <param name="lastError">The error of the last attempt; its <see cref="ProviderErrorException.ErrorCode"/> is the code of the message.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="lastError"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="attempts"/> is below 1 or the error code is not from 100 to 599.</exception>
+    public RetriesExhaustedException(int attempts, ProviderErrorException lastError)
+        : base(ExitCode.Unreachable, DescribeInStream(attempts, lastError))
+    {
+        Attempts = attempts;
+        StatusCode = lastError.ErrorCode!.Value;
+        LastProviderError = lastError;
+    }
+
+    /// <summary>The attempts the call made.</summary>
+    public int Attempts { get; }
+
+    /// <summary>The HTTP status of the last attempt, or the code of the last error inside the event stream.</summary>
+    public int StatusCode { get; }
+
+    /// <summary>The error of the last attempt when it was inside the event stream, or null for an HTTP status.</summary>
+    public ProviderErrorException? LastProviderError { get; }
+
+    private static string DescribeInStream(int attempts, ProviderErrorException lastError)
+    {
+        ArgumentNullException.ThrowIfNull(lastError);
+        ArgumentOutOfRangeException.ThrowIfLessThan(attempts, 1);
+        int code = lastError.ErrorCode ?? throw new ArgumentOutOfRangeException(nameof(lastError), "The error of an exhausted retry carries a code.");
+        ArgumentOutOfRangeException.ThrowIfLessThan(code, 100);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(code, 599);
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"error code {code} in the event stream after {attempts} {(attempts == 1 ? "attempt" : "attempts")}");
+    }
 
     private static string Describe(int attempts, int statusCode)
     {
@@ -94,14 +135,18 @@ public sealed class RetriesExhaustedException(int attempts, int statusCode) : Ag
 /// </summary>
 /// <remarks>
 /// <para>
-/// The message holds only the agent name, the type name of the failure and, when the failure had one, its HTTP status; none of the text of the failure travels in
-/// <see cref="Exception.Message"/>, because the message of a provider exception carries the response body and a rejected call can echo the credential. The
+/// The message holds only the agent name, the type name of the failure and, when the failure had one, its HTTP status; except for the line a <see cref="ProviderErrorException"/> states
+/// (see below), none of the text of the failure travels in <see cref="Exception.Message"/>, because the message of a provider exception carries the response body and a rejected call can echo the credential. The
 /// failure itself may be attached as <see cref="Exception.InnerException"/>: the error line of the command line prints the message and the type of the outer
 /// exception only, and the chain reaches the log at Debug level only, where the text is masked by the redactor like every other line. The attached exception must never be
 /// printed outside Debug-level logging (not in an error line, a results file or a dashboard event): a test pins that the error line shows none of it. This differs from
 /// <see cref="RetriesExhaustedException"/>, which wraps nothing.
 /// </para>
 /// <para>The names are echoed through <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so a name that is long or holds a control character cannot break the error line.</para>
+/// <para>
+/// One failure carries text of its own: a <see cref="ProviderErrorException"/> (an in-stream <c>error</c> chunk, AJ-104). Its message is masked and bounded by construction, so the step failure may
+/// state it as <see cref="Detail"/>, and the message then reads <c>Step Planner failed with ProviderErrorException; provider-error: internal_server_error 500 ResourceExhausted: ...</c>.
+/// </para>
 /// <para>
 /// EDGE-006: when the orchestrator wrote the partial results file of the stopped tier, it rethrows a copy made by <see cref="WithPartialFile"/>, whose message ends with
 /// <c>; partial results in &lt;path&gt;</c>, so the last line of the command (the error line) names the file and, through the message, the failing agent. A failed write of the file
@@ -132,32 +177,36 @@ public sealed class StepFailedException : AgentJoulesException
     /// <param name="failureType">The type name of the failure, for example <c>ClientResultException</c>; not blank.</param>
     /// <param name="statusCode">The HTTP status the failure carried, or null.</param>
     /// <param name="inner">The failure; kept as <see cref="Exception.InnerException"/> and never copied into the message.</param>
+    /// <param name="detail">One line of text the message may state after the failure type, or null; only text that is masked and bounded already (the <see cref="ProviderErrorException.StepText"/>), never the message of an arbitrary failure.</param>
     /// <exception cref="ArgumentException"><paramref name="agent"/> or <paramref name="failureType"/> is null, empty or white space.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="statusCode"/> is not an HTTP status (100 to 599).</exception>
-    public StepFailedException(string agent, string failureType, int? statusCode, Exception inner)
-        : base(ExitCode.Unreachable, Describe(agent, failureType, statusCode), inner)
+    public StepFailedException(string agent, string failureType, int? statusCode, Exception inner, string? detail = null)
+        : base(ExitCode.Unreachable, Describe(agent, failureType, statusCode, detail: detail), inner)
     {
         Agent = agent;
         FailureType = failureType;
         StatusCode = statusCode;
+        Detail = detail;
     }
 
     // The copy made by WithPartialFile: the same failure, and the partial file named in the message.
     private StepFailedException(StepFailedException source, string partialFile)
-        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile))
+        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile, source.Detail))
     {
         Agent = source.Agent;
         FailureType = source.FailureType;
         StatusCode = source.StatusCode;
+        Detail = source.Detail;
         PartialFile = partialFile;
     }
 
     private StepFailedException(StepFailedException source, string partialFile, Exception inner)
-        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile), inner)
+        : base(ExitCode.Unreachable, Describe(source.Agent, source.FailureType, source.StatusCode, partialFile, source.Detail), inner)
     {
         Agent = source.Agent;
         FailureType = source.FailureType;
         StatusCode = source.StatusCode;
+        Detail = source.Detail;
         PartialFile = partialFile;
     }
 
@@ -169,6 +218,9 @@ public sealed class StepFailedException : AgentJoulesException
 
     /// <summary>The HTTP status the failure carried, or null when it had none.</summary>
     public int? StatusCode { get; }
+
+    /// <summary>The line the message states after the failure type (<c>provider-error: &lt;type&gt; &lt;code&gt; &lt;message&gt;</c> for an in-stream error), or null; masked and bounded by its source.</summary>
+    public string? Detail { get; }
 
     /// <summary>
     /// The partial results file as the user names it (the <c>--out</c> value as given, a forward slash and the file name), or null when no partial file was written. It is kept whole here;
@@ -196,7 +248,7 @@ public sealed class StepFailedException : AgentJoulesException
         return InnerException is { } inner ? new StepFailedException(this, displayPath, inner) : new StepFailedException(this, displayPath);
     }
 
-    private static string Describe(string agent, string failureType, int? statusCode, string? partialFile = null)
+    private static string Describe(string agent, string failureType, int? statusCode, string? partialFile = null, string? detail = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agent);
         ArgumentException.ThrowIfNullOrWhiteSpace(failureType);
@@ -208,6 +260,11 @@ public sealed class StepFailedException : AgentJoulesException
             ArgumentOutOfRangeException.ThrowIfGreaterThan(status, 599);
 
             text = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{text} and HTTP status {status}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            text = $"{text}; {Labels.TextEcho.ForMessage(detail, ProviderErrorException.MaxStepTextLength + 100)}";
         }
 
         return partialFile is null ? text : $"{text}; partial results in {Labels.TextEcho.ForMessage(partialFile, MaxPartialFileLength)}";
@@ -254,30 +311,78 @@ public sealed class MissingKeyException : AgentJoulesException
 /// Every ID is provider or configuration text: the creator passes IDs that are already masked by the redactor (a provider can echo a key), and the message cuts and scrubs each ID with
 /// <see cref="Labels.TextEcho.ForMessage(string, int)"/>, so an ID that is long or holds a control character cannot break the error line.
 /// </para>
+/// <para>
+/// A second form (AJ-100, <c>validate --config</c>) carries the problem lines of the configuration check against <c>docs/endpoints.md</c>: its message is those lines joined with line feeds, and it has no tier,
+/// no missing-ID list and no available IDs, so <see cref="TierName"/> is empty and nothing is listed after it.
+/// </para>
 /// </remarks>
-/// <param name="tierName">The lowercase name of the tier whose list lacks the IDs (for the judge model, the judge tier); not blank.</param>
-/// <param name="missingIds">The configured IDs the list lacks, at least one, in the order the check met them.</param>
-/// <param name="availableIds">The IDs to show the user: at most the first 20 of the list, Nemotron and Qwen entries first; empty when the list is empty.</param>
-/// <param name="availableCount">The number of distinct IDs the endpoint listed before the cap; 0 for an empty list, never below the number of <paramref name="availableIds"/>.</param>
-/// <exception cref="ArgumentException"><paramref name="tierName"/> is blank or <paramref name="missingIds"/> is empty.</exception>
-/// <exception cref="ArgumentNullException"><paramref name="missingIds"/> or <paramref name="availableIds"/> is null.</exception>
-/// <exception cref="ArgumentOutOfRangeException"><paramref name="availableCount"/> is negative or below the number of <paramref name="availableIds"/>.</exception>
-public sealed class ModelNotFoundException(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
-    : AgentJoulesException(ExitCode.ModelNotFound, Describe(tierName, missingIds, availableIds, availableCount))
+public sealed class ModelNotFoundException : AgentJoulesException
 {
-    /// <summary>The lowercase name of the tier whose list lacks the IDs.</summary>
-    public string TierName { get; } = tierName;
+    // A fix command is a fixed verb and a model ID that is already cut at 64 characters by the caller; the bound only keeps a hostile command from breaking the error line.
+    /// <summary>The most characters of one fix command the message states; a longer command is not stated, because a cut command would be a different command.</summary>
+    public const int MaxFixCommandLength = 160;
 
-    /// <summary>The configured IDs the list lacks, at least one, in the order the check met them.</summary>
-    public IReadOnlyList<string> MissingIds { get; } = [.. missingIds];
+    /// <summary>Creates the exception for a tier whose models list lacks configured IDs.</summary>
+    /// <param name="tierName">The lowercase name of the tier whose list lacks the IDs (for the judge model, the judge tier); not blank.</param>
+    /// <param name="missingIds">The configured IDs the list lacks, at least one, in the order the check met them.</param>
+    /// <param name="availableIds">The IDs to show the user: at most the first 20 of the list, Nemotron and Qwen entries first; empty when the list is empty.</param>
+    /// <param name="availableCount">The number of distinct IDs the endpoint listed before the cap; 0 for an empty list, never below the number of <paramref name="availableIds"/>.</param>
+    /// <param name="fixCommands">The commands that fix the failure, one per missing ID that has a command in the order of <paramref name="missingIds"/> (for the local tier on Ollama, <c>ollama pull &lt;tag&gt;</c>); the message ends with them after <c>; fix: </c>. Null or empty for a tier that has none.</param>
+    /// <param name="handFixIds">The missing IDs that have no command because they are not a valid Ollama name; the message names each (already masked and cut by the caller) and says it must be pulled by hand. Null or empty for none.</param>
+    /// <exception cref="ArgumentException"><paramref name="tierName"/> is blank or <paramref name="missingIds"/> is empty.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="missingIds"/> or <paramref name="availableIds"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="availableCount"/> is negative or below the number of <paramref name="availableIds"/>.</exception>
+    public ModelNotFoundException(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount, IReadOnlyList<string>? fixCommands = null, IReadOnlyList<string>? handFixIds = null)
+        : base(ExitCode.ModelNotFound, Describe(tierName, missingIds, availableIds, availableCount, fixCommands, handFixIds))
+    {
+        TierName = tierName;
+        MissingIds = [.. missingIds];
+        AvailableIds = [.. availableIds];
+        AvailableCount = availableCount;
+        FixCommands = [.. fixCommands ?? []];
+        HandFixIds = [.. handFixIds ?? []];
+    }
+
+    /// <summary>Creates the exception for the configuration check of <c>validate --config</c>.</summary>
+    /// <param name="problems">The problem lines the check printed, at least one; the message is these lines joined with line feeds.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="problems"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="problems"/> is empty.</exception>
+    public ModelNotFoundException(IReadOnlyList<string> problems)
+        : base(ExitCode.ModelNotFound, Join(problems))
+    {
+        TierName = string.Empty;
+        MissingIds = [];
+        AvailableIds = [];
+        AvailableCount = 0;
+        FixCommands = [];
+        HandFixIds = [];
+    }
+
+    /// <summary>The lowercase name of the tier whose list lacks the IDs; empty for the configuration check of <c>validate --config</c>.</summary>
+    public string TierName { get; }
+
+    /// <summary>The configured IDs the list lacks, at least one, in the order the check met them; empty for the configuration check.</summary>
+    public IReadOnlyList<string> MissingIds { get; }
 
     /// <summary>The IDs to show the user (at most 20, Nemotron and Qwen entries first); empty when the endpoint listed none.</summary>
-    public IReadOnlyList<string> AvailableIds { get; } = [.. availableIds];
+    public IReadOnlyList<string> AvailableIds { get; }
+
+    /// <summary>The commands that fix the failure, one per missing ID in the order of <see cref="MissingIds"/> (<c>ollama pull &lt;tag&gt;</c> for the local tier on Ollama); empty for a tier that has none.</summary>
+    public IReadOnlyList<string> FixCommands { get; }
+
+    /// <summary>The missing IDs that must be fetched by hand because they are not a valid name for the runtime, as the message names them (masked and cut); empty for none.</summary>
+    public IReadOnlyList<string> HandFixIds { get; }
 
     /// <summary>The number of distinct IDs the endpoint listed before the cap; 0 when it listed none.</summary>
-    public int AvailableCount { get; } = availableCount;
+    public int AvailableCount { get; }
 
-    private static string Describe(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount)
+    private static string Join(IReadOnlyList<string> problems)
+    {
+        ArgumentNullException.ThrowIfNull(problems);
+        return problems.Count == 0 ? throw new ArgumentException("At least one problem line is needed.", nameof(problems)) : string.Join('\n', problems);
+    }
+
+    private static string Describe(string tierName, IReadOnlyList<string> missingIds, IReadOnlyList<string> availableIds, int availableCount, IReadOnlyList<string>? fixCommands, IReadOnlyList<string>? handFixIds)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tierName);
         ArgumentNullException.ThrowIfNull(missingIds);
@@ -291,7 +396,10 @@ public sealed class ModelNotFoundException(string tierName, IReadOnlyList<string
 
         string tier = Labels.TextEcho.ForMessage(tierName);
         string missing = $"model {(missingIds.Count == 1 ? "ID" : "IDs")} not listed: {string.Join(", ", missingIds.Select(static id => Labels.TextEcho.ForMessage(id)))}";
-        return availableCount == 0 ? $"tier {tier}: no models listed; {missing}" : $"tier {tier}: {missing}";
+        string message = availableCount == 0 ? $"tier {tier}: no models listed; {missing}" : $"tier {tier}: {missing}";
+        List<string> fixes = [.. (fixCommands ?? []).Select(static command => Labels.TextEcho.ForMessage(command, MaxFixCommandLength))];
+        fixes.AddRange((handFixIds ?? []).Select(static id => $"{Labels.TextEcho.ForMessage(id)} must be pulled by hand"));
+        return fixes.Count > 0 ? $"{message}; fix: {string.Join("; ", fixes)}" : message;
     }
 }
 

@@ -147,7 +147,8 @@ public sealed class AgentJoulesWorkflowFactory
         }
     }
 
-    // Only the type and the status of the failure leave this method: its message can hold the body of the provider's answer.
+    // Only the type and the status of the failure leave this method: its message can hold the body of the provider's answer. The one exception is the in-stream error of a provider, which
+    // keeps the line "provider-error: <type> <code> <message>": its text is masked, cleaned and bounded when the exception is made.
     private static StepFailedException Describe(string agent, Exception? failure)
     {
         if (failure is null)
@@ -160,11 +161,19 @@ public sealed class AgentJoulesWorkflowFactory
         {
             ClientResultException { Status: >= 100 and <= 599 } client => client.Status,
             HttpRequestException { StatusCode: { } httpStatus } when (int)httpStatus is >= 100 and <= 599 => (int)httpStatus,
-            RetriesExhaustedException retries => retries.StatusCode,
+            RetriesExhaustedException { LastProviderError: null } retries => retries.StatusCode,
             _ => null,
         };
 
-        return new StepFailedException(agent, root.GetType().Name, status, root);
+        // The in-stream error is told in its own words: the exhaustion wording (the code is no HTTP status) and the text of the last error, both masked and bounded by construction.
+        string? detail = root switch
+        {
+            ProviderErrorException error => error.StepText,
+            RetriesExhaustedException { LastProviderError: { } last } retries => retries.Message + "; " + last.StepText,
+            _ => null,
+        };
+
+        return new StepFailedException(agent, root.GetType().Name, status, root, detail);
     }
 
     private (WorkflowGraph Graph, ReviewerExecutor Reviewer) Build()

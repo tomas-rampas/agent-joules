@@ -1,5 +1,6 @@
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Runs;
+using AgentJoules.Core.Security;
 using AgentJoules.Workflow;
 using AgentJoules.Workflow.Providers;
 
@@ -92,17 +93,21 @@ public static class ProviderClientFixtures
     /// <param name="options">The options to serve.</param>
     /// <param name="configuration">The configuration that holds the key variables; <see cref="KeyConfiguration"/> when null.</param>
     /// <param name="handlers">Fake endpoints to use for some tiers; a tier that has none gets a default <see cref="FakeHttpMessageHandler"/>.</param>
+    /// <param name="redactor">The redactor the in-stream error detection masks provider text with; an empty one (it masks nothing) when null, because the host never runs without one and the pipeline requires it.</param>
     /// <returns>The host; the caller disposes it.</returns>
     public static ProviderClientHost Build(
         AgentJoulesOptions options,
         IConfiguration? configuration = null,
-        IReadOnlyDictionary<Tier, FakeHttpMessageHandler>? handlers = null)
+        IReadOnlyDictionary<Tier, FakeHttpMessageHandler>? handlers = null,
+        SecretRedactor? redactor = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         var all = new Dictionary<Tier, FakeHttpMessageHandler>();
         var services = new ServiceCollection();
         _ = services.AddSingleton(configuration ?? KeyConfiguration());
+        _ = services.AddSingleton(redactor ?? new SecretRedactor());
+
         _ = services.AddSingleton<IOptions<AgentJoulesOptions>>(Options.Create(options));
         _ = services.AddAgentJoulesProviderClients();
 

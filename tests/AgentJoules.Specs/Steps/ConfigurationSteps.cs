@@ -1,5 +1,9 @@
+using System.Text.Json.Nodes;
+
 using AgentJoules.Cli.Output;
 using AgentJoules.Core.Security;
+using AgentJoules.Specs.Support;
+using AgentJoules.TestSupport;
 
 using Reqnroll;
 
@@ -7,8 +11,13 @@ using Xunit;
 
 namespace AgentJoules.Specs.Steps;
 
+/// <summary>
+/// The steps of three configuration stories. AJ-010 (redact key values) binds the unscoped sentences at the top of the class. AJ-102 (the contract of <c>docs/nim-local-attempt.md</c>, REQ-019 and EDGE-010) binds the sentences scoped to its feature, at the end; its state lives in <see cref="NimAttemptContractContext"/>, and its scenarios build documents in memory and call <c>NimAttemptRules</c> directly. AJ-100 (<c>AJ validate --config</c> checks the configured model IDs against
+/// <c>docs/endpoints.md</c>, REQ-018) binds the sentences after the AJ-010 ones, each scoped to its feature because "the exit code is 0" and "I run ..." are sentences of every CLI story. The state of an AJ-100 scenario lives in
+/// <see cref="EndpointsValidationContext"/>; every scenario runs the real command line through the harness in a temporary workspace that holds its own configuration and its own endpoints document.
+/// </summary>
 [Binding]
-public sealed class ConfigurationSteps : IDisposable
+public sealed class ConfigurationSteps(EndpointsValidationContext endpoints, NimAttemptContractContext contract) : IDisposable
 {
     private const string KeyPlaceholder = "<key>";
 
@@ -174,6 +183,218 @@ public sealed class ConfigurationSteps : IDisposable
         Assert.Equal(expected, _result);
         Assert.Equal(expected, _secondResult);
         Assert.Equal(_result, _redactor.Redact(_result));
+    }
+
+    // ---- AJ-100: validate --config (REQ-018) ----
+
+    private const string EndpointsFeature = "Validate configured model IDs against docs/endpoints.md";
+
+    // A command that hangs must fail the scenario, not the run (system clock; it only ends a run that already failed).
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    private readonly EndpointsValidationContext _endpoints = endpoints;
+
+    [Given(@"^a docs/endpoints\.md with sections local, nvidia and nebius, each with a Verified date and its model lines$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenADocumentWithThreeVerifiedSections()
+    {
+        foreach (string tier in EndpointsFixtures.DefaultTiers)
+        {
+            EndpointsValidationContext.SectionDraft draft = _endpoints.Draft(tier);
+            Assert.Equal(EndpointsFixtures.VerifiedDate, draft.Verified);
+            Assert.Equal([EndpointsFixtures.ModelOf(tier)], draft.Ids);
+        }
+    }
+
+    [Given(@"^a configuration whose tier and agent model IDs all appear in those sections$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenAConfigurationWhoseIdsAllAppear()
+    {
+        // One agent model ID beside the tier model IDs, listed in the section of its tier.
+        const string agentModel = "model-nvidia-writer";
+        EndpointsFixtures.TierOf(_endpoints.Config, "nvidia")["AgentModelIds"] = new JsonObject { ["Writer"] = agentModel };
+        _endpoints.Draft("nvidia").Ids.Add(agentModel);
+    }
+
+    [Given(@"^Judge:Tier is ""([^""]*)"" and Judge:ModelId is listed only under ""## ([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenTheJudgeIdIsListedOnlyUnderTheJudgeTier(string judgeTier, string heading)
+    {
+        Assert.Equal(judgeTier, heading);
+        const string judgeModel = "judge-model-listed-only-under-the-judge-tier";
+        _endpoints.Section["Judge"] = new JsonObject { ["Tier"] = judgeTier, ["ModelId"] = judgeModel };
+        _endpoints.Draft(judgeTier).Ids.Add(judgeModel);
+    }
+
+    [Given(@"^Tiers:cloudgpu:Enabled is false and ""## cloudgpu"" has no Verified line$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenCloudGpuIsDisabledAndItsSectionHasNoVerifiedLine() => _endpoints.DisableCloudGpuWithoutVerifiedLine();
+
+    [Given(@"^the configuration names a model ID that is not listed in its section$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenTheConfigurationNamesAnUnlistedModelId() => _endpoints.NameUnlistedModel("nebius", "model-nebius-not-listed");
+
+    [Given(@"^the section lists ""([^""]*)"" and the configuration names ""([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenTheSectionListsOneSpellingAndTheConfigurationNamesAnother(string listed, string named)
+    {
+        Assert.NotEqual(listed, named);
+        Assert.Equal(listed, named, ignoreCase: true);
+        EndpointsValidationContext.SectionDraft local = _endpoints.Draft("local");
+        local.Ids.Clear();
+        local.Ids.Add(listed);
+        EndpointsFixtures.TierOf(_endpoints.Config, "local")["ModelId"] = named;
+    }
+
+    [Given(@"^the ""## ([^""]*)"" section has model lines but no Verified line$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenASectionHasModelLinesButNoVerifiedLine(string tier)
+    {
+        EndpointsValidationContext.SectionDraft draft = _endpoints.Draft(tier);
+        Assert.NotEmpty(draft.Ids);
+        draft.Verified = null;
+    }
+
+    [Given(@"^Judge:Tier is ""([^""]*)"" and the judge ID is listed only under ""## ([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void GivenTheJudgeIdIsListedOnlyUnderAnotherTier(string judgeTier, string listedUnder)
+    {
+        Assert.NotEqual(judgeTier, listedUnder);
+        const string judgeModel = "judge-model-listed-only-under-another-tier";
+        _endpoints.Section["Judge"] = new JsonObject { ["Tier"] = judgeTier, ["ModelId"] = judgeModel };
+        _endpoints.Draft(listedUnder).Ids.Add(judgeModel);
+    }
+
+    [When(@"^I run ""([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public async Task WhenIRun(string arguments) => await _endpoints.RunAsync(arguments).WaitAsync(HangGuard);
+
+    [Then(@"^the exit code is (\d+)$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void ThenTheExitCodeIs(int expected)
+    {
+        CliRunResult result = _endpoints.Required();
+
+        Assert.True(expected == result.ExitCode, $"Expected exit code {expected} but got {result.ExitCode}; stdout: {result.Stdout}; stderr: {result.Stderr}");
+
+        // An exit 2 must come from the command itself, never from the parse check.
+        Assert.DoesNotContain("(ParseError)", result.Stderr, StringComparison.Ordinal);
+    }
+
+    [Then(@"^the output contains ""([^""]*)"" and ""([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void ThenTheOutputContainsBoth(string first, string second)
+    {
+        string line = Assert.Single(_endpoints.StdoutLines);
+
+        Assert.Contains(first, line, StringComparison.Ordinal);
+        Assert.Contains(second, line, StringComparison.Ordinal);
+        Assert.Matches(@"^Validated \d+ model IDs$", line);
+    }
+
+    [Then(@"^the output contains ""([^""]*)""$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void ThenTheOutputContains(string expected) => Assert.Contains(expected, _endpoints.StdoutLines);
+
+    [Then(@"^the output names the missing ID and its section$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void ThenTheOutputNamesTheMissingIdAndItsSection()
+    {
+        string expected = _endpoints.ExpectedMissingLine ?? throw new Xunit.Sdk.XunitException("The scenario made no model ID absent.");
+
+        Assert.Equal([expected], _endpoints.StdoutLines);
+    }
+
+    [Then(@"^the fake HTTP handler recorded (\d+) requests$")]
+    [Scope(Feature = EndpointsFeature)]
+    public void ThenTheFakeHandlerRecordedRequests(int expected)
+    {
+        Assert.Equal(expected, _endpoints.Handler.Attempts);
+        Assert.Equal(expected, _endpoints.Required().DeniedRequests.Count);
+    }
+
+    // ---- AJ-102: the contract of docs/nim-local-attempt.md (REQ-019, EDGE-010) ----
+
+    private const string ContractFeature = "Enforce the NIM attempt document contract";
+
+    private readonly NimAttemptContractContext _contract = contract;
+
+    [Given(@"^a NIM attempt document with the four headings, Started and Ended (\d+) minutes apart and ""Local runtime: (nim|ollama)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenACompleteDocument(int minutes, string runtime)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        _contract.Draft.DecisionLines[^1] = "Local runtime: " + runtime;
+    }
+
+    [Given(@"^Started and Ended are exactly (\d+) minutes apart$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreExactlyApart(int minutes) => _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+
+    [Given(@"^Started and Ended are (\d+) minutes apart and a line ""Box exceeded: ([^""]+)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreApartAndTheBoxIsExceeded(int minutes, string reason)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        _contract.Draft.BoxExceeded = reason;
+    }
+
+    [Given(@"^the document has no ""([^""]+)"" heading$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheDocumentHasNoHeading(string heading) => Assert.True(_contract.Draft.Headings.Remove(heading), $"The draft has no heading {heading}.");
+
+    [Given(@"^Started and Ended are (\d+) minutes apart and no ""Box exceeded:"" line$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenStartedAndEndedAreApartAndNoBoxLine(int minutes)
+    {
+        _ = _contract.Draft.Between(TimeSpan.FromMinutes(minutes));
+        Assert.Null(_contract.Draft.BoxExceeded);
+    }
+
+    [Given(@"^the Commands section contains a docker login line with ""--password"" followed by a value$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheCommandsHoldALoginWithAPasswordArgument() =>
+        _contract.Draft.CommandLines.Insert(0, "docker login nvcr.io --username '$oauthtoken' --password not-a-key");
+
+    [Given(@"^the document contains a key built at runtime as ""nvapi-"" plus a random suffix$")]
+    [Scope(Feature = ContractFeature)]
+    public void GivenTheDocumentHoldsARuntimeBuiltKey() => _contract.AddRuntimeBuiltKey();
+
+    [When(@"^the contract test runs$")]
+    [Scope(Feature = ContractFeature)]
+    public void WhenTheContractTestRuns() => _contract.Run();
+
+    [Then(@"^the result is pass$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsPass() => Assert.True(_contract.Violations.Count == 0, "Expected a pass but the rules reported:\n" + string.Join('\n', _contract.Violations));
+
+    [Then(@"^the result is fail and the message names ""([^""]+)""$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageNames(string name) => AssertOneViolationContains(name);
+
+    [Then(@"^the result is fail and the message names the 90-minute box$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageNamesTheBox() => AssertOneViolationContains("90-minute box");
+
+    [Then(@"^the result is fail and the message says the login must use --password-stdin$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageSaysPasswordStdin() => AssertOneViolationContains("the login must use --password-stdin");
+
+    [Then(@"^the result is fail and the message does not echo the suffix$")]
+    [Scope(Feature = ContractFeature)]
+    public void ThenTheResultIsFailAndTheMessageDoesNotEchoTheSuffix()
+    {
+        string suffix = _contract.KeySuffix ?? throw new Xunit.Sdk.XunitException("The scenario built no key.");
+
+        _ = Assert.Single(_contract.Violations);
+        Assert.DoesNotContain(suffix, string.Join('\n', _contract.Violations), StringComparison.Ordinal);
+    }
+
+    private void AssertOneViolationContains(string text)
+    {
+        string message = Assert.Single(_contract.Violations);
+
+        Assert.Contains(text, message, StringComparison.Ordinal);
     }
 
     private static int CountOccurrences(string? text, string value)

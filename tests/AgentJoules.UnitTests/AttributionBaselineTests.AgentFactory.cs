@@ -405,6 +405,7 @@ public sealed partial class AttributionBaselineTests
             var collection = new ServiceCollection();
             _ = collection.AddSingleton(ProviderClientFixtures.KeyConfiguration());
             _ = collection.AddSingleton<IOptions<AgentJoulesOptions>>(Options.Create(ProviderClientFixtures.FourTiers()));
+            _ = collection.AddSingleton(new AgentJoules.Core.Security.SecretRedactor());
             _ = collection.AddAgentJoulesProviderClients().AddAgentJoulesAgentFactory().AddAgentJoulesAgentFactory();
             await using ServiceProvider provider = collection.BuildServiceProvider();
             await using AgentFactoryRig rig = await AgentFactoryRig.CreateAsync();

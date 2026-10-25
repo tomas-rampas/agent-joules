@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
@@ -6,6 +8,7 @@ using AgentJoules.Core.Labels;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
 using AgentJoules.Workflow.Judge;
+using AgentJoules.Workflow.Local;
 using AgentJoules.Workflow.Providers;
 
 using Microsoft.Extensions.Configuration;
@@ -22,8 +25,12 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="options">The bound and validated options.</param>
 /// <param name="catalog">The model catalog client that asks the models route of a tier.</param>
 /// <param name="redactor">The redactor that masks key values in the model IDs the check compares and reports.</param>
-public sealed class PreflightService(IConfiguration configuration, IOptions<AgentJoulesOptions> options, ModelCatalogClient catalog, SecretRedactor redactor)
+/// <param name="localRuntime">The runtime behind the local tier (EDGE-009): the model check asks <see cref="ILocalRuntime.CheckAvailableAsync"/> for the local tier before it asks the models route. A runtime with nothing to check (<see cref="NoOpLocalRuntime"/>) is a runtime all the same: the service requires one.</param>
+public sealed partial class PreflightService(IConfiguration configuration, IOptions<AgentJoulesOptions> options, ModelCatalogClient catalog, SecretRedactor redactor, ILocalRuntime localRuntime)
 {
+    // The command that fetches an Ollama model; the tag is the configured model ID, never a constant.
+    private const string OllamaPullCommand = "ollama pull ";
+
     /// <summary>The variable that names the SSH host of the <c>cloudgpu</c> VM; required on the laptop (<c>CloudGpu:RequireSshVariables</c> true).</summary>
     public const string SshHostVariable = "CLOUDGPU_SSH_HOST";
 
@@ -35,6 +42,9 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
     // The MIG mode of GpuIdentity when MIG is on (the other values are disabled and not-supported).
     private const string MigEnabled = "enabled";
 
+    // The selection of Meter:Method "auto": the counter when the GPU has one, sampling otherwise.
+    private const string AutoMethod = "auto";
+
     // The GPU port's reason names the library and the exception type (for example NVML library not found: libnvidia-ml.so.1 (EntryPointNotFoundException)); both must survive.
     private const int MaxReasonLength = 128;
 
@@ -42,6 +52,7 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
     private readonly IOptions<AgentJoulesOptions> _options = options ?? throw new ArgumentNullException(nameof(options));
     private readonly ModelCatalogClient _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     private readonly SecretRedactor _redactor = redactor ?? throw new ArgumentNullException(nameof(redactor));
+    private readonly ILocalRuntime _localRuntime = localRuntime ?? throw new ArgumentNullException(nameof(localRuntime));
 
     /// <summary>
     /// Resolves the <c>--tier</c> value: <c>all</c> is every enabled tier in the fixed order of a run (<c>local</c>, <c>cloudgpu</c>, <c>nvidia</c>, <c>nebius</c>); a tier name is that
@@ -129,15 +140,16 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
     /// </remarks>
     /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
     /// <param name="keys">The result of <see cref="CheckKeys(IReadOnlyList{Tier}, bool)"/>: a caller that holds one has run the key check, and it says whether the judge key is missing.</param>
+    /// <param name="checkJudge">False leaves the judge model out of the check (the calibration of AJ-109 scores nothing, so it needs neither the judge key nor the hosted judge endpoint); true checks it as above.</param>
     /// <param name="cancellationToken">Cancels the requests.</param>
     /// <returns>The tiers that were asked (the selected ones in order, then the judge tier when it was not selected) with their endpoints and the configured IDs that were listed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="keys"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="tiers"/> is empty.</exception>
     /// <exception cref="ConfigurationException">A tier is not configured, has neither a <c>ModelId</c> nor an <c>AgentModelIds</c> value, or <c>Judge:Tier</c> is not a tier name; exit code 2.</exception>
     /// <exception cref="ModelNotFoundException">A configured ID is not listed, or a list is empty (exit code 4).</exception>
-    /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable, answers a status other than success or answers something that is not a model list (exit code 5).</exception>
+    /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable, answers a status other than success or answers something that is not a model list, or the local runtime does not answer its availability check (exit code 5).</exception>
     /// <exception cref="MissingKeyException">A tier names a key variable that has no value (exit code 3); the key check normally found it first.</exception>
-    public async Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, CancellationToken cancellationToken)
+    public async Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, bool checkJudge, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tiers);
         ArgumentNullException.ThrowIfNull(keys);
@@ -158,10 +170,17 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
 
             string name = TierOptions.NameOf(tier);
             string[] configured = ConfiguredIds(TierFor(current, name), name);
+
+            // EDGE-009: a runtime that is not running is told before the models route is asked, so the user gets "ollama serve" and not a bare connection error.
+            if (tier == Tier.Local)
+            {
+                await _localRuntime.CheckAvailableAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             asked.Add(await AskAndVerifyAsync(tier, name, configured, existing: null, cancellationToken).ConfigureAwait(false));
         }
 
-        if (keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
+        if (checkJudge && keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
         {
             Tier judgeTier = JudgeTierName.Parse(current.Judge.Tier);
             ListedTier? existing = asked.Find(listed => listed.Tier == judgeTier);
@@ -175,13 +194,28 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
         return new ModelCheckResult([.. asked.Select(static listed => new ModelCheckEntry(listed.Name, listed.Endpoint, [.. listed.Matched]))]);
     }
 
+    /// <summary>The check of <see cref="CheckModelsAsync(IReadOnlyList{Tier}, KeyCheckResult, bool, CancellationToken)"/> with the judge model included, as a run makes it.</summary>
+    /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
+    /// <param name="keys">The result of <see cref="CheckKeys(IReadOnlyList{Tier}, bool)"/>.</param>
+    /// <param name="cancellationToken">Cancels the requests.</param>
+    /// <returns>The tiers that were asked, with their endpoints and the configured IDs that were listed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="keys"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="tiers"/> is empty.</exception>
+    /// <exception cref="ConfigurationException">A tier is not configured or has no model ID; exit code 2.</exception>
+    /// <exception cref="ModelNotFoundException">A configured ID is not listed, or a list is empty (exit code 4).</exception>
+    /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable or answers something that is not a model list (exit code 5).</exception>
+    /// <exception cref="MissingKeyException">A tier names a key variable that has no value (exit code 3).</exception>
+    public Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, CancellationToken cancellationToken) =>
+        CheckModelsAsync(tiers, keys, checkJudge: true, cancellationToken);
+
     /// <summary>
     /// Checks that every selected measured tier (<c>local</c>, <c>cloudgpu</c>) can be measured, before any completion call (design 3.7 point 4, EDGE-001): the GPU at <c>Gpu:Index</c> is
-    /// opened through <paramref name="gpus"/>, the <c>Meter:Method</c> is applied to it, and for <c>cloudgpu</c> MIG must be off. Each source is disposed before the next tier is checked;
+    /// opened through <paramref name="gpus"/>, the <c>Meter:Method</c> is applied to it (unless <paramref name="ignoreMeterMethod"/>), and for <c>cloudgpu</c> MIG must be off. Each source is disposed before the next tier is checked;
     /// hosted tiers are skipped and never open the GPU.
     /// </summary>
     /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
     /// <param name="gpus">The GPU port; production opens NVML, tests a scripted session.</param>
+    /// <param name="ignoreMeterMethod">True selects the method as <c>auto</c> does (the counter when the GPU has one, sampling otherwise) whatever <c>Meter:Method</c> says, so a forced <c>counter</c> on a GPU without it is no failure; the calibration of AJ-109 compares both methods and has no use for a forced one. False, the default, applies <c>Meter:Method</c> as a run does.</param>
     /// <returns>The meter capabilities of each measured tier that was checked, in the order of <paramref name="tiers"/>; empty when no measured tier is selected.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="gpus"/> is null.</exception>
     /// <exception cref="MeasurementPreconditionException">
@@ -189,7 +223,7 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
     /// without the energy counter, or MIG is enabled on the GPU of <c>cloudgpu</c> (exit code 6).
     /// </exception>
     /// <exception cref="ConfigurationException"><c>Meter:Method</c> or <c>Meter:SampleRateHz</c> is invalid (exit code 2); the options validation normally found it first.</exception>
-    public IReadOnlyList<KeyValuePair<Tier, MeterCapabilities>> CheckMeasuredTiers(IReadOnlyList<Tier> tiers, IGpuTelemetrySourceFactory gpus)
+    public IReadOnlyList<KeyValuePair<Tier, MeterCapabilities>> CheckMeasuredTiers(IReadOnlyList<Tier> tiers, IGpuTelemetrySourceFactory gpus, bool ignoreMeterMethod = false)
     {
         ArgumentNullException.ThrowIfNull(tiers);
         ArgumentNullException.ThrowIfNull(gpus);
@@ -206,7 +240,7 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
             }
 
             using IGpuTelemetrySource source = opened.Source;
-            MeterCapabilities capabilities = MeterMethodSelector.Select(current.Meter.Method, source, current.Meter.SampleRateHz);
+            MeterCapabilities capabilities = MeterMethodSelector.Select(ignoreMeterMethod ? AutoMethod : current.Meter.Method, source, current.Meter.SampleRateHz);
             if (tier == Tier.CloudGpu && string.Equals(source.Identity.MigMode, MigEnabled, StringComparison.Ordinal))
             {
                 throw new MeasurementPreconditionException("tier cloudgpu cannot be measured while MIG is enabled on the GPU: NVML reads the energy of the whole GPU, not of one instance; disable MIG on the VM");
@@ -225,6 +259,9 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
 
         // The configured ID is compared with the listed IDs exactly as both were written; only the text that is reported (matched, missing) is masked, cut and scrubbed.
         List<string> missing = [];
+        List<string> commands = [];
+        List<string> byHand = [];
+        bool ollama = tier == Tier.Local && IsOllamaConfigured();
         foreach (string id in configured)
         {
             string shown = ModelIdListFormatter.Echo(_redactor, id);
@@ -235,16 +272,45 @@ public sealed class PreflightService(IConfiguration configuration, IOptions<Agen
                     listed.Matched.Add(shown);
                 }
             }
-            else if (!missing.Contains(shown, StringComparer.Ordinal))
+            else
             {
+                // The configured IDs are distinct as written, so two missing tags that share their first 64 characters both stay: each gets its line and its command.
                 missing.Add(shown);
+
+                // EDGE-009: on Ollama the fix of a tag that is not listed is one command, built from the configured tag (masked, never cut) and only when the tag is a valid Ollama name; any other tag
+                // is named through the echo and must be pulled by hand, so no text of the configuration reaches a shell line.
+                if (ollama)
+                {
+                    string command = PullCommandFor(_redactor.Redact(id));
+                    if (command.Length > 0)
+                    {
+                        commands.Add(command);
+                    }
+                    else
+                    {
+                        byHand.Add(shown);
+                    }
+                }
             }
         }
 
         return missing.Count > 0
-            ? throw new ModelNotFoundException(name, missing, ModelIdListFormatter.Format(listed.Catalog.DisplayIds).Listed, listed.Catalog.Count)
+            ? throw new ModelNotFoundException(name, missing, ModelIdListFormatter.Format(listed.Catalog.DisplayIds).Listed, listed.Catalog.Count, commands, byHand)
             : listed;
     }
+
+    // The pull command of a tag, or empty when the tag is not an Ollama name (the grammar of Ollama model names and tags, with the optional host and namespace parts) or the command would be longer than the
+    // message allows. A tag that the redactor changed holds a mask character, which the grammar does not allow, so a masked tag never becomes a command.
+    private static string PullCommandFor(string tag)
+    {
+        string command = OllamaPullCommand + tag;
+        return OllamaName().IsMatch(tag) && command.Length <= ModelNotFoundException.MaxFixCommandLength ? command : string.Empty;
+    }
+
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._/:-]*\\z", RegexOptions.CultureInvariant)]
+    private static partial Regex OllamaName();
+
+    private bool IsOllamaConfigured() => string.Equals(_options.Value.Local.Runtime, LocalOptions.Ollama, StringComparison.Ordinal);
 
     // The model IDs a run of the tier calls: the tier model and every per-agent model, each once, blank entries ignored like TierOptions.ResolveModelId ignores them.
     private static string[] ConfiguredIds(TierOptions tier, string name)

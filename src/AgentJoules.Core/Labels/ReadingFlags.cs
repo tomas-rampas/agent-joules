@@ -36,6 +36,9 @@ public enum ReadingFlags
 
     /// <summary>The step produced more output tokens than the output limit of its task (a step-level qualifier; an energy reading never carries it).</summary>
     MaxTokensExceeded = 128,
+
+    /// <summary>The step finished <c>ok</c> with output whose SHA-256 equals that of an earlier step of the same task and repeat, that is of the same workflow run (a step-level qualifier set by the run assembler; an energy reading never carries it).</summary>
+    DuplicateOutput = 256,
 }
 
 /// <summary>Maps <see cref="ReadingFlags"/> to the vocabulary strings of the results file and back.</summary>
@@ -52,6 +55,7 @@ public static class ReadingFlagNames
         (ReadingFlags.Throttled, "throttled"),
         (ReadingFlags.PartialOffload, "partial-offload"),
         (ReadingFlags.MaxTokensExceeded, "max-tokens-exceeded"),
+        (ReadingFlags.DuplicateOutput, "duplicate-output"),
     ];
 
     // Every bit the table names; a bit outside it is a caller error, not something to drop silently.

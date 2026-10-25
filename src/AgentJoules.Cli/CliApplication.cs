@@ -149,6 +149,7 @@ public static class CliApplication
         root.Add(throwOnWorker);
         root.Add(ProbeCommand.Create(host));
         root.Add(RunCommand.Create(host));
+        root.Add(CalibrateCommand.Create(host));
         root.Add(DashboardCommand.Create(host));
         root.Add(ValidateCommand.Create(host));
         root.Add(ReportCommand.Create(host));

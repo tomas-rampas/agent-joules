@@ -39,8 +39,11 @@ Not a section 12 step but a user action: the laptop is on mains power with other
 
 ## Stories
 
+Note (2026-10-24, M4 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-nnn-<slug>.feature; the file names in the story tables (for example EndpointsValidation.feature) map to that form.
+
 ### AJ-100: Validate configured model IDs against docs/endpoints.md
 Covers: REQ-018
+Note (2026-10-24, AJ-100): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-100-endpoints-validation.feature (the table's EndpointsValidation.feature); pins applied: ConfigModelValidator.Validate is static; problem lines are exact (`Missing in section ## <tier>: <id>`, `Verified date missing in section ## <tier>`, `Section ## <tier> missing`); a disabled tier needs its heading only; the judge ID is looked up in the Judge:Tier section; comparison is ordinal; a positional path with `--config` exits 2; a missing document exits 2 naming Paths:Endpoints; the skeleton's cloudgpu section carries the line `Status: pending (verified in M5, AJ-126)`. Gate fixes (2026-10-24, gatekeeper m-1, m-5 and security L-1): problem lines are deduplicated on the raw tier and id pair and echo the id up to 256 characters; a malformed `Verified:` value prints a second line `Verified date malformed in section ## <tier>: <text>` after the pinned missing line; the endpoints document is read bounded (1 MiB, seekable, strict UTF-8, one leading BOM stripped) and a document that cannot be read exits 2 naming Paths:Endpoints.
 User story: As a reviewer of the repository, I want `AJ validate --config` to compare every configured model ID with the recorded endpoint listing, so that no model ID enters a run without a verification record.
 Acceptance criteria:
 1. `AJ validate --config` exits 0 and prints `Validated <n> model IDs` when every `Tiers:<t>:ModelId`, every `Tiers:<t>:AgentModelIds` value and `Judge:ModelId` appears as a line `- model: <id>` in the matching section of `docs/endpoints.md`; the judge ID is looked up in the section of `Judge:Tier`.
@@ -105,14 +108,15 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/EndpointsValidation.feature; unit class ConfigValidationTests (technical-design 6.1), every test with `[Trait("Spec","REQ-018")]`.
 Docs impact: docs/endpoints.md (skeleton with `## local`, `## cloudgpu`, `## nvidia`, `## nebius`, the `Verified: YYYY-MM-DD` line and the `- model: <id>` line format); README CLI reference row for `validate --config` (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `dotnet test --filter "Spec=REQ-018"` shows at least one passed and no failed test
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `dotnet test --filter "Spec=REQ-018"` shows at least one passed and no failed test
 Demo relevance: no (guard rail; the video does not show it).
 Conflict: REQ-018 acceptance requires `Verified: 2026-10-17` or later in the `## cloudgpu` section, but the cloudgpu endpoint exists only on the VM in M5. Proposed resolution: M4 commits the `## cloudgpu` heading with the line `Status: pending (verified in M5, AJ-126)` and the validator requires `Verified:` only for enabled tiers (criterion 4); AJ-126 adds the `Verified:` line and the model line, which closes the REQ-018 acceptance for that section.
 
 ### AJ-101: Record the nvidia and nebius endpoint verification in docs/endpoints.md
 Covers: REQ-018
+Note (2026-10-24, AJ-101): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-101-hosted-endpoint-record.feature (the table's HostedEndpointRecord.feature); the nebius box ran 17:15:52Z to 17:21:18Z (not exceeded); the first nebius attempt at 17:15:52Z returned 401 with a stale key copy, and the 17:21:07Z probe returned 200; the nvidia and nebius sections were written from the live listings of 2026-10-24; nebius chose nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B by the smallest-Nemotron-3 rule because the omni-reasoning id is not listed there; the local section records the NIM listing of the AJ-103 attempt (decision `Local runtime: nim` at 17:51:29Z) with the Ollama listing as the fallback record, and the local tier configuration (BaseUrl, ModelId, Precision BF16) points at the NIM so that `validate --config` and the local dry-run can pass, with AJ-107 completing the local record.
 User story: As a reader of the results, I want the hosted endpoints and model IDs verified by a live call and recorded with date and command, so that every model ID in the configuration is a verified fact and not a remembered one.
 Acceptance criteria:
 1. The `## nvidia` section of `docs/endpoints.md` holds the base URL from `Tiers:nvidia:BaseUrl`, `Verified: <UTC date>` (2026-10-17 or later), the exact command used with the key shown as `Bearer ****`, every Nemotron and Qwen ID returned by `GET {BaseUrl}/models` as `- model: <id>` lines, a line `Total models returned: <n>` stating the truncation of other entries, and `Chosen:` lines for the Planner, Researcher, Writer and Reviewer agents and for the judge.
@@ -173,13 +177,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/HostedEndpointRecord.feature; AJ-100 `ConfigValidationTests` for the document format; gated test class HostedEndpointListingTests (design 6.3).
 Docs impact: docs/endpoints.md (`## nvidia`, `## nebius`), docs/build-log.md (Nebius base-URL confirmation, box times), config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] both sections carry `Verified: <date>` and the `AJ validate --config` exit code 0 is recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] both sections carry `Verified: <date>` and the `AJ validate --config` exit code 0 is recorded in docs/build-log.md
 Demo relevance: no (the README quotes the model IDs recorded here).
 
 ### AJ-102: Enforce the NIM attempt document contract and the 90-minute box
 Covers: REQ-019, EDGE-010
+Note (2026-10-24, AJ-102): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-102-nim-attempt-contract.feature (the table's NimAttemptContract.feature); parser and rules in tests/AgentJoules.TestSupport/Docs (NimAttemptDocument, NimAttemptDocumentParser, NimAttemptRules, NimAttemptDraft, NimAttemptDocumentFactAttribute); 78 cases in NimAttemptDocumentTests after the gate rounds (31 methods and 41 cases at hand-over); the committed-file test passes on docs/nim-local-attempt.md and skips with "docs/nim-local-attempt.md does not exist yet (AJ-103)" when the file is absent (measured by moving the file aside and restoring it); the Local:Runtime setting (LocalOptions, default ollama, values ollama or nim, CrossFieldValidator) added here for AJ-103-T5; rule g (a docker logout line) added beyond the story's three rules.
 User story: As a reviewer, I want a test that rejects `docs/nim-local-attempt.md` when a heading, a time or a secret rule is violated, so that the time-boxed attempt is documented honestly whichever way it ends.
 Acceptance criteria:
 1. A parser test reads the document and requires the headings `Commands`, `Image`, `Outcome` and `Decision`, a line `Started: <ISO 8601 UTC>`, a line `Ended: <ISO 8601 UTC>` and, in `Decision`, a line `Local runtime: nim` or `Local runtime: ollama`.
@@ -237,13 +242,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/NimAttemptContract.feature; unit class NimAttemptDocumentTests with `[Trait("Spec","REQ-019")]` and `[Trait("Spec","EDGE-010")]`.
 Docs impact: docs/build-log.md (contract: headings, `Started:`, `Ended:`, `Box exceeded:`, `Local runtime:` lines).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the contract test is skipped with a clear message while `docs/nim-local-attempt.md` does not exist, and runs against the committed file after AJ-103
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the contract test is skipped with a clear message while `docs/nim-local-attempt.md` does not exist, and runs against the committed file after AJ-103
 Demo relevance: no.
 
 ### AJ-103: Run the NIM-local attempt within 90 minutes and document the outcome
 Covers: REQ-019, EDGE-010
+Note (2026-10-24, AJ-103): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-103-nim-local-attempt.feature (the table's NimLocalAttempt.feature; gate-closed scenarios record a note and pass; with the gate open the success scenario asserts the committed document and the five conditional scenarios record that their precondition does not hold) and the gated NimLocalEndpointTests with a NimDecisionIntegrationFact that skips when the decision is ollama; the attempt ran 17:19:23Z to 17:51:29Z (32 min 6 s) and succeeded: image nvcr.io/nim/nvidia/llama3.1-nemotron-nano-4b-v1.1:1.8.5 (no Nemotron 3 Nano 4B NIM exists in the catalog), four container starts (the default TensorRT-LLM engine build OOM-killed at the 7.756 GiB container memory limit; the vLLM BF16 profile needed NIM_MAX_MODEL_LEN 16384), GET /v1/models 200 with nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1; decision Local runtime: nim; the container agent-joules-nim stays running for the campaign; config Local:Runtime nim and the local tier values set; README section written; the Ollama fallback not used.
 User story: As the author who promises an honest README, I want a hard 90-minute attempt to serve a Nemotron model from a NIM container on the laptop, so that the local runtime is chosen on evidence and the README reports the attempt whichever way it ends.
 Acceptance criteria:
 1. The attempt starts at the first NGC catalog search and ends at the first successful `GET /v1/models` response on the container or at the 90-minute stop, whichever comes first; the document records `Started:` and `Ended:` in UTC.
@@ -305,13 +311,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/NimLocalAttempt.feature; AJ-102 NimAttemptDocumentTests on the committed file; gated class NimLocalEndpointTests (design 6.3).
 Docs impact: docs/nim-local-attempt.md (new), README.md (section "Local runtime: NIM attempt" with the link; the results block stays generated), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `docs/nim-local-attempt.md` committed with the four headings; Ended minus Started at most 90 minutes or `Box exceeded:` present
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `docs/nim-local-attempt.md` committed with the four headings; Ended minus Started at most 90 minutes or `Box exceeded:` present
 Demo relevance: yes: the video and README state which local runtime produced the numbers and link the attempt document.
 
 ### AJ-104: Report Ollama failures with the exact fix command
 Covers: EDGE-009
+Note (2026-10-24, AJ-104): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-104-ollama-failures.feature (the table's OllamaFailures.feature); the availability check is GET /api/version on the native base (the configured BaseUrl without /v1) and the message names that base; the pull hint ends the ModelNotFoundException message as "; fix: ollama pull <tag>" per missing tag; the story also carries user decisions 3 and 4 (a provider error outcome for an in-stream error chunk, 503 and 500 ResourceExhausted retried, the judge warning with status and reason) and the duplicate-output step flag scoped to one task and repeat (docs/build-log.md, the AJ-104 entry); built in a detached worktree and applied onto milestone/M4. Live check (2026-10-25, AJ-107): both messages confirmed live (exit 5 names "ollama serve" on a closed loopback port that stands in for a stopped Ollama; against Ollama 0.40.10 exit 4 names "fix: ollama pull nemotron-3-nano:99b" on an unpulled tag).
 User story: As a developer running the local tier, I want a clear message when Ollama is not running or the model is not pulled, so that I can fix the problem with one command.
 Acceptance criteria:
 1. With the Ollama endpoint refusing connections, `AJ run --tier local --dry-run` exits 5 and the output contains the configured endpoint and the text `ollama serve`.
@@ -370,13 +377,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/OllamaFailures.feature; unit class LocalRuntimeTests (design 6.1) with `[Trait("Spec","EDGE-009")]`.
 Docs impact: docs/build-log.md (messages); README troubleshooting and exit-code rows 4 and 5 (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] both messages checked against the live check in AJ-107
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] both messages checked against the live check in AJ-107
 Demo relevance: no.
 
 ### AJ-105: Disclose the local runtime, tag, offload and precision in every local run
 Covers: REQ-020
+Note (2026-10-24, AJ-105): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-105-local-runtime-disclosure.feature (the table's LocalRuntimeDisclosure.feature); the offload is size_vram over size from GET /api/ps per configured tag (minimum over the tags, capped at 99.9 below full), the precision from POST /api/show (a runtime decides its own precision; the configuration fallback applies only without a named runtime), the NIM version from GET /v1/version with precision from Tiers:local:Precision (must be set when Local:Runtime is nim); a missing tag, a zero or missing size, a missing size_vram or an unreadable /api/ps body exits 6 before the baseline (a size_vram of 0 gives offload 0 with the flag); the partial-offload run flag and the header sub-lines; built in a detached worktree and applied onto milestone/M4. Gate readings (2026-10-25): criterion 1 is read for completed or partial files (a run interrupted before the description names the runtime and carries null offload and precision, never a guess; such a file is never selected as the latest); the orchestrator describes the local runtime only for the local tier (a cloudgpu run keeps its configured precision until M5); the loaded-entry fields of /api/ps (name, model, size, size_vram) come from the documented shape and are observed live by AJ-106 and AJ-107.
 User story: As a reader of the local numbers, I want each local run file to name the runtime, the exact tag, the GPU offload percentage and the precision, so that a partly CPU-bound run is never presented as a full-GPU run.
 Acceptance criteria:
 1. A local run file without `non-publishable` in `run.flags` has `environment.localRuntime` in {`nim`, `ollama`}, `environment.runtimeVersion`, `models[].modelId` equal to the exact tag, and a numeric `environment.gpuOffloadPercent`.
@@ -438,13 +446,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/LocalRuntimeDisclosure.feature; unit class LocalRuntimeTests with `[Trait("Spec","REQ-020")]`.
 Docs impact: docs/build-log.md (Ollama `/api/ps`, `/api/show` fields as verified); README sentence about the local runtime is written in AJ-115.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] a missing offload value is never written as 0 (`SchemaValidationTests` still green)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] a missing offload value is never written as 0 (`SchemaValidationTests` still green)
 Demo relevance: yes: the report header shows runtime, tag and offload next to the local joules.
 
 ### AJ-106: Order warm-up, idle baseline and repeats in local runs
 Covers: REQ-021
+Note (2026-10-24, AJ-106): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-106-warmup-baseline-repeat.feature (the table's WarmupBaselineRepeat.feature); the recorded order is probe, meter-start, warm-up, baseline, task calls (OperationRecorder); the Ollama warm-up is POST /api/generate with keep_alive 30m, the NIM warm-up one short chat completion through the plain client; the power source comes from IPowerSourceDetector (GetSystemPowerStatus on Windows, /sys/class/power_supply on Linux, unknown in the harness) and is recorded for every tier; a baseline below 30 s warns once and flags non-publishable; built in a detached worktree and applied onto milestone/M4. Gate readings (2026-10-25): criterion 6 is structural after the fix round (ApplyIsolation registers UnknownPowerSourceDetector under non-null CliHostOverrides; the harness fake overrides it); the Linux reader's decision order is amended (Device-scope supplies skipped; an unreadable Mains state, a USB-type source without Mains or Mains offline alone give unknown); a non-2xx warm-up answer exits 5 with `the warm-up of <tag> failed with HTTP <status> at <base>` while refused connections and timeouts keep the serve or container text; the NIM warm-up carries a configured local key like the models request; T7 (the keep-alive advice and risk R-06) sits in the build-log entry and the README sentence lands with the M6 quick start; on the real clock baseline.seconds is the measured window (30.004 to 30.016 s), so AJ-114 and AJ-115 read the non-publishable flag beside the seconds; the cloudgpu warm-up is AJ-127's.
 User story: As a reader of the local numbers, I want every local run to warm the model up, measure the idle baseline with the model resident and repeat each task, so that load time is excluded and run-to-run spread is visible.
 Acceptance criteria:
 1. In a local run the recorded call order is: probe, meter start, one unmetered warm-up call (Ollama `POST /api/generate` with `keep_alive` of `30m`, NIM one short chat completion), baseline window, then task calls; the warm-up produces no step reading and no judge reading.
@@ -523,15 +532,17 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Workflow/WarmupBaselineRepeat.feature; unit classes LocalRuntimeTests and AttributionBaselineTests (REQ-023 list) with `[Trait("Spec","REQ-021")]`.
 Docs impact: docs/build-log.md (call order, `OLLAMA_KEEP_ALIVE=30m` advice for the README quick start, risk R-06).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] warm-up traffic is absent from `steps`, `judge` and `totals` in a fixture run file
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] warm-up traffic is absent from `steps`, `judge` and `totals` in a fixture run file
 Demo relevance: no.
 Resolved: the prompt defines the run flag `non-publishable` for a baseline below 30 s; the option stays free for tests, the warning and the flag come from criterion 4, the run file is never "latest", and publishability is double-checked where evidence is committed, by AJ-114 (`baseline.seconds >= 30` checked with jq) and AJ-115 (`CommittedEvidenceTests`).
 
 ### AJ-107: Select and record the local model in docs/endpoints.md
 Covers: REQ-018, REQ-020, EDGE-009, REQ-012
 Note (2026-10-21, M2 exit): REQ-012 added because criterion 5 is the live `run --tier local --dry-run` exit 0 that REQ-012 and the M2 exit carry to M4 (M2 full spec pass, remark 3), so the trait is not lost.
+Note (2026-10-24, AJ-107-T1): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-107-local-model-record.feature (the table's LocalModelRecord.feature) with LocalModelRecordSteps and the gated LocalModelListingTests delivered with AJ-106; the decision is nim, so criteria 1, 2 and the Qwen entry of 3 do not apply and the local section holds the NIM listing; the live checks of criteria 4 and 5 and the record are the orchestrator's (see the AJ-107 entry when written).
+Note (2026-10-25, AJ-107): live record done by the orchestrator: criteria 4 and 5 measured (exit 5 with "ollama serve" on a closed port, exit 4 with "ollama pull nemotron-3-nano:99b" on an unpulled tag, validate --config and the NIM dry run exit 0); the process-environment override needs the AgentJoules__ root; criteria 1, 2 and the Qwen entry do not apply under the nim decision; the fallback facts (Ollama 0.40.10 reports streaming usage, ignores max_completion_tokens, renews the keep-alive on /v1 calls) are in docs/endpoints.md.
 User story: As a reader of the local numbers, I want the local model verified on this machine and recorded with its tag, size and processor split, so that the published local tier names a model that was actually served.
 Acceptance criteria:
 1. When the AJ-103 decision is `ollama`: `ollama pull nemotron-3-nano:30b` succeeds (or the failure is recorded), `ollama list`, `ollama show nemotron-3-nano:30b` and `ollama ps` after a warm-up are recorded in the `## local` section with the quantization, the size and the processor split written as `<measured>` copies; the Ollama library page is checked for smaller Nemotron tags and the result is recorded.
@@ -590,13 +601,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature; AJ-104 LocalRuntimeTests for the messages (created in AJ-107-T1 when AJ-104 was cut); gated class LocalModelListingTests (design 6.3).
 Docs impact: docs/endpoints.md (`## local`), docs/build-log.md (model choice and reason, live EDGE-009 output), config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ validate --config` exit 0 recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ validate --config` exit 0 recorded in docs/build-log.md
 Demo relevance: no (the report header quotes the tag).
 
 ### AJ-108: Verify streaming usage and the reasoning toggle per tier
 Covers: REQ-018
+Note (2026-10-24, AJ-108): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-108-streaming-usage-and-reasoning.feature (the table's StreamingUsageAndReasoning.feature); the verified toggles are the body field chat_template_kwargs enable_thinking false on nvidia and nebius and the system prompt "detailed thinking off" on the NIM; the nvidia /no_think prefix of the M3 exit was replaced; streaming usage is reported by the NIM, by nebius and by nvidia (the nvidia streams of 2026-10-24 all returned the ResourceExhausted chunk; the retry of 2026-10-25 02:28Z reported prompt 23 and completion 43); the ADR-09 decision: no buffered fallback while the runtime is the NIM; built in a detached worktree and applied onto milestone/M4; the live metered calls of 2026-10-25 (criterion 5) found two local defects, fixed before the commit: the NIM answers a JSON content type with a charset parameter with HTTP 415 (AJ-106's JsonContent now sends bare application/json) and rejects max_completion_tokens with HTTP 400 (Tiers:local:MaxTokensField max_tokens); the local run then completed with every token count measured, the baseline-unstable flag (CV 0.52) and the throttled flag on all 12 steps.
 User story: As a reader of the results, I want the streaming usage behaviour and the reasoning mode verified and recorded for every tier, so that tokens and the thinking setting in the tables are facts and not assumptions.
 Acceptance criteria:
 1. For each of `local`, `nvidia` and `nebius`, `docs/endpoints.md` records one streaming call made with `stream_options.include_usage`: the line `Streaming usage: reported` or `Streaming usage: not-reported`, and the input and output token counts as `<measured>` copies when reported.
@@ -656,13 +668,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/StreamingUsageAndReasoning.feature; MeteredChatClientTests (REQ-023 list) for the no-usage label path; gated class StreamingUsageTests (design 6.3).
 Docs impact: docs/endpoints.md (per-tier lines `Streaming usage:`, `Reasoning toggle:`, `Reasoning result:`), docs/build-log.md, config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ run --tier all --dry-run` exit code 0 recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ run --tier all --dry-run` exit code 0 recorded in docs/build-log.md
 Demo relevance: no (the report header shows the reasoning mode per tier).
 
 ### AJ-109: Compute the counter versus sampling calibration
 Covers: REQ-021, REQ-014
+Note (2026-10-24, AJ-109): feature file tests/AgentJoules.Specs/Features/Cli/AJ-109-calibration.feature (the table's Calibration.feature); one window measured by the energy counter and by power sampling at once while the task workflow repeats through an unmetered pipeline; after the gate fix round the scenario and the unit test assert the story's 100 J, 98 J and 0.02 within 1e-9 through a WattsAt schedule (1.634 W on every third 0.1 s slot, 1.633 W otherwise, CounterScale 100/98); the counter reason carries a single counter-not-supported prefix; windowSeconds added to the file; built in a detached worktree and applied onto milestone/M4.
 User story: As a reader who doubts the energy figures, I want `AJ calibrate` to measure one workload window with both methods and publish both totals and their relative difference, so that the agreement or disagreement of the two methods is a published fact.
 Acceptance criteria:
 1. `AJ calibrate [--task <name>] [--seconds <n>]` (defaults: the first task in file order, 60) runs a warm-up, then one window during which the task workflow repeats until `--seconds` have elapsed, and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -729,13 +742,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/Calibration.feature; unit classes CalibrationTests and SchemaValidationTests (REQ-023 list) with `[Trait("Spec","REQ-021")]`.
 Docs impact: docs/results-schema.json (`$defs/calibration`), docs/build-log.md; README CLI reference row for `calibrate` (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `CommittedSchemaMatchesGenerated` still green after the schema change
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `CommittedSchemaMatchesGenerated` still green after the schema change
 Demo relevance: yes: the calibration result backs the claim that the counter and sampling agree (or by how much they differ).
 
 ### AJ-110: Run the preflight for the laptop measurement campaign
 Covers: REQ-021, REQ-017
+Note (2026-10-25, AJ-110): feature file tests/AgentJoules.Specs/Features/Cli/AJ-110-campaign-preflight.feature (the table's CampaignPreflight.feature); the preflight ran on 2026-10-25 (probe saved, dry-run exit 0, mains power, the compute-app listing recorded); the rule sentences the open-gate scenarios read are in the build-log entry. Gate reading (2026-10-25): the compute-app listing is recorded verbatim in the entry; Windows shell and NVIDIA app companion processes are not counted as the user's GPU applications (always present, part of the idle baseline); a listed GPU application is recorded and the user is asked to close it before the campaign; T2 was not put to the user during the session and is surfaced in the session report.
 Note (2026-10-21, M2 exit): REQ-017 added because criterion 2 is the live `AJ run --tier all --dry-run` exit 0 on the laptop that the REQ-017 acceptance names and the M2 exit carries to M4 (M2 full spec pass, remark 3), so the trait is not lost.
 User story: As the author, I want a fixed preflight (probe, dry-run, power and load conditions) committed before any measurement run, so that every published number comes from a known machine state.
 Acceptance criteria:
@@ -796,13 +810,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CampaignPreflight.feature; ProbeCommandTests (design 6.1) for the file shape; gated class LaptopProbeTests (design 6.3).
 Docs impact: docs/build-log.md (preflight conditions), results/probe-<yyyyMMddTHHmmssZ>.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the committed probe file validates against `$defs/probe` (`SchemaValidationTests`)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the committed probe file validates against `$defs/probe` (`SchemaValidationTests`)
 Demo relevance: yes: `AJ probe` on the laptop GPU is the first shot of the video.
 
 ### AJ-111: Run the calibration on the laptop and commit the file
 Covers: REQ-021
+Note (2026-10-25, AJ-111): feature file tests/AgentJoules.Specs/Features/Cli/AJ-111-calibration-live.feature (the table's CalibrationLive.feature); the calibration ran on the NIM (the configured local runtime); the file name is recorded in the build-log entry and quoted in docs/methodology.md.
 User story: As the author, I want one calibration run on the laptop committed with the results, so that the methodology document can quote the measured agreement of the two methods.
 Acceptance criteria:
 1. After AJ-110, `AJ calibrate --seconds 60` exits 0 on the laptop with the local runtime up and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -851,13 +866,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/CalibrationLive.feature; SchemaValidationTests (REQ-023 list) for the file shape; gated class CalibrationLiveTests (design 6.3).
 Docs impact: docs/build-log.md (command, exit code, file name); the methodology quote is written in AJ-112.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the file name is recorded for AJ-112
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the file name is recorded for AJ-112
 Demo relevance: yes: the README states the relative difference and the file name.
 
 ### AJ-112: Write the methodology document with a contract test
 Covers: REQ-022
+Note (2026-10-25, AJ-112): feature file tests/AgentJoules.Specs/Features/Reporting/AJ-112-methodology-contract.feature (the table's MethodologyContract.feature); docs/methodology.md did not exist before, so the merge rule had nothing to merge; the three REQ-032 sentences are in Limitations; the contract test runs over the committed document and the committed calibration file.
 User story: As a skeptical reader, I want a methodology document that states what is measured, how and with which limits, so that no energy figure is read as more than it is.
 Acceptance criteria:
 1. Merge rule: M3 stories may already have written sentences into `docs/methodology.md`; this story creates the headings by merging, keeps every existing sentence verbatim (placed under the heading it belongs to, or under `Limitations` when none fits), and never overwrites the file; the contract test compares the pre-existing sentences with the result.
@@ -912,7 +928,8 @@ Feature: Write the methodology document with a contract test
     Given docs/methodology.md already holds a sentence written by an M3 story under no required heading
     When the headings are created by merging into the existing document
     Then the sentence is still present verbatim in the document
-    And the five required headings exist```
+    And the five required headings exist
+```
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
@@ -925,9 +942,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/MethodologyContract.feature; unit class MethodologyDocumentTests with `[Trait("Spec","REQ-022")]`.
 Docs impact: docs/methodology.md (new), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every number in the document is copied from a named committed file; none is typed from memory
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every number in the document is copied from a named committed file; none is typed from memory
 Demo relevance: no (the README and article link it).
 
 ### AJ-113: Mark non-Nemotron local runs as baseline
@@ -993,6 +1010,7 @@ Demo relevance: no.
 
 ### AJ-114: Run the laptop measurement campaign for local, nvidia and nebius
 Covers: REQ-018, REQ-020, REQ-021
+Note (2026-10-25, AJ-114): the campaign ran on 2026-10-25 13:17:59Z to 13:57:50Z (the probe, the all-tier run of 13:19Z that completed the local tier and failed nvidia, the nebius re-run of 13:34Z and the nvidia re-run of 13:51Z) on the committed code 4f479c2 with the user's decision to keep their other GPU applications open, recorded in the build-log entry; the committed files are listed there; AJ-115 gates the committed evidence. Gate reading (2026-10-25): the all-tier run stops at a failed tier, so a tier not reached after the failure (nebius) is re-run alone like the failing tier; the three committed files therefore come from three commands, recorded in the entry; a committed run file with status failed fails the ungated theory after the gate fix.
 User story: As the author, I want one committed run file each for `local`, `nvidia` and `nebius` produced by a fixed command sequence, so that every published laptop and hosted number traces to a file that validates.
 Acceptance criteria:
 1. Start state: `git status --porcelain` prints nothing, `dotnet build -warnaserror -tl:off` exits 0, the AJ-110 preflight conditions hold, and the AJ-111 calibration file is committed.
@@ -1064,13 +1082,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/LaptopCampaign.feature; SchemaValidationTests (REQ-023 list) for the file shapes; gated class LaptopCampaignTests (design 6.3).
 Docs impact: docs/build-log.md (commands, exit codes, `Validated <n> files`, incidents), results/ (three run files and the probe).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ validate results/` exit code 0 and the `Validated <n> files` line are recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ validate results/` exit code 0 and the `Validated <n> files` line are recorded in docs/build-log.md
 Demo relevance: yes: the report, README block and posts quote exactly these files.
 
 ### AJ-115: Gate the committed local evidence and the README runtime statements
 Covers: REQ-020, REQ-021, EDGE-010
+Note (2026-10-25, AJ-115): feature file tests/AgentJoules.Specs/Features/Reporting/AJ-115-committed-evidence.feature (the table names CommittedEvidence.feature); the evidence tests read the latest committed local run file results/20261025T131930Z-local.json, the committed calibration file and the README sentence; EDGE-010's ollama branch is hermetic under the nim decision.
 User story: As a reviewer, I want a test suite that checks the committed laptop evidence and the README statements against each other, so that a missing runtime disclosure, a short baseline or a missing NIM link fails the build.
 Acceptance criteria:
 1. Tests in `CommittedEvidenceTests` read the latest `local` run file (via `RunFileSelector`) and require: `environment.localRuntime` in {nim, ollama}; the model tag present in the `## local` section of `docs/endpoints.md`; a numeric `gpuOffloadPercent`, with `partial-offload` in `run.flags` when it is below 100; `baseline.seconds` of at least 30; `run.repeat` of at least 3; a numeric `environment.modelLoadSeconds`; `environment.powerSource` in {ac, battery, unknown}.
@@ -1136,8 +1155,8 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Reporting/CommittedEvidence.feature; unit class CommittedEvidenceTests with `[Trait("Spec","REQ-020")]`, `[Trait("Spec","REQ-021")]` and `[Trait("Spec","EDGE-010")]`.
 Docs impact: README.md (sentence `Local numbers were produced with <runtime> running <tag>.`), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
 - [ ] M5 may start only after this story is committed (local Definition of Done items)
 Demo relevance: no.
 

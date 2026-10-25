@@ -5,6 +5,7 @@
     <ProjectReference Include="../../src/AgentJoules.Nvml/AgentJoules.Nvml.csproj" />
     <ProjectReference Include="../../src/AgentJoules.Metering/AgentJoules.Metering.csproj" />
     <ProjectReference Include="../../src/AgentJoules.Workflow/AgentJoules.Workflow.csproj" />
+    <ProjectReference Include="../../src/AgentJoules.Reporting/AgentJoules.Reporting.csproj" />
     <ProjectReference Include="../AgentJoules.TestSupport/AgentJoules.TestSupport.csproj" />
   </ItemGroup>
 

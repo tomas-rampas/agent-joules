@@ -445,7 +445,7 @@ public sealed partial class DryRunTests
             RecordedRequest keyless = Assert.Single(local.Requests);
             Assert.False(keyless.HasBearerToken);
             Assert.Null(keyless.AuthorizationScheme);
-            Assert.Equal("http://localhost:11434/v1/models", keyless.Uri.AbsoluteUri);
+            Assert.Equal(Shipped.Tiers["local"].BaseUrl + "/models", keyless.Uri.AbsoluteUri);
             Assert.Equal(["local-a", "local-b"], localIds.DisplayIds);
         }
 
@@ -730,7 +730,7 @@ public sealed partial class DryRunTests
             Assert.Equal("Bearer", keyed.Headers.Authorization?.Scheme);
             Assert.True(string.Equals(Key(), keyed.Headers.Authorization?.Parameter, StringComparison.Ordinal), "the bearer parameter is not the configured key");
             Assert.Equal(HttpMethod.Get, keyless.Method);
-            Assert.Equal("http://localhost:11434/v1/models", keyless.RequestUri!.AbsoluteUri);
+            Assert.Equal(Shipped.Tiers["local"].BaseUrl + "/models", keyless.RequestUri!.AbsoluteUri);
             Assert.Null(keyless.Headers.Authorization);
 
             using PreflightHost noKey = PreflightFixtures.Build(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath()));

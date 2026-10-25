@@ -473,7 +473,7 @@ public sealed class SchemaValidationTests
         2 => ("USD", Metric.Estimated(1.0, "EUR")),
         3 => ("USD", Metric.EstimatedQuantity(1.0, "gCO2e")),
         4 => ("USD", Metric.Estimated(-0.01, "USD")),
-        5 => ("USD", Metric.ModelJudgedCost(1.0, "USD")),
+        5 => ("USD", JsonSerializer.Deserialize<Metric>("""{"value":1,"label":"model-judged","currency":"USD"}""")!),
         6 => ("USD", Metric.NotReported("missing-step-costs")),
         7 => (" ", Metric.NotApplicable("missing-step-costs")),
         8 => ("usd", Metric.Estimated(1.0, "USD")),
@@ -943,6 +943,43 @@ public sealed class SchemaValidationTests
             Environment.GetEnvironmentVariable("CI"));
     }
 
+    [Fact]
+    [Trait("Spec", "REQ-021")]
+    public void The_schema_defines_the_calibration_document_and_the_committed_file_holds_the_same_definition()
+    {
+        string[] members =
+        [
+            "task", "seconds", "windowSeconds", "sampleCount", "sampleRateHz", "repeats", "startUtc", "endUtc", "toolVersion", "gitCommit", "counterJoules", "samplingJoules", "relativeDifference", "probe", "environment",
+        ];
+        JsonNode generated = GeneratedSchema();
+        JsonNode committed = JsonNode.Parse(File.ReadAllText(CommittedSchemaPath()))!;
+
+        foreach (JsonNode schema in new[] { generated, committed })
+        {
+            JsonNode calibration = At(schema, "$defs.calibration");
+            Assert.Equal("object", calibration["type"]!.GetValue<string>());
+            Assert.False(calibration["additionalProperties"]!.GetValue<bool>());
+            Assert.Equal(members, Strings(calibration["required"]));
+            string[] declared = [.. calibration["properties"]!.AsObject().Select(static pair => pair.Key)];
+            Assert.Equal(members, declared);
+            foreach (string metric in new[] { "counterJoules", "samplingJoules", "relativeDifference" })
+            {
+                Assert.Equal("#/$defs/metricMeasured", At(calibration, "properties." + metric)["$ref"]!.GetValue<string>());
+            }
+
+            Assert.Equal(1, At(calibration, "properties.seconds")["minimum"]!.GetValue<int>());
+            Assert.Equal(1, At(calibration, "properties.repeats")["minimum"]!.GetValue<int>());
+            Assert.Equal("#/$defs/probe", At(calibration, "properties.probe.allOf.0")["$ref"]!.GetValue<string>());
+            Assert.True(At(calibration, "properties.probe.allOf.1.properties.gpuPresent")["const"]!.GetValue<bool>());
+            Assert.Equal(100, At(calibration, "properties.environment.properties.gpuOffloadPercent")["maximum"]!.GetValue<int>());
+        }
+
+        Assert.True(JsonNode.DeepEquals(At(generated, "$defs.calibration"), At(committed, "$defs.calibration")));
+
+        // The run file's own definition does not change: the calibration definition is an addition to the defs, not to the root.
+        Assert.Null(committed["properties"]!["counterJoules"]);
+    }
+
     // The drift check and its update path. An update run (the variable is "1") never ends green, so a variable left set in a profile cannot turn the gate into a self-heal that passes on every run, and it
     // never writes in a CI run (the CI variable is set and not empty). The values are parameters so that a test can drive every combination without touching the environment of the process.
     private static void CheckOrUpdateSchema(string schemaPath, string generated, string? updateValue, string? ci)
@@ -1208,19 +1245,19 @@ public sealed class SchemaValidationTests
     }
 
     [Fact]
-    public void Currency_alone_on_model_judged_is_valid()
+    public void Cost_per_quality_point_as_an_estimate_in_a_currency_is_valid()
     {
         JsonNode tree = Tree(Fixture());
-        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"model-judged","currency":"EUR"}""");
+        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"estimated","currency":"EUR"}""");
 
         AssertValid(tree);
     }
 
     [Fact]
-    public void Unit_and_currency_on_model_judged_is_invalid()
+    public void Unit_and_currency_on_cost_per_quality_point_is_invalid()
     {
         JsonNode tree = Tree(Fixture());
-        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"model-judged","unit":"point","currency":"EUR"}""");
+        Put(tree, "steps.0.costPerQualityPoint", """{"value":1.5,"label":"estimated","unit":"point","currency":"EUR"}""");
 
         AssertInvalidAt(tree, "/steps/0/costPerQualityPoint");
     }
@@ -1232,15 +1269,28 @@ public sealed class SchemaValidationTests
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":15,"label":"model-judged","currency":"USD"}""")]
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":15,"label":"model-judged","unit":"J"}""")]
     [InlineData("steps.0.joulesPerQualityPoint", """{"value":-1,"label":"model-judged"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":0.005,"label":"model-judged"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":-0.005,"label":"model-judged","currency":"USD"}""")]
-    [InlineData("steps.0.costPerQualityPoint", """{"value":0.005,"label":"measured","currency":"USD"}""")]
     public void Model_judged_members_refuse_the_wrong_qualifiers_labels_and_ranges(string path, string json)
     {
         JsonNode tree = Tree(Fixture());
         Put(tree, path, json);
 
         AssertInvalidAt(tree, "/" + path.Replace('.', '/'));
+    }
+
+    // The cost per quality point is an estimate in a currency (user decision 9, 2026-10-24): the refinements of the step cost apply, and the model-judged label is refused.
+    [Theory]
+    [InlineData("""{"value":0.005,"label":"model-judged"}""")]
+    [InlineData("""{"value":0.005,"label":"model-judged","currency":"USD"}""")]
+    [InlineData("""{"value":0.005,"label":"estimated"}""")]
+    [InlineData("""{"value":0.005,"label":"estimated","unit":"J"}""")]
+    [InlineData("""{"value":-0.005,"label":"estimated","currency":"USD"}""")]
+    [InlineData("""{"value":0.005,"label":"measured","currency":"USD"}""")]
+    public void The_cost_per_quality_point_refuses_the_wrong_qualifiers_labels_and_ranges(string json)
+    {
+        JsonNode tree = Tree(Fixture());
+        Put(tree, "steps.0.costPerQualityPoint", json);
+
+        AssertInvalidAt(tree, "/steps/0/costPerQualityPoint");
     }
 
     [Theory]
@@ -1526,7 +1576,9 @@ public sealed class SchemaValidationTests
         }
 
         Assert.Equal(27, expected);
-        Assert.Equal(expected, CountMetricReferences(schema));
+
+        // The three totals of the calibration definition (AJ-109) are references as well; the objects above are the ones the run file reaches.
+        Assert.Equal(expected + 3, CountMetricReferences(schema));
         Assert.DoesNotContain(DefsPrefix + "metricAny", schema.ToJsonString(), StringComparison.Ordinal);
     }
 
@@ -1537,7 +1589,11 @@ public sealed class SchemaValidationTests
         JsonNode step = At(schema, "$defs.step");
 
         Assert.Equal("object", step["type"]!.GetValue<string>());
-        Assert.Equal(1, schema.ToJsonString().Split("\"task\":").Length - 1);
+
+        // The calibration definition (AJ-109) has a task member of its own; the step reading's is defined once beside it.
+        JsonNode withoutCalibration = schema.DeepClone();
+        Assert.True(withoutCalibration["$defs"]!.AsObject().Remove("calibration"));
+        Assert.Equal(1, withoutCalibration.ToJsonString().Split("\"task\":").Length - 1);
         foreach (string list in new[] { "steps", "judge" })
         {
             JsonNode items = At(schema, "properties." + list + ".items");
@@ -1601,7 +1657,8 @@ public sealed class SchemaValidationTests
     [Fact]
     public void The_mapping_names_a_known_definition_for_every_entry()
     {
-        Assert.Equal(27, MetricSchemaDefs.Mapping.Count);
+        // 27 members of the run file and the 3 totals of the calibration document (AJ-109).
+        Assert.Equal(30, MetricSchemaDefs.Mapping.Count);
         Assert.All(MetricSchemaDefs.Mapping.Values, static target => Assert.Contains(target.Def, MetricDefs));
         Assert.DoesNotContain(MetricSchemaDefs.Mapping.Values, static target => target.Def == "metricAny");
     }
@@ -1614,6 +1671,36 @@ public sealed class SchemaValidationTests
 
         AssertValid(probe, SchemaTarget.Probe);
         Assert.NotEmpty(Failures(probe, SchemaTarget.RunFile));
+    }
+
+    /// <summary>One row per committed laptop file, discovered when the tests are listed: every <c>results/probe-*.json</c> and every <c>results/calibration-*.json</c> (AJ-110, AJ-111).</summary>
+    public static TheoryData<string> CommittedLaptopFiles()
+    {
+        TheoryData<string> rows = [];
+        string folder = Path.Combine(ConfigurationFixtures.RepositoryRoot(), "results");
+        if (Directory.Exists(folder))
+        {
+            foreach (string path in Directory.EnumerateFiles(folder, "probe-*.json").Concat(Directory.EnumerateFiles(folder, "calibration-*.json")).Order(StringComparer.Ordinal))
+            {
+                rows.Add(Path.GetFileName(path));
+            }
+        }
+
+        return rows;
+    }
+
+    [Theory]
+    [MemberData(nameof(CommittedLaptopFiles))]
+    [Trait("Spec", "REQ-021")]
+    [Trait("Spec", "REQ-017")]
+    public void Every_committed_laptop_file_validates_against_its_definition(string fileName)
+    {
+        string path = Path.Combine(ConfigurationFixtures.RepositoryRoot(), "results", fileName);
+        SchemaTarget target = fileName.StartsWith("calibration-", StringComparison.Ordinal) ? SchemaTarget.Calibration : SchemaTarget.Probe;
+        JsonNode document = JsonNode.Parse(File.ReadAllText(path))!;
+
+        IReadOnlyList<SchemaFailure> failures = Failures(document, target);
+        Assert.True(failures.Count == 0, $"results/{fileName} does not validate against $defs/{(target == SchemaTarget.Calibration ? "calibration" : "probe")}: {Describe(failures)}");
     }
 
     [Fact]
@@ -1683,7 +1770,7 @@ public sealed class SchemaValidationTests
         (static tree => MetricAt(tree, "steps.0.quality")["value"] = 4.5, [("/steps/0/quality/value", "Value is \"number\" but should be \"integer\"")]),
         (static tree => Put(tree, "totals.costByCurrency.USD", """{"value":null,"label":"not-reported","reason":"x"}"""), [("/totals/costByCurrency/USD/label", EnumMessage)]),
         (static tree => MetricAt(tree, "steps.0.latencyMs")["currency"] = "USD", [("/steps/0/latencyMs", "Exactly one alternative may hold, but several do.")]),
-        (static tree => MetricAt(tree, "steps.0.costPerQualityPoint")["unit"] = "point", [("/steps/0/costPerQualityPoint", ExcludedMessage)]),
+        (static tree => MetricAt(tree, "steps.0.joulesPerQualityPoint")["unit"] = "point", [("/steps/0/joulesPerQualityPoint", ExcludedMessage)]),
         (static tree => At(tree, "steps.0").AsObject()["judgedAgent"] = RunDocumentFixtures.PlannerAgent, [("/steps/0", ExcludedMessage)]),
         (static tree => MetricAt(tree, "steps.0.latencyMs").Remove("unit"), [("/steps/0/latencyMs", "Required properties [\"unit\"] are not present"), ("/steps/0/latencyMs", "Required properties [\"currency\"] are not present")]),
     ];
@@ -2140,7 +2227,7 @@ public sealed class SchemaValidationTests
             Assert.Empty(result.Stdout);
             string line = Assert.Single(LinesOf(result.Stderr));
             Assert.EndsWith("(ConfigurationException)", line, StringComparison.Ordinal);
-            Assert.Contains("M4", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("arrives in M4", line, StringComparison.Ordinal);
             Assert.DoesNotContain("ParseError", line, StringComparison.Ordinal);
         }
     }
@@ -2374,7 +2461,7 @@ public sealed class SchemaValidationTests
                     Assert.Equal(MetricLabel.Estimated, step.Cost.Label);
                     Assert.Equal("EUR", step.Cost.Currency);
                     Assert.Equal(MetricLabel.ModelJudged, step.JoulesPerQualityPoint.Label);
-                    Assert.Equal(MetricLabel.ModelJudged, step.CostPerQualityPoint.Label);
+                    Assert.Equal(MetricLabel.Estimated, step.CostPerQualityPoint.Label);
                 });
                 break;
             case Tier.Nvidia:

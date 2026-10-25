@@ -13,7 +13,7 @@ internal enum MetricRefinement
     /// <summary>None: the member is exactly the definition.</summary>
     None = 0,
 
-    /// <summary>A step cost: an estimate has a currency, no unit, and is not negative.</summary>
+    /// <summary>A step cost, and the cost per quality point derived from it (user decision 9, 2026-10-24): an estimate has a currency, no unit, and is not negative.</summary>
     StepCost,
 
     /// <summary>A value of a cost map: N/A or an estimate (never not-reported), with a currency, no unit, not negative.</summary>
@@ -24,9 +24,6 @@ internal enum MetricRefinement
 
     /// <summary>The joules per quality point: a model-judged value that is not negative, without a unit and without a currency.</summary>
     JoulesPerQualityPoint,
-
-    /// <summary>The cost per quality point: a model-judged value that is not negative, with a currency and without a unit.</summary>
-    CostPerQualityPoint,
 }
 
 /// <summary>The definition a metric member refers to and the refinement it adds.</summary>
@@ -96,10 +93,9 @@ internal static class MetricSchemaDefs
         var map = new Dictionary<(Type Declaring, string JsonName), MetricTarget>();
 
         Add(map, typeof(StepReading), Measured, nameof(StepReading.LatencyMs), nameof(StepReading.TtftMs), nameof(StepReading.InputTokens), nameof(StepReading.OutputTokens), nameof(StepReading.GrossJoules), nameof(StepReading.NetJoules), nameof(StepReading.AvgW), nameof(StepReading.PeakW));
-        Add(map, typeof(StepReading), new MetricTarget(EstimatedDef, MetricRefinement.StepCost), nameof(StepReading.Cost));
+        Add(map, typeof(StepReading), new MetricTarget(EstimatedDef, MetricRefinement.StepCost), nameof(StepReading.Cost), nameof(StepReading.CostPerQualityPoint));
         Add(map, typeof(StepReading), new MetricTarget(JudgedDef, MetricRefinement.Quality), nameof(StepReading.Quality));
         Add(map, typeof(StepReading), new MetricTarget(JudgedDef, MetricRefinement.JoulesPerQualityPoint), nameof(StepReading.JoulesPerQualityPoint));
-        Add(map, typeof(StepReading), new MetricTarget(JudgedDef, MetricRefinement.CostPerQualityPoint), nameof(StepReading.CostPerQualityPoint));
 
         Add(map, typeof(Totals), Measured, nameof(Totals.GrossJoules), nameof(Totals.NetJoules), nameof(Totals.InputTokens), nameof(Totals.OutputTokens), nameof(Totals.WallClockMs));
         Add(map, typeof(Totals), new MetricTarget(EstimatedDef, MetricRefinement.CostMapValue), nameof(Totals.CostByCurrency));
@@ -111,6 +107,7 @@ internal static class MetricSchemaDefs
         Add(map, typeof(BaselineResult), Measured, nameof(BaselineResult.MeanW), nameof(BaselineResult.StdDevW));
         Add(map, typeof(EnvironmentInfo), Measured, nameof(EnvironmentInfo.CloudCostUsd));
         Add(map, typeof(EnvironmentAssumptions), Estimated, nameof(EnvironmentAssumptions.ElectricityPrice), nameof(EnvironmentAssumptions.Gco2ePerKwh));
+        Add(map, typeof(CalibrationDocument), Measured, nameof(CalibrationDocument.CounterJoules), nameof(CalibrationDocument.SamplingJoules), nameof(CalibrationDocument.RelativeDifference));
 
         return map;
     }
@@ -238,11 +235,6 @@ internal static class MetricSchemaDefs
                     ["properties"] = new JsonObject { ["value"] = NotNegative() },
                     ["not"] = new JsonObject { ["anyOf"] = new JsonArray(Requires("unit"), Requires("currency")) },
                 },
-            },
-            MetricRefinement.CostPerQualityPoint => new JsonObject
-            {
-                ["if"] = LabelIs(MetricLabelText.ModelJudged),
-                ["then"] = EstimateInACurrency(),
             },
             _ => throw new ArgumentOutOfRangeException(nameof(refinement), (int)refinement, "The refinement has no schema."),
         };

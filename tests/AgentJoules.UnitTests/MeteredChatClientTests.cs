@@ -1616,6 +1616,60 @@ public sealed class MeteredChatClientTests
     }
 
     [Fact]
+    [Trait("Spec", "REQ-018")]
+    [Trait("Spec", "EDGE-007")]
+    public async Task A_stream_whose_final_chunk_has_no_usage_labels_both_token_counts_not_reported_with_the_omitted_reason_and_never_0()
+    {
+        // The shape of a stream that omits usage (open point O-04, AJ-108): the text chunks, then a closing chunk that holds the finish reason and no usage.
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates = [new FakeUpdate("4", TimeSpan.FromMilliseconds(100)), new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10))],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Planner")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        foreach (Metric tokens in new[] { reading.InputTokens, reading.OutputTokens })
+        {
+            Assert.Equal(MetricLabel.NotReported, tokens.Label);
+            Assert.Null(tokens.Value);
+            Assert.Equal("provider-omitted-usage", tokens.Reason);
+        }
+
+        string json = JsonSerializer.Serialize(reading, Context);
+        Assert.Contains("\"inputTokens\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"provider-omitted-usage\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"outputTokens\":{\"value\":null,\"label\":\"not-reported\",\"reason\":\"provider-omitted-usage\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    [Trait("Spec", "EDGE-007")]
+    public async Task A_stream_whose_final_chunk_carries_usage_labels_both_token_counts_measured()
+    {
+        // The shape of a stream asked for usage (stream_options.include_usage, measured on the local NIM and nebius endpoints, AJ-108): the text chunks, then a chunk with empty choices that holds the usage.
+        await using MeterRig rig = await MeterRig.CreateAsync();
+        FakeChatClient inner = new(rig.Time)
+        {
+            Updates =
+            [
+                new FakeUpdate("4", TimeSpan.FromMilliseconds(100)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10)),
+                new FakeUpdate(string.Empty, TimeSpan.FromMilliseconds(10), Usage(26, 10)),
+            ],
+        };
+
+        await ConsumeStreamAsync(rig.ClientOver(inner, "Planner")).WaitAsync(HangGuard);
+
+        StepReading reading = Assert.Single(rig.Sink.Snapshot());
+        Assert.Equal(Metric.Measured(26, "tokens"), reading.InputTokens);
+        Assert.Equal(Metric.Measured(10, "tokens"), reading.OutputTokens);
+        string json = JsonSerializer.Serialize(reading, Context);
+        Assert.Contains("\"inputTokens\":{\"value\":26,\"label\":\"measured\",\"unit\":\"tokens\"}", json, StringComparison.Ordinal);
+        Assert.Contains("\"outputTokens\":{\"value\":10,\"label\":\"measured\",\"unit\":\"tokens\"}", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     [Trait("Spec", "EDGE-007")]
     public async Task Cost_is_NA_with_a_null_value_when_tokens_are_not_reported_and_never_0()
     {

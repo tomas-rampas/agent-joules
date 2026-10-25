@@ -28,8 +28,9 @@ namespace AgentJoules.Workflow.Runs;
 /// <remarks>
 /// <para>
 /// A measured tier (<c>local</c>, <c>cloudgpu</c>) opens the GPU at <c>Gpu:Index</c> (the preflight closed its own session), selects the meter method, starts a
-/// <see cref="SampledEnergyMeter"/>, calls the unmetered warm-up of the <see cref="ILocalRuntime"/> (a no-op in M2) and asks the runtime to describe itself, then measures the idle baseline for
-/// the plan's baseline length; the meter and the GPU are released in a <c>finally</c>. A hosted tier (<c>nvidia</c>, <c>nebius</c>) uses an <see cref="UnmeteredEnergyMeter"/>, never opens the
+/// <see cref="SampledEnergyMeter"/>, and, for the local tier only, calls the unmetered warm-up of the <see cref="ILocalRuntime"/> once for every distinct model of the tier (the sum of the times is <c>environment.modelLoadSeconds</c>; a failing warm-up ends the run with exit code 5 before the baseline) and asks the runtime to describe itself, then measures the idle baseline for
+/// the plan's baseline length; the meter and the GPU are released in a <c>finally</c>. A GPU offload below 100 in that description adds the run flag <c>partial-offload</c> to every write of the tier, checkpoints and
+/// the final file alike (<see cref="RunAssembler.RunFlagsOf(LocalRuntimeInfo?)"/>, AJ-105); an offload that is not a number from 0 to 100 stops the run with exit code 6 before the baseline. A hosted tier (<c>nvidia</c>, <c>nebius</c>) uses an <see cref="UnmeteredEnergyMeter"/>, never opens the
 /// GPU and records no probe and no baseline. The sampling-fallback disclosure is the command's (it prints it once); the orchestrator never prints it.
 /// </para>
 /// <para>
@@ -65,7 +66,8 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="time">The clock of the meter, the windows, the latencies and the workflow wall times.</param>
 /// <param name="listener">Receives the step lines, the baseline, the judge warning and the closing lines of each tier.</param>
 /// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
-/// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op).</param>
+/// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op; M4: Ollama or NIM).</param>
+/// <param name="powerSource">Tells where the machine takes its power from; read once per tier run, before the idle baseline, and written as <c>environment.powerSource</c> of every tier, hosted ones included (the machine still runs the client). A value outside the vocabulary is written as <c>unknown</c>.</param>
 /// <param name="live">The live sink of the dashboard (<see cref="NullLiveEventSink"/> without <c>--dashboard</c>): when it also takes readings, the workflow readings of every tier run fan out to it after the listener sink; a measured tier forwards its stored power samples to it at <c>Dashboard:PowerIntervalMs</c>; the judge's services keep the null sink, so a judge reading never reaches it. Each tier run emits one run-started event (a measured tier once its meter started, before the warm-up and the baseline; a hosted tier once its meter started, followed by one N/A power event), the baseline next to the listener's, one progress event per (task, repeat) and one run-completed event after its final document was written or attempted (AJ-091); every emit goes through <see cref="LiveEventSinkExtensions.EmitSafely"/>.</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
 /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -80,6 +82,7 @@ public sealed class RunOrchestrator(
     IRunListener listener,
     IJudgeService judge,
     ILocalRuntime localRuntime,
+    IPowerSourceDetector powerSource,
     ILiveEventSink live,
     ILogger<RunOrchestrator> logger) : IRunOrchestrator
 {
@@ -107,6 +110,7 @@ public sealed class RunOrchestrator(
     private readonly IRunListener _listener = listener ?? throw new ArgumentNullException(nameof(listener));
     private readonly IJudgeService _judge = judge ?? throw new ArgumentNullException(nameof(judge));
     private readonly ILocalRuntime _localRuntime = localRuntime ?? throw new ArgumentNullException(nameof(localRuntime));
+    private readonly IPowerSourceDetector _powerSource = powerSource ?? throw new ArgumentNullException(nameof(powerSource));
     private readonly ILiveEventSink _live = live ?? throw new ArgumentNullException(nameof(live));
     private readonly ILogger<RunOrchestrator> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -149,6 +153,8 @@ public sealed class RunOrchestrator(
         IEnergyMeter? meter = null;
         try
         {
+            // Once per tier run, before the baseline (REQ-021): a laptop on its battery draws another GPU power than on mains. The detector never throws; a value outside the vocabulary is not written.
+            progress.PowerSource = PowerSources.Normalize(_powerSource.Detect());
             if (TierKinds.IsMeasured(tier))
             {
                 GpuOpenResult opened = _gpus.Open(options.Gpu.Index);
@@ -165,9 +171,23 @@ public sealed class RunOrchestrator(
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
 
                 // The live view's run starts once the GPU is known and before the warm-up and the baseline (AJ-091, P-72).
+                // The local tier alone is served by the local runtime (a cloudgpu run sends it nothing and keeps Tiers:cloudgpu:Precision). A runtime that names itself is known by name from here on: a run
+                // interrupted before its description is written states the runtime, a precision and an offload of null and no flag, never the configured precision of another runtime.
+                if (tier == Tier.Local && !string.Equals(_localRuntime.Name, NoOpLocalRuntime.NoneName, StringComparison.Ordinal))
+                {
+                    progress.Runtime = new LocalRuntimeInfo(_localRuntime.Name, null, null, null);
+                }
+
                 _live.EmitSafely(progress.Started(_time.GetUtcNow()));
-                progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
-                progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
+                if (tier == Tier.Local)
+                {
+                    // The warm-up, like the description, belongs to the local tier: a cloudgpu run sends nothing to the local runtime and its modelLoadSeconds stays null until M5.
+                    progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
+                    progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                // A description that cannot come from a measurement (an offload that is not a number or lies outside 0 to 100) stops the run before the baseline, not at the first write.
+                _ = RunAssembler.RunFlagsOf(progress.Runtime);
                 progress.Baseline = await meter
                     .MeasureBaselineAsync(TimeSpan.FromSeconds(plan.BaselineSeconds), options.Baseline.MaxCoefficientOfVariation, cancellationToken)
                     .ConfigureAwait(false);
@@ -240,7 +260,7 @@ public sealed class RunOrchestrator(
             // The counts and the kinds travel in the result; no message does. A skipped judge (no result) and a judge that scored every step tell nothing.
             if (judged is { FailedSteps: > 0 } failures)
             {
-                listening.Tell(listener => listener.JudgeFailed(tier, failures.FailedSteps, failures.JudgedSteps, failures.FailureKinds));
+                listening.Tell(listener => listener.JudgeFailed(tier, failures.FailedSteps, failures.JudgedSteps, failures.FailureKinds, failures.FailureDetails));
             }
 
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
@@ -288,20 +308,8 @@ public sealed class RunOrchestrator(
         progress.Current = null;
     }
 
-    // The warm-up of every distinct model of the tier, in catalog order; the load time is the sum of the times the runtime observed, null when it observed none.
-    private async Task<TimeSpan?> WarmUpAsync(TierOptions tierOptions, CancellationToken cancellationToken)
-    {
-        TimeSpan? total = null;
-        foreach (string modelId in AgentCatalog.Names.Select(tierOptions.ResolveModelId).Distinct(StringComparer.Ordinal))
-        {
-            if (await _localRuntime.WarmUpAsync(modelId, cancellationToken).ConfigureAwait(false) is { } load)
-            {
-                total = (total ?? TimeSpan.Zero) + load;
-            }
-        }
-
-        return total;
-    }
+    // The warm-up of every distinct model the agents of the tier call (TierOptions.ResolvedModelIds); the load time is the sum of the times the runtime observed, null when it observed none.
+    private Task<TimeSpan?> WarmUpAsync(TierOptions tierOptions, CancellationToken cancellationToken) => LocalWarmUp.RunAsync(_localRuntime, tierOptions, cancellationToken);
 
     // The judge scores the steps of the tier and its steps are put in their places; it is skipped when the judge key is missing (the command warned). The count, the windows and the quality range of what it returns are checked.
     private async Task<JudgeResult?> JudgeAsync(RunPlan plan, Tier tier, IReadOnlyList<StepReading> steps, MeteringServices judgeServices, CancellationToken cancellationToken)
@@ -469,6 +477,9 @@ public sealed class RunOrchestrator(
 
         public TimeSpan? ModelLoad { get; set; }
 
+        // The power source detected at the start of the tier run, or null before it was read.
+        public string? PowerSource { get; set; }
+
         // Null until the first (task, repeat) started: a run that never started one has no wall clock (not-reported no-steps), never a measured 0.
         public double? WallClockMs { get; set; }
 
@@ -485,15 +496,25 @@ public sealed class RunOrchestrator(
         public RunDocument Document(IReadOnlyList<StepReading> steps, IReadOnlyList<StepReading> judge, RunStatus status, bool? selfJudged = null)
         {
             RunInfo run = RunInfoOf(status, selfJudged);
-            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions);
+            EnvironmentInfo environment = RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource);
             return RunAssembler.Assemble(run, environment, Probe, Baseline, steps, judge, WallClockMs, Union, CostOptions);
         }
 
         // The live view's start of this tier run: the run as running and the environment known so far (the GPU of a measured tier, not yet its runtime or load time), with the power limit of the probe.
         public RunStartedEvent Started(DateTimeOffset atUtc) =>
-            new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions), Probe?.PowerLimitW);
+            new(atUtc, false, RunInfoOf(RunStatus.Running, selfJudged: null), RunAssembler.BuildEnvironment(Tier, TierOptions, Gpu, Runtime, ModelLoad, CostOptions, PowerSource), Probe?.PowerLimitW);
 
+        // The run flags of every write: partial-offload from the runtime's description, non-publishable when a measured tier's idle baseline is shorter than 30 s (a hosted tier has no baseline).
         private RunInfo RunInfoOf(RunStatus status, bool? selfJudged) =>
-            RunAssembler.BuildRunInfo(Path.GetFileNameWithoutExtension(Writer.FilePath), Tier, _taskNames, plan.Mode, plan.Repeat, plan.StartUtc, status, selfJudged);
+            RunAssembler.BuildRunInfo(
+                Path.GetFileNameWithoutExtension(Writer.FilePath),
+                Tier,
+                _taskNames,
+                plan.Mode,
+                plan.Repeat,
+                plan.StartUtc,
+                status,
+                selfJudged,
+                RunAssembler.RunFlagsOf(Runtime, TierKinds.IsMeasured(Tier) ? plan.BaselineSeconds : null));
     }
 }

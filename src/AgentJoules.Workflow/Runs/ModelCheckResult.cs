@@ -7,7 +7,7 @@ namespace AgentJoules.Workflow.Runs;
 public sealed record ModelCheckEntry(string Tier, Uri Endpoint, IReadOnlyList<string> MatchedIds);
 
 /// <summary>
-/// What <see cref="PreflightService.CheckModelsAsync"/> found when every configured model ID was listed: one entry per tier that was asked, the selected tiers in order and then the judge
+/// What <see cref="PreflightService.CheckModelsAsync(System.Collections.Generic.IReadOnlyList{AgentJoules.Core.Runs.Tier}, KeyCheckResult, System.Threading.CancellationToken)"/> found when every configured model ID was listed: one entry per tier that was asked, the selected tiers in order and then the judge
 /// tier when it was not selected. Only the preflight service creates one (the constructor is internal), so a caller that holds a result knows the model check ran and passed; the dry run of
 /// AJ-054 prints <c>&lt;tier&gt; &lt;endpoint&gt; &lt;matched ids&gt; OK</c> from it.
 /// </summary>

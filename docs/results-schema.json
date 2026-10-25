@@ -345,7 +345,8 @@
               "below-baseline",
               "throttled",
               "partial-offload",
-              "max-tokens-exceeded"
+              "max-tokens-exceeded",
+              "duplicate-output"
             ]
           },
           "uniqueItems": true
@@ -1277,13 +1278,13 @@
         "costPerQualityPoint": {
           "allOf": [
             {
-              "$ref": "#/$defs/metricJudged"
+              "$ref": "#/$defs/metricEstimated"
             },
             {
               "if": {
                 "properties": {
                   "label": {
-                    "const": "model-judged"
+                    "const": "estimated"
                   }
                 },
                 "required": [
@@ -1320,7 +1321,8 @@
               "below-baseline",
               "throttled",
               "partial-offload",
-              "max-tokens-exceeded"
+              "max-tokens-exceeded",
+              "duplicate-output"
             ]
           },
           "uniqueItems": true
@@ -1467,6 +1469,144 @@
         "energyCounterSupported",
         "method",
         "sampleRateHz"
+      ],
+      "additionalProperties": false
+    },
+    "calibration": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "windowSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sampleRateHz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "repeats": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "endUtc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "toolVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gitCommit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "counterJoules": {
+          "$ref": "#/$defs/metricMeasured"
+        },
+        "samplingJoules": {
+          "$ref": "#/$defs/metricMeasured"
+        },
+        "relativeDifference": {
+          "$ref": "#/$defs/metricMeasured"
+        },
+        "probe": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/probe"
+            },
+            {
+              "properties": {
+                "gpuPresent": {
+                  "const": true
+                }
+              }
+            }
+          ]
+        },
+        "environment": {
+          "type": "object",
+          "properties": {
+            "localRuntime": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "runtimeVersion": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "gpuOffloadPercent": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0,
+              "maximum": 100
+            },
+            "precision": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "modelLoadSeconds": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "powerSource": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "localRuntime",
+            "runtimeVersion",
+            "gpuOffloadPercent",
+            "precision",
+            "modelLoadSeconds",
+            "powerSource"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "task",
+        "seconds",
+        "windowSeconds",
+        "sampleCount",
+        "sampleRateHz",
+        "repeats",
+        "startUtc",
+        "endUtc",
+        "toolVersion",
+        "gitCommit",
+        "counterJoules",
+        "samplingJoules",
+        "relativeDifference",
+        "probe",
+        "environment"
       ],
       "additionalProperties": false
     }

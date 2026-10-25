@@ -147,7 +147,8 @@ public sealed partial class RunOrchestrationTests
         Assert.Equal(ShutdownLine, Assert.Single(result.ErrorLines));
         Assert.Equal(1, Volatile.Read(ref fired));
         Assert.False(gpu.IsInitialised);
-        Assert.Equal(0, local.Count(FakeRoute.ChatCompletions));
+        // The unmetered warm-up is the one completion the endpoint saw: the shutdown came inside the baseline, before any task call.
+        Assert.Equal(1, local.Count(FakeRoute.ChatCompletions));
 
         string file = Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root));
         Assert.Equal([Path.GetFileName(file)], RunOrchestrationFixtures.EntriesIn(workspace.Root));
@@ -171,7 +172,7 @@ public sealed partial class RunOrchestrationTests
     {
         using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
         (RunCommandSetup setup, TimerTrackingTimeProvider time, ScriptedNvmlApi gpu, FakeHttpMessageHandler local) = LocalRun(workspace);
-        local.SetStatuses(FakeRoute.ChatCompletions, 500);
+        local.SetStatuses(FakeRoute.ChatCompletions, 200, 500);
 
         CliRunResult result = await RunLocalAsync($"run --tier local --task {TaskNames[0]} --repeat 1 --baseline-seconds 2", setup, time);
 

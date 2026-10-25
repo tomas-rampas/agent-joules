@@ -234,9 +234,9 @@ public sealed record StepReading
         Metric resolvedQuality = quality ?? Metric.NotApplicable(NotScored);
         Metric resolvedJoules = joulesPerQualityPoint ?? Metric.NotApplicable(NotScored);
         Metric resolvedCostPoint = costPerQualityPoint ?? Metric.NotApplicable(NotScored);
-        RequireJudgedShape(nameof(quality), resolvedQuality, withCurrency: false);
-        RequireJudgedShape(nameof(joulesPerQualityPoint), resolvedJoules, withCurrency: false);
-        RequireJudgedShape(nameof(costPerQualityPoint), resolvedCostPoint, withCurrency: true);
+        RequireJudgedShape(nameof(quality), resolvedQuality);
+        RequireJudgedShape(nameof(joulesPerQualityPoint), resolvedJoules);
+        RequireCostShape(nameof(costPerQualityPoint), resolvedCostPoint);
         RequireScoreRange(nameof(quality), resolvedQuality);
         RequireNotNegative(nameof(joulesPerQualityPoint), resolvedJoules);
         RequireNotNegative(nameof(costPerQualityPoint), resolvedCostPoint);
@@ -422,7 +422,7 @@ public sealed record StepReading
         }
     }
 
-    // The cost is an estimate in a currency (a price table or a rate times a measured quantity) or an explicit absence; it is never measured and never model-judged.
+    // The cost, and the cost per quality point derived from it (user decision 9, 2026-10-24), are an estimate in a currency (a price table or a rate times a measured quantity) or an explicit absence; they are never measured and never model-judged.
     private static void RequireCostShape(string parameter, Metric metric)
     {
         if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
@@ -432,17 +432,17 @@ public sealed record StepReading
 
         if (metric.Label != MetricLabel.Estimated)
         {
-            throw Rejected(parameter, $"The cost must be estimated, not-reported or N/A, but it is {metric.Label}.");
+            throw Rejected(parameter, $"The metric must be estimated, not-reported or N/A, but it is {metric.Label}.");
         }
 
         if (metric.Currency is null)
         {
-            throw Rejected(parameter, $"An estimated cost must carry a currency.");
+            throw Rejected(parameter, $"An estimated metric in this member must carry a currency.");
         }
     }
 
-    // A judge score and the joules per point are model-judged numbers without a unit and without a currency, or an explicit absence; the cost per point is model-judged with a currency and no unit.
-    private static void RequireJudgedShape(string parameter, Metric metric, bool withCurrency)
+    // A judge score and the joules per point are model-judged numbers without a unit and without a currency, or an explicit absence.
+    private static void RequireJudgedShape(string parameter, Metric metric)
     {
         if (metric.Label is MetricLabel.NotApplicable or MetricLabel.NotReported)
         {
@@ -459,11 +459,9 @@ public sealed record StepReading
             throw Rejected(parameter, $"A model-judged metric in this member must not carry a unit.");
         }
 
-        if (withCurrency != (metric.Currency is not null))
+        if (metric.Currency is not null)
         {
-            throw withCurrency
-                ? Rejected(parameter, $"A model-judged cost per point must carry a currency.")
-                : Rejected(parameter, $"A model-judged metric in this member must not carry a currency.");
+            throw Rejected(parameter, $"A model-judged metric in this member must not carry a currency.");
         }
     }
 

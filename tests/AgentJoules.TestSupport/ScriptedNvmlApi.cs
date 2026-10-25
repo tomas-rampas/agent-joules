@@ -151,6 +151,12 @@ public sealed class ScriptedNvmlApi : INvmlApi
     /// </summary>
     public ulong CounterOffsetMillijoules { get; set; } = 123456789;
 
+    /// <summary>
+    /// A factor on the energy the counter counts (AJ-109): 1.0, the default, makes the counter and the sampled power agree exactly (the counter is the integral of the script); 100/98 makes the counter read
+    /// 100 J where the samples of the same script integrate to 98 J, so a calibration has a difference to report. Not negative; it scales the total before the offset is added.
+    /// </summary>
+    public double CounterScale { get; set; } = 1.0;
+
     /// <summary>When true, every member throws <see cref="DllNotFoundException"/>, as a missing nvml library does.</summary>
     public bool MissingLibrary { get; set; }
 
@@ -160,6 +166,9 @@ public sealed class ScriptedNvmlApi : INvmlApi
     /// <see cref="EntryPointNotFoundException"/> and <see cref="BadImageFormatException"/>, from any call.
     /// </summary>
     public Func<string, Exception?>? FaultFor { get; set; }
+
+    /// <summary>The recorder that is told <see cref="OperationRecorder.Probe"/> each time a new session starts (the count of <see cref="Init"/> goes from 0 to 1), or null for none (AJ-106).</summary>
+    public OperationRecorder? Recorder { get; set; }
 
     /// <summary>The return code <see cref="Init"/> reports; anything but Success starts no session.</summary>
     public NvmlReturn InitReturn { get; set; } = NvmlReturn.Success;
@@ -250,6 +259,7 @@ public sealed class ScriptedNvmlApi : INvmlApi
             if (_initRefCount++ == 0)
             {
                 _generation++;
+                Recorder?.Record(OperationRecorder.Probe);
             }
 
             return NvmlReturn.Success;
@@ -353,7 +363,7 @@ public sealed class ScriptedNvmlApi : INvmlApi
                 return CounterReturn;
             }
 
-            millijoules = (ulong)Math.Round(TotalMillijoules(ElapsedMilliseconds()), MidpointRounding.AwayFromZero)
+            millijoules = (ulong)Math.Round(TotalMillijoules(ElapsedMilliseconds()) * Math.Max(0.0, CounterScale), MidpointRounding.AwayFromZero)
                 + CounterOffsetMillijoules;
             _counterReads.Add(millijoules);
             return NvmlReturn.Success;

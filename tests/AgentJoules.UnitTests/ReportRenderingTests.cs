@@ -1924,7 +1924,8 @@ public sealed partial class ReportRenderingTests
 
     private static string[] TierCells(string text) => [.. DataRows(text).Select(row => CellsOf(row)[TierColumn])];
 
-    private static string[] BulletLines(string text) => [.. LinesOf(text).Skip(1).TakeWhile(line => line.Length > 0)];
+    // The bullets of the header: the lines indented under a bullet (the local-runtime line, the flags line, the sampling-fallback sentence) belong to their bullet and are not counted as bullets.
+    private static string[] BulletLines(string text) => [.. LinesOf(text).Skip(1).TakeWhile(line => line.Length > 0).Where(line => !line.StartsWith("  - ", StringComparison.Ordinal))];
 
     private static string[] DisclosureLines(string text) => [.. LinesOf(text).SkipWhile(line => line != string.Empty).Skip(1).TakeWhile(line => line.Length > 0)];
 
@@ -2251,13 +2252,16 @@ public sealed partial class ReportRenderingTests
         Assert.Equal(
             "- local: file 20261023T093000Z-local.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU Test GPU; driver 555.00; local runtime ollama 0.1.0; precision Q4\\_K\\_M; reasoning mode off; power source N/A; models Planner=model-a, Writer=model-b; judge none; self-judging not judged \\(no step was judged\\); energy method counter",
             lines[1]);
-        Assert.Equal("- cloudgpu: not run", lines[2]);
+
+        // The line under the bullet of a local run (AJ-105): runtime and version, offload, precision. The hosted bullet has none: a hosted tier has no offload to state.
+        Assert.Equal("  - Local runtime: ollama 0.1.0, offload 100 percent, precision Q4\\_K\\_M", lines[2]);
+        Assert.Equal("- cloudgpu: not run", lines[3]);
         Assert.Equal(
             $"- nvidia: file 20261023T093000Z-nvidia.json; run date 2026-10-23T09:30:00Z; status completed; mode serialized; GPU N/A; driver N/A; local runtime N/A; precision N/A; reasoning mode off; power source N/A; models {models}; judge none; self-judging not judged \\(no step was judged\\); energy method N/A",
-            lines[3]);
-        Assert.Equal("- nebius: not run", lines[4]);
-        Assert.Equal(string.Empty, lines[5]);
-        Assert.Equal(ReportSentences.GpuBoardOnly, lines[6]);
+            lines[4]);
+        Assert.Equal("- nebius: not run", lines[5]);
+        Assert.Equal(string.Empty, lines[6]);
+        Assert.Equal(ReportSentences.GpuBoardOnly, lines[7]);
         Assert.Equal("Energy is GPU-board energy only.", ReportSentences.GpuBoardOnly);
     }
 
@@ -2504,7 +2508,8 @@ public sealed partial class ReportRenderingTests
         string[] lines = LinesOf(text);
         int bullet = Array.FindIndex(lines, line => line.StartsWith("- local:", StringComparison.Ordinal));
         Assert.EndsWith("; energy method sampling", lines[bullet], StringComparison.Ordinal);
-        Assert.Equal("  - Energy method: sampling (counter unsupported)", lines[bullet + 1]);
+        Assert.StartsWith("  - Local runtime: ", lines[bullet + 1], StringComparison.Ordinal);
+        Assert.Equal("  - Energy method: sampling (counter unsupported)", lines[bullet + 2]);
         Assert.Equal("Energy method: sampling (counter unsupported)", ReportSentences.SamplingFallback);
         Assert.Equal(1, text.Split(ReportSentences.SamplingFallback).Length - 1);
         Assert.Contains("sampling-fallback", RowOfTask(text)[FlagsColumn], StringComparison.Ordinal);
@@ -2759,11 +2764,13 @@ public sealed partial class ReportRenderingTests
 
         IReadOnlyList<string> lines = ReportHeader.Lines(model, Escaped);
 
+        // The bullet of the local run, the local-runtime line under it (AJ-105), then the tiers that were not run.
         Assert.StartsWith("- local: file ", lines[0], StringComparison.Ordinal);
-        Assert.Equal("- cloudgpu: not run", lines[1]);
-        Assert.Equal("- nebius: not run", lines[3]);
-        Assert.Equal(string.Empty, lines[4]);
-        Assert.Equal(model.Disclosures, [.. lines.Skip(5)]);
+        Assert.StartsWith("  - Local runtime: ollama ", lines[1], StringComparison.Ordinal);
+        Assert.Equal("- cloudgpu: not run", lines[2]);
+        Assert.Equal("- nebius: not run", lines[4]);
+        Assert.Equal(string.Empty, lines[5]);
+        Assert.Equal(model.Disclosures, [.. lines.Skip(6)]);
     }
 
     // ---- hostile text (AJ-083, P-18, AJ-082 L-3) ----
@@ -4654,7 +4661,7 @@ public sealed partial class ReportRenderingTests
     {
         string html = RenderHtml(Wrap(RunDocumentFixtures.SamplingFallback()));
 
-        Assert.Equal(1, Occurrences(html, "<ul><li>" + ReportSentences.SamplingFallback + "</li></ul></li>"));
+        Assert.Equal(1, Occurrences(html, "<li>" + ReportSentences.SamplingFallback + "</li></ul></li>"));
         Assert.Matches("<li>local: file [^\n]*<ul><li>", html);
         Assert.Equal(2, Occurrences(html, "<ul>"));
     }

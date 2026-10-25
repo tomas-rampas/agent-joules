@@ -1,3 +1,8 @@
+using System.ClientModel;
+using System.Globalization;
+using System.Text.Json;
+
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
@@ -23,7 +28,7 @@ namespace AgentJoules.Workflow.Judge;
 /// <para>
 /// One service decides every step, in one place. For each requested step, in order: a step whose outcome is not <c>ok</c> gets the quality N/A <c>step-not-ok</c>, an <c>ok</c> step without
 /// output (<see cref="StepReading.OutputChars"/> null or 0) gets N/A <c>empty-output</c>, and neither is sent to the judge; every other step is sent. A step the judge could not score ends with
-/// N/A <c>parse-error: &lt;excerpt&gt;</c> (the reply was not an integer from 1 to 5) or N/A <c>judge-failed: &lt;kind&gt;</c> (the call threw, <c>kind</c> being the type name of the exception; or the judge
+/// N/A <c>parse-error: &lt;excerpt&gt;</c> (the reply was not an integer from 1 to 5) or N/A <c>judge-failed: &lt;kind&gt;</c> (the call threw, <c>kind</c> being the type name of the exception and, when the exception carries an HTTP status, a space and the status: <c>ClientResultException 503</c>; or the judge
 /// is not usable: <c>judge-model-not-configured</c> when <c>Judge:ModelId</c> is blank, <c>judge-tier-not-metered</c> when <c>Judge:Tier</c> is a measured tier other than the tier of the run). Every
 /// quality that is N/A carries the <c>qualityReason</c> <c>not-scored</c>; a score carries none. The derived metrics are not written here: <c>RunAssembler.Assemble</c> computes them from the quality.
 /// A failure of one step never stops the others and never escapes, except a cancellation of the request token.
@@ -64,6 +69,9 @@ public sealed class JudgeService : IJudgeService
 
     /// <summary>The text before the failure kind in the reason of a quality the judge could not produce.</summary>
     public const string FailedPrefix = "judge-failed: ";
+
+    /// <summary>The most characters of the reason in a failure detail: the first line of the redacted message of the failure, cut here (user decision 4 of the M3 exit).</summary>
+    public const int MaxDetailReasonChars = 120;
 
     /// <summary>The text before the excerpt in the reason of a reply that did not parse; the same text as the parser's.</summary>
     public const string ParseErrorPrefix = "parse-error: ";
@@ -166,6 +174,7 @@ public sealed class JudgeService : IJudgeService
         cancellationToken.ThrowIfCancellationRequested();
         bool equalsAStepModel = request.Steps.Any(step => string.Equals(step.ModelId, _modelId, StringComparison.Ordinal));
         SortedSet<string> kinds = new(StringComparer.Ordinal);
+        Dictionary<string, string> reasons = new(StringComparer.Ordinal);
         StepReading[] scored = new StepReading[request.Steps.Count];
         int judged = 0;
         int failed = 0;
@@ -185,25 +194,101 @@ public sealed class JudgeService : IJudgeService
             }
 
             judged++;
-            (Metric quality, string? qualityReason, string? failure) = await ScoreStepAsync(request, step, tasks[step.Task], cancellationToken).ConfigureAwait(false);
+            (Metric quality, string? qualityReason, string? failure, string? reason) = await ScoreStepAsync(request, step, tasks[step.Task], cancellationToken).ConfigureAwait(false);
             scored[i] = RunAssembler.WithQuality(step, quality, qualityReason);
             if (failure is not null)
             {
                 failed++;
                 _ = kinds.Add(failure);
+
+                // The first reason of a kind is the one told: one line per distinct kind.
+                if (reason is not null)
+                {
+                    _ = reasons.TryAdd(failure, reason);
+                }
             }
         }
 
         // The equality of the ids is a fact only when a step was judged by a configured model; otherwise the run makes no statement (null), never "false".
         bool? selfJudged = judged > 0 && !string.IsNullOrWhiteSpace(_modelId) ? equalsAStepModel : null;
 
-        return new JudgeResult(scored, selfJudged, judged, failed, [.. kinds]);
+        return new JudgeResult(scored, selfJudged, judged, failed, [.. kinds])
+        {
+            FailureDetails = [.. kinds.Where(reasons.ContainsKey).Select(kind => kind + ": " + reasons[kind])],
+        };
     }
 
-    private static (Metric Quality, string? QualityReason, string? Failure) Failed(string kind) =>
-        (Metric.NotApplicable(FailedPrefix + kind), NotScored, kind);
+    private static (Metric Quality, string? QualityReason, string? Failure, string? Reason) Failed(string kind, string? reason = null) =>
+        (Metric.NotApplicable(FailedPrefix + kind), NotScored, kind, reason);
 
-    private async Task<(Metric Quality, string? QualityReason, string? Failure)> ScoreStepAsync(JudgeRequest request, StepReading step, TaskDefinition task, CancellationToken cancellationToken)
+    // The kind of a failed call: the type name of the exception and, when the exception carries an HTTP status, the status (the SDK exception of a rejected call, the error code of an in-stream error).
+    // The exhaustion of the retry layer keeps its bare type name, because its message already states the status and the attempts.
+    internal static string KindOf(Exception failure)
+    {
+        int? status = failure switch
+        {
+            ClientResultException { Status: >= 100 and <= 599 } client => client.Status,
+            ProviderErrorException { ErrorCode: >= 100 and <= 599 } error => error.ErrorCode,
+            ProviderErrorException { HttpStatus: >= 100 and <= 599 } error => error.HttpStatus,
+            _ => null,
+        };
+
+        return status is { } code ? string.Create(CultureInfo.InvariantCulture, $"{failure.GetType().Name} {code}") : failure.GetType().Name;
+    }
+
+    // The reason of a failure: for a rejected call whose body states one (error.message or detail of a JSON body) that text, otherwise the message of the exception; the first line of it, masked by the
+    // redactor before anything is cut, cleaned of control characters and bounded to MaxDetailReasonChars. Null when there is no text.
+    private string? ReasonOf(Exception failure)
+    {
+        string redacted = _redactor.Redact(BodyReasonOf(failure) ?? failure.Message);
+        string[] lines = redacted.Split(LineTerminators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length == 0)
+        {
+            return null;
+        }
+
+        // ForMessage keeps the given number of characters and appends its three-character cut marker, so 117 keeps the whole reason within 120.
+        return TextEcho.ForMessage(lines[0], MaxDetailReasonChars - 3);
+    }
+
+    // The reason a provider gave in the body of a rejected call, or null: {"error":{"message":"..."}} (the OpenAI shape) or {"detail":"..."} (the shape of the saturated NVIDIA worker). A body that is
+    // not JSON, is not buffered, is too large or has neither member gives none, and the generic first line of the SDK message stays the reason. The text is masked by the caller before it is cut.
+    private static string? BodyReasonOf(Exception failure)
+    {
+        if (failure is not ClientResultException { } rejected)
+        {
+            return null;
+        }
+
+        try
+        {
+            ReadOnlyMemory<byte> body = rejected.GetRawResponse()?.Content.ToMemory() ?? default;
+            if (body.IsEmpty || body.Length > MaxReasonBodyBytes)
+            {
+                return null;
+            }
+
+            using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement root = document.RootElement;
+            string? text = root.ValueKind == JsonValueKind.Object
+                ? root.TryGetProperty("error", out JsonElement error) && error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out JsonElement message) && message.ValueKind == JsonValueKind.String
+                    ? message.GetString()
+                    : root.TryGetProperty("detail", out JsonElement detail) && detail.ValueKind == JsonValueKind.String ? detail.GetString() : null
+                : null;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+        catch (Exception unreadable) when (unreadable is JsonException or InvalidOperationException)
+        {
+            // Not JSON, not buffered or text that cannot be read: there is no reason in the body.
+            return null;
+        }
+    }
+
+    private const int MaxReasonBodyBytes = 64 * 1024;
+
+    private static readonly char[] LineTerminators = ['\r', '\n', '\v', '\f', (char)0x0085, (char)0x2028, (char)0x2029];
+
+    private async Task<(Metric Quality, string? QualityReason, string? Failure, string? Reason)> ScoreStepAsync(JudgeRequest request, StepReading step, TaskDefinition task, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(_modelId))
         {
@@ -228,18 +313,18 @@ public sealed class JudgeService : IJudgeService
             JudgeParseResult parsed = JudgeScoreParser.Parse(Bounded(_redactor.Redact(reply)), _redactor);
             if (parsed.Parsed)
             {
-                return (parsed.Quality, null, null);
+                return (parsed.Quality, null, null, null);
             }
 
             // A reply that was cut, or that holds a think tag left in place, can show a part of a key that the redactor could not match whole: the excerpt is then a fixed text, never reply text.
             if (reply.Length > MaxReplyChars)
             {
-                return (Metric.NotApplicable(ParseErrorPrefix + ReplyTooLongExcerpt), NotScored, ParseErrorKind);
+                return (Metric.NotApplicable(ParseErrorPrefix + ReplyTooLongExcerpt), NotScored, ParseErrorKind, null);
             }
 
             return parsed.ThinkTagLeft
-                ? (Metric.NotApplicable(ParseErrorPrefix + ThinkTagLeftExcerpt), NotScored, ParseErrorKind)
-                : (parsed.Quality, NotScored, ParseErrorKind);
+                ? (Metric.NotApplicable(ParseErrorPrefix + ThinkTagLeftExcerpt), NotScored, ParseErrorKind, null)
+                : (parsed.Quality, NotScored, ParseErrorKind, null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -247,8 +332,10 @@ public sealed class JudgeService : IJudgeService
         }
         catch (Exception failure)
         {
-            // The type name only: the message of a failure can quote the request, the response or the path of a file.
-            return Failed(failure.GetType().Name);
+            // The kind is the type name and the status; the reason is the first line of the message, masked, cleaned and cut: the message of a failure can quote the request or the path of a file, so
+            // it never goes further than this one bounded line.
+            string kind = KindOf(failure);
+            return Failed(kind, ReasonOf(failure));
         }
     }
 

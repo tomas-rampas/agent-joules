@@ -336,7 +336,13 @@ public sealed partial class JudgeParsingTests
         private const string JudgeWarningStart = "Warning: the judge failed for ";
 
         // The type name of the failure of a judge call that the endpoint answers with a 500: the client library's own result exception, which carries the response and so its text; only its name is kept.
-        private const string FailedCallTypeName = "ClientResultException";
+        // The kind of a judge call that a 500 rejected: the type name and the status (user decision 4 of the M3 exit).
+        private const string FailedCallTypeName = "ClientResultException 500";
+
+        // The reason the warning gives for that kind: the first line of the SDK message of a rejected call. The SDK writes the status, the type and the code of a standard error body there
+        // (the default body of the fake endpoint, whose error.message is the reason), and a generic line for a body it does not understand; the body text itself is never part of the first line.
+        private const string FailedCallReason = "ClientResultException 500: Service request failed.";
+        private const string StandardBodyReason = "ClientResultException 500: fake error";
 
         private static readonly TimeSpan CallTime = TimeSpan.FromMilliseconds(10);
 
@@ -489,7 +495,7 @@ public sealed partial class JudgeParsingTests
             Assert.Equal(5 * steps.Length, judge.Count(FakeRoute.ChatCompletions));
             Assert.All(steps, static step => AssertNotScored(step, "judge-failed: " + nameof(RetriesExhaustedException)));
             string warning = Assert.Single(JudgeWarnings(result));
-            Assert.Contains($"({nameof(RetriesExhaustedException)})", warning, StringComparison.Ordinal);
+            Assert.Contains($"({nameof(RetriesExhaustedException)}; reasons: {nameof(RetriesExhaustedException)}: HTTP 429 after 5 attempts)", warning, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -646,7 +652,7 @@ public sealed partial class JudgeParsingTests
             string warning = Assert.Single(JudgeWarnings(result));
             string[] reasons = [.. RunOrchestrationFixtures.Steps(document).Select(static step => TextOf(step.GetProperty("quality"), "reason"))];
             string firstKind = Assert.Single(reasons, static reason => reason.StartsWith("judge-failed: ", StringComparison.Ordinal))["judge-failed: ".Length..];
-            Assert.Equal(JudgeWarningStart + $"{steps} of {steps} steps of tier nvidia ({firstKind}, parse-error); their quality is N/A and the exit code is unchanged", warning);
+            Assert.Equal(JudgeWarningStart + $"{steps} of {steps} steps of tier nvidia ({firstKind}, parse-error; reasons: {FailedCallReason}); their quality is N/A and the exit code is unchanged", warning);
             Assert.DoesNotContain(MessageSentinel, result.Stdout + result.Stderr + File.ReadAllText(Assert.Single(RunOrchestrationFixtures.RunFilesIn(workspace.Root))), StringComparison.Ordinal);
             Assert.DoesNotContain("excellent", warning, StringComparison.Ordinal);
             Assert.DoesNotContain("http", warning, StringComparison.OrdinalIgnoreCase);
@@ -702,7 +708,7 @@ public sealed partial class JudgeParsingTests
             Assert.Equal(1, steps.Count(static step => TextOf(step.GetProperty("quality"), "label") == "N/A"));
             Assert.Equal(steps.Length - 1, steps.Count(static step => TextOf(step.GetProperty("quality"), "label") == "model-judged"));
             Assert.Equal(
-                JudgeWarningStart + $"1 of {steps.Length} steps of tier nvidia ({FailedCallTypeName}); their quality is N/A and the exit code is unchanged",
+                JudgeWarningStart + $"1 of {steps.Length} steps of tier nvidia ({FailedCallTypeName}; reasons: {StandardBodyReason}); their quality is N/A and the exit code is unchanged",
                 Assert.Single(JudgeWarnings(result)));
 
             // The warning is told once, after the final document was written (the file said completed at that moment) and just before the closing lines of the tier.

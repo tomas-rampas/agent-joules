@@ -32,8 +32,8 @@ public static class ReportHeader
     };
 
     /// <summary>
-    /// The header lines of a report: a bullet per run file and per tier that was not run (in tier order, a tier's primary file before its baseline file), the sampling-fallback line indented under the bullet of
-    /// each tier that fell back to sampling, one empty line when there are disclosures, and the disclosures in the order of the model. The models-differ disclosure (recognised by
+    /// The header lines of a report: a bullet per run file and per tier that was not run (in tier order, a tier's primary file before its baseline file), the lines indented under the bullet of
+    /// a tier (the local-runtime line and the flags line of a local run, <see cref="RuntimeLines"/>, then the sampling-fallback line of each tier that fell back to sampling), one empty line when there are disclosures, and the disclosures in the order of the model. The models-differ disclosure (recognised by
     /// <see cref="ReportSentences.ModelsDifferPrefix"/>) is only a trigger: the printed line is the prefix and one <c>tier=models (precision)</c> entry per primary tier report of the model (the structural parentheses go through the escape too), built here with each model ID and each
     /// precision escaped on its own, never parsed from the text of the disclosure. A disclosure that equals one of the sentences of <see cref="ReportSentences"/> is printed unchanged; any other text is escaped whole with <paramref name="escape"/> and has a leading
     /// list or setext marker (<c>-</c>, <c>+</c>, <c>=</c>, <c>*</c>, or digits followed by <c>.</c> or <c>)</c>) backslash-escaped, so it is printed as text and not as a list item or a heading.
@@ -50,10 +50,14 @@ public static class ReportHeader
         var bullets = new List<(int Rank, string[] Lines)>();
         foreach (TierReport report in model.Tiers)
         {
-            string[] lines = report.SamplingFallback
-                ? [Bullet(report, escape), $"  - {ReportSentences.SamplingFallback}"]
-                : [Bullet(report, escape)];
-            bullets.Add((Rank(report.Tier, report.Variant), lines));
+            var lines = new List<string> { Bullet(report, escape) };
+            lines.AddRange(RuntimeLines(report, escape));
+            if (report.SamplingFallback)
+            {
+                lines.Add($"  - {ReportSentences.SamplingFallback}");
+            }
+
+            bullets.Add((Rank(report.Tier, report.Variant), [.. lines]));
         }
 
         foreach (Tier tier in NotRun(model))
@@ -89,6 +93,30 @@ public static class ReportHeader
     /// <returns>The tiers.</returns>
     internal static IEnumerable<Tier> NotRun(ReportModel model) =>
         model.TiersNotRun.Where(tier => !model.Tiers.Any(report => report.Tier == tier && report.Variant == RunVariant.Primary));
+
+    // The lines under the bullet of a local run (REQ-020, AJ-105): the runtime, its version, the GPU offload and the precision as one line, so a partly CPU-bound run is never read as a full-GPU one; and the run flags
+    // of the file when it has any, so partial-offload is on the page and not only in the flags column. A tier without a local runtime has no first line (a hosted tier has no offload to state); a missing value is N/A,
+    // never 0. The offload prints with at most one decimal and no trailing zero (62, 33.3, 100).
+    private static IEnumerable<string> RuntimeLines(TierReport report, Func<string, string> escape)
+    {
+        if (report.LocalRuntime is not null)
+        {
+            string offload = report.GpuOffloadPercent is { } percent ? $"{OffloadText(percent)} percent" : NotAvailable;
+            yield return $"  - Local runtime: {Fact(report.LocalRuntime, escape)} {Fact(report.RuntimeVersion, escape)}, offload {offload}, precision {Fact(report.Precision, escape)}";
+        }
+
+        if (report.RunFlags.Count > 0)
+        {
+            yield return $"  - Flags: {string.Join(DisclosureSeparator, report.RunFlags.Select(flag => Fact(flag, escape)))}";
+        }
+    }
+
+    // At most one decimal, no trailing zero; a share below 100 never prints as 100 (99.95 and 99.99 print 99.9), so a partial offload is never read as a full one; a negative zero prints 0.
+    private static string OffloadText(double percent)
+    {
+        double shown = percent < 100.0 ? Math.Min(Math.Round(percent, 1, MidpointRounding.AwayFromZero), 99.9) : percent;
+        return (shown + 0.0).ToString("0.#", CultureInfo.InvariantCulture);
+    }
 
     private static string Bullet(TierReport report, Func<string, string> escape)
     {

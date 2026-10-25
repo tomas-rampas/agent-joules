@@ -40,6 +40,7 @@ public sealed class MetricTests
         "throttled",
         "partial-offload",
         "max-tokens-exceeded",
+        "duplicate-output",
     ];
 
     private static string Serialize(Metric metric) => JsonSerializer.Serialize(metric, Options);
@@ -558,44 +559,11 @@ public sealed class MetricTests
     // ---- AJ-074: a model-judged value carries at most one of unit and currency ----
 
     [Fact]
-    public void ModelJudgedCost_CarriesTheCurrencyAndNoUnitAndRoundTrips()
-    {
-        Metric metric = Metric.ModelJudgedCost(0.02, "EUR");
-
-        Assert.Equal(MetricLabel.ModelJudged, metric.Label);
-        Assert.Equal(0.02, metric.Value);
-        Assert.Equal("EUR", metric.Currency);
-        Assert.Null(metric.Unit);
-        Assert.Null(metric.Reason);
-        Assert.Equal("""{"value":0.02,"label":"model-judged","currency":"EUR"}""", JsonSerializer.Serialize(metric));
-        Assert.Equal(metric, Deserialize(JsonSerializer.Serialize(metric)));
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("  ")]
-    public void ModelJudgedCost_WithoutCurrency_ThrowsArgumentExceptionNamingTheCurrency(string? currency)
-    {
-        ArgumentException failure = Assert.ThrowsAny<ArgumentException>(() => Metric.ModelJudgedCost(1, currency!));
-
-        Assert.Equal("currency", failure.ParamName);
-    }
-
-    [Theory]
-    [InlineData(double.NaN)]
-    [InlineData(double.PositiveInfinity)]
-    public void ModelJudgedCost_WithNonFiniteValue_ThrowsArgumentException(double value)
-    {
-        ArgumentException failure = Assert.Throws<ArgumentException>(() => Metric.ModelJudgedCost(value, "EUR"));
-
-        Assert.Equal("value", failure.ParamName);
-    }
-
-    [Fact]
     public void Deserialize_ModelJudgedWithACurrencyAlone_BuildsTheMetricAndWithBothUnitAndCurrency_Throws()
     {
-        Assert.Equal(Metric.ModelJudgedCost(0.5, "USD"), Deserialize("""{"value":0.5,"label":"model-judged","currency":"USD"}"""));
+        Metric currencyOnly = Deserialize("""{"value":0.5,"label":"model-judged","currency":"USD"}""");
+        Assert.Equal((MetricLabel.ModelJudged, 0.5, "USD", (string?)null), (currencyOnly.Label, currencyOnly.Value, currencyOnly.Currency, currencyOnly.Unit));
+        Assert.Equal(currencyOnly, Deserialize(JsonSerializer.Serialize(currencyOnly)));
         Assert.Equal("currency", AssertRejectedWithArgumentException(() => Deserialize("""{"value":0.5,"label":"model-judged","unit":"points","currency":"USD"}""")).ParamName);
     }
 
@@ -774,7 +742,7 @@ public sealed class MetricTests
             .Select(method => method.Name)
             .Order(StringComparer.Ordinal)];
 
-        string[] expectedNames = ["Estimated", "EstimatedQuantity", "Measured", "MeasuredCost", "ModelJudged", "ModelJudged", "ModelJudgedCost", "NotApplicable", "NotReported"];
+        string[] expectedNames = ["Estimated", "EstimatedQuantity", "Measured", "MeasuredCost", "ModelJudged", "ModelJudged", "NotApplicable", "NotReported"];
         Assert.Equal(expectedNames, factories);
     }
 
@@ -803,6 +771,7 @@ public sealed class MetricTests
     [InlineData(ReadingFlags.Throttled, "throttled")]
     [InlineData(ReadingFlags.PartialOffload, "partial-offload")]
     [InlineData(ReadingFlags.MaxTokensExceeded, "max-tokens-exceeded")]
+    [InlineData(ReadingFlags.DuplicateOutput, "duplicate-output")]
     public void ToStrings_SingleFlag_ReturnsItsVocabularyString(ReadingFlags flag, string expected)
     {
         string[] expectedNames = [expected];
@@ -817,10 +786,10 @@ public sealed class MetricTests
     }
 
     [Fact]
-    public void ToStrings_AllEightFlags_ReturnsTheWholeVocabularyInBitOrder()
+    public void ToStrings_AllNineFlags_ReturnsTheWholeVocabularyInBitOrder()
     {
         ReadingFlags all = ReadingFlags.SamplingFallback | ReadingFlags.LowResolution | ReadingFlags.SharedWindow
-            | ReadingFlags.BaselineUnstable | ReadingFlags.BelowBaseline | ReadingFlags.Throttled | ReadingFlags.PartialOffload | ReadingFlags.MaxTokensExceeded;
+            | ReadingFlags.BaselineUnstable | ReadingFlags.BelowBaseline | ReadingFlags.Throttled | ReadingFlags.PartialOffload | ReadingFlags.MaxTokensExceeded | ReadingFlags.DuplicateOutput;
 
         Assert.Equal(FlagVocabulary, ReadingFlagNames.ToStrings(all));
     }
@@ -843,6 +812,7 @@ public sealed class MetricTests
     [InlineData("throttled", ReadingFlags.Throttled)]
     [InlineData("partial-offload", ReadingFlags.PartialOffload)]
     [InlineData("max-tokens-exceeded", ReadingFlags.MaxTokensExceeded)]
+    [InlineData("duplicate-output", ReadingFlags.DuplicateOutput)]
     public void Parse_EveryVocabularyName_ReturnsItsFlag(string name, ReadingFlags expected)
     {
         Assert.Equal(expected, ReadingFlagNames.Parse(name));
@@ -888,9 +858,9 @@ public sealed class MetricTests
     }
 
     [Theory]
-    [InlineData(256)]
+    [InlineData(512)]
     [InlineData(-1)]
-    [InlineData(511)]
+    [InlineData(1023)]
     [InlineData(int.MinValue)]
     public void ToStrings_WithABitOutsideTheVocabulary_ThrowsArgumentOutOfRangeException(int raw)
     {
@@ -902,7 +872,7 @@ public sealed class MetricTests
     [Fact]
     public void ToStrings_KnownFlagCombinedWithAnUndefinedBit_ThrowsInsteadOfDroppingTheBit()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => ReadingFlagNames.ToStrings(ReadingFlags.Throttled | (ReadingFlags)256));
+        Assert.Throws<ArgumentOutOfRangeException>(() => ReadingFlagNames.ToStrings(ReadingFlags.Throttled | (ReadingFlags)512));
     }
 
     [Fact]
@@ -954,17 +924,17 @@ public sealed class MetricTests
     }
 
     [Fact]
-    public void ReadingFlags_IsAFlagsEnumWithEightDistinctPowerOfTwoMembersAndNone()
+    public void ReadingFlags_IsAFlagsEnumWithNineDistinctPowerOfTwoMembersAndNone()
     {
         Assert.NotNull(typeof(ReadingFlags).GetCustomAttribute<FlagsAttribute>());
         Assert.Equal(0, (int)ReadingFlags.None);
 
         int[] values = [.. Enum.GetValues<ReadingFlags>().Select(flag => (int)flag).Where(value => value != 0)];
 
-        Assert.Equal(8, values.Length);
-        Assert.Equal(8, values.Distinct().Count());
+        Assert.Equal(9, values.Length);
+        Assert.Equal(9, values.Distinct().Count());
         Assert.All(values, value => Assert.True(value > 0 && (value & (value - 1)) == 0, $"{value} is not a power of two."));
-        string[] expectedNames = ["BaselineUnstable", "BelowBaseline", "LowResolution", "MaxTokensExceeded", "PartialOffload", "SamplingFallback", "SharedWindow", "Throttled"];
+        string[] expectedNames = ["BaselineUnstable", "BelowBaseline", "DuplicateOutput", "LowResolution", "MaxTokensExceeded", "PartialOffload", "SamplingFallback", "SharedWindow", "Throttled"];
 
         Assert.Equal(
             expectedNames,

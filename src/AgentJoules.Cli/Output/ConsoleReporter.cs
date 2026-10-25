@@ -31,6 +31,9 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     // The --out value is the operator's own text; it is scrubbed, and cut only when it is far longer than a path. The same cut as the partial-file suffix of the step failure message.
     private const int MaxPathLength = StepFailedException.MaxPartialFileLength;
 
+    // One failure detail of the judge warning: a kind of a few dozen characters, a colon and a reason of at most 120.
+    private const int MaxJudgeReasonLength = 200;
+
     private readonly TextWriter _error = error ?? throw new ArgumentNullException(nameof(error));
 
     /// <summary>The writer for results: the step lines and the closing lines of a run.</summary>
@@ -60,6 +63,29 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     public void ReportEnergyScope() => Output.WriteLine(ReportSentences.GpuBoardOnly);
 
     /// <summary>
+    /// Tells the user what <c>calibrate</c> wrote (REQ-021, AJ-109), as two lines on the output writer: <c>calibration: &lt;path&gt;</c>, the file as the user would type it (the <c>--out</c> value and the file name), and
+    /// <c>counter=&lt;J|N/A&gt; sampling=&lt;J|N/A&gt; difference=&lt;value|N/A&gt; window=&lt;s&gt; s samples=&lt;n&gt;</c>: the two totals in joules with two decimals, the relative difference with four, the measured window with one decimal and the
+    /// sample count. A method that did not measure shows <c>N/A</c>; the reason is in the file.
+    /// </summary>
+    /// <param name="displayPath">The path of the file as shown to the user.</param>
+    /// <param name="document">The calibration that was written.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void ReportCalibration(string displayPath, CalibrationDocument document)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayPath);
+        ArgumentNullException.ThrowIfNull(document);
+
+        Output.WriteLine("calibration: " + displayPath);
+        Output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"counter={Total(document.CounterJoules, "F2")} sampling={Total(document.SamplingJoules, "F2")} difference={Total(document.RelativeDifference, "F4")} window={document.WindowSeconds.ToString("F1", CultureInfo.InvariantCulture)} s samples={document.SampleCount}"));
+    }
+
+    // A joule total carries its unit; the dimensionless difference does not; a method that did not measure is N/A.
+    private static string Total(Metric metric, string format) =>
+        metric.Value is { } value ? value.ToString(format, CultureInfo.InvariantCulture) + (metric.Unit == "J" ? " J" : string.Empty) : "N/A";
+
+    /// <summary>
     /// Tells the user where the live dashboard listens (REQ-032, AJ-091): one line <c>Dashboard: &lt;uri&gt;</c> to the output writer, the loopback URI the server printed. <c>run</c> writes it after the
     /// checks and before the energy-scope sentence, so the scope sentence stays the last line before the first step line.
     /// </summary>
@@ -82,6 +108,12 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         _error.WriteLine($"Warning: the dashboard did not start ({TextEcho.ForMessage(reason)}); the run continues without it");
     }
+
+    /// <summary>
+    /// Warns that the idle baseline of a measured tier is shorter than 30 s (REQ-021, AJ-106): exactly <c>Warning: baseline shorter than 30 s is not publishable</c> as one line to the error writer. The run goes on and
+    /// its files carry the run flag <c>non-publishable</c>. The command calls it once, before the first tier, and only when a measured tier is selected and the baseline is shorter than <see cref="BaselineOptions.PublishableSeconds"/>.
+    /// </summary>
+    public void ReportShortBaseline() => _error.WriteLine("Warning: baseline shorter than 30 s is not publishable");
 
     /// <summary>Writes one note of the command (for example the note of a power interval shorter than the sampling period) as one line to the error writer.</summary>
     /// <param name="note">The note.</param>
@@ -126,13 +158,20 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     /// Shows the user what the models endpoint lists when a configured model ID is not among it (EDGE-008): a header line, <c>available models of nvidia (first 20 of 30):</c> (or
     /// <c>available models of nvidia (12):</c> when nothing was cut), and then one ID per line, indented by two spaces, all to the error writer; for an empty list the one line
     /// <c>no models listed</c>. The error line of the command (<see cref="ErrorLine"/>) is one folded line, so the command host prints the list of IDs here, right after that line.
-    /// Each ID is cut and scrubbed again, so a caller that did not echo it cannot put a control character on the terminal.
+    /// Each ID is cut and scrubbed again, so a caller that did not echo it cannot put a control character on the terminal. A failure of the configuration check of <c>validate --config</c> (an empty
+    /// <see cref="ModelNotFoundException.TierName"/>) has no endpoint list and prints nothing here.
     /// </summary>
     /// <param name="failure">The failure; its <see cref="ModelNotFoundException.AvailableIds"/> are printed in their order.</param>
     /// <exception cref="ArgumentNullException"><paramref name="failure"/> is null.</exception>
     public void ReportModelNotFound(ModelNotFoundException failure)
     {
         ArgumentNullException.ThrowIfNull(failure);
+
+        // The configuration check of `validate --config` has no endpoint list: its problem lines were printed by the command and it names no tier.
+        if (failure.TierName.Length == 0)
+        {
+            return;
+        }
 
         if (failure.AvailableCount == 0)
         {
@@ -261,22 +300,31 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
 
     /// <summary>
     /// Warns that the judge failed for some steps of a tier run (EDGE-012): exactly one line to the error writer, <c>Warning: the judge failed for &lt;f&gt; of &lt;n&gt; steps of tier &lt;tier&gt;
-    /// (&lt;kinds&gt;); their quality is N/A and the exit code is unchanged</c>. The kinds are exception type names and refusal tokens, each scrubbed of control characters and cut when far too long;
-    /// no message of a failure, no URL, no key and no model text is ever printed, because none of them reaches this method.
+    /// (&lt;kinds&gt;); their quality is N/A and the exit code is unchanged</c>. The kinds are exception type names (with the HTTP status when the failure carried one) and refusal tokens, each scrubbed of control characters and
+    /// cut when far too long; with reasons, the parentheses read <c>(&lt;kinds&gt;; reasons: &lt;kind&gt;: &lt;reason&gt;; ...)</c>. A reason is the first line of the message of the failure, masked and cut to 120 characters by the judge;
+    /// no other text of a response, no URL, no key and no model text is ever printed, because none of them reaches this method.
     /// </summary>
     /// <param name="tier">The tier whose steps were judged.</param>
     /// <param name="failedSteps">How many judged steps failed.</param>
     /// <param name="judgedSteps">How many steps were sent to the judge.</param>
     /// <param name="failureKinds">The distinct failure kinds, in the order to print.</param>
+    /// <param name="failureDetails">
+    /// The reason lines, <c>&lt;kind&gt;: &lt;first line of the redacted message&gt;</c>, printed after the kinds as <c>; reasons: a; b</c> inside the parentheses; null or empty prints no reasons. They come from the judge already
+    /// redacted and bounded, and each is scrubbed and cut again here.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="failureKinds"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="tier"/> is not a defined tier.</exception>
-    public void ReportJudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds)
+    public void ReportJudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds, IReadOnlyList<string>? failureDetails = null)
     {
         ArgumentNullException.ThrowIfNull(failureKinds);
 
+        // The reasons follow the kinds inside the parentheses; each is a line the judge already masked and bounded, scrubbed and cut again here.
         string kinds = string.Join(", ", failureKinds.Select(static kind => TextEcho.ForMessage(kind)));
+        string reasons = failureDetails is { Count: > 0 }
+            ? "; reasons: " + string.Join("; ", failureDetails.Select(static detail => TextEcho.ForMessage(detail, MaxJudgeReasonLength)))
+            : string.Empty;
         _error.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"Warning: the judge failed for {failedSteps} of {judgedSteps} steps of tier {TierOptions.NameOf(tier)} ({kinds}); their quality is N/A and the exit code is unchanged"));
+            $"Warning: the judge failed for {failedSteps} of {judgedSteps} steps of tier {TierOptions.NameOf(tier)} ({kinds}{reasons}); their quality is N/A and the exit code is unchanged"));
     }
 }

@@ -850,7 +850,7 @@ public sealed partial class RunOrchestrationTests
         }
 
         [Fact]
-        public void The_composition_root_registers_the_judge_service_the_no_op_runtime_the_cost_calculator_and_the_console_listener()
+        public void The_composition_root_registers_the_judge_service_the_runtime_of_the_configuration_the_cost_calculator_and_the_console_listener()
         {
             using TempWorkspace workspace = RunCommandHarness.CreateWorkspace();
             var keys = new Cli.Hosting.KeyRegistry(new Core.Security.SecretRedactor());
@@ -858,7 +858,8 @@ public sealed partial class RunOrchestrationTests
             using IHost host = Cli.Hosting.AgentJoulesHostFactory.Build(null, null, new Cli.CliHostOverrides(WorkingDirectory: workspace.Root), keys, TextWriter.Null, TextWriter.Null);
 
             _ = Assert.IsType<JudgeService>(host.Services.GetRequiredService<IJudgeService>());
-            _ = Assert.IsType<NoOpLocalRuntime>(host.Services.GetRequiredService<ILocalRuntime>());
+            // The shipped configuration selects the NIM runtime (AJ-102, AJ-105); the no-op runtime stays for a host that no setting selects a runtime for.
+            _ = Assert.IsType<NimRuntime>(host.Services.GetRequiredService<ILocalRuntime>());
             _ = Assert.IsType<CostCalculator>(host.Services.GetRequiredService<ICostCalculator>());
             _ = Assert.IsType<ConsoleRunListener>(host.Services.GetRequiredService<IRunListener>());
         }

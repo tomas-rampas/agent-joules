@@ -746,9 +746,10 @@ public sealed partial class DryRunTests
             Assert.True(result.ExitCode == 0, $"Expected exit code 0 but got {result.ExitCode}; stderr: {result.Stderr}");
             Assert.Equal(1, setup.Orchestrator.Runs);
 
-            // The writer probe created the results folder before the models request; the GPU was opened and closed after it and before the completion request of the orchestrator.
+            // The writer probe created the results folder before the NIM availability check (the shipped configuration selects the NIM runtime, AJ-105) and the models request; the GPU was opened and closed after them and before the completion request of the orchestrator.
             Assert.Equal(
                 [
+                    "NimVersion results=True gpuOpened=0 gpuOpen=False",
                     "Models results=True gpuOpened=0 gpuOpen=False",
                     "ChatCompletions results=True gpuOpened=1 gpuOpen=False",
                 ],

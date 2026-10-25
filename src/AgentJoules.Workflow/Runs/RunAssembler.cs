@@ -71,7 +71,8 @@ public static class RunAssembler
     private const string MillisecondUnit = "ms";
     private const string FallbackVersion = "0.0.0";
 
-    private static readonly (string ToolVersion, string GitCommit) ThisVersion = ParseVersion(
+    /// <summary>The version and the commit of this build, as a run file has them (<c>run.toolVersion</c>, <c>run.gitCommit</c>); a calibration file carries the same pair (AJ-109).</summary>
+    public static (string ToolVersion, string GitCommit) CurrentVersion { get; } = ParseVersion(
         typeof(RunAssembler).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
         typeof(RunAssembler).Assembly.GetName().Version);
 
@@ -118,21 +119,22 @@ public static class RunAssembler
 
     /// <summary>
     /// Builds the <c>environment</c> of a tier run from the sources the design names (design 3.4 "Environment fields"): the GPU identity of a measured tier, the local runtime's description and
-    /// warm-up time, the tier options and the process. Every field without a source in M2 is null (<c>powerSource</c> until AJ-106; <c>instancePreset</c>, <c>region</c>, <c>containerImage</c>
+    /// warm-up time, the tier options and the process. Every field without a source in M2 is null (<c>instancePreset</c>, <c>region</c>, <c>containerImage</c>
     /// and <c>containerDigest</c> until M5), never a guess.
     /// </summary>
     /// <param name="tier">The tier of the run.</param>
     /// <param name="tierOptions">The options of the tier: reasoning mode, precision and the model of each agent.</param>
     /// <param name="gpu">The identity of the measured GPU, or null for a hosted tier.</param>
-    /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier).</param>
+    /// <param name="runtime">The local runtime's description, or null when none was asked (a hosted tier). A runtime that names itself states <c>precision</c> as it is, null included; only a tier without a named runtime takes <c>Tiers:&lt;t&gt;:Precision</c>.</param>
     /// <param name="modelLoad">The warm-up time of the local runtime, or null when none was observed.</param>
     /// <param name="cost">The <c>Cost</c> section whose price and factor fill <c>assumptions</c>; null takes the defaults of <see cref="CostOptions"/>.</param>
+    /// <param name="powerSource">The detected power source (<see cref="PowerSources"/>), written as <c>powerSource</c>; a value outside the vocabulary is written as <c>unknown</c>, and null (none was asked) leaves the field null.</param>
     /// <returns>The environment.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tierOptions"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier is not defined, or <paramref name="modelLoad"/> is negative.</exception>
     /// <exception cref="ArgumentException">The reasoning mode of the tier is not off, on or unsupported.</exception>
     /// <exception cref="Core.Cli.ConfigurationException">An agent of the tier has no model ID.</exception>
-    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null)
+    public static EnvironmentInfo BuildEnvironment(Tier tier, TierOptions tierOptions, GpuIdentity? gpu, LocalRuntimeInfo? runtime, TimeSpan? modelLoad, CostOptions? cost = null, string? powerSource = null)
     {
         ArgumentNullException.ThrowIfNull(tierOptions);
         if (modelLoad < TimeSpan.Zero)
@@ -160,7 +162,7 @@ public static class RunAssembler
             RuntimeVersion: runtime?.Version,
             GpuOffloadPercent: runtime?.GpuOffloadPercent,
             ModelLoadSeconds: modelLoad?.TotalSeconds,
-            PowerSource: null,
+            PowerSource: powerSource is null ? null : PowerSources.Normalize(powerSource),
             ReasoningMode: TierEnvironmentFacts.From(tierOptions).ReasoningMode,
             Temperature: 0.0,
             Provider: provider,
@@ -169,7 +171,7 @@ public static class RunAssembler
             GpuUuid: gpu?.Uuid,
             ContainerImage: null,
             ContainerDigest: null,
-            Precision: runtime?.Precision ?? (string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision),
+            Precision: PrecisionOf(runtime, tierOptions),
             CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(NotObservedReason) : Metric.NotApplicable(NotCloudGpuReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
             Assumptions: new EnvironmentAssumptions(
@@ -178,8 +180,45 @@ public static class RunAssembler
             Models: models);
     }
 
+    // A runtime that names itself states the precision of what it serves: the quantization level of Ollama, or the configured value of a NIM container. A null there is a precision nobody stated, and it stays null:
+    // Tiers:<t>:Precision is the NIM value (BF16 in the shipped configuration) and must not label an Ollama model. A tier without a named runtime (a hosted tier, the no-op runtime) takes the configured precision.
+    private static string? PrecisionOf(LocalRuntimeInfo? runtime, TierOptions tierOptions) =>
+        runtime?.Name is not null
+            ? runtime.Precision
+            : string.IsNullOrWhiteSpace(tierOptions.Precision) ? null : tierOptions.Precision;
+
     /// <summary>
-    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, no run flag, no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
+    /// The run-level flags a local runtime's description implies (REQ-020, AJ-105): <see cref="RunFlagNames.PartialOffload"/> when the GPU offload is a number below 100, and none when it is 100 or unknown. An unknown
+    /// offload (null) is not 0 and sets no flag. The description is checked first: a value that is not a number or lies outside 0 to 100 cannot come from a measurement and stops the run.
+    /// </summary>
+    /// <param name="runtime">The description of the local runtime, or null when none was asked (a hosted tier).</param>
+    /// <returns>The flags, in the order of <see cref="RunFlagNames.All"/>; empty when none applies.</returns>
+    /// <exception cref="Core.Cli.MeasurementPreconditionException">The offload is NaN, infinite or outside 0 to 100 (exit code 6).</exception>
+    public static IReadOnlyList<string> RunFlagsOf(LocalRuntimeInfo? runtime)
+    {
+        return runtime?.GpuOffloadPercent is not { } offload
+            ? []
+            : !double.IsFinite(offload) || offload < 0.0 || offload > 100.0
+                ? throw new Core.Cli.MeasurementPreconditionException("the GPU offload could not be determined: the runtime reported a value outside 0 to 100")
+                : offload < 100.0 ? [RunFlagNames.PartialOffload] : [];
+    }
+
+    /// <summary>
+    /// The run-level flags of a tier run (REQ-020, REQ-021): those of <see cref="RunFlagsOf(LocalRuntimeInfo?)"/>, and <see cref="RunFlagNames.NonPublishable"/> when the idle baseline of the tier is shorter than
+    /// <see cref="BaselineOptions.PublishableSeconds"/> (30 s). A hosted tier has no baseline and passes null, so it is never flagged for one.
+    /// </summary>
+    /// <param name="runtime">The description of the local runtime, or null when none was asked (a hosted tier).</param>
+    /// <param name="baselineSeconds">The length of the idle baseline of a measured tier in seconds, or null for a tier without a baseline.</param>
+    /// <returns>The flags, in the order of <see cref="RunFlagNames.All"/>; empty when none applies.</returns>
+    /// <exception cref="Core.Cli.MeasurementPreconditionException">The offload is NaN, infinite or outside 0 to 100 (exit code 6).</exception>
+    public static IReadOnlyList<string> RunFlagsOf(LocalRuntimeInfo? runtime, double? baselineSeconds)
+    {
+        IReadOnlyList<string> flags = RunFlagsOf(runtime);
+        return baselineSeconds is { } seconds && seconds < BaselineOptions.PublishableSeconds ? [.. flags, RunFlagNames.NonPublishable] : flags;
+    }
+
+    /// <summary>
+    /// Builds the <c>run</c> member: the given fields, the tool version and the commit of this build, the given run flags (none by default), no stop reason, and the self-judging statement when given (null while the judge has not run: a checkpoint, a skipped judge, a failed or incomplete file).
     /// </summary>
     /// <param name="id">The run id: the file name of the run file without its extension.</param>
     /// <param name="tier">The tier of the run.</param>
@@ -189,20 +228,21 @@ public static class RunAssembler
     /// <param name="startUtc">The start of the command.</param>
     /// <param name="status">The status of the document.</param>
     /// <param name="selfJudged">Whether the judge model is the model of any step, or null when the judge has not run.</param>
+    /// <param name="flags">The run flags (<see cref="RunFlagsOf(LocalRuntimeInfo?)"/>), or null for none.</param>
     /// <returns>The run member.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is null or blank.</exception>
     /// <exception cref="ArgumentNullException"><paramref name="taskNames"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The tier or the mode is not defined.</exception>
-    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null)
+    public static RunInfo BuildRunInfo(string id, Tier tier, IReadOnlyList<string> taskNames, RunMode mode, int repeat, DateTimeOffset startUtc, RunStatus status, bool? selfJudged = null, IReadOnlyList<string>? flags = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, SelfJudged: selfJudged);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, CurrentVersion.ToolVersion, CurrentVersion.GitCommit, status, Flags: flags, SelfJudged: selfJudged);
     }
 
-    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
+    /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its shared-window flag (<see cref="MarkSharedWindows"/>), its duplicate-output flag (<see cref="MarkDuplicateOutputs"/>) and its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>
     /// <param name="run">The run member; its tier and mode decide the totals.</param>
     /// <param name="environment">The environment member.</param>
     /// <param name="probe">The probe of a measured tier, or null.</param>
@@ -231,7 +271,7 @@ public static class RunAssembler
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(judge);
 
-        StepReading[] stepCopy = [.. MarkSharedWindows(run.Tier, steps).Select(WithDerivedMetrics)];
+        StepReading[] stepCopy = [.. MarkDuplicateOutputs(MarkSharedWindows(run.Tier, steps)).Select(WithDerivedMetrics)];
         StepReading[] judgeCopy = [.. judge];
         return new RunDocument(
             RunDocument.CurrentSchemaVersion,
@@ -311,6 +351,44 @@ public static class RunAssembler
             if (shared[k] && !step.Flags.HasFlag(ReadingFlags.SharedWindow))
             {
                 marked[windowed[k]] = Copy(step, flags: step.Flags | ReadingFlags.SharedWindow);
+            }
+        }
+
+        return marked;
+    }
+
+    /// <summary>
+    /// Flags repeated outputs (user decision 3 of the M3 exit, AJ-104): every workflow step that finished <c>ok</c> with output (<see cref="StepReading.OutputChars"/> above 0) and whose
+    /// <see cref="StepReading.OutputSha256"/> equals that of an earlier step of the same task and the same repeat (one workflow run: the echo of the Writer of the output of the Planner) is copied with <see cref="ReadingFlags.DuplicateOutput"/> added. Earlier is by start time, and by position
+    /// in the list for equal start times; identical outputs of different repeats or different tasks are expected at temperature 0 and are never compared; the earlier step itself is not flagged, so three equal outputs flag the second and the third. A step without a recorded hash neither is flagged nor makes a later one a
+    /// duplicate. Pass the workflow steps only: the judge readings are never part of it. The flag changes no sum, and the input is not changed, so assembling again gives the same flags.
+    /// </summary>
+    /// <param name="steps">The workflow steps, in run order.</param>
+    /// <returns>The steps in the same order: a flagged copy where an output repeats, the same reading otherwise.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="steps"/> is null or holds a null.</exception>
+    public static StepReading[] MarkDuplicateOutputs(IReadOnlyList<StepReading> steps)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        StepReading[] marked = [.. steps];
+        foreach (StepReading step in marked)
+        {
+            ArgumentNullException.ThrowIfNull(step, nameof(steps));
+        }
+
+        HashSet<(string Task, int Repeat, string Hash)> seen = [];
+        foreach (int index in Enumerable.Range(0, marked.Length).OrderBy(i => marked[i].StartUtc).ThenBy(static i => i))
+        {
+            StepReading step = marked[index];
+            if (step.OutputSha256 is not { Length: > 0 } hash)
+            {
+                continue;
+            }
+
+            bool repeated = !seen.Add((step.Task, step.Repeat, hash));
+            if (repeated && step.OutputChars is > 0 && string.Equals(step.Outcome, StepOutcomes.Ok, StringComparison.Ordinal) && !step.Flags.HasFlag(ReadingFlags.DuplicateOutput))
+            {
+                marked[index] = Copy(step, flags: step.Flags | ReadingFlags.DuplicateOutput);
             }
         }
 

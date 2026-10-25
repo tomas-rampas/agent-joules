@@ -19,6 +19,21 @@ public enum FakeRoute
 
     /// <summary>Any other request; answered 404.</summary>
     Other = 3,
+
+    /// <summary><c>GET .../api/version</c>, the native route Ollama answers with <c>{"version":"..."}</c> (AJ-104).</summary>
+    OllamaVersion = 4,
+
+    /// <summary><c>GET .../api/ps</c>, the native route that lists the loaded models with <c>size</c> and <c>size_vram</c> (AJ-105).</summary>
+    OllamaPs = 5,
+
+    /// <summary><c>POST .../api/show</c>, the native route that describes a model, <c>details.quantization_level</c> included (AJ-105).</summary>
+    OllamaShow = 6,
+
+    /// <summary><c>GET .../v1/version</c>, the route a NIM container answers with <c>{"release":"...","api":"..."}</c> (AJ-105).</summary>
+    NimVersion = 7,
+
+    /// <summary><c>POST .../api/generate</c>, the native route of the Ollama warm-up: answers <c>{"model":"&lt;tag&gt;","done":true}</c> after the scripted time on the fake clock (AJ-106).</summary>
+    OllamaGenerate = 8,
 }
 
 /// <summary>
@@ -29,8 +44,33 @@ public enum FakeRoute
 /// <param name="RetryAfter">The raw <c>Retry-After</c> header value, stored verbatim and without validation so that a negative number or garbage can be scripted; null sends no header.</param>
 /// <param name="Duration">How far the endpoint's fake clock moves before the answer; null takes <see cref="FakeHttpMessageHandler.DefaultDuration"/>, and an explicit zero is zero.</param>
 /// <param name="StreamFailsAfterDeltas">A streaming request only: the number of text chunks that arrive (after the role chunk) before the body read fails with an <see cref="IOException"/>, as a connection that is cut mid-stream does; null streams to the end.</param>
-public sealed record FakeAnswer(int Status, string? RetryAfter = null, TimeSpan? Duration = null, int? StreamFailsAfterDeltas = null)
+/// <param name="StreamErrorMessage">A streaming request only: when set, the answer is HTTP 200 <c>text/event-stream</c> that holds one <c>data:</c> payload with a top-level <c>error</c> object carrying this message, then <c>data: [DONE]</c> (the in-stream error of a saturated worker, user decision 3); null streams normally.</param>
+/// <param name="StreamErrorCode">The <c>error.code</c> of the in-stream error payload; 500 by default.</param>
+/// <param name="ErrorBody">A status of 400 or more only: the raw JSON body of the answer instead of the generic error body; null sends the generic body.</param>
+public sealed record FakeAnswer(
+    int Status,
+    string? RetryAfter = null,
+    TimeSpan? Duration = null,
+    int? StreamFailsAfterDeltas = null,
+    string? StreamErrorMessage = null,
+    int StreamErrorCode = 500,
+    string? ErrorBody = null)
 {
+    /// <summary>The message of the in-stream error chunk the saturated NVIDIA worker sent (build-log, M3 exit probes).</summary>
+    public const string ResourceExhaustedMessage = "ResourceExhausted: Worker local total request limit reached (16/16)";
+
+    /// <summary>The in-stream error chunk mode ("ErrorChunk"): HTTP 200, one <c>data:</c> payload with an <c>error</c> object, then <c>data: [DONE]</c>; it takes the default fake time of the endpoint.</summary>
+    /// <param name="message">The <c>error.message</c>; the saturated-worker text by default.</param>
+    /// <param name="code">The <c>error.code</c>.</param>
+    /// <returns>The answer.</returns>
+    public static FakeAnswer ErrorChunk(string message = ResourceExhaustedMessage, int code = 500) => new(200, StreamErrorMessage: message, StreamErrorCode: code);
+
+    /// <summary>A 503 answer with the JSON body <c>{"detail":"..."}</c> a saturated free-tier worker returns; it takes the default fake time of the endpoint.</summary>
+    /// <param name="detail">The <c>detail</c> text; the saturated-worker text by default.</param>
+    /// <returns>The answer.</returns>
+    public static FakeAnswer ServiceUnavailable(string detail = ResourceExhaustedMessage) =>
+        new(503, ErrorBody: new JsonObject { ["detail"] = detail }.ToJsonString());
+
     /// <summary>A 200 answer.</summary>
     /// <param name="duration">The call time on the fake clock, or null for the default of the endpoint.</param>
     /// <returns>The answer.</returns>
@@ -97,6 +137,12 @@ public sealed record RecordedRequest(
 public sealed class FakeHttpMessageHandler : HttpMessageHandler
 {
     private const string ModelsSuffix = "/models";
+    private const string VersionSuffix = "/api/version";
+    private const string PsSuffix = "/api/ps";
+    private const string ShowSuffix = "/api/show";
+    private const string GenerateSuffix = "/api/generate";
+    private const string NimWarmUpPrompt = "Reply with the single word ready.";
+    private const string NimVersionSuffix = "/v1/version";
     private const string ChatSuffix = "/chat/completions";
     private const string DefaultModel = "fake-model";
 
@@ -104,6 +150,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     private readonly List<RecordedRequest> _requests = [];
     private readonly Dictionary<FakeRoute, Queue<FakeAnswer>> _scripted = [];
     private readonly Dictionary<FakeRoute, FakeAnswer> _lastAnswer = [];
+    private readonly HashSet<FakeRoute> _refusedRoutes = [];
 
     private bool _connectionRefused;
     private Action<FakeRoute, HttpResponseMessage>? _customizeResponse;
@@ -123,6 +170,21 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     /// <summary>The model IDs the models route lists.</summary>
     public IReadOnlyList<string> ModelIds { get; init; } = [DefaultModel];
 
+    /// <summary>True to list the models the way Ollama does (<c>{"id":"&lt;tag&gt;","object":"model","owned_by":"library"}</c>, no <c>created</c>); false for the generic fake entries.</summary>
+    public bool OllamaStyleModels { get; init; }
+
+    /// <summary>The <c>version</c> the Ollama version route answers.</summary>
+    public string OllamaVersion { get; init; } = "0.40.10";
+
+    /// <summary>The body the <c>/api/ps</c> route answers: the loaded models with <c>size</c> and <c>size_vram</c>; the measured empty list while nothing is loaded by default (build the others with <see cref="OllamaFixtures.Ps(string[])"/>).</summary>
+    public string OllamaPsBody { get; init; } = OllamaFixtures.Ps();
+
+    /// <summary>The body the <c>/api/show</c> route answers; the measured shape of Ollama 0.40.10 with the quantization level <c>Q4_K_M</c> by default (<see cref="OllamaFixtures.Show(string?)"/>).</summary>
+    public string OllamaShowBody { get; init; } = OllamaFixtures.Show("Q4_K_M");
+
+    /// <summary>The <c>release</c> the NIM version route answers.</summary>
+    public string NimRelease { get; init; } = "1.8.5";
+
     /// <summary>How long every answer is held back (a real wait, bounded by the request token); zero answers at once.</summary>
     public TimeSpan ResponseDelay { get; init; } = TimeSpan.Zero;
 
@@ -136,6 +198,19 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             {
                 _connectionRefused = value;
             }
+        }
+    }
+
+    /// <summary>The recorder that is told <see cref="OperationRecorder.WarmUp"/> for the warm-up call (<c>POST /api/generate</c>, or the short chat completion of the NIM warm-up) and <see cref="OperationRecorder.TaskCall"/> for every other chat completion; null for none (AJ-106).</summary>
+    public OperationRecorder? Recorder { get; init; }
+
+    /// <summary>Refuses the connections of one route only: the request is recorded and an <see cref="HttpRequestException"/> with an inner <see cref="SocketException"/> is thrown, while the other routes answer as before.</summary>
+    /// <param name="route">The route that refuses.</param>
+    public void RefuseConnections(FakeRoute route)
+    {
+        lock (_gate)
+        {
+            _ = _refusedRoutes.Add(route);
         }
     }
 
@@ -221,6 +296,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             ArgumentOutOfRangeException.ThrowIfGreaterThan(answer.Status, 599);
             ArgumentOutOfRangeException.ThrowIfLessThan(answer.Duration ?? TimeSpan.Zero, TimeSpan.Zero);
             ArgumentOutOfRangeException.ThrowIfLessThan(answer.StreamFailsAfterDeltas ?? 0, 0);
+            ArgumentOutOfRangeException.ThrowIfLessThan(answer.StreamErrorCode, 0);
         }
 
         lock (_gate)
@@ -248,9 +324,10 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         FakeRoute route = Classify(request);
         string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         Record(request, route, body);
+        RecordOperation(route, body);
 
         (bool refused, Action<FakeRoute, HttpResponseMessage>? customize) = Settings();
-        if (refused)
+        if (refused || RouteRefused(route))
         {
             AdvanceClock(DefaultDuration);
             throw new HttpRequestException("Connection refused", new SocketException((int)SocketError.ConnectionRefused));
@@ -267,9 +344,14 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         cancellationToken.ThrowIfCancellationRequested();
 
         int status = answer.Status;
-        HttpResponseMessage response = status >= 400 ? Error(status) : route switch
+        HttpResponseMessage response = status >= 400 ? Error(status, answer.ErrorBody) : route switch
         {
             FakeRoute.Models => Json(ModelsBody()),
+            FakeRoute.OllamaVersion => Json(new JsonObject { ["version"] = OllamaVersion }.ToJsonString()),
+            FakeRoute.OllamaPs => Json(OllamaPsBody),
+            FakeRoute.OllamaShow => Json(OllamaShowBody),
+            FakeRoute.OllamaGenerate => Json(new JsonObject { ["model"] = ModelOf(body), ["done"] = true }.ToJsonString()),
+            FakeRoute.NimVersion => Json(new JsonObject { ["release"] = NimRelease, ["api"] = "3.1.0" }.ToJsonString()),
             FakeRoute.ChatCompletions => Chat(body, answer),
             _ => Error((int)HttpStatusCode.NotFound),
         };
@@ -291,6 +373,60 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         return response;
     }
 
+    private bool RouteRefused(FakeRoute route)
+    {
+        lock (_gate)
+        {
+            return _refusedRoutes.Contains(route);
+        }
+    }
+
+    // The operation order of AJ-106: the warm-up is the Ollama generate call or the one short chat completion of the NIM warm-up (its fixed prompt and its 8-token limit); every other completion is a task call.
+    private void RecordOperation(FakeRoute route, string? body)
+    {
+        if (Recorder is null)
+        {
+            return;
+        }
+
+        if (route == FakeRoute.OllamaGenerate)
+        {
+            Recorder.Record(OperationRecorder.WarmUp);
+        }
+        else if (route == FakeRoute.ChatCompletions)
+        {
+            Recorder.Record(IsNimWarmUp(body) ? OperationRecorder.WarmUp : OperationRecorder.TaskCall);
+        }
+    }
+
+    private static bool IsNimWarmUp(string? body)
+    {
+        try
+        {
+            return body is not null
+                && JsonNode.Parse(body) is JsonObject request
+                && request["max_tokens"] is JsonValue limit && limit.TryGetValue(out int tokens) && tokens == 8
+                && request["messages"] is JsonArray { Count: 1 } messages
+                && messages[0]?["content"] is JsonValue content && content.TryGetValue(out string? prompt) && string.Equals(prompt, NimWarmUpPrompt, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string ModelOf(string? body)
+    {
+        try
+        {
+            return body is not null && JsonNode.Parse(body) is JsonObject request && request["model"] is JsonValue value && value.TryGetValue(out string? model) && !string.IsNullOrEmpty(model) ? model : DefaultModel;
+        }
+        catch (JsonException)
+        {
+            return DefaultModel;
+        }
+    }
+
     private void AdvanceClock(TimeSpan duration)
     {
         if (duration <= TimeSpan.Zero)
@@ -305,6 +441,11 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     {
         string path = request.RequestUri?.AbsolutePath ?? string.Empty;
         return request.Method == HttpMethod.Get && path.EndsWith(ModelsSuffix, StringComparison.Ordinal) ? FakeRoute.Models
+            : request.Method == HttpMethod.Get && path.EndsWith(VersionSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaVersion
+            : request.Method == HttpMethod.Get && path.EndsWith(PsSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaPs
+            : request.Method == HttpMethod.Post && path.EndsWith(ShowSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaShow
+            : request.Method == HttpMethod.Post && path.EndsWith(GenerateSuffix, StringComparison.Ordinal) ? FakeRoute.OllamaGenerate
+            : request.Method == HttpMethod.Get && path.EndsWith(NimVersionSuffix, StringComparison.Ordinal) ? FakeRoute.NimVersion
             : request.Method == HttpMethod.Post && path.EndsWith(ChatSuffix, StringComparison.Ordinal) ? FakeRoute.ChatCompletions
             : FakeRoute.Other;
     }
@@ -356,7 +497,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         var data = new JsonArray();
         foreach (string id in ModelIds)
         {
-            data.Add(new JsonObject { ["id"] = id, ["object"] = "model", ["created"] = 1_700_000_000, ["owned_by"] = "fake" });
+            data.Add(OllamaStyleModels
+                ? new JsonObject { ["id"] = id, ["object"] = "model", ["owned_by"] = "library" }
+                : new JsonObject { ["id"] = id, ["object"] = "model", ["created"] = 1_700_000_000, ["owned_by"] = "fake" });
         }
 
         return new JsonObject { ["object"] = "list", ["data"] = data }.ToJsonString();
@@ -383,6 +526,20 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         if (!streaming)
         {
             return Json(BufferedCompletion(model));
+        }
+
+        // The in-stream error of a saturated worker: HTTP 200, one data payload with an error object, then the terminator.
+        if (answer.StreamErrorMessage is { } errorMessage)
+        {
+            string payload = new JsonObject
+            {
+                ["error"] = new JsonObject { ["message"] = errorMessage, ["type"] = "internal_server_error", ["code"] = answer.StreamErrorCode },
+            }.ToJsonString();
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("data: " + payload + "\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream"),
+            };
         }
 
         // A stream that is cut: the role chunk and the first deltas arrive, then the body read fails, so the consumer has seen real updates by then.
@@ -435,9 +592,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     private static HttpResponseMessage Json(string body) =>
         new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
-    private static HttpResponseMessage Error(int status)
+    private static HttpResponseMessage Error(int status, string? rawBody = null)
     {
-        string body = new JsonObject
+        string body = rawBody ?? new JsonObject
         {
             ["error"] = new JsonObject { ["message"] = "fake error", ["type"] = "fake_error", ["code"] = status.ToString(System.Globalization.CultureInfo.InvariantCulture) },
         }.ToJsonString();

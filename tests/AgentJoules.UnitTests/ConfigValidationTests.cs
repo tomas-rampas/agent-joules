@@ -3,9 +3,14 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
+using AgentJoules.Cli;
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
+using AgentJoules.Core.Security;
+using AgentJoules.Reporting;
+using AgentJoules.Reporting.Endpoints;
 using AgentJoules.TestSupport;
 
 using Microsoft.Extensions.Configuration;
@@ -1177,5 +1182,1072 @@ public sealed class ConfigValidationTests
         Assert.Equal(32, new AgentJoulesOptions().Judge.MaxOutputTokens);
         Assert.Equal(32, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Judge.MaxOutputTokens);
         Assert.Equal(32, OptionsLoader.Load(ConfigurationFixtures.FromJsonFile(ConfigurationFixtures.AppSettingsPath())).Judge.MaxOutputTokens);
+    }
+
+    // ---- AJ-100: the endpoints document and the model-ID check of validate --config (REQ-018) ----
+
+    private const string Verified = EndpointsFixtures.VerifiedDate;
+
+    // A redactor that holds no key: the validator masks only what is registered.
+    private static readonly SecretRedactor NoKeys = new();
+
+    private static string Section(string tier, string? verified, params string[] modelIds) => EndpointsFixtures.Section(tier, verified, modelIds);
+
+    private static EndpointsDocument Parsed(params string[] sections) => EndpointsDocParser.Parse(EndpointsFixtures.Document(sections));
+
+    // The four tiers of the fixture options, each enabled with the model "model-<tier>", and the judge "model-nvidia" on the tier nvidia.
+    private static AgentJoulesOptions EndpointOptions()
+    {
+        AgentJoulesOptions options = ProviderClientFixtures.FourTiers();
+        options.Judge.Tier = "nvidia";
+        options.Judge.ModelId = "model-nvidia";
+        return options;
+    }
+
+    // A document that lists the model of every tier of EndpointOptions under a verified heading.
+    private static EndpointsDocument CompleteDocument() =>
+        Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius"));
+
+    private static string[] OutputLines(string text) => [.. text.Split('\n').Select(static line => line.TrimEnd('\r')).Where(static line => line.Length > 0)];
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_parser_reads_the_verified_date_the_model_lines_and_the_status_of_each_tier_section()
+    {
+        string text = EndpointsFixtures.Document(
+            Section("local", "2026-10-18", "nemotron-3-nano:4b"),
+            "## cloudgpu\nStatus: pending (verified in M5, AJ-126)\n",
+            Section("nvidia", Verified, "nvidia/a", "nvidia/b"),
+            Section("nebius", null));
+
+        EndpointsDocument document = EndpointsDocParser.Parse(text);
+
+        Assert.Equal(["cloudgpu", "local", "nebius", "nvidia"], document.Sections.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(new DateOnly(2026, 10, 18), document.Sections["local"].Verified);
+        Assert.Equal(["nemotron-3-nano:4b"], document.Sections["local"].ModelIds);
+        Assert.Null(document.Sections["cloudgpu"].Verified);
+        Assert.Empty(document.Sections["cloudgpu"].ModelIds);
+        Assert.Equal("pending (verified in M5, AJ-126)", document.Sections["cloudgpu"].Status);
+        Assert.Equal(["nvidia/a", "nvidia/b"], document.Sections["nvidia"].ModelIds);
+        Assert.Null(document.Sections["nvidia"].Status);
+        Assert.Null(document.Sections["nebius"].Verified);
+        Assert.Empty(document.Sections["nebius"].ModelIds);
+        Assert.True(document.TryGetSection("nvidia", out EndpointsSection? nvidia));
+        Assert.Equal("nvidia", nvidia.Name);
+        Assert.False(EndpointsDocParser.Parse("# nothing here\n").TryGetSection("nvidia", out _));
+    }
+
+    [Theory]
+    [InlineData("## Local")]
+    [InlineData("## local (laptop)")]
+    [InlineData("## notes")]
+    [InlineData("##  local")]
+    [InlineData("## nvidia-extra")]
+    [Trait("Spec", "REQ-018")]
+    public void Another_level_two_heading_ends_the_section_and_starts_an_ignored_one(string heading)
+    {
+        string text = "## nvidia\nVerified: " + Verified + "\n- model: kept\n" + heading + "\nVerified: 2030-01-01\n- model: ignored\nStatus: ignored\n";
+
+        EndpointsSection nvidia = Assert.Single(EndpointsDocParser.Parse(text).Sections.Values);
+
+        Assert.Equal(["kept"], nvidia.ModelIds);
+        Assert.Equal(new DateOnly(2026, 10, 20), nvidia.Verified);
+        Assert.Null(nvidia.Status);
+    }
+
+    [Theory]
+    [InlineData("### local")]
+    [InlineData("##local")]
+    [InlineData(" ## local")]
+    [InlineData("#### nebius")]
+    [InlineData("# local")]
+    [Trait("Spec", "REQ-018")]
+    public void A_line_that_is_not_a_level_two_heading_is_prose_inside_the_current_section(string line)
+    {
+        string text = "## nvidia\n" + line + "\n- model: kept\n";
+
+        EndpointsSection nvidia = Assert.Single(EndpointsDocParser.Parse(text).Sections.Values);
+
+        Assert.Equal("nvidia", nvidia.Name);
+        Assert.Equal(["kept"], nvidia.ModelIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_parser_ignores_the_text_before_the_first_heading_and_every_other_line()
+    {
+        string text = "Verified: 2030-01-01\n- model: before-any-heading\nStatus: before\n\n## local\nSome prose with - model: inside\n| table | row |\nverified: 2030-01-01\n* model: star\nVerified: " + Verified + "\n";
+
+        EndpointsSection local = Assert.Single(EndpointsDocParser.Parse(text).Sections.Values);
+
+        Assert.Equal(new DateOnly(2026, 10, 20), local.Verified);
+        Assert.Empty(local.ModelIds);
+        Assert.Null(local.Status);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_model_id_keeps_its_case_and_loses_only_its_trailing_white_space()
+    {
+        string text = "## nebius\n- model: Mixed-Case/ID:30B   \t\n- model: second\n- model:nospace\n-  model: double\n- model:  lead\n- model: \n- Model: upper\n* model: star\n";
+
+        EndpointsSection nebius = Assert.Single(EndpointsDocParser.Parse(text).Sections.Values);
+
+        Assert.Equal(["Mixed-Case/ID:30B", "second", " lead"], nebius.ModelIds);
+        Assert.True(nebius.Lists("Mixed-Case/ID:30B"));
+        Assert.False(nebius.Lists("mixed-case/id:30b"));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_well_formed_verified_date_is_read_and_the_first_one_wins()
+    {
+        string text = "## local\nVerified: 2026-10-17\nVerified: 2026-11-01\n";
+
+        EndpointsSection local = Assert.Single(EndpointsDocParser.Parse(text).Sections.Values);
+
+        Assert.Equal(new DateOnly(2026, 10, 17), local.Verified);
+        Assert.Null(local.MalformedVerified);
+    }
+
+    [Theory]
+    [InlineData("2026-1-5")]
+    [InlineData("2026/10/17")]
+    [InlineData("17.10.2026")]
+    [InlineData("2026-13-01")]
+    [InlineData("2026-02-30")]
+    [InlineData("2026-10-17T00:00:00Z")]
+    [InlineData("yesterday")]
+    [Trait("Spec", "REQ-018")]
+    public void A_malformed_verified_date_counts_as_missing_and_keeps_its_text(string value)
+    {
+        EndpointsSection local = Assert.Single(EndpointsDocParser.Parse("## local\nVerified: " + value + "\n").Sections.Values);
+
+        Assert.Null(local.Verified);
+        Assert.Equal(value, local.MalformedVerified);
+    }
+
+    [Theory]
+    [InlineData("Verified:2026-10-17")]
+    [InlineData("verified: 2026-10-17")]
+    [InlineData(" Verified: 2026-10-17")]
+    [InlineData("Verified: ")]
+    [Trait("Spec", "REQ-018")]
+    public void A_line_that_is_not_exactly_a_verified_line_is_ignored(string line)
+    {
+        EndpointsSection local = Assert.Single(EndpointsDocParser.Parse("## local\n" + line + "\n").Sections.Values);
+
+        Assert.Null(local.Verified);
+        Assert.Null(local.MalformedVerified);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_malformed_verified_date_before_a_good_one_does_not_hide_the_good_one()
+    {
+        EndpointsSection local = Assert.Single(EndpointsDocParser.Parse("## local\nVerified: soon\nVerified: 2026-10-17\n").Sections.Values);
+
+        Assert.Equal(new DateOnly(2026, 10, 17), local.Verified);
+        Assert.Null(local.MalformedVerified);
+    }
+
+    [Theory]
+    [InlineData("nvidia")]
+    [InlineData("local")]
+    [Trait("Spec", "REQ-018")]
+    public void A_duplicate_tier_heading_is_a_configuration_error_naming_the_heading(string tier)
+    {
+        string text = Section(tier, Verified, "a") + "## notes\nprose\n" + Section(tier, Verified, "b");
+
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => EndpointsDocParser.Parse(text));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("## " + tier, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_parser_accepts_CRLF_line_ends()
+    {
+        string lf = EndpointsFixtures.Document(Section("local", Verified, "model-a  "), "## cloudgpu\nStatus: pending\n", Section("nvidia", Verified, "model-b"));
+        string crlf = lf.Replace("\n", "\r\n", StringComparison.Ordinal);
+
+        EndpointsDocument fromLf = EndpointsDocParser.Parse(lf);
+        EndpointsDocument fromCrlf = EndpointsDocParser.Parse(crlf);
+
+        Assert.Equal(fromLf.Sections.Keys.Order(StringComparer.Ordinal), fromCrlf.Sections.Keys.Order(StringComparer.Ordinal));
+        foreach ((string name, EndpointsSection expected) in fromLf.Sections)
+        {
+            EndpointsSection actual = fromCrlf.Sections[name];
+            Assert.Equal((expected.Verified, expected.Status, expected.MalformedVerified), (actual.Verified, actual.Status, actual.MalformedVerified));
+            Assert.Equal(expected.ModelIds, actual.ModelIds);
+        }
+
+        Assert.Equal(["model-a"], fromCrlf.Sections["local"].ModelIds);
+        Assert.Equal("pending", fromCrlf.Sections["cloudgpu"].Status);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_parser_rejects_null_text_and_reads_empty_text_as_no_sections()
+    {
+        Assert.Throws<ArgumentNullException>(() => EndpointsDocParser.Parse(null!));
+        Assert.Empty(EndpointsDocParser.Parse(string.Empty).Sections);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void Every_configured_id_listed_in_its_section_validates_and_is_counted()
+    {
+        ConfigValidationResult result = ConfigModelValidator.Validate(EndpointOptions(), CompleteDocument(), NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(5, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_id_absent_from_its_section_is_reported_with_the_section_name()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["nebius"].ModelId = "model-nebius-missing";
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal(["Missing in section ## nebius: model-nebius-missing"], result.Problems);
+        Assert.Equal(5, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_id_listed_only_under_another_tier_is_missing_in_its_own_section()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = "model-nvidia";
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal(["Missing in section ## local: model-nvidia"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void Ids_are_compared_exactly_so_a_tag_that_differs_only_by_case_is_missing()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = "nemotron-3-nano:30B";
+        EndpointsDocument document = Parsed(Section("local", Verified, "nemotron-3-nano:30b"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Equal(["Missing in section ## local: nemotron-3-nano:30B"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_agent_ids_are_checked_too_and_each_distinct_id_of_a_tier_is_counted_once()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        TierOptions nvidia = options.Tiers["nvidia"];
+        nvidia.AgentModelIds["Planner"] = "model-nvidia";
+        nvidia.AgentModelIds["Writer"] = "nvidia-writer";
+        nvidia.AgentModelIds["Reviewer"] = "nvidia-writer";
+        nvidia.AgentModelIds["Researcher"] = "nvidia-unlisted";
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia", "nvidia-writer"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Equal(["Missing in section ## nvidia: nvidia-unlisted"], result.Problems);
+        Assert.Equal(7, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_judge_id_is_looked_up_in_the_section_of_the_judge_tier_and_counted_beside_the_tier_ids()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Judge.Tier = "nebius";
+        options.Judge.ModelId = "judge-only-model";
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius", "judge-only-model"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(5, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_judge_id_listed_only_under_another_tier_is_missing_in_the_judge_tier_section()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Judge.ModelId = "judge-only-model";
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius", "judge-only-model"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Equal(["Missing in section ## nvidia: judge-only-model"], result.Problems);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Spec", "REQ-018")]
+    public void A_judge_tier_that_is_disabled_or_has_no_section_reports_the_judge_id_as_missing(bool disabled)
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Judge.Tier = "nebius";
+        options.Judge.ModelId = "model-nebius";
+        EndpointsDocument document;
+        if (disabled)
+        {
+            options.Tiers["nebius"].Enabled = false;
+            document = CompleteDocument();
+        }
+        else
+        {
+            options.Tiers.Remove("nebius");
+            document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"));
+        }
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Contains("Missing in section ## nebius: model-nebius", result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void Without_a_judge_id_nothing_is_checked_for_the_judge()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Judge.ModelId = null;
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(4, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_disabled_tier_needs_only_its_heading_and_its_ids_are_not_checked_or_counted()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["cloudgpu"].Enabled = false;
+        options.Tiers["cloudgpu"].ModelId = "not-listed-anywhere";
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), "## cloudgpu\nStatus: pending (verified in M5, AJ-126)\n", Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(4, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_disabled_tier_without_a_heading_is_reported()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["cloudgpu"].Enabled = false;
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Equal(["Section ## cloudgpu missing"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_enabled_tier_without_a_section_is_reported_and_its_ids_are_not_checked()
+    {
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(EndpointOptions(), document, NoKeys);
+
+        Assert.Equal(["Section ## nvidia missing", "Missing in section ## nvidia: model-nvidia"], result.Problems);
+        Assert.Equal(4, result.ValidatedIds);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("soon", "soon")]
+    [InlineData("2026-1-5", "2026-1-5")]
+    [Trait("Spec", "REQ-018")]
+    public void An_enabled_tier_without_a_valid_verified_date_is_reported_before_its_ids(string? verified, string? malformed)
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["nebius"].ModelId = "model-nebius-missing";
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("cloudgpu", Verified, "model-cloudgpu"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        string[] expected = malformed is null
+            ? ["Verified date missing in section ## nebius", "Missing in section ## nebius: model-nebius-missing"]
+            : ["Verified date missing in section ## nebius", $"Verified date malformed in section ## nebius: {malformed}", "Missing in section ## nebius: model-nebius-missing"];
+        Assert.Equal(expected, result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_tier_the_configuration_does_not_hold_needs_no_section()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers.Remove("cloudgpu");
+        EndpointsDocument document = Parsed(Section("local", Verified, "model-local"), Section("nvidia", Verified, "model-nvidia"), Section("nebius", Verified, "model-nebius"));
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, document, NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(4, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_problems_follow_the_tier_order_of_a_run_then_the_judge_and_a_repeated_line_appears_once()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["nebius"].ModelId = "n";
+        options.Tiers["local"].ModelId = "l";
+        options.Tiers["nvidia"].ModelId = "v";
+        options.Judge.ModelId = "v";
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal(["Missing in section ## local: l", "Missing in section ## nvidia: v", "Missing in section ## nebius: n"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_shipped_tier_models_and_judge_validate_against_a_document_built_from_them()
+    {
+        AgentJoulesOptions shipped = ConfigurationFixtures.ShippedOptions();
+        var sections = new List<string>();
+        foreach (string tier in TierOptions.KnownNames)
+        {
+            TierOptions entry = shipped.Tiers[tier];
+            string[] ids = [.. new[] { entry.ModelId }.Concat(entry.AgentModelIds.Values).Append(tier == shipped.Judge.Tier ? shipped.Judge.ModelId : null).OfType<string>().Distinct(StringComparer.Ordinal)];
+            sections.Add(Section(tier, Verified, ids));
+        }
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(shipped, Parsed([.. sections]), NoKeys);
+
+        Assert.Empty(result.Problems);
+        Assert.Equal(shipped.Tiers.Values.Count(static tier => tier.Enabled) + 1, result.ValidatedIds);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_validator_rejects_null_arguments()
+    {
+        Assert.Throws<ArgumentNullException>(() => ConfigModelValidator.Validate(null!, CompleteDocument(), NoKeys));
+        Assert.Throws<ArgumentNullException>(() => ConfigModelValidator.Validate(EndpointOptions(), null!, NoKeys));
+        Assert.Throws<ArgumentNullException>(() => ConfigModelValidator.Validate(EndpointOptions(), CompleteDocument(), null!));
+    }
+
+    private static TempWorkspace EndpointsWorkspace(JsonObject? config = null, string? document = null)
+    {
+        TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        workspace.WriteConfig(EndpointsFixtures.Text(config ?? EndpointsFixtures.DefaultConfig()));
+        _ = workspace.WriteFile(EndpointsFixtures.DocumentPath, document ?? EndpointsFixtures.DefaultDocument());
+        return workspace;
+    }
+
+    private static Task<CliRunResult> ValidateConfigAsync(TempWorkspace workspace, params string[] arguments) =>
+        CliHarness.RunTokensAsync(["validate", .. arguments], new CliHostOverrides(WorkingDirectory: workspace.Root));
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_0_and_prints_the_count_when_every_id_is_recorded()
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(result.Stdout));
+        Assert.Empty(result.Stderr);
+        Assert.Empty(result.DeniedRequests);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_4_prints_every_problem_line_and_makes_no_request()
+    {
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.TierOf(config, "nebius")["ModelId"] = "model-nebius-missing";
+        EndpointsFixtures.SectionOf(config)["Judge"]!["ModelId"] = "judge-missing";
+        using TempWorkspace workspace = EndpointsWorkspace(config);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal(["Missing in section ## nebius: model-nebius-missing", "Missing in section ## nvidia: judge-missing"], OutputLines(result.Stdout));
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.StartsWith("error: ", error, StringComparison.Ordinal);
+        Assert.EndsWith("(ModelNotFoundException)", error, StringComparison.Ordinal);
+        Assert.Contains("model-nebius-missing", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("no models listed", result.Stderr, StringComparison.Ordinal);
+        Assert.Empty(result.DeniedRequests);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_4_with_the_verified_line_for_an_enabled_tier_without_a_date()
+    {
+        string document = EndpointsFixtures.Document(
+            EndpointsFixtures.Section("local", Verified, "model-local"),
+            EndpointsFixtures.Section("nvidia", Verified, "model-nvidia"),
+            EndpointsFixtures.Section("nebius", null, "model-nebius"));
+        using TempWorkspace workspace = EndpointsWorkspace(document: document);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal(["Verified date missing in section ## nebius"], OutputLines(result.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_skips_a_disabled_tier_whose_section_has_no_date_but_needs_its_heading()
+    {
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.SectionOf(config)["Tiers"]!.AsObject()["cloudgpu"] = EndpointsFixtures.TierEntry("cloudgpu", "model-cloudgpu", enabled: false);
+        string without = EndpointsFixtures.Document(EndpointsFixtures.DefaultSections());
+        string with = EndpointsFixtures.Document([.. EndpointsFixtures.DefaultSections(), "## cloudgpu\nStatus: pending (verified in M5, AJ-126)\n"]);
+
+        using TempWorkspace headingMissing = EndpointsWorkspace(config, without);
+        using TempWorkspace headingPresent = EndpointsWorkspace(config, with);
+        CliRunResult missing = await ValidateConfigAsync(headingMissing, "--config");
+        CliRunResult present = await ValidateConfigAsync(headingPresent, "--config");
+
+        Assert.Equal(4, missing.ExitCode);
+        Assert.Equal(["Section ## cloudgpu missing"], OutputLines(missing.Stdout));
+        Assert.Equal(0, present.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(present.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_with_a_path_validates_the_named_file_instead_of_the_default()
+    {
+        JsonObject broken = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.TierOf(broken, "local")["ModelId"] = "model-local-missing";
+        using TempWorkspace workspace = EndpointsWorkspace(broken);
+        _ = workspace.WriteFile(Path.Combine("alt", "other.json"), EndpointsFixtures.Text(EndpointsFixtures.DefaultConfig()));
+
+        CliRunResult named = await ValidateConfigAsync(workspace, "--config", Path.Combine("alt", "other.json"));
+        CliRunResult flag = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, named.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(named.Stdout));
+        Assert.Equal(4, flag.ExitCode);
+        Assert.Equal(["Missing in section ## local: model-local-missing"], OutputLines(flag.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_binds_the_environment_overrides_over_the_file()
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+        var overrides = new CliHostOverrides(
+            Configuration: new Dictionary<string, string?> { ["AgentJoules:Tiers:local:ModelId"] = "model-from-the-environment" },
+            WorkingDirectory: workspace.Root);
+
+        CliRunResult result = await CliHarness.RunTokensAsync(["validate", "--config"], overrides);
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal(["Missing in section ## local: model-from-the-environment"], OutputLines(result.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_reads_the_document_named_by_Paths_Endpoints()
+    {
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.SectionOf(config)["Paths"] = new JsonObject { ["Endpoints"] = "notes/recorded.md" };
+        using TempWorkspace workspace = EndpointsWorkspace(config);
+        _ = workspace.WriteFile(Path.Combine("notes", "recorded.md"), EndpointsFixtures.DefaultDocument());
+        File.Delete(Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath));
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(result.Stdout));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_2_naming_Paths_Endpoints_when_the_document_is_missing_or_unreadable(bool unreadable)
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+        string path = Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath);
+        File.Delete(path);
+        if (unreadable)
+        {
+            _ = Directory.CreateDirectory(path);
+        }
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("Paths:Endpoints", error, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("../endpoints.md")]
+    [InlineData("/rooted.md")]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_2_naming_Paths_Endpoints_when_the_path_leaves_the_working_directory(string value)
+    {
+        // The working directory is one level inside the workspace and a complete document sits one level up, so a path that were followed would validate: only the refusal gives exit 2.
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.SectionOf(config)["Paths"] = new JsonObject { ["Endpoints"] = value };
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = workspace.WriteFile(Path.Combine("work", "config", "appsettings.json"), EndpointsFixtures.Text(config));
+        _ = workspace.WriteFile("endpoints.md", EndpointsFixtures.DefaultDocument());
+        Assert.True(File.Exists(Path.Combine(workspace.Root, "endpoints.md")));
+
+        CliRunResult result = await CliHarness.RunTokensAsync(["validate", "--config"], new CliHostOverrides(WorkingDirectory: Path.Combine(workspace.Root, "work")));
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("Paths:Endpoints must be a relative path inside the working directory", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_2_naming_Paths_Endpoints_and_not_the_path_when_the_named_document_does_not_exist()
+    {
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.SectionOf(config)["Paths"] = new JsonObject { ["Endpoints"] = "notes/absent.md" };
+        using TempWorkspace workspace = EndpointsWorkspace(config);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(2, result.ExitCode);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("Paths:Endpoints: the endpoints document was not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("absent.md", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("runs")]
+    [InlineData("results/20260101T000000Z-local.json")]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_with_a_positional_path_exits_2_and_checks_nothing(string path)
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+
+        CliRunResult result = await ValidateConfigAsync(workspace, path, "--config");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("validate --config takes no path argument", error, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_with_a_missing_configuration_file_exits_2_and_the_help_no_longer_defers_to_M4()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+
+        CliRunResult missing = await ValidateConfigAsync(workspace, "--config", "no-such.json");
+        CliRunResult help = await ValidateConfigAsync(workspace, "--help");
+
+        Assert.Equal(2, missing.ExitCode);
+        Assert.DoesNotContain("arrives in M4", missing.Stderr, StringComparison.Ordinal);
+        Assert.Equal(0, help.ExitCode);
+        Assert.Contains("--config", help.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("M4", help.Stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("Reserved", help.Stdout, StringComparison.Ordinal);
+    }
+
+    private const string LongIdStem = "hf.co/someorg/Some-Very-Long-Model-Name-GGUF:Q4_K_M-with-a-long-tail-variant-";
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void Two_missing_ids_that_share_their_first_64_characters_are_two_lines_each_ending_with_its_full_id()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = LongIdStem + "1";
+        options.Tiers["local"].AgentModelIds["Planner"] = LongIdStem + "2";
+        Assert.Equal(LongIdStem[..64], (LongIdStem + "2")[..64]);
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal([$"Missing in section ## local: {LongIdStem}1", $"Missing in section ## local: {LongIdStem}2"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_id_of_300_characters_is_cut_at_256_and_marked_with_the_ellipsis()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = new string('a', 300);
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal([$"Missing in section ## local: {new string('a', 256)}..."], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_id_with_a_control_character_prints_the_character_as_a_question_mark()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = "bad\u0007id";
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal(["Missing in section ## local: bad?id"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_same_tier_and_id_configured_as_model_agent_and_judge_prints_once()
+    {
+        AgentJoulesOptions options = EndpointOptions();
+        options.Tiers["local"].ModelId = "shared-id";
+        options.Tiers["local"].AgentModelIds["Planner"] = "shared-id";
+        options.Judge.Tier = "local";
+        options.Judge.ModelId = "shared-id";
+
+        ConfigValidationResult result = ConfigModelValidator.Validate(options, CompleteDocument(), NoKeys);
+
+        Assert.Equal(["Missing in section ## local: shared-id"], result.Problems);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task A_malformed_verified_date_prints_the_missing_line_and_then_the_malformed_line_and_exits_4()
+    {
+        string document = EndpointsFixtures.Document(
+            EndpointsFixtures.Section("local", "24.10.2026", "model-local"),
+            EndpointsFixtures.Section("nvidia", Verified, "model-nvidia"),
+            EndpointsFixtures.Section("nebius", Verified, "model-nebius"));
+        using TempWorkspace workspace = EndpointsWorkspace(document: document);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+        ConfigValidationResult valid = ConfigModelValidator.Validate(EndpointOptions(), CompleteDocument(), NoKeys);
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal(["Verified date missing in section ## local", "Verified date malformed in section ## local: 24.10.2026"], OutputLines(result.Stdout));
+        Assert.Empty(valid.Problems);
+        Assert.DoesNotContain(valid.Problems, static line => line.Contains("malformed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_2_naming_Paths_Endpoints_for_a_document_of_one_MiB_plus_one_byte()
+    {
+        string head = EndpointsFixtures.DefaultDocument();
+        using TempWorkspace workspace = EndpointsWorkspace(document: head + new string('p', (1024 * 1024) + 1 - head.Length));
+        Assert.Equal((1024 * 1024) + 1, new FileInfo(Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath)).Length);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("Paths:Endpoints: the endpoints document could not be read; the path is not shown", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(workspace.Root, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_accepts_a_document_of_exactly_one_MiB()
+    {
+        string head = EndpointsFixtures.DefaultDocument();
+        using TempWorkspace workspace = EndpointsWorkspace(document: head + new string('p', (1024 * 1024) - head.Length));
+        Assert.Equal(1024 * 1024, new FileInfo(Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath)).Length);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(result.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_exits_2_not_4_for_a_document_that_starts_with_a_UTF16_byte_order_mark()
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+        string path = Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath);
+        byte[] text = Encoding.Unicode.GetBytes(EndpointsFixtures.DefaultDocument());
+        File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. text]);
+        Assert.Equal([0xFF, 0xFE], File.ReadAllBytes(path)[..2]);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(2, result.ExitCode);
+        Assert.Empty(result.Stdout);
+        string error = Assert.Single(OutputLines(result.Stderr));
+        Assert.Contains("Paths:Endpoints: the endpoints document could not be read; the path is not shown", error, StringComparison.Ordinal);
+        Assert.EndsWith("(ConfigurationException)", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Validate_config_accepts_a_UTF8_byte_order_mark_and_CRLF_line_ends_when_the_first_line_is_a_heading()
+    {
+        using TempWorkspace workspace = EndpointsWorkspace();
+        string path = Path.Combine(workspace.Root, EndpointsFixtures.DocumentPath);
+        string crlf = string.Concat(EndpointsFixtures.DefaultSections()).Replace("\n", "\r\n", StringComparison.Ordinal);
+        File.WriteAllBytes(path, [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(crlf)]);
+        Assert.StartsWith("## local", crlf, StringComparison.Ordinal);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["Validated 4 model IDs"], OutputLines(result.Stdout));
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task Committed_configuration_validates_against_the_committed_endpoints_document()
+    {
+        using TempWorkspace workspace = TempWorkspace.Create();
+        string committed = File.ReadAllText(Path.Combine(ConfigurationFixtures.RepositoryRoot(), "docs", "endpoints.md"));
+        _ = workspace.WriteFile(EndpointsFixtures.DocumentPath, committed);
+
+        CliRunResult result = await ValidateConfigAsync(workspace, "--config");
+
+        Assert.Equal(0, result.ExitCode);
+        string line = Assert.Single(OutputLines(result.Stdout));
+        Assert.Matches(@"^Validated [0-9]+ model IDs$", line);
+        Assert.Empty(result.DeniedRequests);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public async Task A_registered_key_inside_a_missing_id_is_masked_before_the_echo_is_cut()
+    {
+        // A runtime-built 236-character fake key: with the 30-character prefix the id is 266 characters, so a cut at 256 before the masking would show 226 characters of the key.
+        const string alphabet = "BCDFGHJKLMNPQRSTVWXZ0123456789bcdfghjkmnpqrstvwxz";
+        string key = string.Concat(Enumerable.Range(0, 236).Select(static index => alphabet[((index * 7) + (index / 11)) % alphabet.Length]));
+        const string prefix = "ordinary-model-name-prefix-abc";
+        Assert.Equal(30, prefix.Length);
+        Assert.Equal(236, key.Length);
+        JsonObject config = EndpointsFixtures.DefaultConfig();
+        EndpointsFixtures.TierOf(config, "local")["ModelId"] = prefix + key;
+        using TempWorkspace workspace = EndpointsWorkspace(config);
+
+        CliRunResult result = await CliHarness.RunTokensAsync(
+            ["validate", "--config"],
+            new CliHostOverrides(Configuration: new Dictionary<string, string?> { [ProviderClientFixtures.NvidiaKeyVariable] = key }, WorkingDirectory: workspace.Root));
+
+        Assert.Equal(4, result.ExitCode);
+        Assert.Equal([$"Missing in section ## local: {prefix}****"], OutputLines(result.Stdout));
+        for (int start = 0; start + 8 <= key.Length; start++)
+        {
+            string run = key.Substring(start, 8);
+            Assert.False(result.Stdout.Contains(run, StringComparison.Ordinal) || result.Stderr.Contains(run, StringComparison.Ordinal), "a run of the key reached the output at offset " + start.ToString(CultureInfo.InvariantCulture));
+        }
+
+        Assert.Contains($"Missing in section ## local: {prefix}****", Assert.Single(OutputLines(result.Stderr)), StringComparison.Ordinal);
+    }
+
+    // ---- AJ-102: Local:Runtime (REQ-019) ----
+
+    [Fact]
+    [Trait("Spec", "REQ-019")]
+    public void Local_runtime_defaults_to_ollama_without_a_key()
+    {
+        Assert.Equal(LocalOptions.Ollama, new AgentJoulesOptions().Local.Runtime);
+        Assert.Equal(LocalOptions.Ollama, OptionsLoader.Bind(ConfigurationFixtures.InMemory()).Local.Runtime);
+        Assert.Equal(LocalOptions.Ollama, Load().Local.Runtime);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-019")]
+    public void Local_runtime_binds_from_the_environment_variable_name()
+    {
+        IConfiguration configuration = ConfigurationFixtures.InMemory((ConfigurationFixtures.NormaliseEnvironmentKey("AGENTJOULES__Local__Runtime"), LocalOptions.Nim));
+
+        Assert.Equal(LocalOptions.Nim, OptionsLoader.Load(configuration).Local.Runtime);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-019")]
+    [InlineData("ollama")]
+    [InlineData("nim")]
+    public void Local_runtime_accepts_ollama_and_nim(string runtime) =>
+        Assert.Equal(runtime, Load(("Local:Runtime", runtime)).Local.Runtime);
+
+    [Theory]
+    [Trait("Spec", "REQ-019")]
+    [InlineData("vllm")]
+    [InlineData("NIM")]
+    [InlineData("nim ")]
+    public void Local_runtime_other_than_ollama_or_nim_exits_2_without_showing_the_value(string runtime)
+    {
+        ConfigurationException failure = Rejected(("Local:Runtime", runtime));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Local:Runtime must be ollama or nim", failure.Message);
+        Assert.DoesNotContain(runtime, failure.Message, StringComparison.Ordinal);
+    }
+
+    // ---- AJ-108: ReasoningMode and the chat_template_kwargs.enable_thinking member of ExtraBodyJson agree (REQ-018, P-2) ----
+
+    private const string ThinkingOff = """{"chat_template_kwargs":{"enable_thinking":false}}""";
+    private const string ThinkingOn = """{"chat_template_kwargs":{"enable_thinking":true}}""";
+    private const string DisagreementMessage = "Tiers:nvidia:ReasoningMode disagrees with ExtraBodyJson chat_template_kwargs.enable_thinking";
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [InlineData("off", ThinkingOn)]
+    [InlineData("on", ThinkingOff)]
+    [InlineData("unsupported", ThinkingOff)]
+    [InlineData("unsupported", ThinkingOn)]
+    public void A_reasoning_mode_that_disagrees_with_the_enable_thinking_toggle_exits_2_with_one_message(string mode, string json)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal(DisagreementMessage, failure.Message);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [InlineData("off", ThinkingOff)]
+    [InlineData("on", ThinkingOn)]
+    [InlineData("off", """{"other_member":1}""")]
+    [InlineData("on", """{"chat_template_kwargs":{"other_member":true}}""")]
+    [InlineData("unsupported", """{"other_member":1}""")]
+    [InlineData("unsupported", """{"chat_template_kwargs":{}}""")]
+    public void A_reasoning_mode_that_agrees_with_the_toggle_or_a_body_without_the_member_is_accepted(string mode, string json)
+    {
+        AgentJoulesOptions options = Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(mode, options.Tiers["nvidia"].ReasoningMode);
+        Assert.Equal(json, options.Tiers["nvidia"].ExtraBodyJson);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void A_tier_with_no_extra_body_is_not_checked_against_the_toggle()
+    {
+        Assert.Equal("on", Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "on")).Tiers["nvidia"].ReasoningMode);
+        Assert.Equal("unsupported", Load(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "unsupported")).Tiers["nvidia"].ReasoningMode);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void An_unknown_reasoning_word_is_reported_once_and_not_also_as_a_disagreement()
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "maybe"), ("Tiers:nvidia:ExtraBodyJson", ThinkingOff));
+
+        Assert.Contains("Tiers:nvidia:ReasoningMode must be", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("disagrees", failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("maybe", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_disagreement_is_reported_next_to_the_other_failures_of_the_tier()
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", "off"), ("Tiers:nvidia:ExtraBodyJson", ThinkingOn), ("Tiers:nvidia:TimeoutSeconds", "0"));
+
+        Assert.Contains(DisagreementMessage, failure.Message, StringComparison.Ordinal);
+        Assert.Contains("Tiers:nvidia:TimeoutSeconds must be greater than 0", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-018")]
+    public void The_shipped_configuration_carries_the_verified_toggle_of_each_tier_and_agrees_with_itself()
+    {
+        // Loading validates: the consistency rule accepts the shipped file as it is.
+        AgentJoulesOptions shipped = ConfigurationFixtures.ShippedOptions();
+
+        foreach (string name in new[] { "nvidia", "nebius" })
+        {
+            TierOptions hosted = shipped.Tiers[name];
+            Assert.Equal("off", hosted.ReasoningMode);
+            Assert.True(ConfigurationJson.TryParseObject(hosted.ExtraBodyJson ?? string.Empty, out JsonObject? body), $"Tiers:{name}:ExtraBodyJson is not a JSON object.");
+            Assert.False(body!["chat_template_kwargs"]!["enable_thinking"]!.GetValue<bool>());
+
+            // The shipped body is exactly the verified toggle and nothing else (a second member would pass the checks above).
+            Assert.True(JsonNode.DeepEquals(JsonNode.Parse(hosted.ExtraBodyJson!), JsonNode.Parse(ThinkingOff)), $"Tiers:{name}:ExtraBodyJson is not exactly the verified toggle.");
+
+            // The hosted tiers keep the default cap field.
+            Assert.Equal("max_completion_tokens", hosted.MaxTokensField);
+
+            // One mechanism per tier: the verified body toggle replaced the /no_think prefix of the M3 exit.
+            Assert.Null(hosted.SystemPromptPrefix);
+        }
+
+        TierOptions local = shipped.Tiers["local"];
+        Assert.Equal("off", local.ReasoningMode);
+        Assert.Null(local.ExtraBodyJson);
+        Assert.Equal("detailed thinking off", local.SystemPromptPrefix);
+
+        // The local server rejects max_completion_tokens (found live, AJ-108): the local tier carries its cap as max_tokens.
+        Assert.Equal("max_tokens", local.MaxTokensField);
+    }
+
+    public static TheoryData<string, string> ToggleShapesThatAreNotABoolean() =>
+        new()
+        {
+            { "off", """{"chat_template_kwargs":{"enable_thinking":"false"}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":"true"}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":1}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":0}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":null}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":[]}}""" },
+            { "off", """{"chat_template_kwargs":{"enable_thinking":{}}}""" },
+            { "off", """{"chat_template_kwargs":true}""" },
+            { "off", """{"chat_template_kwargs":[]}""" },
+            { "off", """{"chat_template_kwargs":null}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":"false"}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":"true"}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":1}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":0}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":null}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":[]}}""" },
+            { "on", """{"chat_template_kwargs":{"enable_thinking":{}}}""" },
+            { "on", """{"chat_template_kwargs":true}""" },
+            { "on", """{"chat_template_kwargs":[]}""" },
+            { "on", """{"chat_template_kwargs":null}""" },
+        };
+
+    [Theory]
+    [Trait("Spec", "REQ-018")]
+    [MemberData(nameof(ToggleShapesThatAreNotABoolean))]
+    public void A_toggle_or_kwargs_that_is_not_a_json_boolean_exits_2_with_a_constant_message(string mode, string json)
+    {
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ReasoningMode", mode), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Tiers:nvidia:ExtraBodyJson chat_template_kwargs.enable_thinking must be true or false", failure.Message);
+        Assert.DoesNotContain(json, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [Trait("Spec", "REQ-004")]
+    public void A_lone_surrogate_escape_in_a_member_name_exits_2_and_never_shows_the_text()
+    {
+        // The escape is assembled at run time so that this file stays ASCII and the compiler does not decode it.
+        string json = "{\"a" + "\\u" + "d800" + "\":1}";
+
+        ConfigurationException failure = Rejected(("Tiers:nvidia:Enabled", "false"), ("Tiers:nvidia:ExtraBodyJson", json));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Equal("Tiers:nvidia:ExtraBodyJson must be a JSON object; the value is not shown", failure.Message);
+        Assert.DoesNotContain(json, failure.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("d800", failure.Message, StringComparison.Ordinal);
+        Assert.Equal(JsonObjectProblem.NotAnObject, ConfigurationJson.Check(json, out JsonObject? value));
+        Assert.Null(value);
     }
 }

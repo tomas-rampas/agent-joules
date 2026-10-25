@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 using AgentJoules.Core.Cli;
@@ -9,14 +10,14 @@ namespace AgentJoules.Core.Configuration;
 
 /// <summary>
 /// Checks what annotations cannot: that <c>Meter:Method</c> is a known name, the 10 Hz rule (a rate below 10 Hz is valid only when
-/// <c>Meter:AllowBelowMinRate</c> is true), the <c>Tiers</c> and <c>Judge</c> sections, and <c>Report:RepositoryUrl</c> (an absolute https URL without user info, query, fragment or surrounding space, and without an <c>nvapi-</c> key; the rule and its message are <see cref="ReportOptions.IsRepositoryUrl"/> and <see cref="ReportOptions.RepositoryUrlMessage"/>).
+/// <c>Meter:AllowBelowMinRate</c> is true), the <c>Tiers</c> and <c>Judge</c> sections, <c>Local:Runtime</c> (<c>ollama</c> or <c>nim</c>, AJ-102), and <c>Report:RepositoryUrl</c> (an absolute https URL without user info, query, fragment or surrounding space, and without an <c>nvapi-</c> key; the rule and its message are <see cref="ReportOptions.IsRepositoryUrl"/> and <see cref="ReportOptions.RepositoryUrlMessage"/>).
 /// </summary>
 /// <remarks>
 /// Every failure is reported, one line each, and the checks do not stop at the first one. A rate of 0 or less, NaN or infinity, which
 /// no override allows, is left to the annotation on <see cref="MeterOptions.SampleRateHz"/> so that a caller that runs both validators
 /// sees that failure once. The tiers are a dictionary, which the generated <see cref="FlatSectionsValidator"/> does not enumerate, so this
 /// validator loops over them: a known tier name, a <c>BaseUrl</c> (absolute, no user info, query or fragment, https unless loopback) and a <c>ModelId</c> when the tier is enabled,
-/// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c>, a positive <c>TimeoutSeconds</c>, a <c>MissingPriceReason</c> of lowercase words joined by hyphens (at most 64 characters), the names and values of
+/// <c>ReasoningMode</c>, <c>MaxTokensField</c> and <c>ExtraBodyJson</c> (and that <c>ReasoningMode</c> agrees with a <c>chat_template_kwargs.enable_thinking</c> toggle in it, AJ-108: <c>off</c> with false, <c>on</c> with true, <c>unsupported</c> with neither), a positive <c>TimeoutSeconds</c>, a <c>MissingPriceReason</c> of lowercase words joined by hyphens (at most 64 characters), the names and values of
 /// <c>AgentModelIds</c>, and an <c>ApiKeyVariable</c> that is a variable name ending in <c>_API_KEY</c> (AJ-052). A line names the key path and never shows a configured value.
 /// </remarks>
 public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
@@ -60,6 +61,7 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
 
         ValidateJudge(options, failures);
         ValidateReport(options.Report, failures);
+        ValidateLocal(options, failures);
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
@@ -134,6 +136,16 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
             {
                 failures.Add($"{path}:ExtraBodyJson must not set the member {reserved}; the call itself is not configurable here ({ConfigurationMessages.OrList(ConfigurationJson.ReservedBodyMembers)})");
             }
+            else if (!TryReadEnableThinking(extraBody!, out bool? enableThinking))
+            {
+                failures.Add($"{path}:ExtraBodyJson chat_template_kwargs.enable_thinking must be true or false");
+            }
+            else if (TierOptions.ReasoningModes.Contains(tier.ReasoningMode, StringComparer.Ordinal)
+                && enableThinking is { } toggle
+                && !ReasoningAgrees(tier.ReasoningMode, toggle))
+            {
+                failures.Add($"{path}:ReasoningMode disagrees with ExtraBodyJson chat_template_kwargs.enable_thinking");
+            }
         }
 
         if (!TierOptions.MaxTokensFields.Contains(tier.MaxTokensField, StringComparer.Ordinal))
@@ -165,6 +177,43 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         }
     }
 
+    // The reasoning toggle of a chat template (AJ-108, ADR-12): chat_template_kwargs.enable_thinking as a JSON true or false. A body without chat_template_kwargs, or without enable_thinking under it, holds no toggle and is not judged (true, enableThinking null).
+    // A chat_template_kwargs that is not an object, or an enable_thinking that is not a JSON boolean (a string, a number, null, an array, an object), is a toggle the template would read in some other way, so it is refused (false).
+    private static bool TryReadEnableThinking(JsonObject extraBody, out bool? enableThinking)
+    {
+        enableThinking = null;
+        if (!extraBody.TryGetPropertyValue("chat_template_kwargs", out JsonNode? kwargsNode))
+        {
+            return true;
+        }
+
+        if (kwargsNode is not JsonObject kwargs)
+        {
+            return false;
+        }
+
+        if (!kwargs.TryGetPropertyValue("enable_thinking", out JsonNode? flag))
+        {
+            return true;
+        }
+
+        if (flag is JsonValue value && value.GetValueKind() is JsonValueKind.True or JsonValueKind.False)
+        {
+            enableThinking = value.GetValueKind() == JsonValueKind.True;
+            return true;
+        }
+
+        return false;
+    }
+
+    // off agrees with a toggle of false, on with true; a tier whose ReasoningMode is unsupported cannot switch reasoning, so a toggle of either value contradicts it.
+    private static bool ReasoningAgrees(string reasoningMode, bool enableThinking) => reasoningMode switch
+    {
+        "off" => !enableThinking,
+        "on" => enableThinking,
+        _ => false,
+    };
+
     // Judge:Tier is matched exactly: the name goes into the results as written, and the tier names there are lowercase. It must be a section of Tiers
     // once Tiers holds a section with a known name (an unknown name is reported on its own, so it does not count); with no tier configured at all
     // there is nothing to name yet, which keeps an empty configuration valid.
@@ -179,6 +228,24 @@ public sealed class CrossFieldValidator : IValidateOptions<AgentJoulesOptions>
         else if (options.Tiers.Keys.Any(IsKnownTierName) && !options.Tiers.ContainsKey(judgeTier))
         {
             failures.Add("Judge:Tier names a tier that Tiers does not hold");
+        }
+    }
+
+    // Local:Runtime (AJ-102) is matched exactly and in lower case, as the decision line of docs/nim-local-attempt.md spells it; the message names the key and never the value. With the nim runtime
+    // (AJ-105) Tiers:local:Precision must be set: a NIM container states no precision of its own, so none is ever guessed for the run file (Ollama reads its quantization level from /api/show).
+    private static void ValidateLocal(AgentJoulesOptions options, List<string> failures)
+    {
+        LocalOptions local = options.Local;
+        if (!LocalOptions.Runtimes.Contains(local.Runtime, StringComparer.Ordinal))
+        {
+            failures.Add($"Local:Runtime must be {ConfigurationMessages.OrList(LocalOptions.Runtimes)}");
+        }
+        else if (string.Equals(local.Runtime, LocalOptions.Nim, StringComparison.Ordinal)
+            && options.Tiers.TryGetValue("local", out TierOptions? localTier)
+            && localTier is not null
+            && string.IsNullOrWhiteSpace(localTier.Precision))
+        {
+            failures.Add("Tiers:local:Precision must be set when Local:Runtime is nim");
         }
     }
 

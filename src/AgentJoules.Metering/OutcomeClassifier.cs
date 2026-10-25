@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Results;
 using AgentJoules.Core.Runs;
 
@@ -11,6 +12,7 @@ namespace AgentJoules.Metering;
 /// <list type="number">
 /// <item><description>No exception: <c>ok</c>.</description></item>
 /// <item><description>An <see cref="OperationCanceledException"/> (or a subclass) while the caller's token is cancelled: <c>cancelled</c>. A cancellation the caller did not ask for, such as the timeout of an HTTP client, is not this rule and ends as <c>error</c>; so does one whose inner exception is a <see cref="TimeoutException"/>, even when the caller's token is cancelled too, because the timeout is what ended the call.</description></item>
+/// <item><description>A <see cref="ProviderErrorException"/> (an <c>error</c> chunk inside a successful event stream, user decision 3 of the M3 exit): <c>error</c> on every tier, before or after the first update. The provider answered, and the answer was an error; it is not a cut connection, so it is never <c>incomplete</c> and never <c>ok</c>.</description></item>
 /// <item><description>A transport failure: an <see cref="IOException"/>, a <see cref="SocketException"/> or an <see cref="HttpRequestException"/> anywhere in the tree of inner exceptions (every member of an <see cref="AggregateException"/> is followed, breadth first, up to 64 exceptions), and no <see cref="HttpRequestException"/> with a <see cref="HttpRequestException.StatusCode"/> anywhere in it. A tree larger than the limit is not understood and counts as no transport failure. It is <c>incomplete</c> on the cloudgpu tier (a connection that is cut is how a stopped or recycled GPU instance looks), and on any tier when the drop came after the first update was received (the answer was already under way, EDGE-016). The same failure before the first update on the local, nvidia and nebius tiers is <c>error</c>.</description></item>
 /// <item><description>Everything else, including every HTTP-status error, every timeout and a later <c>RetriesExhaustedException</c>: <c>error</c>.</description></item>
 /// </list>
@@ -33,7 +35,9 @@ public static class OutcomeClassifier
             ? StepOutcomes.Ok
             : IsCallerCancellation(error, callerToken)
                 ? StepOutcomes.Cancelled
-                : IsTransportFailure(error) && (tier == Tier.CloudGpu || firstUpdateSeen)
+                : error is ProviderErrorException
+                    ? StepOutcomes.Error
+                    : IsTransportFailure(error) && (tier == Tier.CloudGpu || firstUpdateSeen)
                     ? StepOutcomes.Incomplete
                     : StepOutcomes.Error;
     }

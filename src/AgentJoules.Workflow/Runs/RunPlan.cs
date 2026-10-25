@@ -20,7 +20,7 @@ public sealed record RunPlan
     /// <param name="baselineSeconds">The idle-baseline length of a measured tier in seconds, <c>--baseline-seconds</c> or <c>Baseline:Seconds</c>; finite and greater than 0.</param>
     /// <param name="writers">The checkpoint writer of each selected tier, keyed by tier; exactly the selected tiers. The plan keeps a frozen copy, so a later change to the dictionary does not reach it.</param>
     /// <param name="keys">The result of <see cref="PreflightService.CheckKeys"/> outside a dry run.</param>
-    /// <param name="models">The result of <see cref="PreflightService.CheckModelsAsync"/>.</param>
+    /// <param name="models">The result of <see cref="PreflightService.CheckModelsAsync(IReadOnlyList{Tier}, KeyCheckResult, CancellationToken)"/>.</param>
     /// <param name="startUtc">
     /// The start of the command, taken once on the registered clock: every run file name of the command carries it and every document records it as <c>run.startUtc</c>; UTC (offset
     /// zero) and not the default value.

@@ -25,6 +25,7 @@ public sealed class DerivedMetricsSteps(DerivedMetricsContext context)
     private static MetricLabel LabelNamed(string name) => name switch
     {
         "model-judged" => MetricLabel.ModelJudged,
+        "estimated" => MetricLabel.Estimated,
         "N/A" => MetricLabel.NotApplicable,
         _ => throw new XunitException($"Unknown label word {name}."),
     };

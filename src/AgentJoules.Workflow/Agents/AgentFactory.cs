@@ -60,6 +60,12 @@ public sealed class AgentFactory(IProviderClientFactory providerClients, Meterin
     private readonly Random _random = random ?? throw new ArgumentNullException(nameof(random));
     private readonly Lock _seedGate = new();
 
+    /// <summary>
+    /// True (the default) puts the <see cref="MeteredChatClient"/> at the top of every pipeline. False builds the pipeline of a workload that nobody meters (the calibration of AJ-109, whose one window is opened by
+    /// the service itself): the retry layer wraps the provider client and nothing opens a window, takes the gate or publishes a reading, so the services of the factory are never used.
+    /// </summary>
+    public bool Metered { get; init; } = true;
+
     /// <summary>Creates the agent <see cref="StepIdentity.Agent"/> with the catalog instruction and no tier prefix.</summary>
     /// <param name="identity">Who the agent is and where it runs; the agent name must be in the <see cref="AgentCatalog"/>.</param>
     /// <param name="chatOptions">The default options of the agent's calls (temperature, output cap, model); copied, the caller keeps its instance.</param>
@@ -111,8 +117,13 @@ public sealed class AgentFactory(IProviderClientFactory providerClients, Meterin
         IChatClient pipeline;
         try
         {
-            pipeline = new ChatClientBuilder(provider)
-                .Use(inner => new MeteredChatClient(inner, identity, _services, ledger))
+            ChatClientBuilder builder = new(provider);
+            if (Metered)
+            {
+                _ = builder.Use(inner => new MeteredChatClient(inner, identity, _services, ledger));
+            }
+
+            pipeline = builder
                 .Use(inner => new RateLimitRetryChatClient(inner, ledger, _retryOptions, _time, jitter))
                 .Build();
         }
