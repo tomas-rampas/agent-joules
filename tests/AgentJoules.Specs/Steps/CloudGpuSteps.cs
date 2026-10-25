@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 
 using AgentJoules.TestSupport;
+using AgentJoules.TestSupport.Docs;
 
 using Reqnroll;
 
@@ -35,7 +36,7 @@ public sealed partial class CloudGpuSteps(IReqnrollOutputHelper output) : IDispo
     [GeneratedRegex(@"\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b")]
     private static partial Regex Ipv4Literal();
 
-    [GeneratedRegex(@"\b(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}\b|\b(?:[0-9A-Fa-f]{1,4}:){4,7}[0-9A-Fa-f]{1,4}\b")]
+    [GeneratedRegex(CloudGpuRunDocumentParser.Ipv6Pattern)]
     private static partial Regex Ipv6Literal();
 
     [GeneratedRegex(@"\b(?:project|tenant|serviceaccount|computeinstance|computedisk|vpcnetwork|vpcsubnet)-[a-z0-9]{10,}\b")]

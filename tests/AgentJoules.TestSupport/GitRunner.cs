@@ -25,9 +25,18 @@ public static class GitRunner
     /// <param name="args">The arguments, one per element.</param>
     /// <returns>The exit code and both streams.</returns>
     /// <exception cref="InvalidOperationException">git is not installed (the inner exception is the start failure), or it did not exit within <see cref="Limit"/>.</exception>
-    public static GitResult Run(string workingDirectory, params string[] args)
+    public static GitResult Run(string workingDirectory, params string[] args) => RunWithInput(workingDirectory, string.Empty, args);
+
+    /// <summary>Runs git with text on its standard input (for a value that must not sit in the argument list).</summary>
+    /// <param name="workingDirectory">The working directory of the process.</param>
+    /// <param name="input">The text written to standard input, which is then closed.</param>
+    /// <param name="args">The arguments, one per element.</param>
+    /// <returns>The exit code and both streams.</returns>
+    /// <exception cref="InvalidOperationException">git is not installed (the inner exception is the start failure), or it did not exit within <see cref="Limit"/>.</exception>
+    public static GitResult RunWithInput(string workingDirectory, string input, params string[] args)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+        ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(args);
 
         var info = new ProcessStartInfo("git")
@@ -62,9 +71,18 @@ public static class GitRunner
             throw new InvalidOperationException("git is not installed or not on PATH", exception);
         }
 
-        process.StandardInput.Close();
         Task<string> stdout = process.StandardOutput.ReadToEndAsync();
         Task<string> stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            process.StandardInput.Write(input);
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // git exited before it read all of its input; its exit code tells the outcome.
+        }
+
         if (!process.WaitForExit((int)Limit.TotalMilliseconds))
         {
             process.Kill(entireProcessTree: true);

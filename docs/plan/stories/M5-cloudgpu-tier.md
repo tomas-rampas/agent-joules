@@ -685,6 +685,7 @@ Demo relevance: yes: the README names the VM preset, region, GPU-hours and obser
 
 ### AJ-129: Apply the partial-tier consequences to the report, README and Devpost texts
 Covers: REQ-031, EDGE-017
+Note (2026-10-25, AJ-129): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-129-partial-tier-consequences.feature; the code part (T1, T2 and T5) shipped before the VM handover; the VM-bound and docs tasks follow.
 User story: As the author, I want the report, the README row and the Devpost pitch and story to follow the real state of the cloudgpu tier, so that no text claims a measured cloud GPU run that did not complete.
 Acceptance criteria:
 1. The tier state is derived from committed files only: `complete` (a selectable file with status `completed`), `partial` (a selectable file with status `partial`) or `absent` (no `completed` or `partial` file for the tier; `incomplete`, `running` and `failed` files count as none).
