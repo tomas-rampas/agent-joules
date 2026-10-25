@@ -98,6 +98,7 @@ Demo relevance: no.
 
 ### AJ-121: Gate the cloudgpu tier on SSH variables, MIG and the tier flag
 Covers: REQ-031
+Note (2026-10-25, AJ-121): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-121-gating.feature; no production change: the SSH-variable exit 3, the MIG exit 6, the rc 3 not-supported mapping and the enum tier order existed; 9 unit tests and 8 scenarios confirm T2 to T4.
 User story: As the author, I want the CLI to refuse a cloudgpu run when the SSH variables are missing on the laptop or MIG is enabled on the GPU, and to leave the tier out of `--tier all` until it is enabled, so that the laptop dry-run stays green and a shared GPU never produces power numbers.
 Acceptance criteria:
 1. On the laptop with `Tiers:cloudgpu:Enabled=true` and `CloudGpu:RequireSshVariables=true`, `AJ run --tier cloudgpu --dry-run` exits 3 when `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` is unset, names every missing variable, and prints no value; the exit code equals the code of a missing tier key.
@@ -166,9 +167,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/Gating.feature; unit class CloudGpuTests (design 6.1) with `[Trait("Spec","REQ-031")]`.
 Docs impact: docs/build-log.md; README exit-code row 3 and 6 notes for cloudgpu (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no test prints or asserts a real SSH host or user value
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no test prints or asserts a real SSH host or user value
 Demo relevance: no.
 
 ### AJ-122: Enforce the 4-hour and USD 25 stop with a fake clock
