@@ -37,8 +37,11 @@ Also needed: `NGC_API_KEY` (step 7) and `NVIDIA_API_KEY` (step 6, the judge key)
 
 ## Stories
 
+Note (2026-10-25, M5 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-nnn-<slug>.feature; the file names in the story tables (for example Prerequisites.feature) map to that form.
+
 ### AJ-120: Create the AI Cloud account, card and SSH key pair
 Covers: REQ-031
+Note (2026-10-25, AJ-120): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-120-prerequisites.feature; steps 10 and 11 confirmed by the user at 18:11Z; the key hygiene check is KeyHygieneCheck in TestSupport (file names only, contents never read); .gitignore already held the three patterns; no VM requested.
 User story: As the user, I want to create the Nebius AI Cloud account, fund it with the minimum payment and create an SSH key pair outside the repository, so that the builder can start the cloudgpu tier the moment the VM is requested.
 Acceptance criteria:
 1. The user confirms in the chat that the AI Cloud account exists (a separate product and sign-up from Token Factory), that a project exists in region `eu-north1`, that a card is added and that the USD 25 minimum first payment is made; the builder records the confirmation as a dated line without any account detail in `docs/build-log.md`.
@@ -88,9 +91,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/Prerequisites.feature; gated class CloudGpuPrerequisitesTests (design 6.3).
 Docs impact: .gitignore, docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user confirmation of steps 10 and 11 is recorded before AJ-125 starts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the user confirmation of steps 10 and 11 is recorded before AJ-125 starts
 Demo relevance: no.
 
 ### AJ-121: Gate the cloudgpu tier on SSH variables, MIG and the tier flag
