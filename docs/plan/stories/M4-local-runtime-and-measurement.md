@@ -7,16 +7,16 @@ M4 decides the local runtime on evidence (a 90-minute NIM attempt, Ollama as the
 Dates: 2026-10-24 to 2026-10-26. The window overlaps the last day of M3; capacity is about six working hours per day. Planned split: 2026-10-24 AJ-100 to AJ-103 (the NIM attempt must finish first because its decision selects the local runtime); 2026-10-25 AJ-104 to AJ-109; 2026-10-26 AJ-110 to AJ-115 (M5 starts on the same day, once the local Definition of Done items are committed).
 
 Exit criteria:
-- [ ] `AJ validate --config` exits 0, and `dotnet test --filter "Spec=REQ-018" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
-- [ ] `grep -cE '^## (local|cloudgpu|nvidia|nebius)$' docs/endpoints.md` prints 4; the `## local`, `## nvidia` and `## nebius` sections each hold a line `Verified: <date>` with a date of 2026-10-17 or later (the `## cloudgpu` section carries `Status: pending` until AJ-126).
-- [ ] `docs/nim-local-attempt.md` has the headings `Commands`, `Image`, `Outcome` and `Decision`; `grep -F "$NGC_API_KEY" docs/nim-local-attempt.md` prints nothing (key set in the shell).
-- [ ] `jq '.environment | [.localRuntime, .gpuOffloadPercent, .modelLoadSeconds, .powerSource]'` on the latest local run file prints a runtime in {nim, ollama}, a number, a number and a value in {ac, battery, unknown}.
-- [ ] `jq '[.run.repeat, .baseline.seconds]'` on the latest local run file prints values of at least 3 and at least 30.
-- [ ] A committed `results/calibration-<yyyyMMddTHHmmssZ>.json` holds `counterJoules`, `samplingJoules` and `relativeDifference`, each a label object.
-- [ ] `grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5, and its Limitations section contains the seven required strings.
-- [ ] One run file each for `local`, `nvidia` and `nebius` is committed under `results/`, plus the `results/probe-<yyyyMMddTHHmmssZ>.json` taken before the runs.
-- [ ] `AJ validate results/` exits 0 and prints `Validated <n> files` with n equal to the number of committed run files.
-- [ ] `git log --oneline` shows commits starting with `REQ-018`, `REQ-019`, `REQ-020`, `REQ-021`, `REQ-022`, `EDGE-009` and `EDGE-010`; `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` prints nothing.
+- [x] `AJ validate --config` exits 0, and `dotnet test --filter "Spec=REQ-018" --logger "console;verbosity=normal"` shows at least one passed and no failed test.
+- [x] `grep -cE '^## (local|cloudgpu|nvidia|nebius)$' docs/endpoints.md` prints 4; the `## local`, `## nvidia` and `## nebius` sections each hold a line `Verified: <date>` with a date of 2026-10-17 or later (the `## cloudgpu` section carries `Status: pending` until AJ-126).
+- [x] `docs/nim-local-attempt.md` has the headings `Commands`, `Image`, `Outcome` and `Decision`; `grep -F "$NGC_API_KEY" docs/nim-local-attempt.md` prints nothing (key set in the shell).
+- [x] `jq '.environment | [.localRuntime, .gpuOffloadPercent, .modelLoadSeconds, .powerSource]'` on the latest local run file prints a runtime in {nim, ollama}, a number, a number and a value in {ac, battery, unknown}.
+- [x] `jq '[.run.repeat, .baseline.seconds]'` on the latest local run file prints values of at least 3 and at least 30.
+- [x] A committed `results/calibration-<yyyyMMddTHHmmssZ>.json` holds `counterJoules`, `samplingJoules` and `relativeDifference`, each a label object.
+- [x] `grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5, and its Limitations section contains the seven required strings.
+- [x] One run file each for `local`, `nvidia` and `nebius` is committed under `results/`, plus the `results/probe-<yyyyMMddTHHmmssZ>.json` taken before the runs.
+- [x] `AJ validate results/` exits 0 and prints `Validated <n> files` with n equal to the number of committed run files.
+- [x] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, plan amendment P-1): `git log --format=%s main..milestone/M4` carries `REQ-018` in 5 subjects, `REQ-019` in 2, `REQ-020` in 4, `REQ-021` in 7, `REQ-022` in 1, `EDGE-009` in 2 and `EDGE-010` in 3 (M4 exit, 2026-10-25); `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` prints nothing.
 
 ## Coverage
 
@@ -1157,7 +1157,7 @@ Docs impact: README.md (sentence `Local numbers were produced with <runtime> run
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
-- [ ] M5 may start only after this story is committed (local Definition of Done items)
+- [x] M5 may start only after this story is committed (local Definition of Done items; committed as 24e2126 on 2026-10-25, M4 exit)
 Demo relevance: no.
 
 ## Risks
