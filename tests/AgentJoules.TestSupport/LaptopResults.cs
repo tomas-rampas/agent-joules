@@ -40,6 +40,51 @@ public static partial class LaptopResults
     /// <returns>The full path, or null when the folder holds none.</returns>
     public static string? NewestCalibration(string? folder = null) => Newest(CalibrationName(), folder ?? ResultsFolder());
 
+    /// <summary>The files under <c>results/</c> that git tracks (<c>git ls-files results/</c>): the committed view, in which a file that exists only in the working tree is absent.</summary>
+    /// <returns>The repository-relative paths with forward slashes, in git's order.</returns>
+    /// <exception cref="InvalidOperationException">git is not installed, or the call failed.</exception>
+    public static IReadOnlyList<string> CommittedResultsFiles()
+    {
+        var info = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = ConfigurationFixtures.RepositoryRoot(),
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        info.ArgumentList.Add("ls-files");
+        info.ArgumentList.Add("results/");
+        using var process = new Process { StartInfo = info };
+        try
+        {
+            if (!process.Start())
+            {
+                throw new InvalidOperationException("git did not start");
+            }
+        }
+        catch (System.ComponentModel.Win32Exception exception)
+        {
+            throw new InvalidOperationException("git is not installed or not on PATH, so the committed view of results/ cannot be read", exception);
+        }
+
+        process.StandardInput.Close();
+        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(30_000))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new InvalidOperationException("git ls-files results/ did not exit within 30 s");
+        }
+
+        string output = stdout.GetAwaiter().GetResult();
+        _ = stderr.GetAwaiter().GetResult();
+        return process.ExitCode == 0
+            ? [.. output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(static line => line.Trim()).Where(static line => line.Length > 0)]
+            : throw new InvalidOperationException("git ls-files results/ exited with " + process.ExitCode.ToString(CultureInfo.InvariantCulture));
+    }
+
     /// <summary>The message of a gated check that finds no committed file of a kind.</summary>
     /// <param name="pattern">The file name pattern, for example <c>results/probe-&lt;yyyyMMddTHHmmssZ&gt;.json</c>.</param>
     /// <param name="story">The story that commits it.</param>
