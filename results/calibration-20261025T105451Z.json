@@ -1,0 +1,48 @@
+{
+  "task": "incident-brief",
+  "seconds": 60,
+  "windowSeconds": 69.02235230000001,
+  "sampleCount": 692,
+  "sampleRateHz": 10,
+  "repeats": 2,
+  "startUtc": "2026-10-25T10:54:55.080344+00:00",
+  "endUtc": "2026-10-25T10:56:04.1026963+00:00",
+  "toolVersion": "1.0.0",
+  "gitCommit": "ac044455ef3863290b465dca20e33dfe4ecaceb8",
+  "counterJoules": {
+    "value": 5753.404,
+    "label": "measured",
+    "unit": "J"
+  },
+  "samplingJoules": {
+    "value": 5780.357176687449,
+    "label": "measured",
+    "unit": "J"
+  },
+  "relativeDifference": {
+    "value": -0.004684735625631162,
+    "label": "measured",
+    "unit": "ratio"
+  },
+  "probe": {
+    "gpuPresent": true,
+    "name": "NVIDIA GeForce RTX 3080 Ti Laptop GPU",
+    "gpuUuid": "GPU-7687512b-9999-734c-1b71-1858e6882913",
+    "driverVersion": "616.92",
+    "computeCapability": "8.6",
+    "vbiosVersion": "94.03.1b.00.3a",
+    "powerLimitW": 82.701,
+    "migMode": "not-supported",
+    "energyCounterSupported": true,
+    "method": "counter",
+    "sampleRateHz": 10
+  },
+  "environment": {
+    "localRuntime": "nim",
+    "runtimeVersion": "1.8.5",
+    "gpuOffloadPercent": 100,
+    "precision": "BF16",
+    "modelLoadSeconds": 0.6335715,
+    "powerSource": "ac"
+  }
+}
