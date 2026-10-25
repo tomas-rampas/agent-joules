@@ -618,6 +618,7 @@ Demo relevance: yes: the cloudgpu run file is the source of the cloudgpu row in 
 
 ### AJ-128: Document the cloudgpu run, the cost and the user's teardown
 Covers: REQ-031, EDGE-016, EDGE-017
+Note (2026-10-25, AJ-128): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-128-run-document-contract.feature; the code part (T1 to T3) shipped before the VM handover; the VM-bound and docs tasks follow.
 User story: As a reviewer and as the person paying, I want `docs/cloudgpu-run.md` to record the instance, commands, probe, runs, cost and the user's deletion of the VM, so that the cost cap, the incidents and the teardown are documented facts.
 Acceptance criteria:
 1. A contract test requires the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost` and `Teardown` in `docs/cloudgpu-run.md`.
