@@ -71,7 +71,8 @@ public static class RunAssembler
     private const string MillisecondUnit = "ms";
     private const string FallbackVersion = "0.0.0";
 
-    private static readonly (string ToolVersion, string GitCommit) ThisVersion = ParseVersion(
+    /// <summary>The version and the commit of this build, as a run file has them (<c>run.toolVersion</c>, <c>run.gitCommit</c>); a calibration file carries the same pair (AJ-109).</summary>
+    public static (string ToolVersion, string GitCommit) CurrentVersion { get; } = ParseVersion(
         typeof(RunAssembler).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
         typeof(RunAssembler).Assembly.GetName().Version);
 
@@ -238,7 +239,7 @@ public static class RunAssembler
         ArgumentNullException.ThrowIfNull(taskNames);
         RequireDefined(tier, mode);
 
-        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, ThisVersion.ToolVersion, ThisVersion.GitCommit, status, Flags: flags, SelfJudged: selfJudged);
+        return new RunInfo(id, tier, [.. taskNames], mode, repeat, startUtc, CurrentVersion.ToolVersion, CurrentVersion.GitCommit, status, Flags: flags, SelfJudged: selfJudged);
     }
 
     /// <summary>Assembles one document of a tier run: schema version 1, the given members, copies of the step and judge lists, and the totals over them (<see cref="ComputeTotals"/>). Every step is copied with its shared-window flag (<see cref="MarkSharedWindows"/>), its duplicate-output flag (<see cref="MarkDuplicateOutputs"/>) and its derived metrics computed from its current quality (<see cref="WithDerivedMetrics"/>), so a checkpoint and the final document alike carry them.</summary>

@@ -19,7 +19,7 @@ namespace AgentJoules.Reporting.Schema;
 /// Generates <c>docs/results-schema.json</c> from <see cref="AgentJoulesJsonContext"/> (AJ-079, REQ-015): the framework schema exporter describes the types, names, required members and
 /// <c>additionalProperties: false</c>, and this class adds what the exporter cannot know: the four metric definitions and the assignment of every metric member to one of them
 /// (<see cref="MetricSchemaDefs"/>), the vocabularies of the converters, the flags, the outcomes and the throttle reasons (taken from the code, never typed here), the ranges of the plain members,
-/// the single definition of the step reading, and the probe definition. The schema is the floor of the checks on a results file: what JSON Schema cannot state (the energy shape and hosted-tier rules, the pairing
+/// the single definition of the step reading, the probe definition and the calibration definition (AJ-109, the file of `calibrate`). The schema is the floor of the checks on a results file: what JSON Schema cannot state (the energy shape and hosted-tier rules, the pairing
 /// of the judge readings, a cost map entry in the currency of its key, a duplicate member) stays with the model, which <c>validate</c> runs as well.
 /// </summary>
 public static class SchemaGenerator
@@ -30,6 +30,7 @@ public static class SchemaGenerator
     private const string StepDef = "step";
     private const string ProbeDef = "probe";
     private const string JudgedAgent = "judgedAgent";
+    private const string CalibrationDef = "calibration";
 
     /// <summary>Generates the schema of a results file.</summary>
     /// <returns>The schema tree.</returns>
@@ -70,6 +71,13 @@ public static class SchemaGenerator
     // The exporter calls this for every node, the children first and the root last.
     private static JsonNode Transform(JsonSchemaExporterContext context, JsonNode node, IReadOnlyDictionary<(Type Declaring, string JsonName), MetricTarget> mapping)
     {
+        JsonNode refined = Refined(context, node, mapping);
+        return context.Path.IsEmpty && refined is JsonObject root ? Assemble(root, mapping) : refined;
+    }
+
+    // The refinement of one node: the metric, vocabulary and range rules of its members. Shared by the run-file export and the export of the calibration definition (AJ-109).
+    private static JsonNode Refined(JsonSchemaExporterContext context, JsonNode node, IReadOnlyDictionary<(Type Declaring, string JsonName), MetricTarget> mapping)
+    {
         if (node is not JsonObject schema)
         {
             return node;
@@ -91,7 +99,7 @@ public static class SchemaGenerator
             }
         }
 
-        return context.Path.IsEmpty ? Assemble(schema) : schema;
+        return schema;
     }
 
     private static void Refine(JsonSchemaExporterContext context, JsonPropertyInfo property, JsonObject properties, IReadOnlyDictionary<(Type Declaring, string JsonName), MetricTarget> mapping)
@@ -177,6 +185,15 @@ public static class SchemaGenerator
                 default:
                     break;
             }
+        }
+        else if (declaring == typeof(CalibrationDocument))
+        {
+            RefineCalibrationMember(name, member);
+        }
+        else if (declaring == typeof(CalibrationEnvironment) && name == "gpuOffloadPercent")
+        {
+            member["minimum"] = 0;
+            member["maximum"] = 100;
         }
         else if (declaring == typeof(EnvironmentInfo) && name == "energyScope")
         {
@@ -280,7 +297,7 @@ public static class SchemaGenerator
     }
 
     // The root: the order of the keys, the draft and the id, the single definition of the step, the probe definition and the metric definitions.
-    private static JsonObject Assemble(JsonObject exported)
+    private static JsonObject Assemble(JsonObject exported, IReadOnlyDictionary<(Type Declaring, string JsonName), MetricTarget> mapping)
     {
         JsonObject properties = (JsonObject)exported["properties"]!;
         JsonObject steps = (JsonObject)properties["steps"]!;
@@ -298,6 +315,7 @@ public static class SchemaGenerator
         JsonObject definitions = MetricSchemaDefs.Definitions();
         definitions[StepDef] = step;
         definitions[ProbeDef] = probe;
+        definitions[CalibrationDef] = Calibration(mapping);
 
         var root = new JsonObject
         {
@@ -313,6 +331,54 @@ public static class SchemaGenerator
         WithoutNull(root);
         root["$defs"] = definitions;
         return root;
+    }
+
+    // The definition of a calibration file (AJ-109): the exporter describes the document and its environment, the same refinement assigns the three totals to the measured-metric definition and states the ranges, and
+    // the probe member refers to the probe definition of the run files and adds that a calibration found a GPU.
+    private static JsonObject Calibration(IReadOnlyDictionary<(Type Declaring, string JsonName), MetricTarget> mapping)
+    {
+        var options = new JsonSchemaExporterOptions
+        {
+            TransformSchemaNode = (context, node) => Refined(context, node, mapping),
+        };
+
+        JsonObject calibration = (JsonObject)AgentJoulesJsonContext.Default.CalibrationDocument.GetJsonSchemaAsNode(options);
+        WithoutNull(calibration);
+        JsonObject properties = (JsonObject)calibration["properties"]!;
+        properties["probe"] = new JsonObject
+        {
+            ["allOf"] = new JsonArray(
+                MetricSchemaDefs.Ref(ProbeDef),
+                new JsonObject { ["properties"] = new JsonObject { ["gpuPresent"] = new JsonObject { ["const"] = true } } }),
+        };
+
+        return calibration;
+    }
+
+    // The ranges CalibrationDocument enforces on construction and on read.
+    private static void RefineCalibrationMember(string name, JsonObject member)
+    {
+        switch (name)
+        {
+            case "task":
+            case "toolVersion":
+            case "gitCommit":
+                member["minLength"] = 1;
+                break;
+            case "seconds":
+            case "repeats":
+                member["minimum"] = 1;
+                break;
+            case "sampleCount":
+                member["minimum"] = 0;
+                break;
+            case "windowSeconds":
+            case "sampleRateHz":
+                member["exclusiveMinimum"] = 0;
+                break;
+            default:
+                break;
+        }
     }
 
     // A member of a nullable enumeration type accepts null as well as its names.

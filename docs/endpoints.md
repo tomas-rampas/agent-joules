@@ -8,18 +8,20 @@ Command: curl -sS http://127.0.0.1:8000/v1/models (no key: the local runtime has
 Total models returned: 1
 - model: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
 Runtime facts (measured, AJ-103): NIM 1.8.5, profile vllm-bf16-tp1-pp1 (precision BF16), NIM_MAX_MODEL_LEN 16384 (the models response reports max_model_len 16384), GPU memory 13449 MiB of 16384 MiB while serving.
+Re-verified 2026-10-25 (AJ-107, measured): GET /v1/models lists one model, nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 (max_model_len 16384); GET /v1/version {"release":"1.8.5","api":"3.1.0"}; the container agent-joules-nim (NIM image llama3.1-nemotron-nano-4b-v1.1:1.8.5) has run since 2026-10-24T20:19:44Z; validate --config exit 0 (Validated 4 model IDs); run --tier local --dry-run exit 0 (local http://localhost:8000/v1 nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 OK). Criteria 1 and 2 of AJ-107 (the Ollama pull, show, ps and the 30b model choice rule) and the Qwen baseline entry do not apply under the nim decision; the live metered run of 2026-10-25 02:43Z (AJ-108, criterion 5) served the model at gpuOffloadPercent 100 and precision BF16.
 Chosen: Planner: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
 Chosen: Researcher: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
 Chosen: Writer: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
 Chosen: Reviewer: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1
 Chosen: Judge: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (Judge:Tier is nvidia; the judge model is listed under ## nvidia, not on this endpoint)
-Fallback record (not the chosen runtime; REQ-020): Ollama 0.40.10 at http://localhost:11434/v1, GET /v1/models on 2026-10-24 listed one tag, nemotron-3-nano:4b (GET /api/tags: size 2837597147 bytes, quantization Q4_K_M, parameter size 4.0B, family nemotron_h, measured); the user's 2026-10-24 choice of this tag over nemotron-3-nano:30b (partial offload on the 16 GB GPU) applies only if the local tier falls back to Ollama; AJ-107 completes the local record.
-- model: nemotron-3-nano:4b
 Streaming usage: reported
 Streaming tokens: input 26 measured, output 10 measured
 Reasoning toggle: system message: detailed thinking off
 Reasoning result: off
 Reasoning evidence: probes of 2026-10-24 20:31Z (measured): the buffered baseline answered "4" in 2 completion tokens with no reasoning member and no think tag; a system message "detailed thinking on" produced a think block (64 tokens, cut); "detailed thinking off" gave "4" in 2 tokens; chat_template_kwargs enable_thinking false was accepted and changed nothing; a system message /no_think gave "4" in 2 tokens with no reasoning member and no think tag (re-measured 2026-10-25 03:16Z with the literal message; the 2026-10-24 probe had sent a shell-rewritten path instead of /no_think, so its 64-token result is withdrawn). The streaming call with stream_options include_usage returned 14 SSE data lines including [DONE] (13 JSON chunks) and a final chunk with empty choices carrying usage (prompt 26, completion 10 for the 16-token "OK" probe; the two Streaming tokens values above are the probe's prompt count and its completion count, see the build log for the metered run's labels).
+Fallback record (not the chosen runtime; REQ-020): Ollama 0.40.10 at http://localhost:11434/v1, GET /v1/models on 2026-10-24 listed one tag, nemotron-3-nano:4b (GET /api/tags: size 2837597147 bytes, quantization Q4_K_M, parameter size 4.0B, family nemotron_h, measured); the user's 2026-10-24 choice of this tag over nemotron-3-nano:30b (partial offload on the 16 GB GPU) applies only if the local tier falls back to Ollama; AJ-107 completes the local record.
+- model: nemotron-3-nano:4b
+Fallback facts (measured 2026-10-25, AJ-107, Ollama 0.40.10): the OpenAI route reports streaming usage (a final chunk carries prompt_tokens and completion_tokens); it accepts max_completion_tokens with HTTP 200 but does not apply the cap (completion_tokens 30 for a cap of 8) while max_tokens is applied (completion_tokens 8, finish_reason length), so a fallback run needs Tiers:local:MaxTokensField max_tokens like the NIM; after a warm-up with keep_alive 30m a /v1 chat completion renewed the 30-minute window (expires_at moved to the chat time plus 30 min) with OLLAMA_KEEP_ALIVE unset; the live EDGE-009 checks of AJ-107 criterion 4 ran against this runtime through the configuration override (see docs/build-log.md, AJ-107).
 
 ## cloudgpu
 

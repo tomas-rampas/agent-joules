@@ -42,6 +42,9 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
     // The MIG mode of GpuIdentity when MIG is on (the other values are disabled and not-supported).
     private const string MigEnabled = "enabled";
 
+    // The selection of Meter:Method "auto": the counter when the GPU has one, sampling otherwise.
+    private const string AutoMethod = "auto";
+
     // The GPU port's reason names the library and the exception type (for example NVML library not found: libnvidia-ml.so.1 (EntryPointNotFoundException)); both must survive.
     private const int MaxReasonLength = 128;
 
@@ -137,6 +140,7 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
     /// </remarks>
     /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
     /// <param name="keys">The result of <see cref="CheckKeys(IReadOnlyList{Tier}, bool)"/>: a caller that holds one has run the key check, and it says whether the judge key is missing.</param>
+    /// <param name="checkJudge">False leaves the judge model out of the check (the calibration of AJ-109 scores nothing, so it needs neither the judge key nor the hosted judge endpoint); true checks it as above.</param>
     /// <param name="cancellationToken">Cancels the requests.</param>
     /// <returns>The tiers that were asked (the selected ones in order, then the judge tier when it was not selected) with their endpoints and the configured IDs that were listed.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="keys"/> is null.</exception>
@@ -145,7 +149,7 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
     /// <exception cref="ModelNotFoundException">A configured ID is not listed, or a list is empty (exit code 4).</exception>
     /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable, answers a status other than success or answers something that is not a model list, or the local runtime does not answer its availability check (exit code 5).</exception>
     /// <exception cref="MissingKeyException">A tier names a key variable that has no value (exit code 3); the key check normally found it first.</exception>
-    public async Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, CancellationToken cancellationToken)
+    public async Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, bool checkJudge, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(tiers);
         ArgumentNullException.ThrowIfNull(keys);
@@ -176,7 +180,7 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
             asked.Add(await AskAndVerifyAsync(tier, name, configured, existing: null, cancellationToken).ConfigureAwait(false));
         }
 
-        if (keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
+        if (checkJudge && keys.MissingJudgeVariable is null && current.Judge.ModelId is { } judgeModel && !string.IsNullOrWhiteSpace(judgeModel))
         {
             Tier judgeTier = JudgeTierName.Parse(current.Judge.Tier);
             ListedTier? existing = asked.Find(listed => listed.Tier == judgeTier);
@@ -190,13 +194,28 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
         return new ModelCheckResult([.. asked.Select(static listed => new ModelCheckEntry(listed.Name, listed.Endpoint, [.. listed.Matched]))]);
     }
 
+    /// <summary>The check of <see cref="CheckModelsAsync(IReadOnlyList{Tier}, KeyCheckResult, bool, CancellationToken)"/> with the judge model included, as a run makes it.</summary>
+    /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
+    /// <param name="keys">The result of <see cref="CheckKeys(IReadOnlyList{Tier}, bool)"/>.</param>
+    /// <param name="cancellationToken">Cancels the requests.</param>
+    /// <returns>The tiers that were asked, with their endpoints and the configured IDs that were listed.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="keys"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="tiers"/> is empty.</exception>
+    /// <exception cref="ConfigurationException">A tier is not configured or has no model ID; exit code 2.</exception>
+    /// <exception cref="ModelNotFoundException">A configured ID is not listed, or a list is empty (exit code 4).</exception>
+    /// <exception cref="EndpointUnreachableException">A models endpoint is unreachable or answers something that is not a model list (exit code 5).</exception>
+    /// <exception cref="MissingKeyException">A tier names a key variable that has no value (exit code 3).</exception>
+    public Task<ModelCheckResult> CheckModelsAsync(IReadOnlyList<Tier> tiers, KeyCheckResult keys, CancellationToken cancellationToken) =>
+        CheckModelsAsync(tiers, keys, checkJudge: true, cancellationToken);
+
     /// <summary>
     /// Checks that every selected measured tier (<c>local</c>, <c>cloudgpu</c>) can be measured, before any completion call (design 3.7 point 4, EDGE-001): the GPU at <c>Gpu:Index</c> is
-    /// opened through <paramref name="gpus"/>, the <c>Meter:Method</c> is applied to it, and for <c>cloudgpu</c> MIG must be off. Each source is disposed before the next tier is checked;
+    /// opened through <paramref name="gpus"/>, the <c>Meter:Method</c> is applied to it (unless <paramref name="ignoreMeterMethod"/>), and for <c>cloudgpu</c> MIG must be off. Each source is disposed before the next tier is checked;
     /// hosted tiers are skipped and never open the GPU.
     /// </summary>
     /// <param name="tiers">The selected tiers, from <see cref="SelectTiers(string)"/>.</param>
     /// <param name="gpus">The GPU port; production opens NVML, tests a scripted session.</param>
+    /// <param name="ignoreMeterMethod">True selects the method as <c>auto</c> does (the counter when the GPU has one, sampling otherwise) whatever <c>Meter:Method</c> says, so a forced <c>counter</c> on a GPU without it is no failure; the calibration of AJ-109 compares both methods and has no use for a forced one. False, the default, applies <c>Meter:Method</c> as a run does.</param>
     /// <returns>The meter capabilities of each measured tier that was checked, in the order of <paramref name="tiers"/>; empty when no measured tier is selected.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tiers"/> or <paramref name="gpus"/> is null.</exception>
     /// <exception cref="MeasurementPreconditionException">
@@ -204,7 +223,7 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
     /// without the energy counter, or MIG is enabled on the GPU of <c>cloudgpu</c> (exit code 6).
     /// </exception>
     /// <exception cref="ConfigurationException"><c>Meter:Method</c> or <c>Meter:SampleRateHz</c> is invalid (exit code 2); the options validation normally found it first.</exception>
-    public IReadOnlyList<KeyValuePair<Tier, MeterCapabilities>> CheckMeasuredTiers(IReadOnlyList<Tier> tiers, IGpuTelemetrySourceFactory gpus)
+    public IReadOnlyList<KeyValuePair<Tier, MeterCapabilities>> CheckMeasuredTiers(IReadOnlyList<Tier> tiers, IGpuTelemetrySourceFactory gpus, bool ignoreMeterMethod = false)
     {
         ArgumentNullException.ThrowIfNull(tiers);
         ArgumentNullException.ThrowIfNull(gpus);
@@ -221,7 +240,7 @@ public sealed partial class PreflightService(IConfiguration configuration, IOpti
             }
 
             using IGpuTelemetrySource source = opened.Source;
-            MeterCapabilities capabilities = MeterMethodSelector.Select(current.Meter.Method, source, current.Meter.SampleRateHz);
+            MeterCapabilities capabilities = MeterMethodSelector.Select(ignoreMeterMethod ? AutoMethod : current.Meter.Method, source, current.Meter.SampleRateHz);
             if (tier == Tier.CloudGpu && string.Equals(source.Identity.MigMode, MigEnabled, StringComparison.Ordinal))
             {
                 throw new MeasurementPreconditionException("tier cloudgpu cannot be measured while MIG is enabled on the GPU: NVML reads the energy of the whole GPU, not of one instance; disable MIG on the VM");

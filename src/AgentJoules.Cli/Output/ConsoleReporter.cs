@@ -63,6 +63,29 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
     public void ReportEnergyScope() => Output.WriteLine(ReportSentences.GpuBoardOnly);
 
     /// <summary>
+    /// Tells the user what <c>calibrate</c> wrote (REQ-021, AJ-109), as two lines on the output writer: <c>calibration: &lt;path&gt;</c>, the file as the user would type it (the <c>--out</c> value and the file name), and
+    /// <c>counter=&lt;J|N/A&gt; sampling=&lt;J|N/A&gt; difference=&lt;value|N/A&gt; window=&lt;s&gt; s samples=&lt;n&gt;</c>: the two totals in joules with two decimals, the relative difference with four, the measured window with one decimal and the
+    /// sample count. A method that did not measure shows <c>N/A</c>; the reason is in the file.
+    /// </summary>
+    /// <param name="displayPath">The path of the file as shown to the user.</param>
+    /// <param name="document">The calibration that was written.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void ReportCalibration(string displayPath, CalibrationDocument document)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayPath);
+        ArgumentNullException.ThrowIfNull(document);
+
+        Output.WriteLine("calibration: " + displayPath);
+        Output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"counter={Total(document.CounterJoules, "F2")} sampling={Total(document.SamplingJoules, "F2")} difference={Total(document.RelativeDifference, "F4")} window={document.WindowSeconds.ToString("F1", CultureInfo.InvariantCulture)} s samples={document.SampleCount}"));
+    }
+
+    // A joule total carries its unit; the dimensionless difference does not; a method that did not measure is N/A.
+    private static string Total(Metric metric, string format) =>
+        metric.Value is { } value ? value.ToString(format, CultureInfo.InvariantCulture) + (metric.Unit == "J" ? " J" : string.Empty) : "N/A";
+
+    /// <summary>
     /// Tells the user where the live dashboard listens (REQ-032, AJ-091): one line <c>Dashboard: &lt;uri&gt;</c> to the output writer, the loopback URI the server printed. <c>run</c> writes it after the
     /// checks and before the energy-scope sentence, so the scope sentence stays the last line before the first step line.
     /// </summary>

@@ -318,7 +318,7 @@ Demo relevance: yes: the video and README state which local runtime produced the
 
 ### AJ-104: Report Ollama failures with the exact fix command
 Covers: EDGE-009
-Note (2026-10-24, AJ-104): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-104-ollama-failures.feature (the table's OllamaFailures.feature); the availability check is GET /api/version on the native base (the configured BaseUrl without /v1) and the message names that base; the pull hint ends the ModelNotFoundException message as "; fix: ollama pull <tag>" per missing tag; the story also carries user decisions 3 and 4 (a provider error outcome for an in-stream error chunk, 503 and 500 ResourceExhausted retried, the judge warning with status and reason) and the duplicate-output step flag scoped to one task and repeat (docs/build-log.md, the AJ-104 entry); built in a detached worktree and applied onto milestone/M4.
+Note (2026-10-24, AJ-104): feature file tests/AgentJoules.Specs/Features/Workflow/AJ-104-ollama-failures.feature (the table's OllamaFailures.feature); the availability check is GET /api/version on the native base (the configured BaseUrl without /v1) and the message names that base; the pull hint ends the ModelNotFoundException message as "; fix: ollama pull <tag>" per missing tag; the story also carries user decisions 3 and 4 (a provider error outcome for an in-stream error chunk, 503 and 500 ResourceExhausted retried, the judge warning with status and reason) and the duplicate-output step flag scoped to one task and repeat (docs/build-log.md, the AJ-104 entry); built in a detached worktree and applied onto milestone/M4. Live check (2026-10-25, AJ-107): both messages confirmed live (exit 5 names "ollama serve" on a closed loopback port that stands in for a stopped Ollama; against Ollama 0.40.10 exit 4 names "fix: ollama pull nemotron-3-nano:99b" on an unpulled tag).
 User story: As a developer running the local tier, I want a clear message when Ollama is not running or the model is not pulled, so that I can fix the problem with one command.
 Acceptance criteria:
 1. With the Ollama endpoint refusing connections, `AJ run --tier local --dry-run` exits 5 and the output contains the configured endpoint and the text `ollama serve`.
@@ -379,7 +379,7 @@ Docs impact: docs/build-log.md (messages); README troubleshooting and exit-code 
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
-- [ ] both messages checked against the live check in AJ-107
+- [x] both messages checked against the live check in AJ-107
 Demo relevance: no.
 
 ### AJ-105: Disclose the local runtime, tag, offload and precision in every local run
@@ -542,6 +542,7 @@ Resolved: the prompt defines the run flag `non-publishable` for a baseline below
 Covers: REQ-018, REQ-020, EDGE-009, REQ-012
 Note (2026-10-21, M2 exit): REQ-012 added because criterion 5 is the live `run --tier local --dry-run` exit 0 that REQ-012 and the M2 exit carry to M4 (M2 full spec pass, remark 3), so the trait is not lost.
 Note (2026-10-24, AJ-107-T1): feature file tests/AgentJoules.Specs/Features/Configuration/AJ-107-local-model-record.feature (the table's LocalModelRecord.feature) with LocalModelRecordSteps and the gated LocalModelListingTests delivered with AJ-106; the decision is nim, so criteria 1, 2 and the Qwen entry of 3 do not apply and the local section holds the NIM listing; the live checks of criteria 4 and 5 and the record are the orchestrator's (see the AJ-107 entry when written).
+Note (2026-10-25, AJ-107): live record done by the orchestrator: criteria 4 and 5 measured (exit 5 with "ollama serve" on a closed port, exit 4 with "ollama pull nemotron-3-nano:99b" on an unpulled tag, validate --config and the NIM dry run exit 0); the process-environment override needs the AgentJoules__ root; criteria 1, 2 and the Qwen entry do not apply under the nim decision; the fallback facts (Ollama 0.40.10 reports streaming usage, ignores max_completion_tokens, renews the keep-alive on /v1 calls) are in docs/endpoints.md.
 User story: As a reader of the local numbers, I want the local model verified on this machine and recorded with its tag, size and processor split, so that the published local tier names a model that was actually served.
 Acceptance criteria:
 1. When the AJ-103 decision is `ollama`: `ollama pull nemotron-3-nano:30b` succeeds (or the failure is recorded), `ollama list`, `ollama show nemotron-3-nano:30b` and `ollama ps` after a warm-up are recorded in the `## local` section with the quantization, the size and the processor split written as `<measured>` copies; the Ollama library page is checked for smaller Nemotron tags and the result is recorded.
@@ -600,9 +601,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/LocalModelRecord.feature; AJ-104 LocalRuntimeTests for the messages (created in AJ-107-T1 when AJ-104 was cut); gated class LocalModelListingTests (design 6.3).
 Docs impact: docs/endpoints.md (`## local`), docs/build-log.md (model choice and reason, live EDGE-009 output), config/appsettings.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ validate --config` exit 0 recorded in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ validate --config` exit 0 recorded in docs/build-log.md
 Demo relevance: no (the report header quotes the tag).
 
 ### AJ-108: Verify streaming usage and the reasoning toggle per tier
@@ -674,6 +675,7 @@ Demo relevance: no (the report header shows the reasoning mode per tier).
 
 ### AJ-109: Compute the counter versus sampling calibration
 Covers: REQ-021, REQ-014
+Note (2026-10-24, AJ-109): feature file tests/AgentJoules.Specs/Features/Cli/AJ-109-calibration.feature (the table's Calibration.feature); one window measured by the energy counter and by power sampling at once while the task workflow repeats through an unmetered pipeline; after the gate fix round the scenario and the unit test assert the story's 100 J, 98 J and 0.02 within 1e-9 through a WattsAt schedule (1.634 W on every third 0.1 s slot, 1.633 W otherwise, CounterScale 100/98); the counter reason carries a single counter-not-supported prefix; windowSeconds added to the file; built in a detached worktree and applied onto milestone/M4.
 User story: As a reader who doubts the energy figures, I want `AJ calibrate` to measure one workload window with both methods and publish both totals and their relative difference, so that the agreement or disagreement of the two methods is a published fact.
 Acceptance criteria:
 1. `AJ calibrate [--task <name>] [--seconds <n>]` (defaults: the first task in file order, 60) runs a warm-up, then one window during which the task workflow repeats until `--seconds` have elapsed, and writes `results/calibration-<yyyyMMddTHHmmssZ>.json`.
@@ -740,9 +742,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Cli/Calibration.feature; unit classes CalibrationTests and SchemaValidationTests (REQ-023 list) with `[Trait("Spec","REQ-021")]`.
 Docs impact: docs/results-schema.json (`$defs/calibration`), docs/build-log.md; README CLI reference row for `calibrate` (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `CommittedSchemaMatchesGenerated` still green after the schema change
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `CommittedSchemaMatchesGenerated` still green after the schema change
 Demo relevance: yes: the calibration result backs the claim that the counter and sampling agree (or by how much they differ).
 
 ### AJ-110: Run the preflight for the laptop measurement campaign

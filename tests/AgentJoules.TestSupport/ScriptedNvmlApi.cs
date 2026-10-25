@@ -151,6 +151,12 @@ public sealed class ScriptedNvmlApi : INvmlApi
     /// </summary>
     public ulong CounterOffsetMillijoules { get; set; } = 123456789;
 
+    /// <summary>
+    /// A factor on the energy the counter counts (AJ-109): 1.0, the default, makes the counter and the sampled power agree exactly (the counter is the integral of the script); 100/98 makes the counter read
+    /// 100 J where the samples of the same script integrate to 98 J, so a calibration has a difference to report. Not negative; it scales the total before the offset is added.
+    /// </summary>
+    public double CounterScale { get; set; } = 1.0;
+
     /// <summary>When true, every member throws <see cref="DllNotFoundException"/>, as a missing nvml library does.</summary>
     public bool MissingLibrary { get; set; }
 
@@ -357,7 +363,7 @@ public sealed class ScriptedNvmlApi : INvmlApi
                 return CounterReturn;
             }
 
-            millijoules = (ulong)Math.Round(TotalMillijoules(ElapsedMilliseconds()), MidpointRounding.AwayFromZero)
+            millijoules = (ulong)Math.Round(TotalMillijoules(ElapsedMilliseconds()) * Math.Max(0.0, CounterScale), MidpointRounding.AwayFromZero)
                 + CounterOffsetMillijoules;
             _counterReads.Add(millijoules);
             return NvmlReturn.Success;

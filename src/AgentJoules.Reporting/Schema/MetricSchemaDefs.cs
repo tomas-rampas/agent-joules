@@ -107,6 +107,7 @@ internal static class MetricSchemaDefs
         Add(map, typeof(BaselineResult), Measured, nameof(BaselineResult.MeanW), nameof(BaselineResult.StdDevW));
         Add(map, typeof(EnvironmentInfo), Measured, nameof(EnvironmentInfo.CloudCostUsd));
         Add(map, typeof(EnvironmentAssumptions), Estimated, nameof(EnvironmentAssumptions.ElectricityPrice), nameof(EnvironmentAssumptions.Gco2ePerKwh));
+        Add(map, typeof(CalibrationDocument), Measured, nameof(CalibrationDocument.CounterJoules), nameof(CalibrationDocument.SamplingJoules), nameof(CalibrationDocument.RelativeDifference));
 
         return map;
     }

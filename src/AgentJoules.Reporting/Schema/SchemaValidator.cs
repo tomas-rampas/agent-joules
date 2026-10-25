@@ -22,6 +22,9 @@ public enum SchemaTarget
 
     /// <summary>A probe file (<c>probe-&lt;timestamp&gt;.json</c>): the <c>$defs/probe</c> definition.</summary>
     Probe = 2,
+
+    /// <summary>A calibration file (<c>calibration-&lt;timestamp&gt;.json</c>, AJ-109): the <c>$defs/calibration</c> definition, with the metric and probe definitions it refers to.</summary>
+    Calibration = 3,
 }
 
 /// <summary>
@@ -47,6 +50,7 @@ public static class SchemaValidator
 
     private const string DefinitionsKey = "$defs";
     private const string ProbeDefinition = "probe";
+    private const string CalibrationDefinition = "calibration";
     private const string NotValid = "The document does not satisfy the schema.";
     private const string Excluded = "The schema excludes this combination of members.";
     private const string SeveralAlternatives = "Exactly one alternative may hold, but several do.";
@@ -58,6 +62,7 @@ public static class SchemaValidator
     // JsonSchema.FromText registers a schema under its $id, and a second parse of the same $id is refused, so each schema is parsed once per process.
     private static readonly Lazy<JsonSchema> RunFileSchema = new(static () => JsonSchema.FromText(EmbeddedText()));
     private static readonly Lazy<JsonSchema> ProbeSchema = new(static () => JsonSchema.FromText(ProbeText()));
+    private static readonly Lazy<JsonSchema> CalibrationSchema = new(static () => JsonSchema.FromText(CalibrationText()));
 
     /// <summary>Checks a document against the schema of a file kind.</summary>
     /// <param name="instance">The parsed document.</param>
@@ -73,6 +78,7 @@ public static class SchemaValidator
         {
             SchemaTarget.RunFile => RunFileSchema.Value,
             SchemaTarget.Probe => ProbeSchema.Value,
+            SchemaTarget.Calibration => CalibrationSchema.Value,
             _ => throw new ArgumentOutOfRangeException(nameof(target), (int)target, "The target is not a defined kind of file."),
         };
 
@@ -290,6 +296,21 @@ public static class SchemaValidator
         {
             standalone[entry.Key] = entry.Value?.DeepClone();
         }
+
+        return standalone.ToJsonString();
+    }
+
+    // The calibration definition refers to the metric and probe definitions, so it is evaluated as the schema of a document that points at it, with every definition of the whole beside it and the draft of the whole (AJ-109).
+    // The root id is left out: the schema of the run files owns it, and a second parse of the same id is refused.
+    private static string CalibrationText()
+    {
+        JsonObject root = (JsonObject)JsonNode.Parse(EmbeddedText())!;
+        var standalone = new JsonObject
+        {
+            ["$schema"] = root["$schema"]!.DeepClone(),
+            ["$ref"] = "#/" + DefinitionsKey + "/" + CalibrationDefinition,
+            [DefinitionsKey] = root[DefinitionsKey]!.DeepClone(),
+        };
 
         return standalone.ToJsonString();
     }

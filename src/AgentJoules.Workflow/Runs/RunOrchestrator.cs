@@ -308,20 +308,8 @@ public sealed class RunOrchestrator(
         progress.Current = null;
     }
 
-    // The warm-up of every distinct model the agents of the tier call (TierOptions.ResolvedModelIds, the set the description reads back); the load time is the sum of the times the runtime observed, null when it observed none.
-    private async Task<TimeSpan?> WarmUpAsync(TierOptions tierOptions, CancellationToken cancellationToken)
-    {
-        TimeSpan? total = null;
-        foreach (string modelId in tierOptions.ResolvedModelIds())
-        {
-            if (await _localRuntime.WarmUpAsync(modelId, cancellationToken).ConfigureAwait(false) is { } load)
-            {
-                total = (total ?? TimeSpan.Zero) + load;
-            }
-        }
-
-        return total;
-    }
+    // The warm-up of every distinct model the agents of the tier call (TierOptions.ResolvedModelIds); the load time is the sum of the times the runtime observed, null when it observed none.
+    private Task<TimeSpan?> WarmUpAsync(TierOptions tierOptions, CancellationToken cancellationToken) => LocalWarmUp.RunAsync(_localRuntime, tierOptions, cancellationToken);
 
     // The judge scores the steps of the tier and its steps are put in their places; it is skipped when the judge key is missing (the command warned). The count, the windows and the quality range of what it returns are checked.
     private async Task<JudgeResult?> JudgeAsync(RunPlan plan, Tier tier, IReadOnlyList<StepReading> steps, MeteringServices judgeServices, CancellationToken cancellationToken)

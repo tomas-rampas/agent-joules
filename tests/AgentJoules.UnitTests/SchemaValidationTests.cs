@@ -943,6 +943,43 @@ public sealed class SchemaValidationTests
             Environment.GetEnvironmentVariable("CI"));
     }
 
+    [Fact]
+    [Trait("Spec", "REQ-021")]
+    public void The_schema_defines_the_calibration_document_and_the_committed_file_holds_the_same_definition()
+    {
+        string[] members =
+        [
+            "task", "seconds", "windowSeconds", "sampleCount", "sampleRateHz", "repeats", "startUtc", "endUtc", "toolVersion", "gitCommit", "counterJoules", "samplingJoules", "relativeDifference", "probe", "environment",
+        ];
+        JsonNode generated = GeneratedSchema();
+        JsonNode committed = JsonNode.Parse(File.ReadAllText(CommittedSchemaPath()))!;
+
+        foreach (JsonNode schema in new[] { generated, committed })
+        {
+            JsonNode calibration = At(schema, "$defs.calibration");
+            Assert.Equal("object", calibration["type"]!.GetValue<string>());
+            Assert.False(calibration["additionalProperties"]!.GetValue<bool>());
+            Assert.Equal(members, Strings(calibration["required"]));
+            string[] declared = [.. calibration["properties"]!.AsObject().Select(static pair => pair.Key)];
+            Assert.Equal(members, declared);
+            foreach (string metric in new[] { "counterJoules", "samplingJoules", "relativeDifference" })
+            {
+                Assert.Equal("#/$defs/metricMeasured", At(calibration, "properties." + metric)["$ref"]!.GetValue<string>());
+            }
+
+            Assert.Equal(1, At(calibration, "properties.seconds")["minimum"]!.GetValue<int>());
+            Assert.Equal(1, At(calibration, "properties.repeats")["minimum"]!.GetValue<int>());
+            Assert.Equal("#/$defs/probe", At(calibration, "properties.probe.allOf.0")["$ref"]!.GetValue<string>());
+            Assert.True(At(calibration, "properties.probe.allOf.1.properties.gpuPresent")["const"]!.GetValue<bool>());
+            Assert.Equal(100, At(calibration, "properties.environment.properties.gpuOffloadPercent")["maximum"]!.GetValue<int>());
+        }
+
+        Assert.True(JsonNode.DeepEquals(At(generated, "$defs.calibration"), At(committed, "$defs.calibration")));
+
+        // The run file's own definition does not change: the calibration definition is an addition to the defs, not to the root.
+        Assert.Null(committed["properties"]!["counterJoules"]);
+    }
+
     // The drift check and its update path. An update run (the variable is "1") never ends green, so a variable left set in a profile cannot turn the gate into a self-heal that passes on every run, and it
     // never writes in a CI run (the CI variable is set and not empty). The values are parameters so that a test can drive every combination without touching the environment of the process.
     private static void CheckOrUpdateSchema(string schemaPath, string generated, string? updateValue, string? ci)
@@ -1539,7 +1576,9 @@ public sealed class SchemaValidationTests
         }
 
         Assert.Equal(27, expected);
-        Assert.Equal(expected, CountMetricReferences(schema));
+
+        // The three totals of the calibration definition (AJ-109) are references as well; the objects above are the ones the run file reaches.
+        Assert.Equal(expected + 3, CountMetricReferences(schema));
         Assert.DoesNotContain(DefsPrefix + "metricAny", schema.ToJsonString(), StringComparison.Ordinal);
     }
 
@@ -1550,7 +1589,11 @@ public sealed class SchemaValidationTests
         JsonNode step = At(schema, "$defs.step");
 
         Assert.Equal("object", step["type"]!.GetValue<string>());
-        Assert.Equal(1, schema.ToJsonString().Split("\"task\":").Length - 1);
+
+        // The calibration definition (AJ-109) has a task member of its own; the step reading's is defined once beside it.
+        JsonNode withoutCalibration = schema.DeepClone();
+        Assert.True(withoutCalibration["$defs"]!.AsObject().Remove("calibration"));
+        Assert.Equal(1, withoutCalibration.ToJsonString().Split("\"task\":").Length - 1);
         foreach (string list in new[] { "steps", "judge" })
         {
             JsonNode items = At(schema, "properties." + list + ".items");
@@ -1614,7 +1657,8 @@ public sealed class SchemaValidationTests
     [Fact]
     public void The_mapping_names_a_known_definition_for_every_entry()
     {
-        Assert.Equal(27, MetricSchemaDefs.Mapping.Count);
+        // 27 members of the run file and the 3 totals of the calibration document (AJ-109).
+        Assert.Equal(30, MetricSchemaDefs.Mapping.Count);
         Assert.All(MetricSchemaDefs.Mapping.Values, static target => Assert.Contains(target.Def, MetricDefs));
         Assert.DoesNotContain(MetricSchemaDefs.Mapping.Values, static target => target.Def == "metricAny");
     }

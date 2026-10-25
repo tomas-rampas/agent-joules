@@ -1,6 +1,8 @@
 using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Cost;
+using AgentJoules.Core.Energy;
+using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
 using AgentJoules.Metering;
@@ -289,6 +291,52 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredKeyedService<Random>(JitterKey),
                 options.Judge.MaxOutputTokens,
                 options.Tiers.TryGetValue(options.Judge.Tier, out TierOptions? judgeTierOptions) ? judgeTierOptions?.SystemPromptPrefix : null);
+        });
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the calibration of the energy methods (REQ-021, AJ-109): the <see cref="CalibrationService"/> over the services <c>calibrate</c> shares with <c>run</c> (the options, the GPU port, the local runtime, the power
+    /// source, the clock, the provider clients and the retry policy) and over an agent factory whose pipelines are unmetered, so the workload of the window opens no window of its own. The factory is handed inert metering services (an
+    /// unmetered meter, the no-op gate, a sink nobody reads, the not-configured cost calculator and the instruments of the host) that an unmetered pipeline never touches. The instruments must be registered by the caller
+    /// (<c>run</c> registers them in its own hook as well).
+    /// </summary>
+    /// <param name="services">The collection to add to.</param>
+    /// <returns><paramref name="services"/>, for chaining.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
+    public static IServiceCollection AddAgentJoulesCalibration(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(RetryOptions.Default);
+        services.TryAddKeyedSingleton(JitterKey, Random.Shared);
+        services.TryAddSingleton(static provider =>
+        {
+            TimeProvider time = provider.GetRequiredService<TimeProvider>();
+            var inert = new MeteringServices(
+                new UnmeteredEnergyMeter(time),
+                NoOpMeterGate.Instance,
+                new InMemoryMetricsSink(),
+                NotConfiguredCostCalculator.Instance,
+                provider.GetRequiredService<AgentJoulesInstruments>(),
+                time);
+            var agents = new AgentFactory(
+                provider.GetRequiredService<IProviderClientFactory>(),
+                inert,
+                provider.GetRequiredService<RetryOptions>(),
+                time,
+                provider.GetRequiredKeyedService<Random>(JitterKey))
+            {
+                Metered = false,
+            };
+
+            return new CalibrationService(
+                provider.GetRequiredService<IOptions<AgentJoulesOptions>>(),
+                provider.GetRequiredService<IGpuTelemetrySourceFactory>(),
+                provider.GetRequiredService<ILocalRuntime>(),
+                provider.GetRequiredService<IPowerSourceDetector>(),
+                time,
+                agents);
         });
         return services;
     }

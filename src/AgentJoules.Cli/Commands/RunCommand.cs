@@ -149,7 +149,7 @@ internal static class RunCommand
 
     // A validator runs only when the option was given. The token is read here rather than the converted value, because reading the value of a token that does not convert throws;
     // a token that is not an integer is left to the parser, which reports it as a parse error of its own.
-    private static void RequireAtLeast(OptionResult result, int minimum, string message)
+    internal static void RequireAtLeast(OptionResult result, int minimum, string message)
     {
         if (result.Tokens.Count == 1
             && int.TryParse(result.Tokens[0].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
@@ -160,7 +160,7 @@ internal static class RunCommand
     }
 
     // The parser of a whole-number option: the default one names the .NET type of the option in its error, so a token that is not a whole number gets a plain message.
-    private static int? WholeNumber(ArgumentResult result, string message)
+    internal static int? WholeNumber(ArgumentResult result, string message)
     {
         if (result.Tokens.Count == 1 && int.TryParse(result.Tokens[0].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
         {
@@ -184,7 +184,7 @@ internal static class RunCommand
         }
     }
 
-    private static void RequireNotBlank(OptionResult result, string message)
+    internal static void RequireNotBlank(OptionResult result, string message)
     {
         if (result.Tokens.Count == 1 && string.IsNullOrWhiteSpace(result.Tokens[0].Value))
         {
@@ -224,7 +224,7 @@ internal static class RunCommand
     }
 
     // Paths:Tasks under the content root, then --task; a problem of the folder or of a file names the key (and the file name), never a path.
-    private static IReadOnlyList<TaskDefinition> LoadTasks(string contentRoot, string configured, string? taskName)
+    internal static IReadOnlyList<TaskDefinition> LoadTasks(string contentRoot, string configured, string? taskName)
     {
         string directory = ContentPaths.Resolve(contentRoot, configured, PathsOptions.TasksKey);
         IReadOnlyList<TaskDefinition> all;

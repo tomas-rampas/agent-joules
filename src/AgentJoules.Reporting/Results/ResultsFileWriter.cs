@@ -184,7 +184,7 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
     }
 
     // Creates the directory, then a probe file and deletes it; returns the full path of the directory.
-    private static string ProbeWritable(string directory, SecretRedactor? redactor, string? displayDirectory)
+    internal static string ProbeWritable(string directory, SecretRedactor? redactor, string? displayDirectory)
     {
         string full = directory;
         try
@@ -216,7 +216,7 @@ public sealed class ResultsFileWriter : IRunCheckpointWriter
         }
     }
 
-    private static void RemoveQuietly(string path)
+    internal static void RemoveQuietly(string path)
     {
         try
         {
