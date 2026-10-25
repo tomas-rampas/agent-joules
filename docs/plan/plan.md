@@ -206,7 +206,7 @@ Seams recorded by the story writers, plus the ones found while consolidating.
 | 7 | Throttle result on the laptop | AJ-028 (M1) | AJ-112 (M4) | methodology says "unsupported" if the API is |
 | 8 | `ICostCalculator` placeholder, `IJudgeService` no-op | M2 | AJ-070..072, AJ-076 (M3) | replaced by registration, no M2 test changes |
 | 9 | Minimal `RunDocument` and writer | AJ-055 (M2) | AJ-078, AJ-079 (M3) | M3 completes the records and generates the schema; M2 fixtures are re-validated |
-| 10 | `ILocalRuntime` warm-up no-op | M2 | AJ-105, AJ-106 (M4) | M4 fills it |
+| 10 | `ILocalRuntime` warm-up no-op | M2 | AJ-105, AJ-106 (M4) | filled in M4 (LocalWarmUp and the NIM and Ollama runtimes: the unmetered warm-up call before the baseline) |
 | 11 | `--config` arity | AJ-043, 054, 086 | AJ-080 (M3), AJ-100 (M4) | plain path option per command; zero-or-one arity only on `validate`; flag form implemented in M4 |
 | 12 | Live-event hook points in `MeteredChatClient` and `RunOrchestrator` | M2 | AJ-091-T6 (M3) | AJ-089 depends on AJ-056-T1 and AJ-040-T3 |
 | 13 | Exit code 7 | mapper in AJ-058 (M2) | AJ-144 (M6) | the real `--verify-readme` path and its exit-7 test are built in AJ-144-T5/T6 |
