@@ -7,14 +7,14 @@ M5 adds the second measured tier: Nemotron 3 Nano 30B-A3B served by a NIM contai
 Dates: 2026-10-26 to 2026-10-27. M5 starts only after AJ-115 (local Definition of Done items) is committed. The VM time box (4 hours wall-clock and USD 30 total spend, hard stop) runs from the moment the user hands over `CLOUDGPU_SSH_HOST`; AJ-125 to AJ-127 are the stories that consume it. Planned split: 2026-10-26 AJ-120 to AJ-124 (account, key pair, unit-tested guards, no cost yet); 2026-10-27 AJ-125 to AJ-129 (VM, NIM, runs, teardown, consequences). Capacity is about six working hours per day; the VM box is wall-clock and overlaps the start of M6.
 
 Exit criteria:
-- [ ] `jq '[.environment.provider, .environment.precision, .environment.instancePreset]'` on the latest `results/*-cloudgpu.json` (excluding `results/probe-*` and `results/calibration-*`) prints `nebius-ai-cloud`, `FP8` and a non-empty preset; `AJ validate results/` exits 0 and prints `Validated <n> files` with n equal to the number of committed run files.
-- [ ] `results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json` exists with a boolean `energyCounterSupported` and a `migMode` of `disabled` or `not-supported`.
-- [ ] `docs/cloudgpu-run.md` has the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost` and `Teardown`; its `Cost` section contains `USD` and a value of 30 or less; its `Teardown` section contains the word `deleted`.
-- [ ] `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` prints nothing (key set in the shell); `git grep -nF "$CLOUDGPU_SSH_HOST"` prints nothing.
-- [ ] The `## cloudgpu` section of `docs/endpoints.md` has `Verified: <date>` (2026-10-17 or later) and a `- model: <id>` line; `AJ validate --config` exits 0 with `AGENTJOULES__Tiers__cloudgpu__Enabled=true`.
-- [ ] `dotnet test --filter "Spec=REQ-031"`, `--filter "Spec=EDGE-015"`, `--filter "Spec=EDGE-016"` and `--filter "Spec=EDGE-017"` each show at least one passed and no failed test.
-- [ ] `AJ report --in results/ --out <scratch folder>` renders a `cloudgpu` row separate from every laptop row, with the word `partial` when the run status is `partial` and `sampling` when the counter was unsupported.
-- [ ] The VM and its boot disk are deleted by the user (confirmation time and final cost recorded in `docs/cloudgpu-run.md`).
+- [x] `jq '[.environment.provider, .environment.precision, .environment.instancePreset]'` on the latest `results/*-cloudgpu.json` (excluding `results/probe-*` and `results/calibration-*`) prints `nebius-ai-cloud`, `FP8` and a non-empty preset; `AJ validate results/` exits 0 and prints `Validated <n> files` with n equal to the number of committed run files.
+- [x] `results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json` exists with a boolean `energyCounterSupported` and a `migMode` of `disabled` or `not-supported`.
+- [x] `docs/cloudgpu-run.md` has the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost` and `Teardown`; its `Cost` section contains `USD` and a value of 30 or less; its `Teardown` section contains the word `deleted`.
+- [x] `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` prints nothing (key set in the shell); `git grep -nF "$CLOUDGPU_SSH_HOST"` prints nothing.
+- [x] The `## cloudgpu` section of `docs/endpoints.md` has `Verified: <date>` (2026-10-17 or later) and a `- model: <id>` line; `AJ validate --config` exits 0 with `AGENTJOULES__Tiers__cloudgpu__Enabled=true`.
+- [x] `dotnet test --filter "Spec=REQ-031"`, `--filter "Spec=EDGE-015"`, `--filter "Spec=EDGE-016"` and `--filter "Spec=EDGE-017"` each show at least one passed and no failed test.
+- [x] `AJ report --in results/ --out <scratch folder>` renders a `cloudgpu` row separate from every laptop row, with the word `partial` when the run status is `partial` and `sampling` when the counter was unsupported.
+- [x] The VM and its boot disk are deleted by the user (confirmation time and final cost recorded in `docs/cloudgpu-run.md`). (2026-10-26: deleted by the user at 13:50Z, recorded; the final cost is recorded as USD 6.99 estimated with the USD 5.92 balance difference as a lower bound; the usage page's own line is pending and goes into the M5 exit addendum)
 
 ## Coverage
 
