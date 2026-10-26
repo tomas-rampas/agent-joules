@@ -107,17 +107,17 @@ Feature: AJ-130 README pitch and architecture diagram
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-130-T1 | Write the failing structure feature for README pitch and diagram | tests/AgentJoules.Specs/Features/Reporting/ReadmeStructure.feature | 0.25 | - |
-| AJ-130-T2 | Add the `RepositoryRoot` helper and the `DocumentChecks` class with `MermaidBlock`, `HasHeading`, `NoLeftoverText` checks plus step bindings | tests/AgentJoules.TestSupport/RepositoryRoot.cs, tests/AgentJoules.Specs/Support/DocumentChecks.cs, tests/AgentJoules.Specs/Steps/ReportingSteps.cs | 0.75 | AJ-130-T1 |
+| AJ-130-T1 | Write the failing structure feature for README pitch and diagram | tests/AgentJoules.Specs/Features/Reporting/AJ-130-readme-structure.feature (repository convention) | 0.25 | - |
+| AJ-130-T2 | Add the `RepositoryRoot` helper and the `DocumentChecks` class with `MermaidBlock`, `HasHeading`, `NoLeftoverText` checks plus step bindings | tests/AgentJoules.TestSupport/RepositoryRoot.cs, tests/AgentJoules.Specs/Support/DocumentChecks.cs, tests/AgentJoules.Specs/Steps/ReadmeStructureSteps.cs (built 2026-10-26; ReportingSteps.cs already held the AJ-112 bindings) | 0.75 | AJ-130-T1 |
 | AJ-130-T3 | Rewrite the README opening: tagline line, status paragraph, `What it measures` | README.md | 0.5 | AJ-130-T2 |
 | AJ-130-T4 | Draw the Mermaid architecture diagram from the project graph of the technical design | README.md | 0.5 | AJ-130-T3 |
 | AJ-130-T5 | Record the diagram source and the pitch alignment in the build log | docs/build-log.md | 0.25 | AJ-130-T4 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeStructure.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-130-readme-structure.feature (repository convention)
 Docs impact: README.md sections What it measures and Architecture; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] Mermaid syntax passes the `flowchart LR` and bracket-balance check; the user confirms rendering on GitHub after the push (user action in M7)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] Mermaid syntax passes the `flowchart LR` and bracket-balance check; the user confirms rendering on GitHub after the push (user action in M7) (the flowchart LR and bracket-balance checks pass on 2026-10-26; the GitHub rendering confirmation stays the user's M7 action)
 Demo relevance: yes: shot 2 of the video shows this diagram.
 
 ### AJ-131: Write the README quick start, CLI reference and reproduce steps
@@ -364,19 +364,19 @@ Feature: AJ-144 report flags and the content template renderer
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature | 0.5 | AJ-130-T2 |
+| AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/AJ-144-report-flags.feature (repository convention) | 0.5 | AJ-130-T2 |
 | AJ-144-T2 | Write the failing unit cases for block update, verify (exit 7), placeholder resolution and variant length | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.75 | AJ-144-T1 |
 | AJ-144-T3 | Add `Update` and `Verify` with LF normalization and the `dashboardScreenshotExists` parameter (conditional screenshot link) to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
 | AJ-144-T4 | Implement `ContentTemplateRenderer` (placeholders, `[index]`, `.value`, formats, null as label text, Sources line, variant split and length check) | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 2.0 | AJ-144-T2 |
 | AJ-144-T5 | Wire `--update-readme`, `--verify-readme` and `--render-content` into the report command with the exit codes 0, 2 and 7 | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-144-T3, AJ-144-T4 |
 | AJ-144-T6 | Create or extend `ExitCodeTests` with the exit-code 7 case and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
 | AJ-144-T7 | Record the flags and their exit codes in the build log | docs/build-log.md | 0.25 | AJ-144-T6 |
-Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature
+Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/AJ-144-report-flags.feature (repository convention)
 Docs impact: docs/build-log.md; README.md CLI reference (option names, written in AJ-131)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0 (open until AJ-133-T3 and AJ-134-T6 run the flags on the committed files, 2026-10-26)
 Demo relevance: yes: demo steps 7 and 8 run these flags.
 
 ### AJ-133: Generate and verify the README results block
@@ -1290,7 +1290,7 @@ Acceptance criteria:
 9. Rule 8 (cloudgpu consistency): with no completed or partial cloudgpu run file, no audited file except the feedback design paragraph of Q5 and the non-chosen pitch candidates mentions `Nebius AI Cloud` or `L40S` outside a sentence containing `not run` or `did not run`.
 10. Rule 9 (browser note): README, `content/demo-script.md` and `docs/methodology.md` each contain the statement that the published results were recorded without a browser open.
 
-Amended 2026-10-26 (M6 kickoff, K4; carry 3 of the M5 interim exit review fixes): a completed cloudgpu run file exists (results/20261026T124721Z-cloudgpu.json, gpuName `NVIDIA H100 80GB HBM3`), so rule 8 also covers the present-file case: no audited file states or implies a cloudgpu measurement on a GPU other than the one the latest completed or partial cloudgpu run file names (the first token matching `[A-Z]+[0-9]+[A-Z]*` in its gpuName, here `H100`; `HBM3` is the second match and is not the GPU token); the string `L40S` may appear only in a sentence that says it was planned, not available, or replaced (words `planned`, `exhausted`, `instead`, `replaced` or `not available`), and the non-chosen pitch candidates B and C of docs/devpost-pitch.md are exempt as historical drafts. The absent-file wording of rule 8 stays for the fallback path.
+Amended 2026-10-26 (M6 kickoff, K4; carry 3 of the M5 interim exit review fixes): a completed cloudgpu run file exists (results/20261026T124721Z-cloudgpu.json, gpuName `NVIDIA H100 80GB HBM3`), so rule 8 also covers the present-file case: no audited file states or implies a cloudgpu measurement on a GPU other than the one the latest completed or partial cloudgpu run file names (the first token matching `[A-Z]+[0-9]+[A-Z]*` in its gpuName, here `H100`; `HBM3` is the second match and is not the GPU token); the string `L40S` may appear only in a sentence that says it was planned, not available, or replaced (words `planned`, `exhausted`, `instead`, `replaced`, `replaces`, `in place of` or `not available`), and in docs/devpost-pitch.md the non-chosen candidates B and C, the scoring tables and the iteration and "Points still open" notes are exempt as historical drafts (the exemption widened 2026-10-26 after the interim peer review of ca7155f found the pitch file's history lines would fail the narrower rule). The absent-file wording of rule 8 stays for the fallback path.
 
 BDD scenarios:
 ```gherkin

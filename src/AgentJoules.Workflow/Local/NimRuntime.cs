@@ -11,10 +11,10 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Workflow.Local;
 
 /// <summary>
-/// The NIM container behind the bound tier (the local tier by default; REQ-019, REQ-020, design 3.4 "Local runtimes"), selected by <c>Local:Runtime</c> <c>nim</c> (AJ-102). <see cref="CheckAvailableAsync"/> asks <c>GET &lt;BaseUrl&gt;/version</c>
+/// The NIM container behind the bound tier (the local tier by default; REQ-019, REQ-020, design 3.4 "Local runtimes"), selected for the local tier by <c>Local:Runtime</c> <c>nim</c> (AJ-102); the cloudgpu tier always runs NIM. <see cref="CheckAvailableAsync"/> asks <c>GET &lt;BaseUrl&gt;/version</c>
 /// (the <c>/v1/version</c> route of the container), so a container that is not running is reported as <c>NIM not reachable at &lt;BaseUrl&gt;; start the container as recorded in docs/nim-local-attempt.md</c> (exit code
 /// 5); for a tier other than local the message is <c>tier cloudgpu: NIM not reachable (/version)</c>, which names the tier and the route and no host. <see cref="DescribeAsync"/> states the <c>environment</c> of a local run (AJ-105): the version is the <c>release</c> of that answer (null when it holds none), the GPU offload is 100 by construction (a NIM
-/// container serves the model from GPU memory only), and the precision is <c>Precision</c> of the bound tier (<c>Tiers:local:Precision</c> for the local tier), which the configuration validator requires for this runtime, so no precision is ever guessed. <see cref="WarmUpAsync"/> (AJ-106) sends one short chat
+/// container serves the model from GPU memory only), and the precision is <c>Precision</c> of the bound tier: <c>Tiers:local:Precision</c> for the local tier, which the configuration validator (<c>CrossFieldValidator</c>) requires only when <c>Local:Runtime</c> is <c>nim</c>; for the cloudgpu tier <c>Tiers:cloudgpu:Precision</c> is read as configured and a blank value gives a null precision. No precision is ever guessed. <see cref="WarmUpAsync"/> (AJ-106) sends one short chat
 /// completion (<c>POST &lt;BaseUrl&gt;/chat/completions</c>, the single word <c>ready</c> asked for, 8 tokens at most, temperature 0) through the plain client and returns how long it took on the injected clock.
 /// </summary>
 /// <remarks>

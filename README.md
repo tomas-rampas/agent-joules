@@ -1,16 +1,55 @@
 # Agent Joules
 
-Agent Joules: energy per agent step, measured on your GPU
+Agent Joules: energy per agent step, measured on your GPUs
 
-Status: work in progress for the Nebius x NVIDIA Global AI Hackathon on Devpost (submission deadline 2026-10-30 10:00 PDT). The build is specified by [docs/agent-joules.prompt.md](docs/agent-joules.prompt.md); sections marked "filled during the build" are completed from measured results, never typed by hand.
+Status: Agent Joules is the submission of this repository to the Nebius x NVIDIA Global AI Hackathon on Devpost (submission deadline 2026-10-30 10:00 PDT, 17:00 UTC). The build is specified by [docs/agent-joules.prompt.md](docs/agent-joules.prompt.md). Every published number comes from a committed file under `results/`; sections still marked "filled during the build" are completed in this milestone (M6) from those files, never typed by hand.
 
 ## What it measures
 
 Agent Joules wraps each agent of a Microsoft Agent Framework workflow in a Microsoft.Extensions.AI IChatClient middleware that records tokens, latency and cost for every model call. On a GPU you control the same middleware also records joules and watts through NVML, the NVIDIA Management Library. A judge model adds a quality score to each run. Every metric carries one of five labels: measured, estimated, model-judged, N/A or not-reported, and a missing value is never written as zero. The same workflow runs on four tiers: locally through an NVIDIA NIM container first with Ollama as the fallback, on a Nebius AI Cloud GPU instance where the NIM container and the meter share one GPU, on Nebius Token Factory serving NVIDIA Nemotron, and on build.nvidia.com. Energy is measured on the laptop GPU and on the cloud GPU and reported in separate rows; hosted API energy is reported as N/A.
 
+The four tiers run in this fixed order: `local` (the laptop GPU, Nemotron served by NIM), `cloudgpu` (one Nebius AI Cloud GPU VM, its own NIM container serving another Nemotron model), `nvidia` and `nebius` (hosted Nemotron endpoints, where energy is `N/A`). Energy is GPU-board energy only. Every value carries one label: `measured`, `estimated`, `model-judged`, `N/A` or `not-reported`.
+
 ## Architecture
 
-Filled during the build: a Mermaid diagram of agents, metered clients, providers, the NVML meter, the results sink, the report and OpenTelemetry.
+The diagram shows the agents, the metered clients, the providers, the NVML meter, the results sink, the report and OpenTelemetry, and the path one measured step takes between them.
+
+```mermaid
+flowchart LR
+  Planner[Planner agent]
+  Researcher[Researcher agent]
+  Writer[Writer agent]
+  Reviewer[Reviewer agent]
+  MC[One MeteredChatClient per agent, the IChatClient middleware]
+  LocalNIM[Provider NIM on laptop GPU for local tier]
+  CloudNIM[Provider NIM on Nebius AI Cloud GPU VM for cloudgpu tier]
+  NvidiaHosted[Provider NVIDIA hosted Nemotron endpoint for nvidia tier]
+  NebiusHosted[Provider Nebius Token Factory endpoint for nebius tier]
+  NVML[NVML energy meter GPU-board joules]
+  Sink[Metrics sink]
+  Results[Results files written to results folder]
+  Judge[Judge model quality score]
+  Dashboard[Live dashboard optional with dashboard flag]
+  OTel[OpenTelemetry metrics]
+  Report[Report command summary chart static page and README block]
+  Planner --> MC
+  Researcher --> MC
+  Writer --> MC
+  Reviewer --> MC
+  MC --> LocalNIM
+  MC --> CloudNIM
+  MC --> NvidiaHosted
+  MC --> NebiusHosted
+  MC --> NVML
+  NVML --> Sink
+  Sink --> Results
+  Sink --> Dashboard
+  Sink --> OTel
+  Judge --> Results
+  Results --> Report
+```
+
+The diagram shows the components named in the design (docs/design/technical-design.md, sections 2.2 and 3) and the data flow of one run (section 4).
 
 ## Quick start
 

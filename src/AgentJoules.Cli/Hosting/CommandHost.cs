@@ -34,6 +34,40 @@ internal sealed class CommandHost(CliHostOverrides? overrides, KeyRegistry keys,
     internal SecretRedactor Redactor { get; } = keys.Redactor;
 
     /// <summary>
+    /// Registers the key variables the given configuration declares (every tier's <c>ApiKeyVariable</c>) the way the host does once its sources are built, for a command that builds no host:
+    /// the values come from the configuration, the user secrets and the in-memory override of the test harness. A user-secrets file that cannot be read is skipped; the configuration alone is registered.
+    /// </summary>
+    /// <param name="configuration">The configuration the command read (the JSON file and the process environment).</param>
+    internal void RegisterConfiguredKeys(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        // The host reads JSON, user secrets, then the environment, so the environment wins; here the secrets and the override are added after it. Registration is idempotent: the configuration as it stands
+        // (JSON and environment) is registered first, then the combined one, so a variable valued differently in the environment and in the secrets has both values registered.
+        keys.Register(configuration, Error);
+        try
+        {
+            ConfigurationBuilder combined = new();
+            _ = combined.AddConfiguration(configuration);
+            if (overrides is null || overrides.IncludeUserSecrets)
+            {
+                _ = combined.AddUserSecrets(typeof(CliApplication).Assembly, optional: true);
+            }
+
+            if (overrides?.Configuration is { } memory)
+            {
+                _ = combined.AddInMemoryCollection(memory);
+            }
+
+            keys.Register(combined.Build(), Error);
+        }
+        catch (Exception failure) when (failure is InvalidDataException or FormatException or IOException or UnauthorizedAccessException)
+        {
+            // A user-secrets file that cannot be read: the configuration alone was registered above.
+        }
+    }
+
+    /// <summary>
     /// Runs <paramref name="action"/> in a started host and returns its exit code, or the code of the failure it threw. An
     /// <see cref="OperationCanceledException"/> while the linked token is cancelled (the caller's token, which System.CommandLine cancels on
     /// SIGINT and SIGTERM, or <c>ApplicationStopping</c>, which SIGHUP raises) is a shutdown: exit 5 with the line

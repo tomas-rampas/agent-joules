@@ -989,6 +989,16 @@ public sealed class LocalRuntimeTests
             Assert.Equal(warmUps.Length, rig.Recorder.Count(OperationRecorder.WarmUp));
             Assert.StartsWith("probe, meter-start, warm-up", rig.Recorder.Describe(), StringComparison.Ordinal);
 
+            // The order continues with the description and then the baseline after the last warm-up. The recorder names no describe operation: the description is the one GET /v1/version,
+            // so its place is read on the cloudgpu fake's own request order, which holds every warm-up of this run.
+            List<string> operations = [.. rig.Recorder.Operations];
+            int lastWarmUp = operations.LastIndexOf(OperationRecorder.WarmUp);
+            Assert.True(lastWarmUp >= 0, "The warm-up was not recorded");
+            Assert.Equal(OperationRecorder.Baseline, operations[lastWarmUp + 1]);
+            int lastCloudWarmUp = cloud.Requests.ToList().FindLastIndex(request => request.Route == FakeRoute.ChatCompletions && IsWarmUp(request));
+            int describedAt = cloud.Requests.ToList().FindIndex(request => request.Route == FakeRoute.NimVersion);
+            Assert.True(lastCloudWarmUp >= 0 && describedAt > lastCloudWarmUp, "The description does not follow the last warm-up");
+
             using JsonDocument document = rig.ReadRunFile();
             JsonElement environment = Environment(document);
             Assert.Equal("nim", environment.GetProperty("localRuntime").GetString());

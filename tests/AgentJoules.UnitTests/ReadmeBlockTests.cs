@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
@@ -822,5 +823,126 @@ public sealed partial class ReadmeBlockTests
         Assert.Equal(ReportTable.Headers, header);
         Assert.Equal("measured, estimated, model-judged, N/A, not-reported", ReportTable.Labels([MetricLabel.NotReported, MetricLabel.NotApplicable, MetricLabel.ModelJudged, MetricLabel.Estimated, MetricLabel.Measured, MetricLabel.Measured]));
         Assert.Equal("local baseline", ReportTable.TierName(Tier.Local, RunVariant.Baseline));
+    }
+
+    // ---- AJ-144: Update and Verify (REQ-025) ----
+
+    private const string BeginMarker = "<!-- results:begin -->";
+    private const string EndMarker = "<!-- results:end -->";
+    private const string Readme = "# Title\n\nIntro.\n\n" + BeginMarker + "\nstale\n" + EndMarker + "\n\nFooter.\n";
+
+    [Fact]
+    public void Update_replaces_only_the_text_between_the_markers()
+    {
+        string block = Block(ThreeTiers());
+
+        string updated = ReadmeResultsBlock.Update(Readme, block);
+
+        Assert.Equal("# Title\n\nIntro.\n\n" + BeginMarker + "\n" + block + EndMarker + "\n\nFooter.\n", updated);
+        Assert.DoesNotContain("stale", updated, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Update_twice_changes_no_byte()
+    {
+        string block = Block(ThreeTiers());
+        string once = ReadmeResultsBlock.Update(Readme, block);
+
+        Assert.Equal(once, ReadmeResultsBlock.Update(once, block));
+    }
+
+    [Fact]
+    public void Update_writes_LF_for_a_CRLF_readme()
+    {
+        string block = Block(ThreeTiers());
+
+        string updated = ReadmeResultsBlock.Update(Readme.Replace("\n", "\r\n", StringComparison.Ordinal), block);
+
+        Assert.DoesNotContain('\r', updated);
+        Assert.Equal(ReadmeResultsBlock.Update(Readme, block), updated);
+    }
+
+    [Fact]
+    public void Update_with_no_begin_marker_throws_naming_it()
+    {
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => ReadmeResultsBlock.Update("text\n" + EndMarker + "\n", "block\n"));
+
+        Assert.Contains(BeginMarker, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Update_with_no_end_marker_throws_naming_it()
+    {
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => ReadmeResultsBlock.Update(BeginMarker + "\nold\n", "block\n"));
+
+        Assert.Contains(EndMarker, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_marker_inside_a_line_is_not_a_marker()
+    {
+        string text = "Use `" + BeginMarker + "` and `" + EndMarker + "` in the README.\n";
+
+        Assert.Throws<ConfigurationException>(() => ReadmeResultsBlock.Update(text, "block\n"));
+    }
+
+    [Fact]
+    public void Verify_is_true_for_the_block_that_Update_wrote()
+    {
+        string block = Block(ThreeTiers());
+
+        Assert.True(ReadmeResultsBlock.Verify(ReadmeResultsBlock.Update(Readme, block), block));
+    }
+
+    [Fact]
+    public void Verify_is_false_after_a_manual_edit_inside_the_markers()
+    {
+        string block = Block(ThreeTiers());
+        string updated = ReadmeResultsBlock.Update(Readme, block);
+        string edited = updated.Replace("| local |", "| locaL |", StringComparison.Ordinal);
+
+        Assert.NotEqual(updated, edited);
+        Assert.False(ReadmeResultsBlock.Verify(edited, block));
+    }
+
+    [Fact]
+    public void Verify_ignores_an_edit_outside_the_markers()
+    {
+        string block = Block(ThreeTiers());
+        string updated = ReadmeResultsBlock.Update(Readme, block).Replace("Footer.", "Another footer.", StringComparison.Ordinal);
+
+        Assert.True(ReadmeResultsBlock.Verify(updated, block));
+    }
+
+    [Fact]
+    public void Verify_reads_CRLF_as_LF_on_both_sides()
+    {
+        string block = Block(ThreeTiers());
+        string crlf = ReadmeResultsBlock.Update(Readme, block).Replace("\n", "\r\n", StringComparison.Ordinal);
+
+        Assert.True(ReadmeResultsBlock.Verify(crlf, block));
+        Assert.True(ReadmeResultsBlock.Verify(crlf, block.Replace("\n", "\r\n", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void Verify_with_a_missing_marker_throws_naming_it()
+    {
+        ConfigurationException failure = Assert.Throws<ConfigurationException>(() => ReadmeResultsBlock.Verify("no markers here\n", "block\n"));
+
+        Assert.Contains(BeginMarker, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_screenshot_link_is_a_difference_when_the_file_and_the_link_disagree()
+    {
+        ReportModel model = ReportAggregator.Build(ThreeTiers());
+        string with = ReadmeResultsBlock.Render(model, dashboardScreenshotExists: true);
+        string without = ReadmeResultsBlock.Render(model, dashboardScreenshotExists: false);
+
+        Assert.Contains(DashboardLine, with, StringComparison.Ordinal);
+        Assert.DoesNotContain(DashboardLine, without, StringComparison.Ordinal);
+        Assert.False(ReadmeResultsBlock.Verify(ReadmeResultsBlock.Update(Readme, with), without));
+        Assert.False(ReadmeResultsBlock.Verify(ReadmeResultsBlock.Update(Readme, without), with));
+        Assert.True(ReadmeResultsBlock.Verify(ReadmeResultsBlock.Update(Readme, with), with));
     }
 }
