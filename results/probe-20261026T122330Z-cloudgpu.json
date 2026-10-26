@@ -1,0 +1,13 @@
+{
+  "gpuPresent": true,
+  "name": "NVIDIA H100 80GB HBM3",
+  "gpuUuid": "GPU-3e12a8e8-d957-1269-b802-c39f6a145b5f",
+  "driverVersion": "580.173.02",
+  "computeCapability": "9.0",
+  "vbiosVersion": "96.00.A5.00.01",
+  "powerLimitW": 700,
+  "migMode": "disabled",
+  "energyCounterSupported": true,
+  "method": "counter",
+  "sampleRateHz": 10
+}

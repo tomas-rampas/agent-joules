@@ -10,7 +10,7 @@ Feature: Create the VM when asked, deliver the CLI and probe the GPU over SSH
   Scenario: AJ-125 the VM matches the request and the probe is committed
     Given the user created the VM as requested and set CLOUDGPU_SSH_HOST and CLOUDGPU_SSH_USER
     When the builder copies the CLI and runs "./AgentJoules.Cli probe --json --save --suffix cloudgpu" on the VM
-    Then the probe file has an L40S name, a gpuUuid, migMode "disabled" or "not-supported" and a boolean energyCounterSupported
+    Then the probe file has an accepted GPU name, a gpuUuid, migMode "disabled" or "not-supported" and a boolean energyCounterSupported
     And the file validates against the probe schema definition
   @positive
   Scenario: AJ-125 a fallback preset is accepted and recorded

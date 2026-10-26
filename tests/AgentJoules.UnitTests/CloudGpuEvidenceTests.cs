@@ -102,6 +102,32 @@ public sealed class CloudGpuEvidenceTests(ITestOutputHelper output)
         Assert.Contains(failures, failure => failure.Contains(expected, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("NVIDIA RTX PRO 6000 Blackwell Server Edition", true)]
+    [InlineData("NVIDIA H100 80GB HBM3", false)]
+    [InlineData("NVIDIA A100 80GB PCIe", true)]
+    [InlineData("NVIDIA RTX 6000 Ada Generation", true)]
+    [InlineData("NVIDIA H200", true)]
+    [InlineData("nvidia h100 80gb hbm3", true)]
+    [InlineData("NVIDIA L40S", false)]
+    public void A_probe_name_is_accepted_for_the_L40S_and_the_decided_GPU_only(string name, bool refused)
+    {
+        IReadOnlyList<string> failures = CloudGpuEvidence.ProbeFailures("probe.json", Probe(p => p["name"] = name).ToJsonString());
+
+        Assert.Equal(refused ? ["name: expected an accepted GPU name (L40S or H100)"] : [], failures);
+    }
+
+    [Theory]
+    [InlineData("uk-south2", true)]
+    [InlineData("eu-north1", false)]
+    [InlineData("eu-west2", true)]
+    public void A_run_region_is_accepted_for_the_story_and_the_decided_region_only(string region, bool refused)
+    {
+        IReadOnlyList<string> failures = CloudGpuEvidence.RunFieldFailures(Run(r => r["environment"]!["region"] = region));
+
+        Assert.Equal(refused ? ["environment.region: expected an accepted region (eu-north1)"] : [], failures);
+    }
+
     [Fact]
     public void A_probe_that_is_not_JSON_is_refused() => Assert.Single(CloudGpuEvidence.ProbeFailures("probe.json", "not json"));
 

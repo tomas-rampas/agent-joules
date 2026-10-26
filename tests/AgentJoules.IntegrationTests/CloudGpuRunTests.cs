@@ -8,7 +8,7 @@ namespace AgentJoules.IntegrationTests;
 
 /// <summary>
 /// The gated check behind AJ-127 (REQ-031, design 6.3): the newest committed <c>results/&lt;yyyyMMddTHHmmssZ&gt;-cloudgpu.json</c> has 3 tasks, <c>run.repeat</c> 3, 36 steps, <c>run.status</c> completed (or partial with a stop reason), the
-/// provider nebius-ai-cloud, precision FP8, the instance preset, region eu-north1, GPU UUID, container image and a sha256 digest and a baseline of at least 30 s, and every committed cloudgpu run file passes the check of <c>AJ validate</c>
+/// provider nebius-ai-cloud, precision FP8, the instance preset, an accepted region (<see cref="CloudGpuEvidence.AcceptedRegions"/>), GPU UUID, container image and a sha256 digest and a baseline of at least 30 s, and every committed cloudgpu run file passes the check of <c>AJ validate</c>
 /// (<see cref="RunFileValidator"/>). The facts are skipped, with their reason, unless AGENTJOULES_INTEGRATION is 1 and the HEAD tree holds the file. They read committed files only: no GPU, network or key.
 /// </summary>
 [Trait("Spec", "REQ-031")]

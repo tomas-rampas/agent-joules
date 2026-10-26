@@ -193,7 +193,7 @@ public sealed partial class CloudGpuSteps
         // The user actions (creating the VM, setting the variables) and the builder commands over SSH cannot be driven by a test; the Then steps check what they leave in the committed files and in docs/cloudgpu-run.md.
     }
 
-    [Then(@"^the probe file has an L40S name, a gpuUuid, migMode ""disabled"" or ""not-supported"" and a boolean energyCounterSupported$")]
+    [Then(@"^the probe file has an accepted GPU name, a gpuUuid, migMode ""disabled"" or ""not-supported"" and a boolean energyCounterSupported$")]
     [Scope(Tag = VmTag)]
     public void ThenTheProbeFileHasTheFields() =>
         AssertEvidence(
@@ -233,14 +233,14 @@ public sealed partial class CloudGpuSteps
 
     [Then(@"^the builder stops and asks the user for a new decision$")]
     [Scope(Tag = VmTag)]
-    public void ThenTheBuilderStopsOnAGpuOtherThanL40S() =>
+    public void ThenTheBuilderStopsOnAGpuOtherThanAccepted() =>
         AssertEvidence(
             () => CloudGpuEvidence.AbsentReason(CloudGpuEvidenceKind.Probe),
             () =>
             {
-                // A stop leaves no committed probe of another GPU class: every committed cloudgpu probe names an L40S.
+                // A stop leaves no committed probe of another GPU class: every committed cloudgpu probe names an accepted GPU (L40S or the GPU of the user's decision).
                 string[] offenders = [.. CloudGpuEvidence.CommittedProbeFiles().Where(static file => CloudGpuEvidence.ProbeFailures(Path.GetFileName(file), File.ReadAllText(file)).Any(static failure => failure.StartsWith("name:", StringComparison.Ordinal))).Select(static file => Path.GetFileName(file))];
-                Assert.True(offenders.Length == 0, "a committed cloudgpu probe names a GPU that is not an L40S: " + string.Join(", ", offenders));
+                Assert.True(offenders.Length == 0, "a committed cloudgpu probe names a GPU that is not an accepted GPU (L40S or the GPU of the user's decision): " + string.Join(", ", offenders));
             });
 
     [Then(@"^the builder stops and asks the user to recreate the VM with a larger disk$")]

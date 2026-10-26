@@ -21,6 +21,12 @@ public static partial class CloudGpuEvidence
     /// <summary>The probe <c>migMode</c> values that let the story go on (AJ-125 criterion 4); <c>enabled</c> stops it.</summary>
     public static readonly IReadOnlyList<string> MigModes = ["disabled", "not-supported"];
 
+    /// <summary>The ordinal substrings of the probe <c>name</c> that are accepted (the run file carries no GPU-name rule): the L40S of the story, and the H100 of the user's decision of 2026-10-26 (AJ-125 step 3: L40S capacity exhausted in eu-north1; the RTX PRO 6000 candidate was not chosen).</summary>
+    public static readonly IReadOnlyList<string> AcceptedGpuNameTokens = ["L40S", "H100"];
+
+    /// <summary>The regions that are accepted: the eu-north1 of the story, and the region of the chosen H100 (the uk-south2 candidate of the 2026-10-26 decision was not chosen).</summary>
+    public static readonly IReadOnlyList<string> AcceptedRegions = ["eu-north1"];
+
     /// <summary>The first date of a valid <c>Verified:</c> line of the <c>## cloudgpu</c> section (AJ-126 criterion 4).</summary>
     public static readonly DateOnly EndpointsVerifiedFrom = new(2026, 10, 17);
 
@@ -97,7 +103,7 @@ public static partial class CloudGpuEvidence
     /// <summary>The checks on the text of a probe file.</summary>
     /// <param name="fileName">The file name, used in no message.</param>
     /// <param name="text">The file content.</param>
-    /// <returns>One message per problem; empty when the probe validates against <c>$defs/probe</c> and has an L40S name, a <c>gpuUuid</c>, <c>migMode</c> in {disabled, not-supported}, a boolean <c>energyCounterSupported</c>, a <c>driverVersion</c>, a <c>powerLimitW</c>, a <c>method</c> and a <c>sampleRateHz</c>.</returns>
+    /// <returns>One message per problem; empty when the probe validates against <c>$defs/probe</c> and has an accepted GPU name, a <c>gpuUuid</c>, <c>migMode</c> in {disabled, not-supported}, a boolean <c>energyCounterSupported</c>, a <c>driverVersion</c>, a <c>powerLimitW</c>, a <c>method</c> and a <c>sampleRateHz</c>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static IReadOnlyList<string> ProbeFailures(string fileName, string text)
     {
@@ -124,9 +130,9 @@ public static partial class CloudGpuEvidence
                 return failures;
             }
 
-            if (TextOf(root, "name") is not { } name || !name.Contains("L40S", StringComparison.Ordinal))
+            if (TextOf(root, "name") is not { } name || !AcceptedGpuNameTokens.Any(token => name.Contains(token, StringComparison.Ordinal)))
             {
-                failures.Add("name: expected an L40S GPU name");
+                failures.Add("name: expected an accepted GPU name (" + string.Join(" or ", AcceptedGpuNameTokens) + ")");
             }
 
             AddIfEmpty(failures, root, "gpuUuid");
@@ -238,9 +244,9 @@ public static partial class CloudGpuEvidence
             failures.Add("environment.precision: expected \"FP8\"");
         }
 
-        if (!string.Equals(Text(root, "environment", "region"), "eu-north1", StringComparison.Ordinal))
+        if (Text(root, "environment", "region") is not { } region || !AcceptedRegions.Contains(region, StringComparer.Ordinal))
         {
-            failures.Add("environment.region: expected \"eu-north1\"");
+            failures.Add("environment.region: expected an accepted region (" + string.Join(" or ", AcceptedRegions) + ")");
         }
 
         foreach (string member in new[] { "instancePreset", "gpuUuid", "containerImage" })
