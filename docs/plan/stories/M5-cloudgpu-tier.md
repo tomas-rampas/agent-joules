@@ -467,6 +467,7 @@ Demo relevance: yes: the cloudgpu probe shows the L40S (2026-10-26: the H100 of 
 ### AJ-126: Serve Nemotron 3 Nano in FP8 with NIM on the VM
 Covers: REQ-031
 Note (2026-10-25, AJ-126): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-126-nim-serving.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-126): NIM 2.1.4 serves nvidia/nemotron-3-nano on the VM (profile vllm-fp8-tp1-pp1-34.0, precision FP8, max_model_len 262144, bound to the loopback interface only); the model answers with thinking on by default, returned inline in content, so Tiers:cloudgpu:ExtraBodyJson sets chat_template_kwargs enable_thinking false (the only off switch measured). The calibration results/calibration-20261026T124311Z-cloudgpu.json reads counterJoules 20796.42 and samplingJoules 20679.15 (relativeDifference 0.0056 over 624 samples at 10 Hz).
 User story: As a reader of the cloudgpu row, I want the NIM image, its digest and the FP8 profile recorded and verified by a live models call, so that the row names exactly what was served.
 Acceptance criteria:
 1. `docker login nvcr.io --username '$oauthtoken' --password-stdin` receives `NGC_API_KEY` through the SSH session only (delivered by the session environment or its standard input, never a command-line argument); `DOCKER_CONFIG` points to a memory-backed directory (for example under `/dev/shm`) deleted right after the pull, `docker logout nvcr.io` follows, and the container receives the key by variable name only; `grep -c "docker logout" docs/cloudgpu-run.md` prints 1 or more with the commands shown redacted (prompt section 8 as amended); `docker pull nvcr.io/nim/nvidia/nemotron-3-nano` (a tag recorded, `latest` or a tagged version) succeeds, which confirms the inferred pull string; the digest from `docker image inspect --format '{{index .RepoDigests 0}}'` is recorded as `ContainerDigest`.
@@ -533,7 +534,7 @@ Docs impact: docs/endpoints.md (`## cloudgpu`: Verified date, model line, usage 
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] the `## cloudgpu` section carries a `Verified:` line, which closes the REQ-018 acceptance left open by AJ-100
+- [x] the `## cloudgpu` section carries a `Verified:` line, which closes the REQ-018 acceptance left open by AJ-100
 Demo relevance: no.
 Resolved: prompt section 8 (as amended) fixes the login procedure in criterion 1 (memory-backed `DOCKER_CONFIG`, `docker logout nvcr.io`, key by variable name only); the VM and its disk are deleted at teardown (AJ-128).
 

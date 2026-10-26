@@ -25,7 +25,22 @@ Fallback facts (measured 2026-10-25, AJ-107, Ollama 0.40.10): the OpenAI route r
 
 ## cloudgpu
 
-Status: pending (verified in M5, AJ-126)
+Base URL: http://localhost:8000/v1 on the VM only (NVIDIA NIM container agent-joules-nim-vm, image nvcr.io/nim/nvidia/nemotron-3-nano:2.1.4, RepoDigests sha256:b2cf7068cc4d69adb32e9932ea903633591573b2c5af1947517c28f1c5ea0be8 as pulled on the VM; the laptop-measured linux/amd64 manifest digest is sha256:2c29e51362b5188e4d12481ecd14e5668d08c036ed9115822212f8867810166c, the RepoDigests value is the multi-arch index digest; profile 8c91cce84b9b032ff4af489cb1a20395e223af35623010df9155390ab2284b7a vllm-fp8-tp1-pp1-34.0, precision FP8; served from the laptop over SSH only, never reachable from the laptop directly)
+Verified: 2026-10-26
+Command: curl -s -m 120 http://127.0.0.1:8000/v1/models (on the VM, phase 6 of the bootstrap script at 12:39:43Z; no key: the NIM has none)
+Total models returned: 1
+- model: nvidia/nemotron-3-nano
+Runtime facts (measured, AJ-126, 2026-10-26 12:39Z): NIM 2.1.4 on one NVIDIA H100 80GB HBM3 (driver 580.173.02; the 2026-10-26 user decision of AJ-125 criterion 2 after the L40S starts in eu-north1 ended "Resource exhausted"), the models response reports max_model_len 262144, NIM_MAX_MODEL_LEN not set, ready 241 s after the container start, one compute process on the GPU (the NIM) during the checks.
+Chosen: Planner: nvidia/nemotron-3-nano
+Chosen: Researcher: nvidia/nemotron-3-nano
+Chosen: Writer: nvidia/nemotron-3-nano
+Chosen: Reviewer: nvidia/nemotron-3-nano
+Chosen: Judge: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning (Judge:Tier is nvidia; the judge model is listed under ## nvidia, not on this endpoint)
+Streaming usage: reported
+Streaming tokens: input 22 measured, output 64 measured
+Reasoning toggle: {"chat_template_kwargs":{"enable_thinking":false}}
+Reasoning result: off
+Reasoning evidence (the toggle above is the exact JSON of Tiers:cloudgpu:ExtraBodyJson): probes of 2026-10-26 12:39Z on the VM (measured): a non-streamed completion with chat_template_kwargs enable_thinking false answered "17 x 3 = 51." in 13 completion tokens, finish_reason stop, no reasoning member and no think tag; the same request with enable_thinking true returned the model's reasoning inline in the content ("Okay, the user is asking ...") with 64 completion tokens, finish_reason length (the 64-token cap of the probe), no reasoning_content member and no think tag, so the toggle is the only off switch and the run sends it on every request; the streaming call with stream_options include_usage returned 67 data lines including [DONE] and a final chunk carrying usage (prompt 22, completion 64); max_completion_tokens 16 was accepted with HTTP 200 and applied (completion_tokens 16, finish_reason length), so Tiers:cloudgpu:MaxTokensField keeps the default max_completion_tokens.
 
 ## nvidia
 

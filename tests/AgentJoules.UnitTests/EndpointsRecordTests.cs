@@ -59,6 +59,7 @@ public sealed partial class EndpointsRecordTests
     [InlineData("local")]
     [InlineData("nvidia")]
     [InlineData("nebius")]
+    [InlineData("cloudgpu")]
     public void The_committed_record_states_the_streaming_usage_of_each_tier(string tier)
     {
         string[] lines = LinesOf(tier);
@@ -78,6 +79,7 @@ public sealed partial class EndpointsRecordTests
     [InlineData("local")]
     [InlineData("nvidia")]
     [InlineData("nebius")]
+    [InlineData("cloudgpu")]
     public void The_committed_record_states_the_toggle_and_result_that_the_shipped_configuration_holds(string tier)
     {
         string[] lines = LinesOf(tier);
