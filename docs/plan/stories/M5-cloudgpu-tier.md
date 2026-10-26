@@ -461,7 +461,7 @@ Docs impact: docs/cloudgpu-run.md (`Instance`, `Probe`, delivery choice), .gitig
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] the handover time and the hourly price are recorded in the Instance section
+- [x] the handover time and the hourly price are recorded in the Instance section
 Demo relevance: yes: the cloudgpu probe shows the L40S (2026-10-26: the H100 of the user decision), the MIG state and the counter support next to the laptop probe.
 
 ### AJ-126: Serve Nemotron 3 Nano in FP8 with NIM on the VM
@@ -616,12 +616,13 @@ Docs impact: docs/cloudgpu-run.md (`Commands`, `Runs`), results/ (cloudgpu run f
 Definition of done:
 - [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [ ] docs listed above updated
-- [ ] the elapsed time since the handover and the last observed cost are recorded when the story ends
+- [x] the elapsed time since the handover and the last observed cost are recorded when the story ends
 Demo relevance: yes: the cloudgpu run file is the source of the cloudgpu row in the report page, the README and the posts.
 
 ### AJ-128: Document the cloudgpu run, the cost and the user's teardown
 Covers: REQ-031, EDGE-016, EDGE-017
 Note (2026-10-25, AJ-128): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-128-run-document-contract.feature; the code part (T1 to T3) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-128): docs/cloudgpu-run.md holds the six sections Instance, Commands, Probe, Runs, Cost and Teardown (143 lines; the SSH target and the keys appear as variable names only; the exclusivity check is recorded at phase 1 and phase 6 and is not repeated before calibrate or the run). The user deleted the VM and its boot disk at 2026-10-26T13:50Z (user-confirmed at 13:51Z); the final cost is an estimate of USD 6.99 (1.509 GPU-hours at USD 4.63 per hour), while the balance difference of USD 5.92 (USD 23.54 at 12:47Z, USD 17.62 after the deletion, read between two lagging snapshots) is a lower bound and not the bill. The usage-page figure is carried forward, so the Definition of Done box for the billing figure is unticked; the boxes of AJ-125 and AJ-127 stay ticked.
 User story: As a reviewer and as the person paying, I want `docs/cloudgpu-run.md` to record the instance, commands, probe, runs, cost and the user's deletion of the VM, so that the cost cap, the incidents and the teardown are documented facts.
 Acceptance criteria:
 1. A contract test requires the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost` and `Teardown` in `docs/cloudgpu-run.md`.
