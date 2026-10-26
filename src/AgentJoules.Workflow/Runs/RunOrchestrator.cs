@@ -216,7 +216,7 @@ public sealed class RunOrchestrator(
                 _live.EmitSafely(progress.Started(_time.GetUtcNow()));
                 if (tier == Tier.Local)
                 {
-                    // The warm-up, like the description, belongs to the local tier: a cloudgpu run sends nothing to the local runtime and its modelLoadSeconds stays null until M5.
+                    // The warm-up, like the description, belongs to the local tier: a cloudgpu run sends nothing to the local runtime and its modelLoadSeconds stays null (M5 ran without a cloudgpu warm-up, recorded in docs/cloudgpu-run.md; a warm-up through the cloudgpu tier's own client is carried to M6).
                     progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
                     progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
                 }

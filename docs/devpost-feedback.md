@@ -14,7 +14,7 @@ The laptop has an RTX 3080 Ti Laptop GPU with 16 GB of memory. The local tier us
 
 I do not target the larger variants, Nemotron 3 Super 120B-A12B and Nemotron 3 Ultra 550B-A55B, because the local tier cannot host them. Super appears only as the fallback on Nebius. A non-Nemotron model, Qwen3 8B, is already pulled and runs only as a local baseline, labelled as such. A hosted Nemotron model also acts as the quality judge, and the report discloses it when the judge and the step model are the same.
 
-The cloud tier runs the same Nano model in FP8 on one L40S 48 GB of a Nebius AI Cloud virtual machine, so the laptop and the datacenter energy figures describe the same model at different precisions, each in its own row.
+The cloud tier runs the same Nano model in FP8 on one H100 80 GB of a Nebius AI Cloud virtual machine, so the laptop and the datacenter energy figures describe the same model at different precisions, each in its own row.
 
 Exact model IDs are verified with GET /v1/models on each endpoint and recorded in docs/endpoints.md after the build.
 
@@ -50,7 +50,7 @@ This answer is a design decision, written before the build.
 
 I use two Nebius products: the Token Factory hosted API and one AI Cloud GPU virtual machine. The planned setup is the OpenAI-compatible chat completions API, called from a .NET 10 program through the OpenAI SDK with a custom endpoint. Research on 2026-10-17 found that Token Factory serves Nemotron 3 Super through this API at https://api.tokenfactory.nebius.com/v1/ and could not confirm whether Nano or Ultra are offered. I verify the model IDs and the base URL myself with GET /v1/models and record them in docs/endpoints.md. The API key is held in an environment variable or in dotnet user-secrets, and it is never committed. I plan to pay for the runs with the hackathon credits.
 
-The AI Cloud part is one on-demand L40S 48 GB virtual machine (platform gpu-l40s-a, preset 1gpu-16vcpu-64gb, region eu-north1, image ubuntu24.04-cuda12) that I create in the console and delete after the runs, with a hard cap of USD 30 on total spend. A Nemotron 3 Nano 30B-A3B NIM container in FP8 and my meter run on that machine, so the GPU energy of the cloud tier is measured through NVML, not estimated. No autoscaling and no multi-GPU setup. Laptop and cloud numbers are reported in separate rows and never merged.
+The AI Cloud part is one on-demand H100 80 GB virtual machine (platform gpu-h100-sxm, preset 1gpu-16vcpu-200gb, region eu-north1, image ubuntu24.04-cuda13.0) that I create in the console and delete after the runs, with a hard cap of USD 30 on total spend. A Nemotron 3 Nano 30B-A3B NIM container in FP8 and my meter run on that machine, so the GPU energy of the cloud tier is measured through NVML, not estimated. No autoscaling and no multi-GPU setup. Laptop and cloud numbers are reported in separate rows and never merged.
 
 The hosted API tiers report tokens, latency, time to first token, cost where a price exists, outcome and retry counts. Energy is measured on the laptop GPU and on the AI Cloud GPU, and is N/A for the Token Factory API.
 

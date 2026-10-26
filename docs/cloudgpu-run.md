@@ -57,13 +57,13 @@ docker logout nvcr.io                             # in the exit trap of the pull
 
 ContainerDigest: sha256:b2cf7068cc4d69adb32e9932ea903633591573b2c5af1947517c28f1c5ea0be8 (the RepoDigests index digest, measured on the VM). The laptop-measured linux/amd64 manifest digest is sha256:2c29e51362b5188e4d12481ecd14e5668d08c036ed9115822212f8867810166c; the two differ as expected for a multi-arch index.
 
-Phase 5, profile and container. The listing offered 4 compatible profiles (vllm-fp8-tp1-pp1-34.0 and a bf16 one, each with a LoRA variant); the fp8 single-GPU profile was selected (measured, profiles list in the bootstrap log). No bf16 profile was used. No context cap was set, the container started at its default length. The pull error and substitution scenarios did not occur. The container binds the loopback interface only (the script passes the numeric loopback address, written localhost here):
+Phase 5, profile and container. The listing offered 4 compatible profiles (vllm-fp8-tp1-pp1-34.0 and a bf16 one, each with a LoRA variant); the fp8 single-GPU profile was selected (measured, profiles list in the bootstrap log). No bf16 profile was used. No context cap was set, the container started at its default length. The pull error and substitution scenarios did not occur. The container binds the loopback interface only (the script passes the numeric loopback address; the command below shows it as `<loopback IP>`):
 
 ```
 FP8_PROFILE=8c91cce84b9b032ff4af489cb1a20395e223af35623010df9155390ab2284b7a   # vllm-fp8-tp1-pp1-34.0
 docker run --rm --gpus all -e NGC_API_KEY nvcr.io/nim/nvidia/nemotron-3-nano:2.1.4 list-model-profiles
 docker run -d --name agent-joules-nim-vm --gpus all --shm-size=16GB -e NGC_API_KEY \
-  -e NIM_MODEL_PROFILE="$FP8_PROFILE" -v $HOME/nim-cache:/opt/nim/.cache -u 1001 -p localhost:8000:8000 \
+  -e NIM_MODEL_PROFILE="$FP8_PROFILE" -v $HOME/nim-cache:/opt/nim/.cache -u 1001 -p <loopback IP>:8000:8000 \
   nvcr.io/nim/nvidia/nemotron-3-nano:2.1.4
 ```
 
@@ -78,7 +78,7 @@ nvidia-smi --query-compute-apps=pid,process_name --format=csv   # phase 6, 12:39
 
 The check was not repeated right before the calibration or the run. The supporting facts are the baseline coefficient of variation 0.00029 (measured, run file) and the teardown finding "no GPU process left".
 
-Phase 7 to 9, validation, calibration and the measured run. `$AJ_ENV` stands for the AGENTJOULES__ variables of the run, from two sources. The script's fixed CG_ENV sets AGENTJOULES__Tiers__cloudgpu__Enabled=true and AGENTJOULES__CloudGpu__RequireSshVariables=false (not read from any file). The file log/cloudgpu.env sets CloudGpu__TierStartUtc=2026-10-26T12:19:28+00:00, InstancePreset=1gpu-16vcpu-200gb, Region=eu-north1, HourlyPriceUsd=4.63, HourlyPriceSource=console and Provider=nebius-ai-cloud; ContainerImage comes from the script's image setting and ContainerDigest from log/digest.txt, both as above, unless the file sets them:
+Phase 7 to 9, validation, calibration and the measured run. `$AJ_ENV` stands for the AGENTJOULES__ variables of the run, from three sources. The script's fixed CG_ENV sets AGENTJOULES__Tiers__cloudgpu__Enabled=true and AGENTJOULES__CloudGpu__RequireSshVariables=false (not read from any file). The file log/cloudgpu.env sets CloudGpu__TierStartUtc=2026-10-26T12:19:28+00:00, InstancePreset=1gpu-16vcpu-200gb, Region=eu-north1, HourlyPriceUsd=4.63, HourlyPriceSource=console and Provider=nebius-ai-cloud; ContainerImage comes from the script's image setting and ContainerDigest from log/digest.txt, both as above, unless the file sets them. The third source is the phase-specific overrides: phase 8 (calibrate) also passed AGENTJOULES__Tiers__local__ModelId=nvidia/nemotron-3-nano and AGENTJOULES__Tiers__local__Precision=FP8, and phase 9 (the run) passed AGENTJOULES__Tiers__cloudgpu__ModelId:
 
 ```
 env $AJ_ENV ./AgentJoules.Cli validate --config
@@ -90,6 +90,8 @@ env $AJ_ENV ./AgentJoules.Cli calibrate --seconds 60 --suffix cloudgpu
 env $AJ_ENV AGENTJOULES__CloudGpu__ObservedCostUsd=0.00 ./AgentJoules.Cli run --tier cloudgpu --repeat 3
 # exit code 0, 12:49:48Z, elapsed 147 s
 ```
+
+The calibration runs through the local tier's configuration: the calibrate command selects only the local tier, so its workload ran with the Tiers:local settings (the system prompt prefix and max_tokens of that tier, no ExtraBodyJson), and the NIM thinking mode was on by default during the calibration. The comparison of the counter against the sampling (0.0056, see Probe) is unaffected, because both methods metered the same workload.
 
 Laptop, after the run (the key variables stay in the environment, never printed):
 
@@ -118,9 +120,10 @@ The log directory went to the session scratchpad, never into the repository. Key
 - Run totals: grossJoules 16364.054, netJoules 10389.62, 25379 input and 15889 output tokens, wall clock 50.73 s (all measured).
 - Environment in the file: gpuName NVIDIA H100 80GB HBM3, instancePreset 1gpu-16vcpu-200gb, region eu-north1, provider nebius-ai-cloud, precision FP8, reasoningMode off, containerDigest as above, cloudCostUsd not-reported with reason billed-after-run (the whole-run bill is in Cost).
 - Passes: pass 1 launched 12:22:34Z, resumed 12:23:23Z after exit code 25, final exit code 0 at 12:39:44Z; pass 2 launched 12:43:10Z, exit code 0 at 12:44:14Z; pass 3 launched 12:47:21Z, exit code 0 at 12:49:48Z.
-- Judge failures: 3 of 36 steps failed on the free NVIDIA judge with HTTP 429 after 5 attempts (energy-explainer Reviewer repeat 1, Planner repeat 2, Writer repeat 2). Their quality is N/A with reason judge-failed; the other 33 steps are model-judged. The run is kept and was not re-run.
+- Judge failures: 3 of 36 steps failed on the free NVIDIA judge with HTTP 429 (the status seen in the VM log; the committed file records RetriesExhaustedException) after 5 attempts (energy-explainer Reviewer repeat 1, Planner repeat 2, Writer repeat 2). Their quality is N/A with reason judge-failed; the other 33 steps are model-judged. The run is kept and was not re-run.
 - Incidents: none for the VM, the SSH session or the budget guard. No run was retried or repeated past the box or the cap; the workload steps needed no retry (0 in the file); the judge retried within its policy (35 retries over 16 of the 36 judge calls, 3 exhausted after 5 attempts) and the run was not re-run. No stop of the budget guard and no partial file occurred.
-- The EDGE-016 (cost cap) and EDGE-017 (partial file) paths were not exercised by this run; the tests of AJ-122 and AJ-123 cover them.
+- The EDGE-016 (lost VM, incomplete file) and EDGE-017 (cost cap, partial file) paths were not exercised by this run; the tests of AJ-123 and AJ-122 cover them.
+- Deviation, no warm-up call (found by the M5 exit reviews): REQ-031 asks for the same warm-up as the local tier, but this run made no warm-up call, because the orchestrator warms up the local tier only (RunOrchestrator). environment.modelLoadSeconds is null in the run file (measured); the first step starts 0.44 s after the 30.0005 s baseline ended (derived from run.startUtc 12:47:21Z and the first step start 12:47:51Z), and phase 9 of the VM log shows no warm-up. What had served the engine before the run (measured): the same NIM answered the phase 6 endpoint checks (exit code 0 at 12:39:44Z) and the 60 s calibration of 12:43:12Z to 12:44:14Z, which had its own warm-up; the run started 3 min 7 s after the calibration ended. The first repeat differs from the others: the time to first token of the incident-brief Planner step is 174.7 ms in repeat 1 against 28.8 ms and 29.2 ms in repeats 2 and 3 (measured, run file). The likely effect on the energy figures is small, but it is not measured. The user decision put at the M5 exit: the deviation is accepted and recorded here, the run is not re-run (the choice is surfaced to the user; the orchestrator assumed it for this record). Carried to M6 as a code change (owner: M6 kickoff item, orchestrator): a warm-up through the cloudgpu tier's own client before the baseline, so that modelLoadSeconds is measured on a future cloud run.
 - Local validation of the copied files: exit code 0, "Validated 4 files".
 
 ## Cost
@@ -139,5 +142,5 @@ The log directory went to the session scratchpad, never into the repository. Key
 - The VM and its boot disk are deleted by the user in the console (AJ-128-T4), never by the builder.
 
 Deleted: yes (user-confirmed in the chat at 2026-10-26T13:51Z: "I deleted it in 2:50 PM CET", the VM with its boot disk, deleted from the console by the user; no cloud resource was touched by the builder)
-Final cost: USD 6.99 (estimated: 1.509 GPU-hours from the handover stamp 2026-10-26T12:19:28Z to the deletion at 13:50Z at the console price of USD 4.63 per hour, billed per second; the account balance moved from USD 23.54 at 12:47Z to USD 17.62 after the deletion, a difference of USD 5.92 read between two lagging snapshots and therefore a lower bound, not the bill; the usage page's own line for the VM is carried forward to the M5 exit or its addendum; the USD 25 stop line and the USD 30 cap were not reached)
+Final cost: USD 6.99 (estimated: 1.509 GPU-hours from the handover stamp 2026-10-26T12:19:28Z to the deletion at 13:50Z at the console price of USD 4.63 per hour, billed per second; the estimate starts at the handover stamp, and the VM's creation a few minutes earlier (not recorded for VM2) adds a few cents; the account balance moved from USD 23.54 at 12:47Z to USD 17.62 after the deletion, a difference of USD 5.92 read between two lagging snapshots and therefore a lower bound, not the bill; the usage page's own line for the VM is carried forward to the M5 exit or its addendum; the USD 25 stop line and the USD 30 cap were not reached)
 Deletion time: 2026-10-26T13:50Z (user-confirmed, minute precision, 14:50 CET converted to UTC; the VM ran about 90 minutes from the handover stamp)
