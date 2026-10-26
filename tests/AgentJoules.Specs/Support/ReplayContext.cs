@@ -32,6 +32,7 @@ public sealed partial class ReplayContext : IAsyncDisposable
     private static readonly TimeSpan StartWait = TimeSpan.FromSeconds(120);
 
     private TempWorkspace? _workspace;
+    private string? _committedFile;
 
     /// <summary>The tier of the fixture run file of the scenario.</summary>
     public Tier FixtureTier { get; private set; } = Tier.Local;
@@ -67,7 +68,7 @@ public sealed partial class ReplayContext : IAsyncDisposable
     public string[] FilesBefore { get; private set; } = [];
 
     /// <summary>The path of the committed fixture run file of <see cref="FixtureTier"/>.</summary>
-    public string FixturePath => ReplayRig.FixturePath(RunDocumentFixtures.CommittedFileName(FixtureTier));
+    public string FixturePath => _committedFile ?? ReplayRig.FixturePath(RunDocumentFixtures.CommittedFileName(FixtureTier));
 
     /// <summary>Reads the committed fixture run file of <paramref name="tier"/>.</summary>
     /// <param name="tier">The local, nvidia or nebius tier.</param>
@@ -75,6 +76,16 @@ public sealed partial class ReplayContext : IAsyncDisposable
     {
         FixtureTier = tier;
         Run = RunDocumentFixtures.Read(File.ReadAllText(FixturePath));
+    }
+
+    /// <summary>Uses a run file committed under <c>results/</c> instead of the fixture of the tier (AJ-135: the demo replays the committed hosted run).</summary>
+    /// <param name="tier">The tier of the file.</param>
+    /// <param name="path">The absolute path of the file.</param>
+    public void UseCommittedFile(Tier tier, string path)
+    {
+        FixtureTier = tier;
+        _committedFile = path;
+        Run = RunDocumentFixtures.Read(File.ReadAllText(path));
     }
 
     /// <summary>The local fixture with the first two steps 8 seconds apart: every later step is moved 6 seconds later, behind the second.</summary>

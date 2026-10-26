@@ -506,19 +506,19 @@ Resolved: the rendering of a null metric value (label `N/A` or `not-reported`, a
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2, AJ-144-T4 |
+| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/AJ-134-linkedin-posts.feature (repository convention), tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2, AJ-144-T4 |
 | AJ-134-T2 | Add the hand-typed-quantity and label-adjacency checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-134-T1 |
 | AJ-134-T3 | Add the template-level null-value and cloudgpu-absent cases against the AJ-144 renderer | tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-134-T1, AJ-144-T4 |
 | AJ-134-T4 | Write the `launch` variant with its placeholders, verified paths and the required sentence | content/linkedin-posts.template.md | 0.5 | AJ-134-T2 |
 | AJ-134-T5 | Write the `lesson-learned` and `hackathon` variants | content/linkedin-posts.template.md | 0.75 | AJ-134-T4 |
 | AJ-134-T6 | Render the posts with `AJ report --render-content`, trim any variant above 1 300 characters, and commit the rendered file | content/linkedin-posts.md | 0.5 | AJ-134-T3, AJ-134-T5, AJ-144-T5 |
 | AJ-134-T7 | Record each placeholder path and its source file in the build log | docs/build-log.md | 0.25 | AJ-134-T6 |
-Test mapping: ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature
+Test mapping: ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/AJ-134-linkedin-posts.feature (repository convention)
 Docs impact: content/linkedin-posts.template.md, content/linkedin-posts.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the rendered file keeps `{{repo.url}}` three times for the user to fill before posting (user action in M7)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the rendered file keeps `{{repo.url}}` three times for the user to fill before posting (user action in M7) (rendered 2026-10-26; three `{{repo.url}}` left for the user)
 Demo relevance: no.
 
 ### AJ-135: Demo program end to end
@@ -633,19 +633,19 @@ Conflict: REQ-027 and design section 10 show `AJ run --tier local --task energy-
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-135-T1 | Write the failing demo feature (order, help, shape, fallback, missing artifact) | tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature | 0.5 | AJ-130-T2 |
+| AJ-135-T1 | Write the failing demo feature (order, help, shape, fallback, missing artifact) | tests/AgentJoules.Specs/Features/Reporting/AJ-135-demo-program.feature (repository convention; the @integration feature in AJ-135-demo-rehearsal.feature) | 0.5 | AJ-130-T2 |
 | AJ-135-T2 | Add `DemoDefinition` parsing and the artifact and run-shape checks to DocumentChecks; ensure `artifacts/` is in `.gitignore` | tests/AgentJoules.Specs/Support/DocumentChecks.cs, .gitignore | 0.75 | AJ-135-T1 |
 | AJ-135-T3 | Write the `## Demo program` section: ten commands, task set, tiers, artifact table, order of the video, fallback section | content/demo-script.md | 1.0 | AJ-135-T2 |
 | AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3, AJ-144-T6, AJ-133-T3 |
 | AJ-135-T5 | Check that every artifact in the table exists or is covered by the fallback and record the result | docs/build-log.md | 0.25 | AJ-135-T4 |
 | AJ-135-T6 | USER ACTION: take a screenshot of the live dashboard page during the rehearsal run with `--dashboard` and save it as `docs/report/dashboard.png` | docs/report/dashboard.png (user) | 0.25 | AJ-135-T4 |
 | AJ-135-T7 | Check the live page at 1280 px and 1920 px width for horizontal scroll and record the `Dashboard width check` line | docs/build-log.md | 0.25 | AJ-135-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature; ReportRenderingTests (not-run row)
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-135-demo-program.feature (repository convention; the @integration feature in AJ-135-demo-rehearsal.feature); ReportRenderingTests (not-run row)
 Docs impact: content/demo-script.md; docs/build-log.md; .gitignore
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] steps 2, 6, 7, 8 and 10 and the dashboard dry run of step 9 rehearsed with exit codes in `docs/build-log.md`; steps 1, 3, 4, 5 verified through their committed artifacts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] steps 2, 6, 7, 8 and 10 and the dashboard dry run of step 9 rehearsed with exit codes in `docs/build-log.md`; steps 1, 3, 4, 5 verified through their committed artifacts (rehearsed 2026-10-26 with exit 0 each; the screenshot of T6 stays the user's action)
 Demo relevance: yes: this story defines the demo.
 
 Demo definition (binding for AJ-135, AJ-136, AJ-138 and AJ-141):
@@ -694,6 +694,7 @@ Acceptance criteria:
 1. The header of `content/demo-script.md` contains the lines `Upload target: public YouTube video`, `Budget: at most 170 seconds` and `Planned total: 165 seconds`.
 2. The `## Shot list` table has the columns `Shot`, `Start (s)`, `Duration (s)`, `On-screen content`, `Narration`. The durations sum to 170 or less: `awk -F'|' '/^\| [0-9]/{s+=$4} END{print s}' content/demo-script.md` prints 165 (the same awk sum prints a value of 170 or less for the fallback variant).
 3. Each start second equals the previous start plus the previous duration, and the last start plus duration equals the planned total. Check: an awk pass over the table asserts start[n] = start[n-1] + duration[n-1] for every row, prints `contiguous` and exits 0.
+Amended 2026-10-26 (pool C gates, M-4): the file holds two shot tables; the fallback table labels its shots F1 to F9, so the criterion's whole-file awk counts the main table only (165) and the fallback table is checked by the parser under its own heading (163, contiguous); the section-scoped form `awk -F'|' '/^## /{f=($0=="## Shot list")} f&&/^| [0-9]/{s+=$4} END{print s}' content/demo-script.md` prints the same 165.
 4. Narration has at most 2.5 words per second of its shot (shot 1: 30 words or fewer). Check: the parser (`awk` over the shot table) divides the word count of each narration cell by its duration, prints the highest ratio and exits 0 only when it is 2.5 or less.
 5. The `## Commands shown` fenced block lists the exact commands shown (shots 3, 4 and 5: probe, `run ... --dashboard`, `dashboard --replay`): `AJ <command> --help` exits 0 for each command named there, and the script mentions `--dashboard` and `dashboard --replay`.
 6. Every number in the on-screen or narration cells is followed by `(results/<file>)` naming an existing committed file; shot 4 and shot 5 narration contain the words `illustrative` and `not the source of any published figure`, and shot 5 or shot 8 states that the published results were recorded without a browser open.
@@ -763,18 +764,18 @@ Feature: AJ-136 Demo video script
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-136-T1 | Write the failing feature for budget, contiguity, words per second, commands and sources | tests/AgentJoules.Specs/Features/Reporting/DemoScript.feature | 0.5 | AJ-135-T2 |
+| AJ-136-T1 | Write the failing feature for budget, contiguity, words per second, commands and sources | tests/AgentJoules.Specs/Features/Reporting/AJ-136-demo-script.feature (repository convention) | 0.5 | AJ-135-T2 |
 | AJ-136-T2 | Add the shot-list parser, sum check, words-per-second check and command check to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-136-T1 |
 | AJ-136-T3 | Write the script header and the `## Shot list` table from the shot order of AJ-135 | content/demo-script.md | 0.75 | AJ-136-T2, AJ-135-T3 |
 | AJ-136-T4 | Write the narration cells with file-named numbers read from the committed results and the browser statement | content/demo-script.md | 0.75 | AJ-136-T3 |
 | AJ-136-T5 | Write `## Commands shown` and the shot 6 fallback variant | content/demo-script.md | 0.5 | AJ-136-T4 |
 | AJ-136-T6 | Time a read-aloud of the narration against the table and record the result | docs/build-log.md | 0.25 | AJ-136-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoScript.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-136-demo-script.feature (repository convention)
 Docs impact: content/demo-script.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the shot list total is 170 or less for both the cloudgpu-present and the cloudgpu-absent variants
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the shot list total is 170 or less for both the cloudgpu-present and the cloudgpu-absent variants (165 and 163 on 2026-10-26)
 Demo relevance: yes: this is the script of the video.
 
 ### AJ-137: Write the long-form article
@@ -846,19 +847,19 @@ Feature: AJ-137 Article citations resolve
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-137-T1 | Write the failing feature for citations, sections, sources, labels and length | tests/AgentJoules.Specs/Features/Reporting/Article.feature | 0.5 | AJ-134-T2 |
+| AJ-137-T1 | Write the failing feature for citations, sections, sources, labels and length | tests/AgentJoules.Specs/Features/Reporting/AJ-137-article.feature (repository convention; the @integration feature in AJ-137-article-links.feature) | 0.5 | AJ-134-T2 |
 | AJ-137-T2 | Add the citation, ranking-claim and word-count checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-137-T1 |
 | AJ-137-T3 | Write the outline, `Prior art` with checked links and `What is new` | content/article.md | 1.0 | AJ-137-T2 |
 | AJ-137-T4 | Write `How it works` (attribution by construction, counter versus sampling, baseline, the serialized gate) from docs/methodology.md | content/article.md | 0.75 | AJ-137-T3 |
 | AJ-137-T5 | Write `Results` with each number copied from a named results file, label and environment header | content/article.md | 1.5 | AJ-137-T4 |
 | AJ-137-T6 | Write `Limitations`, `Reproduce` and `What is next` | content/article.md | 0.75 | AJ-137-T5 |
 | AJ-137-T7 | Re-check the four links and record the date | docs/build-log.md | 0.25 | AJ-137-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/Article.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-137-article.feature (repository convention; the @integration feature in AJ-137-article-links.feature)
 Docs impact: content/article.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the TokenPowerBench and greentoken URLs were found by search and opened by the builder, not typed from memory
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the TokenPowerBench and greentoken URLs were found by search and opened by the builder, not typed from memory (found by web search and fetched on 2026-10-26, HTTP 200)
 Demo relevance: no.
 
 ### AJ-138: Write the Devpost checklist: rules, fields and demo URL
