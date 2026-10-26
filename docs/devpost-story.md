@@ -38,7 +38,7 @@ By default, fan-out branches run one after another behind one process-wide meter
 
 The workflow is built with Microsoft Agent Framework. Each tier is a base URL, a model ID and a key variable in configuration, so a configuration change switches the tier. By default a hosted Nemotron model judges each step's output on an integer scale from one to five against a committed rubric. Scores are labelled model-judged. Judge calls are metered separately and stay out of the workflow totals.
 
-[[FILL: the agent names and the fan-out shape of the demo workflow | source: distinct values of steps.agent in results/TIMESTAMP-local.json]]
+The demo workflow has four agents, Planner, Researcher, Writer and Reviewer, where the Planner runs first, the Researcher and the Writer run in parallel branches, and the Reviewer joins them (4 distinct steps.agent values, measured; results/20261025T131930Z-local.json).
 
 The command line has `probe`, `run`, `report`, `validate` and `calibrate`. Each local run issues one unmetered warm-up call, records an idle baseline with the model resident, and repeats every task. `report` writes a static HTML page and an SVG chart. It shows the median and the minimum to maximum range over the repeats, puts net joules per step in one chart, draws N/A as a text marker instead of an empty bar, and shows every flag next to its value, so a missing measurement cannot be read as zero.
 
@@ -46,23 +46,23 @@ The target laptop has an RTX 3080 Ti Laptop GPU with 16 GB, driver 616.92, idle 
 
 ## Challenges I ran into
 
-[[FILL: whether this GPU supports the NVML energy counter and which method the meter chose | source: results/probe-TIMESTAMP.json fields energyCounterSupported and method]]
+The laptop GPU, an NVIDIA GeForce RTX 3080 Ti Laptop GPU on driver 616.92, supports the NVML energy counter: the probe reports energyCounterSupported true and method counter (measured; results/probe-20261025T131800Z.json).
 
-[[FILL: outcome of the time-boxed NIM container attempt on this laptop, whichever way it ended, and why | source: docs/nim-local-attempt.md sections Outcome and Decision]]
+I gave the NIM container on this laptop a 90-minute box, and it served GET /v1/models with HTTP 200 after 32 minutes 6 seconds (measured; docs/nim-local-attempt.md, Outcome). The working configuration is the BF16 vllm profile with NIM_MAX_MODEL_LEN=16384, so the decision is `Local runtime: nim` and the Ollama fallback was not needed (docs/nim-local-attempt.md, Decision). It rests on one successful start that I have not repeated.
 
-[[FILL: the hardest problem met during the build and how I resolved it | source: the entries of docs/build-log.md]]
+The hardest problem was getting the cloud GPU, not the code. On 2026-10-26 the first virtual machine I created, platform gpu-l40s-d with preset 2gpu-64vcpu-384gb in eu-north1, did not start. No run was made on the L40S because both Start operations of that machine ended "Resource exhausted" (docs/build-log.md, entry AJ-125 of 2026-10-26), so it has no energy figure (N/A). I stopped and chose the single H100 preset of the same region, because the NIM support matrix lists the L40S and the H100, the region stayed eu-north1 and the energy counter is present. That H100 machine produced the cloud run below (docs/build-log.md, entry AJ-125 of 2026-10-26; docs/cloudgpu-run.md, Instance).
 
 Research set two expectations before I started: the larger Nemotron tag I considered for the local tier is marginal for 16 GB of GPU memory and may offload part of the model to the CPU, and NIM-on-RTX packaging officially lists only newer RTX generations than this laptop's GPU.
 
 ## Accomplishments that I'm proud of
 
-[[FILL: median net joules per run of the demo workflow on the local tier, with the minimum to maximum range, the number of repeats, GPU, driver, date, runtime, GPU offload percentage and model tag | source: results/TIMESTAMP-local.json fields steps.netJoules, run.repeat and the environment block, as summarized in docs/report/summary.md]]
+On the laptop (NVIDIA GeForce RTX 3080 Ti Laptop GPU, driver 616.92, run date 2026-10-25 UTC, NIM 1.8.5, GPU offload 100 percent, model nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 in BF16, 3 repeats), the median net energy per run is 2872.28 J (measured), with a range of 2706.95 J to 5738.61 J (measured) over 9 runs. A run here is one task in one repeat (3 tasks x 3 repeats), and its energy is the sum of the netJoules of its four steps; no run was skipped, and the median, the range and the count are taken from the measured per-step values (results/20261025T131930Z-local.json, measured). That run's idle baseline of 20.11 W (measured) carries the baseline-unstable flag, with a coefficient of variation of 0.347 against the limit of 0.1, and every step carries the throttled flag, because the laptop's software power cap applied.
 
 On the Nebius AI Cloud instance, one NVIDIA H100 80GB HBM3 (preset 1gpu-16vcpu-200gb, region eu-north1, driver 580.173.02, FP8, 3 repeats, counter method), the median net energy per run is 929.87 J (measured), with a range of 648.52 J to 1803.81 J (measured) over 9 runs. A run here is one task in one repeat, and its energy is the sum of the netJoules of its steps; the median, the range and the median per step of 233.29 J (measured) are taken from the measured per-step values in results/20261026T124721Z-cloudgpu.json. The cost is about USD 7 (estimated: 1.509 GPU-hours at USD 4.63 per hour; the balance difference USD 5.92 is a lower bound; docs/cloudgpu-run.md, Teardown). This row stays separate from the laptop row.
 
-[[FILL: which agent step used the largest share of local net energy, as a percentage of the summed step net joules and scoped to this workload on this laptop | source: results/TIMESTAMP-local.json fields steps.agent and steps.netJoules]]
+On this workload on this laptop, the Researcher used the largest share of local net energy: 9482.36 J, 28.1 percent of the 33716.77 J summed over all steps (measured, derived from the measured per-step values in results/20261025T131930Z-local.json). The Reviewer used 27.2 percent, the Writer 23.8 percent and the Planner 20.8 percent, each rounded to 0.1.
 
-[[FILL: how the local run compares with the Nebius Token Factory run, and with the build.nvidia.com run where it has a price, on cost and latency, with the model on each tier named and each cost in its own currency, scoped to this workload | source: results/TIMESTAMP-local.json, results/TIMESTAMP-nvidia.json and results/TIMESTAMP-nebius.json fields totals.costByCurrency, totals.wallClockMs and steps.modelId]]
+Cost and latency on the four tiers come from the four committed run files (results/20261025T131930Z-local.json, results/20261025T133440Z-nebius.json, results/20261025T135121Z-nvidia.json, results/20261026T124721Z-cloudgpu.json; fields totals.costByCurrency, totals.wallClockMs, steps.modelId, steps.latencyMs and steps.ttftMs), and each cost stays in its own currency. The local tier, running nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 on NIM 1.8.5, cost 0.0028 EUR (estimated, from the electricity price assumption of docs/methodology.md), with a wall clock of 465607 ms, a median step latency of 12224 ms and a median time to first token of 234 ms (all measured). In USD, Nebius Token Factory, running nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B, cost 0.0057 USD (estimated), and the Nebius AI Cloud instance, running nvidia/nemotron-3-nano in FP8, cost 0.0647 USD (estimated: the hourly price times the step time). build.nvidia.com, running nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, has no cost figure (N/A: no price is configured for the free endpoint). The Token Factory run had a wall clock of 70139 ms, a median step latency of 1721 ms and a median time to first token of 275 ms (all measured). The build.nvidia.com run had a wall clock of 358368 ms, a median step latency of 8371 ms and a median time to first token of 353 ms (all measured), and 16 step retries with 14925 ms of waiting after overload rejections (HTTP 429, 503 or 500 ResourceExhausted; the run file records the counts, not the status; results/20261025T135121Z-nvidia.json, measured). The Nebius AI Cloud run had a wall clock of 50734 ms, a median step latency of 1142 ms and a median time to first token of 65 ms (all measured). The medians are over the 36 steps of each run, taking the mean of the two middle values. The four tiers ran four different models, so each figure belongs to its own tier and model, on this workload.
 
 The code is open source, with a license file in the repository root. The repository and the demo video are linked in this project's Try it out and video fields.
 
@@ -76,24 +76,10 @@ NVML offers two paths, a counter and power sampling. When both are available, a 
 
 On the Nebius AI Cloud H100 the energy counter is supported, and the calibration run (60 s calibration, 62.18 s window) measured 20796.42 J with the counter and 20679.15 J with sampling, a relative difference of 0.0056 (0.56 percent, measured; results/calibration-20261026T124311Z-cloudgpu.json).
 
+On the laptop the calibration run measured a relative difference of -0.0047 (-0.47 percent, measured) between the counter total of 5753.404 J and the sampling total of 5780.357 J (results/calibration-20261025T105451Z.json).
+
 ## What's next for Agent Joules
 
 I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the H100 for a like-for-like energy comparison.
 
 A LinkedIn post and a long-form article follow, with every number traced to a results file.
-
-## Fill-after-build checklist
-
-This section is not part of the submitted story. It lists what replaces each placeholder, and it is deleted when the placeholders are filled.
-
-| Placeholder | What replaces it | Source artifact |
-|---|---|---|
-| the agent names and the fan-out shape of the demo workflow | One sentence naming each agent and where the workflow fans out and joins | results/TIMESTAMP-local.json |
-| whether this GPU supports the NVML energy counter and which method the meter chose | One sentence stating the probe result | results/probe-TIMESTAMP.json |
-| outcome of the time-boxed NIM container attempt on this laptop, whichever way it ended, and why | Outcome and decision in two or three sentences | docs/nim-local-attempt.md |
-| the hardest problem met during the build and how I resolved it | A short account | docs/build-log.md |
-| median net joules per run of the demo workflow on the local tier, with the minimum to maximum range, the number of repeats, GPU, driver, date, runtime, GPU offload percentage and model tag | The median with its label, the range, n and the environment | results/TIMESTAMP-local.json and docs/report/summary.md |
-| median net joules per run of the same workload on the Nebius AI Cloud instance, with instance preset, GPU, driver, precision, repeats and observed cost, in its own row next to the laptop figure | The cloud median with its label, the environment and the observed cost | results/TIMESTAMP-cloudgpu.json and docs/cloudgpu-run.md |
-| which agent step used the largest share of local net energy, as a percentage of the summed step net joules and scoped to this workload on this laptop | Agent name, its net joules and its percentage | results/TIMESTAMP-local.json |
-| how the local run compares with the Nebius Token Factory run, and with the build.nvidia.com run where it has a price, on cost and latency, with the model on each tier named and each cost in its own currency, scoped to this workload | A scoped comparison sentence per currency, no general claims | results/TIMESTAMP-local.json, results/TIMESTAMP-nvidia.json and results/TIMESTAMP-nebius.json |
-| what the calibration run showed on this GPU: the relative difference between the counter and sampling methods, or that the counter is unsupported and no comparison was possible | The measured percentage with its label, or the stated reason it is N/A | results/calibration-TIMESTAMP.json |

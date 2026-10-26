@@ -941,18 +941,18 @@ Feature: AJ-138 Official rules page fetch
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-138-T1 | Write the failing checklist feature (rules, fields, Demo URL, deadline, tags) | tests/AgentJoules.Specs/Features/Configuration/DevpostChecklist.feature | 0.5 | AJ-130-T2 |
+| AJ-138-T1 | Write the failing checklist feature (rules, fields, Demo URL, deadline, tags) | tests/AgentJoules.Specs/Features/Configuration/AJ-138-devpost-checklist.feature (repository convention; the @integration feature in AJ-138-devpost-rules-fetch.feature) | 0.5 | AJ-130-T2 |
 | AJ-138-T2 | Add the checklist parser (rule items, checkbox list, tag count, path existence) to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-138-T1 |
 | AJ-138-T3 | Fetch the official rules page, record the status and fetch date, and ask the user to paste the text on failure | docs/devpost-checklist.md | 0.5 | AJ-138-T2 |
 | AJ-138-T4 | Write the `Rules` items and the `Conflicts` section from the fetched or pasted text and the aggregator evidence | docs/devpost-checklist.md | 1.0 | AJ-138-T3 |
 | AJ-138-T5 | Write `Fields to artifacts`, the Built-with list and the `Demo URL:` line | docs/devpost-checklist.md | 1.0 | AJ-138-T4, AJ-135-T3 |
 | AJ-138-T6 | Record the verification outcome and any rule conflict in the build log | docs/build-log.md | 0.25 | AJ-138-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostChecklist.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-138-devpost-checklist.feature (repository convention; the @integration feature in AJ-138-devpost-rules-fetch.feature)
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the file carries a verification date or the `not verified` statement
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the file carries a verification date or the `not verified` statement (Verified: 2026-10-26, the official pages answered HTTP 200)
 Demo relevance: no.
 
 ### AJ-139: Write the user-action sections and commands of the Devpost checklist
@@ -1016,17 +1016,17 @@ Feature: AJ-139 Devpost checklist user actions
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-139-T1 | Write the failing feature for headings, registration lines, labelled command blocks | tests/AgentJoules.Specs/Features/Configuration/DevpostUserActions.feature | 0.5 | AJ-138-T2 |
+| AJ-139-T1 | Write the failing feature for headings, registration lines, labelled command blocks | tests/AgentJoules.Specs/Features/Configuration/AJ-139-devpost-user-actions.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-139-T2 | Write `Registration`, `Tracks` and `Credits` | docs/devpost-checklist.md | 0.75 | AJ-139-T1, AJ-138-T4 |
 | AJ-139-T3 | Write `Judging criteria` mapped to README sections and artifacts | docs/devpost-checklist.md | 0.5 | AJ-139-T2, AJ-132-T5 |
 | AJ-139-T4 | Write the push, Pages and release blocks and the `Before you push` list | docs/devpost-checklist.md | 0.75 | AJ-139-T3 |
 | AJ-139-T5 | Record in the build log that no command of the checklist was run by the builder | docs/build-log.md | 0.25 | AJ-139-T4 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostUserActions.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-139-devpost-user-actions.feature (repository convention)
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `git log origin/main..HEAD --oneline` still lists every commit and no push was made (checked again in AJ-156)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `git log origin/main..HEAD --oneline` still lists every commit and no push was made (checked again in AJ-156) (checked 2026-10-26: nothing pushed)
 Demo relevance: no.
 
 ### AJ-140: Fill the Devpost story placeholders and delete its checklist
@@ -1040,6 +1040,7 @@ Acceptance criteria:
 5. The comparison passage states cost per currency (EUR for local, USD for hosted), `N/A` with the reason for a tier without a price, the model on each tier, and ends with the scope `on this workload`; it contains no ranking word (`greener`, `better`, `faster than`, `cheaper than`).
 6. The calibration passage quotes `relativeDifference` with its label or states `N/A` with the reason from the calibration file.
 7. `docs/devpost-checklist.md` names `docs/devpost-story.md` for the About the project field.
+Amended 2026-10-26 (pool D gates): criterion 2's "a unit" applies where the passage states a quantity (passage 4 states none; passage 1 states a count of agents with the label measured); the laptop calibration sentence sits in What I learned next to the cloud one, outside the nine passages; the mapping table's sentence counts are read literally.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S140 @REQ-028
@@ -1109,19 +1110,19 @@ Fill mapping (the rows of the story's own checklist, expanded):
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-140-T1 | Write the failing story feature (placeholders, sources, byte-identical remainder, cloudgpu absent) | tests/AgentJoules.Specs/Features/Configuration/DevpostStory.feature | 0.5 | AJ-138-T2 |
+| AJ-140-T1 | Write the failing story feature (placeholders, sources, byte-identical remainder, cloudgpu absent) | tests/AgentJoules.Specs/Features/Configuration/AJ-140-devpost-story.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-140-T2 | Add the story checker with the pre-fill diff against the build-log entries to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-140-T1 |
 | AJ-140-T3 | Commit the per-run median and share expressions and their output as a build-log entry | docs/build-log.md | 0.75 | AJ-140-T2 |
 | AJ-140-T4 | Replace placeholders 1, 2, 3, 4 and 9 | docs/devpost-story.md | 0.75 | AJ-140-T3 |
 | AJ-140-T5 | Replace placeholders 5, 6, 7 and 8 | docs/devpost-story.md | 1.0 | AJ-140-T3 |
 | AJ-140-T6 | Review every other sentence against the measured facts and log each change | docs/devpost-story.md, docs/build-log.md | 0.75 | AJ-140-T4, AJ-140-T5 |
 | AJ-140-T7 | Delete the Fill-after-build section and run the story checks | docs/devpost-story.md | 0.25 | AJ-140-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostStory.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-140-devpost-story.feature (repository convention)
 Docs impact: docs/devpost-story.md; docs/build-log.md; docs/devpost-checklist.md (About the project row)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] after any new run file the numbers of passages 5 to 8 are regenerated from the recorded expressions and the story check is rerun
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] after any new run file the numbers of passages 5 to 8 are regenerated from the recorded expressions and the story check is rerun (the expressions recorded in the AJ-140 entry, 2026-10-26)
 Demo relevance: no.
 
 ### AJ-141: Apply the tagline rule: candidate A, A-local or the GPU-name swap
@@ -1183,16 +1184,16 @@ Feature: AJ-141 Devpost pitch rule
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-141-T1 | Write the failing pitch-rule feature (three outcomes and four rejections) | tests/AgentJoules.Specs/Features/Configuration/DevpostTagline.feature | 0.5 | AJ-138-T2 |
+| AJ-141-T1 | Write the failing pitch-rule feature (three outcomes and four rejections) | tests/AgentJoules.Specs/Features/Configuration/AJ-141-devpost-tagline.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-141-T2 | Add the pitch selector, character counter and byte-equality check to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-141-T1 |
 | AJ-141-T3 | Apply the rule: record the command output, write the pitch block and character line in the checklist | docs/devpost-checklist.md, docs/build-log.md | 0.5 | AJ-141-T2, AJ-138-T5 |
 | AJ-141-T4 | Swap the GPU token in candidate A only when the GPU name lacks L40S, and log it | docs/devpost-pitch.md, docs/build-log.md | 0.25 | AJ-141-T3 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostTagline.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-141-devpost-tagline.feature (repository convention)
 Docs impact: docs/devpost-checklist.md; docs/devpost-pitch.md (swap case only); docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the decision is rerun after any change to the set of cloudgpu run files
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the decision is rerun after any change to the set of cloudgpu run files (decided 2026-10-26 on the committed cloudgpu file)
 Demo relevance: yes: shot 1 shows the tagline chosen here.
 
 ### AJ-142: Fill the builder placeholders of the feedback file and list the user ones
@@ -1261,19 +1262,19 @@ Feature: AJ-142 Devpost feedback answers
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-142-T1 | Write the failing feedback feature (markers, byte-identical user lines, checklist heading, credits) | tests/AgentJoules.Specs/Features/Configuration/DevpostFeedback.feature | 0.5 | AJ-138-T2 |
+| AJ-142-T1 | Write the failing feedback feature (markers, byte-identical user lines, checklist heading, credits) | tests/AgentJoules.Specs/Features/Configuration/AJ-142-devpost-feedback.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-142-T2 | Add the owner-marker counter and the user-line byte comparison to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-142-T1 |
 | AJ-142-T3 | Fill Q2 and Q4 builder placeholders from the three run files and the optional baseline file | docs/devpost-feedback.md | 1.0 | AJ-142-T2, AJ-140-T3 |
 | AJ-142-T4 | Fill Q5 builder placeholders from endpoints.md, cloudgpu-run.md and the user's credits statement | docs/devpost-feedback.md | 0.75 | AJ-142-T3 |
 | AJ-142-T5 | Fill Q7 builder placeholders from the run files and nim-local-attempt.md | docs/devpost-feedback.md | 0.75 | AJ-142-T4 |
 | AJ-142-T6 | Check the Q1, Q3 and Q5 design sentences against the facts and log each change | docs/devpost-feedback.md, docs/build-log.md | 0.5 | AJ-142-T5 |
 | AJ-142-T7 | Remove the builder rows from the Fill checklist table and write the `Feedback form, user fills` section | docs/devpost-feedback.md, docs/devpost-checklist.md | 0.5 | AJ-142-T6, AJ-139-T2 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostFeedback.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-142-devpost-feedback.feature (repository convention)
 Docs impact: docs/devpost-feedback.md; docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the seven user placeholders remain for the user (user action in M7 AJ-158)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the seven user placeholders remain for the user (user action in M7 AJ-158) (seven left on 2026-10-26)
 Demo relevance: no.
 
 ### AJ-143: Audit every content artifact against the honesty rules

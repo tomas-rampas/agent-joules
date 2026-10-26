@@ -8,7 +8,7 @@
 
 If the cloudgpu run file names a GPU other than the L40S, the builder replaces the GPU name in this text and records the change in docs/build-log.md, as REQ-028 states. Applied on 2026-10-26: the committed cloudgpu run file results/20261026T124721Z-cloudgpu.json names the GPU NVIDIA H100 80GB HBM3, so candidate A carries that name in place of L40S and is shortened elsewhere to stay within 200 characters, 199 after the review fix of the same day (old text, new text, lengths and proving file in the AJ-129 entry of docs/build-log.md).
 
-Why recommended: it ties with B on total and beats B on hackathon alignment, because it also names the middleware. It packs middleware, .NET, Microsoft Agent Framework, Nemotron and both Nebius products (AI Cloud and Token Factory) behind a question hook, which C's weaker hook does not match. Energy stays on the two GPUs the user controls; the hosted comparison stays on cost. REQ-028 maps the Devpost tagline field to candidate A, so the label stays. The user decided on 2026-10-18 to keep the full name Microsoft Agent Framework in A; the word NVIDIA did not fit within 200 characters in the text of 2026-10-18, and Nemotron carried that signal; the replacement of 2026-10-26 carries NVIDIA inside the GPU name NVIDIA H100 80GB HBM3.
+Why recommended: on the scores of 2026-10-18 it tied with B on total (the re-score of 2026-10-26 gives 92, see below) and beat B on hackathon alignment, because it also names the middleware. It packs middleware, .NET, Microsoft Agent Framework, Nemotron and both Nebius products (AI Cloud and Token Factory) behind a question hook, which C's weaker hook does not match. Energy stays on the two GPUs the user controls; the hosted comparison stays on cost. REQ-028 maps the Devpost tagline field to candidate A, so the label stays. The user decided on 2026-10-18 to keep the full name Microsoft Agent Framework in A; the word NVIDIA did not fit within 200 characters in the text of 2026-10-18, and Nemotron carried that signal; the replacement of 2026-10-26 carries NVIDIA inside the GPU name NVIDIA H100 80GB HBM3.
 
 **A-local (fallback)** (192 characters)
 
@@ -52,7 +52,19 @@ Rubric fixed before scoring. Payoff (who benefits, why it matters) is scored und
 | Readability for a non-specialist | 10 | 8 | 8 | 9 | 8 |
 | **Total** | **100** | **93** | **93** | **93** | **92** |
 
-These scores are those of the texts of 2026-10-18; the replacement of candidate A on 2026-10-26 (the GPU name NVIDIA H100 80GB HBM3 and the shortened wording) was not re-scored, which is carried to M6.
+These scores are those of the texts of 2026-10-18. The replacement of candidate A on 2026-10-26 (the GPU name NVIDIA H100 80GB HBM3 and the shortened wording) was re-scored on 2026-10-26 (AJ-141) against the same rubric, with a total of 92; the table below holds the result and the historical scores above are kept. The text of candidate A is unchanged by the re-score (the user decided to keep it).
+
+Candidate A, re-score of the 2026-10-26 text (199 characters):
+
+| Criterion | Weight | Score | Reason |
+|---|---|---|---|
+| Hook strength in the first eight words | 20 | 19 | The first eight words changed (the old text opened "Which agent step burns the most energy? A .NET", the new one opens "Which agent step burns most energy? .NET middleware", losing "the" and the article "A"), but the question still opens the text and is shorter, so the score stays 19. |
+| Concreteness of mechanism | 20 | 18 | Joules per Microsoft Agent Framework step on a named GPU is concrete and unchanged in mechanism; the clause "compares cost to Nemotron" is terser than the text of 2026-10-18 but names the same comparison, so the score stays 18. |
+| Hackathon alignment | 20 | 19 | It still names middleware, Microsoft Agent Framework, Nemotron, Nebius AI Cloud and Token Factory, and NVIDIA now appears inside the GPU name. |
+| Honesty and defensibility | 20 | 19 | The name NVIDIA H100 80GB HBM3 is the gpuName of results/20261026T124721Z-cloudgpu.json, and cost, not energy, is the hosted comparison. |
+| Length compliance | 10 | 10 | 199 characters, one under the limit of 200. |
+| Readability for a non-specialist | 10 | 7 | "Nebius AI Cloud NVIDIA H100 80GB HBM3" and the semicolon make the second half dense, one point below the text of 2026-10-18. |
+| **Total** | **100** | **92** | One point below the 93 of 2026-10-18, level with C and one under B and A-local. |
 
 A-local keeps its scores from the previous round; its text is unchanged.
 
