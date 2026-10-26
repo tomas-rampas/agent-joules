@@ -133,6 +133,33 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine("saved: " + relativePath);
     }
 
+    /// <summary>Tells the user that the run waits before the idle baseline window (<c>Baseline:SettleSeconds</c>, K1): one result line, <c>Settle: 2 s before the baseline window</c>, with the seconds in the invariant culture.</summary>
+    /// <param name="seconds">The settle interval in seconds; above 0.</param>
+    public void ReportSettle(double seconds) =>
+        Output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"Settle: {seconds:0.###} s before the baseline window"));
+
+    /// <summary>Tells the user a fact about the budget guard of the cloudgpu tier (AJ-122): one warning line on the error writer, <c>Warning: TierStartUtc not set: the 4-hour box is not enforced</c>.</summary>
+    /// <param name="note">The sentence.</param>
+    public void ReportBudgetNote(string note) => _error.WriteLine("Warning: " + note);
+
+    /// <summary>Tells the user which tiers of the plan the budget stop skipped (AJ-122, EDGE-017): one warning line on the error writer, <c>Warning: Budget stop: tiers skipped: nvidia, nebius</c>.</summary>
+    /// <param name="tiers">The names of the skipped tiers, in plan order.</param>
+    public void ReportBudgetTiersSkipped(IReadOnlyList<string> tiers)
+    {
+        ArgumentNullException.ThrowIfNull(tiers);
+        _error.WriteLine("Warning: Budget stop: tiers skipped: " + string.Join(", ", tiers));
+    }
+
+    /// <summary>Tells the user that the budget guard decided to stop the cloudgpu tier and that the final write follows (peer review M-1): one warning line on the error writer, <c>Warning: Budget stop (time-box): no further work started; the judge pass and the final write follow; do not delete the VM yet</c>.</summary>
+    /// <param name="reason">The stop reason, <c>cost-cap</c> or <c>time-box</c>.</param>
+    public void ReportBudgetStopDecided(string reason) =>
+        _error.WriteLine("Warning: Budget stop (" + reason + "): no further work started; the judge pass and the final write follow; do not delete the VM yet");
+
+    /// <summary>Tells the user that the budget guard stopped the cloudgpu tier (AJ-122, EDGE-017): one warning line on the error writer, <c>Warning: Budget stop (time-box): no further work started; copy the results and delete the VM now</c>.</summary>
+    /// <param name="reason">The stop reason, <c>cost-cap</c> or <c>time-box</c>.</param>
+    public void ReportBudgetStopped(string reason) =>
+        _error.WriteLine("Warning: Budget stop (" + reason + "): no further work started; copy the results and delete the VM now");
+
     /// <summary>
     /// Warns about an unstable idle baseline: when <see cref="ReadingFlags.BaselineUnstable"/> is set, writes exactly one line to the
     /// error writer, <c>Warning: idle baseline unstable (CV 0.20 &gt; 0.10)</c>, with the coefficient of variation and the threshold
@@ -279,6 +306,10 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         Output.WriteLine("results: " + TextEcho.ForMessage(displayPath, MaxPathLength));
         Output.WriteLine($"status: {word} at {TextEcho.ForMessage(agent)}");
     }
+
+    /// <summary>Tells the user that the connection of the cloudgpu tier dropped (AJ-123, EDGE-016): one warning line on the error writer, <c>Warning: connection lost; no further call and no retry was made. Check the VM state in the console</c>.</summary>
+    public void ReportConnectionLost() =>
+        _error.WriteLine("Warning: connection lost; no further call and no retry was made. Check the VM state in the console");
 
     // A value in the invariant culture, or the label text of a value that does not exist (never 0).
     private static string Format(Metric metric, string format) =>

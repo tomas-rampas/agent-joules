@@ -105,6 +105,8 @@ public sealed record FakeAnswer(
 /// <param name="ContentLength">The <c>Content-Length</c> of the content, or null.</param>
 /// <param name="HasBearerToken">True when an <c>Authorization</c> header is present with a non-empty parameter.</param>
 /// <param name="AuthorizationScheme">The scheme word of the <c>Authorization</c> header (<c>Bearer</c>), or null; never the parameter.</param>
+/// <param name="StartedAt">The instant of the fake clock at which the request arrived, or null when the endpoint has no clock (AJ-123).</param>
+/// <param name="Order">The position of the arrival among the arrivals and the stream drops of the endpoint, 1-based; it orders a request against a drop even when the fake clock did not move (AJ-123).</param>
 public sealed record RecordedRequest(
     FakeRoute Route,
     string Method,
@@ -113,11 +115,18 @@ public sealed record RecordedRequest(
     string? MediaType,
     long? ContentLength,
     bool HasBearerToken,
-    string? AuthorizationScheme)
+    string? AuthorizationScheme,
+    DateTimeOffset? StartedAt = null,
+    int Order = 0)
 {
     /// <summary>The body parsed as a JSON object, a fresh tree on every read, or null when there is no body or it is not an object.</summary>
     public JsonObject? Json => Body is null ? null : JsonNode.Parse(Body) as JsonObject;
 }
+
+/// <summary>One cut stream whose body read failed (AJ-123).</summary>
+/// <param name="Order">The position among the arrivals and drops of the endpoint, in the numbering of <see cref="RecordedRequest.Order"/>.</param>
+/// <param name="At">The instant of the fake clock, or null when the endpoint has no clock.</param>
+public sealed record RecordedDrop(int Order, DateTimeOffset? At);
 
 /// <summary>
 /// The fake HTTP endpoint every provider test runs against (design 6.1): it is the primary handler of a named <see cref="HttpClient"/>, so the real
@@ -148,6 +157,8 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 
     private readonly Lock _gate = new();
     private readonly List<RecordedRequest> _requests = [];
+    private readonly List<RecordedDrop> _drops = [];
+    private int _order;
     private readonly Dictionary<FakeRoute, Queue<FakeAnswer>> _scripted = [];
     private readonly Dictionary<FakeRoute, FakeAnswer> _lastAnswer = [];
     private readonly HashSet<FakeRoute> _refusedRoutes = [];
@@ -187,6 +198,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 
     /// <summary>How long every answer is held back (a real wait, bounded by the request token); zero answers at once.</summary>
     public TimeSpan ResponseDelay { get; init; } = TimeSpan.Zero;
+
+    /// <summary>A task that holds every cut stream open, right before it drops, until it completes (bounded by ten seconds of real time); null drops at once. A test completes it when the sibling of the dropping call waits for the gate (AJ-123).</summary>
+    public Task? HoldDropUntil { get; set; }
 
     /// <summary>True to refuse every connection: the request is recorded and an <see cref="HttpRequestException"/> with an inner <see cref="SocketException"/> is thrown.</summary>
     public bool ConnectionRefused
@@ -235,6 +249,18 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             lock (_gate)
             {
                 return [.. _requests];
+            }
+        }
+    }
+
+    /// <summary>Every cut stream whose body read failed so far, in order (AJ-123).</summary>
+    public IReadOnlyList<RecordedDrop> Drops
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _drops];
             }
         }
     }
@@ -461,11 +487,22 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             request.Content?.Headers.ContentType?.MediaType,
             request.Content?.Headers.ContentLength,
             HasBearerToken: !string.IsNullOrEmpty(authorization?.Parameter),
-            AuthorizationScheme: authorization?.Scheme);
+            AuthorizationScheme: authorization?.Scheme,
+            StartedAt: Clock?.GetUtcNow(),
+            Order: Interlocked.Increment(ref _order));
 
         lock (_gate)
         {
             _requests.Add(recorded);
+        }
+    }
+
+    private void NoteDrop()
+    {
+        var drop = new RecordedDrop(Interlocked.Increment(ref _order), Clock?.GetUtcNow());
+        lock (_gate)
+        {
+            _drops.Add(drop);
         }
     }
 
@@ -551,7 +588,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
                 _ = prefix.Text(delta);
             }
 
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new CutStreamContent(prefix.Build()) };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new CutStreamContent(prefix.Build(), NoteDrop, () => HoldDropUntil) };
         }
 
         return new HttpResponseMessage(HttpStatusCode.OK)
@@ -608,22 +645,27 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     private sealed class CutStreamContent : HttpContent
     {
         private readonly byte[] _prefix;
+        private readonly Action _onDrop;
+        private readonly Func<Task?> _hold;
 
-        public CutStreamContent(string prefix)
+        public CutStreamContent(string prefix, Action onDrop, Func<Task?> hold)
         {
+            _onDrop = onDrop;
+            _hold = hold;
             _prefix = Encoding.UTF8.GetBytes(prefix);
             Headers.ContentType = new MediaTypeHeaderValue("text/event-stream") { CharSet = "utf-8" };
         }
 
-        protected override Stream CreateContentReadStream(CancellationToken cancellationToken) => new CutStream(_prefix);
+        protected override Stream CreateContentReadStream(CancellationToken cancellationToken) => new CutStream(_prefix, _onDrop, _hold);
 
-        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new CutStream(_prefix));
+        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new CutStream(_prefix, _onDrop, _hold));
 
-        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken) => Task.FromResult<Stream>(new CutStream(_prefix));
+        protected override Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken) => Task.FromResult<Stream>(new CutStream(_prefix, _onDrop, _hold));
 
         protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
         {
             await stream.WriteAsync(_prefix).ConfigureAwait(false);
+            _onDrop();
             throw CutStream.Dropped();
         }
 
@@ -634,9 +676,10 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         }
     }
 
-    private sealed class CutStream(byte[] prefix) : Stream
+    private sealed class CutStream(byte[] prefix, Action onDrop, Func<Task?> hold) : Stream
     {
         private int _position;
+        private bool _dropped;
 
         public override bool CanRead => true;
 
@@ -652,12 +695,20 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             set => throw new NotSupportedException();
         }
 
+        private static readonly TimeSpan HoldBound = TimeSpan.FromSeconds(10);
+
         public static IOException Dropped() => new("The connection was closed in the middle of the stream.");
 
         public override int Read(Span<byte> buffer)
         {
             if (_position >= prefix.Length)
             {
+                if (!_dropped)
+                {
+                    _dropped = true;
+                    onDrop();
+                }
+
                 throw Dropped();
             }
 
@@ -669,17 +720,24 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 
         public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
 
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
+
+            // The cut waits for the gate of the test when one is set (HoldDropUntil), so that a sibling can queue before the connection drops; the wait is bounded and ends in the same drop.
+            if (_position >= prefix.Length && !_dropped && hold() is { IsCompleted: false } held)
             {
-                return ValueTask.FromResult(Read(buffer.Span));
+                try
+                {
+                    await held.WaitAsync(HoldBound, cancellationToken).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    // The bound passed: the drop happens anyway and the test sees what it sees.
+                }
             }
-            catch (IOException dropped)
-            {
-                return ValueTask.FromException<int>(dropped);
-            }
+
+            return Read(buffer.Span);
         }
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>

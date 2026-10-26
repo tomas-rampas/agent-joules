@@ -1,0 +1,48 @@
+{
+  "task": "incident-brief",
+  "seconds": 60,
+  "windowSeconds": 62.1759551,
+  "sampleCount": 624,
+  "sampleRateHz": 10,
+  "repeats": 12,
+  "startUtc": "2026-10-26T12:43:12.0922196+00:00",
+  "endUtc": "2026-10-26T12:44:14.2681747+00:00",
+  "toolVersion": "1.0.0",
+  "gitCommit": "33597a73e844d1ac08a389374db794c8cf99c43c",
+  "counterJoules": {
+    "value": 20796.42,
+    "label": "measured",
+    "unit": "J"
+  },
+  "samplingJoules": {
+    "value": 20679.154056361276,
+    "label": "measured",
+    "unit": "J"
+  },
+  "relativeDifference": {
+    "value": 0.005638756268565556,
+    "label": "measured",
+    "unit": "ratio"
+  },
+  "probe": {
+    "gpuPresent": true,
+    "name": "NVIDIA H100 80GB HBM3",
+    "gpuUuid": "GPU-3e12a8e8-d957-1269-b802-c39f6a145b5f",
+    "driverVersion": "580.173.02",
+    "computeCapability": "9.0",
+    "vbiosVersion": "96.00.A5.00.01",
+    "powerLimitW": 700,
+    "migMode": "disabled",
+    "energyCounterSupported": true,
+    "method": "counter",
+    "sampleRateHz": 10
+  },
+  "environment": {
+    "localRuntime": "nim",
+    "runtimeVersion": "2.1.4",
+    "gpuOffloadPercent": 100,
+    "precision": "FP8",
+    "modelLoadSeconds": 0.054189,
+    "powerSource": "unknown"
+  }
+}

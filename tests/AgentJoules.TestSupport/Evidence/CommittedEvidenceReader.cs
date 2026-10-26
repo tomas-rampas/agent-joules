@@ -14,24 +14,38 @@ public sealed class CommittedEvidenceReader
 {
     private const string ResultsFolder = "results";
     private const string DocsFolder = "docs";
-    private const string CalibrationFilter = "calibration-*.json";
 
     private readonly string _root;
+    private readonly HashSet<string>? _committed;
 
-    /// <summary>Creates a reader of the repository that this test run belongs to.</summary>
+    /// <summary>
+    /// Creates a reader of the repository that this test run belongs to. Its <c>results/</c> files are the names of <see cref="LaptopResults.CommittedResultsFiles"/> (the HEAD tree), so a developer run file or a staged
+    /// file in the working tree is not a row; the content of a committed name is read from its working-tree path, which equals HEAD when the tree is clean.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">git is not installed, or the call failed.</exception>
     public CommittedEvidenceReader()
-        : this(ConfigurationFixtures.RepositoryRoot())
+        : this(ConfigurationFixtures.RepositoryRoot(), LaptopResults.CommittedResultsFiles())
     {
     }
 
-    /// <summary>Creates a reader of the tree at <paramref name="root"/>.</summary>
+    /// <summary>Creates a reader of the tree at <paramref name="root"/>; every file of its <c>results/</c> folder counts (a temporary workspace has no git history).</summary>
     /// <param name="root">The folder that holds <c>results/</c>, <c>docs/</c> and <c>README.md</c>.</param>
     /// <exception cref="ArgumentException"><paramref name="root"/> is null, empty or white space.</exception>
     public CommittedEvidenceReader(string root)
+        : this(root, null)
+    {
+    }
+
+    /// <summary>Creates a reader of the tree at <paramref name="root"/> whose <c>results/</c> files are the listed names.</summary>
+    /// <param name="root">The folder that holds <c>results/</c>, <c>docs/</c> and <c>README.md</c>.</param>
+    /// <param name="committedResultsFiles">The repository-relative names (<c>results/&lt;file&gt;</c>) that count, or null for every file of the folder.</param>
+    /// <exception cref="ArgumentException"><paramref name="root"/> is null, empty or white space.</exception>
+    public CommittedEvidenceReader(string root, IEnumerable<string>? committedResultsFiles)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
 
         _root = Path.GetFullPath(root);
+        _committed = committedResultsFiles is null ? null : new HashSet<string>(committedResultsFiles, StringComparer.Ordinal);
     }
 
     /// <summary>The <c>results/</c> folder of the tree; it may not exist.</summary>
@@ -40,17 +54,54 @@ public sealed class CommittedEvidenceReader
     /// <summary>The newest accepted local run file, chosen by <see cref="RunFileSelector"/>: status completed or partial, no <c>non-publishable</c> flag.</summary>
     /// <returns>The full path, or null when <c>results/</c> is absent or holds no such file.</returns>
     /// <exception cref="InvalidDataException">A local run file cannot be used (the message is <c>&lt;file&gt;: &lt;reason&gt;</c>).</exception>
-    public string? LatestLocalRunFile() =>
-        Directory.Exists(ResultsDirectory) ? RunFileSelector.Latest(ResultsDirectory, Tier.Local) : null;
+    public string? LatestLocalRunFile()
+    {
+        if (!Directory.Exists(ResultsDirectory))
+        {
+            return null;
+        }
 
-    /// <summary>The committed calibration files, <c>results/calibration-*.json</c>.</summary>
+        if (_committed is null)
+        {
+            return RunFileSelector.Latest(ResultsDirectory, Tier.Local);
+        }
+
+        string[] candidates = [.. ResultsFiles().Where(static path => IsLocalRunName(Path.GetFileName(path)))];
+        RunFileSelection selection = RunFileSelector.Select(candidates);
+
+        return selection.Problems.Count > 0
+            ? throw new InvalidDataException($"{selection.Problems[0].FileName}: {selection.Problems[0].Reason}")
+            : selection.Latest.GetValueOrDefault(Tier.Local);
+    }
+
+    /// <summary>The committed laptop calibration files, <c>results/calibration-&lt;stamp&gt;.json</c>: a suffixed name (<c>-cloudgpu</c>, AJ-124) is the evidence of another machine and is not read as the laptop's.</summary>
     /// <returns>The full paths in ordinal order; empty when there is none.</returns>
     public IReadOnlyList<string> CalibrationFiles() =>
-        Directory.Exists(ResultsDirectory)
-            ? [.. Directory.EnumerateFiles(ResultsDirectory, CalibrationFilter, SearchOption.TopDirectoryOnly)
-                .Where(static path => CalibrationFile.IsValid(Path.GetFileName(path)))
-                .Order(StringComparer.Ordinal)]
-            : [];
+        [.. ResultsFiles().Where(static path => IsLaptopCalibrationName(Path.GetFileName(path)))];
+
+    // An un-suffixed name has the length of a name made without a suffix.
+    private static bool IsLaptopCalibrationName(string name) => CalibrationFile.IsValid(name) && name.Length == CalibrationFile.Name(DateTimeOffset.UnixEpoch).Length;
+
+    // The files directly in results/ that count: every file of the folder, or the committed names that exist in the working tree, in ordinal order.
+    private IEnumerable<string> ResultsFiles()
+    {
+        if (!Directory.Exists(ResultsDirectory))
+        {
+            return [];
+        }
+
+        IEnumerable<string> files = _committed is null
+            ? Directory.EnumerateFiles(ResultsDirectory, "*", SearchOption.TopDirectoryOnly)
+            : _committed
+                .Where(static name => name.StartsWith(ResultsFolder + "/", StringComparison.Ordinal) && name.IndexOf('/', ResultsFolder.Length + 1) < 0)
+                .Select(name => Path.GetFullPath(Path.Combine(_root, name)))
+                .Where(File.Exists);
+        return files.Order(StringComparer.Ordinal);
+    }
+
+    // The local names of RunFileName (the full-span ECMAScript pattern of the run-file selector), with or without -baseline.
+    private static bool IsLocalRunName(string name) =>
+        RunFileName.IsValid(name) && (name.EndsWith("-local.json", StringComparison.Ordinal) || name.EndsWith("-local-baseline.json", StringComparison.Ordinal));
 
     /// <summary>The calibration files read as text.</summary>
     /// <returns>The file name and the text of each file of <see cref="CalibrationFiles"/>.</returns>

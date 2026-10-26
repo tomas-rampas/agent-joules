@@ -14,7 +14,8 @@ namespace AgentJoules.TestSupport;
 /// </summary>
 /// <param name="inner">The listener that receives every event.</param>
 /// <param name="statusAtJudgeFailed">Reads the status of the results file at the moment the judge failure is told; null when there is no file yet.</param>
-public sealed class OrderRecordingListener(IRunListener inner, Func<string?> statusAtJudgeFailed) : IRunListener
+/// <param name="onSettleStarted">Called with the interval when the settle is told, before it is forwarded; null for none (a test reads the fake clock there).</param>
+public sealed class OrderRecordingListener(IRunListener inner, Func<string?> statusAtJudgeFailed, Action<double>? onSettleStarted = null) : IRunListener
 {
     private readonly ConcurrentQueue<string> _calls = new();
 
@@ -46,6 +47,14 @@ public sealed class OrderRecordingListener(IRunListener inner, Func<string?> sta
     }
 
     /// <inheritdoc />
+    public void SettleStarted(double seconds)
+    {
+        _calls.Enqueue(nameof(SettleStarted));
+        onSettleStarted?.Invoke(seconds);
+        inner.SettleStarted(seconds);
+    }
+
+    /// <inheritdoc />
     public void TierCompleted(string displayPath, Totals totals)
     {
         _calls.Enqueue(nameof(TierCompleted));
@@ -73,5 +82,12 @@ public sealed class OrderRecordingListener(IRunListener inner, Func<string?> sta
     {
         _calls.Enqueue(nameof(TierFailed));
         inner.TierFailed(displayPath, agent, status);
+    }
+
+    /// <inheritdoc />
+    public void BudgetStopDecided(string reason)
+    {
+        _calls.Enqueue(nameof(BudgetStopDecided));
+        inner.BudgetStopDecided(reason);
     }
 }

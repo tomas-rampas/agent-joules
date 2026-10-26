@@ -79,14 +79,18 @@ public sealed class LocalRunRig : IDisposable
     }
 
     /// <summary>
-    /// A NIM rig: the shipped configuration (<c>Local:Runtime</c> <c>nim</c>, the local tier at port 8000, precision <c>BF16</c>), a fake that lists the shipped model ID and answers <c>/v1/version</c>.
+    /// A NIM rig: the shipped configuration (<c>Local:Runtime</c> <c>nim</c>, the local tier at a fake https host that no resolver knows (never the live NIM address), precision <c>BF16</c>), a fake that lists the shipped model ID and answers <c>/v1/version</c>.
     /// </summary>
     /// <param name="precision">The configured <c>Tiers:local:Precision</c>; the shipped value when null.</param>
     /// <returns>The rig; the caller disposes it.</returns>
     public static LocalRunRig Nim(string? precision = null) =>
         Create(
             static (time, recorder) => new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = time, DefaultDuration = TimeSpan.FromSeconds(1), Recorder = recorder },
-            precision is null ? [] : [("AgentJoules:Tiers:local:Precision", precision)]);
+            [("AgentJoules:Tiers:local:BaseUrl", NimBaseUrl()), .. precision is null ? [] : new[] { ("AgentJoules:Tiers:local:Precision", (string?)precision) }]);
+
+    /// <summary>The base URL of the local tier of a NIM rig: a fake https host (the primary handler is a fake, so nothing is looked up), never the live NIM address on port 8000.</summary>
+    /// <returns>The base URL, ending in <c>/v1</c>.</returns>
+    public static string NimBaseUrl() => Uri.UriSchemeHttps + Uri.SchemeDelimiter + "nim.fake.test" + "/v1";
 
     /// <summary>Runs <paramref name="arguments"/> on the fake clock and keeps the result.</summary>
     /// <param name="arguments">The command line; the story's command by default.</param>

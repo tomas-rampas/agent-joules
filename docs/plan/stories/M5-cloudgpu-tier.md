@@ -1,6 +1,6 @@
 # M5: cloudgpu tier
 
-M5 adds the second measured tier: Nemotron 3 Nano 30B-A3B served by a NIM container in FP8 on one on-demand NVIDIA L40S 48 GB inside a Nebius AI Cloud virtual machine, with the energy meter running on the same machine. The builder works over SSH only; the user creates the account, the VM and its deletion. The milestone ends with a schema-valid cloudgpu run file, a committed cloudgpu probe, `docs/cloudgpu-run.md` with cost at or below USD 30 and a confirmed teardown, and the consequences for the report, README and Devpost texts when the tier is only partial.
+M5 adds the second measured tier: Nemotron 3 Nano 30B-A3B served by a NIM container in FP8 on one on-demand NVIDIA L40S 48 GB inside a Nebius AI Cloud virtual machine, with the energy meter running on the same machine. The builder works over SSH only; the user creates the account, the VM and its deletion. The milestone ends with a schema-valid cloudgpu run file, a committed cloudgpu probe, `docs/cloudgpu-run.md` with cost at or below USD 30 and a confirmed teardown, and the consequences for the report, README and Devpost texts when the tier is only partial. (2026-10-26, M5 exit: the measured tier ran on one NVIDIA H100 80 GB, platform gpu-h100-sxm, preset 1gpu-16vcpu-200gb, region eu-north1, by the AJ-125 user decision; see docs/cloudgpu-run.md.)
 
 ## Dates and exit criteria
 
@@ -37,8 +37,11 @@ Also needed: `NGC_API_KEY` (step 7) and `NVIDIA_API_KEY` (step 6, the judge key)
 
 ## Stories
 
+Note (2026-10-25, M5 session): feature files follow the repository convention from M1, tests/AgentJoules.Specs/Features/<Capability>/AJ-nnn-<slug>.feature; the file names in the story tables (for example Prerequisites.feature) map to that form.
+
 ### AJ-120: Create the AI Cloud account, card and SSH key pair
 Covers: REQ-031
+Note (2026-10-25, AJ-120): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-120-prerequisites.feature; steps 10 and 11 confirmed by the user at 18:11Z; the key hygiene check is KeyHygieneCheck in TestSupport (file names only, contents never read); .gitignore already held the three patterns; no VM requested.
 User story: As the user, I want to create the Nebius AI Cloud account, fund it with the minimum payment and create an SSH key pair outside the repository, so that the builder can start the cloudgpu tier the moment the VM is requested.
 Acceptance criteria:
 1. The user confirms in the chat that the AI Cloud account exists (a separate product and sign-up from Token Factory), that a project exists in region `eu-north1`, that a card is added and that the USD 25 minimum first payment is made; the builder records the confirmation as a dated line without any account detail in `docs/build-log.md`.
@@ -88,13 +91,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/Prerequisites.feature; gated class CloudGpuPrerequisitesTests (design 6.3).
 Docs impact: .gitignore, docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user confirmation of steps 10 and 11 is recorded before AJ-125 starts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the user confirmation of steps 10 and 11 is recorded before AJ-125 starts
 Demo relevance: no.
 
 ### AJ-121: Gate the cloudgpu tier on SSH variables, MIG and the tier flag
 Covers: REQ-031
+Note (2026-10-25, AJ-121): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-121-gating.feature; no production change: the SSH-variable exit 3, the MIG exit 6, the rc 3 not-supported mapping and the enum tier order existed; 9 unit tests and 8 scenarios confirm T2 to T4.
 User story: As the author, I want the CLI to refuse a cloudgpu run when the SSH variables are missing on the laptop or MIG is enabled on the GPU, and to leave the tier out of `--tier all` until it is enabled, so that the laptop dry-run stays green and a shared GPU never produces power numbers.
 Acceptance criteria:
 1. On the laptop with `Tiers:cloudgpu:Enabled=true` and `CloudGpu:RequireSshVariables=true`, `AJ run --tier cloudgpu --dry-run` exits 3 when `CLOUDGPU_SSH_HOST` or `CLOUDGPU_SSH_USER` is unset, names every missing variable, and prints no value; the exit code equals the code of a missing tier key.
@@ -163,13 +167,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/Gating.feature; unit class CloudGpuTests (design 6.1) with `[Trait("Spec","REQ-031")]`.
 Docs impact: docs/build-log.md; README exit-code row 3 and 6 notes for cloudgpu (written in M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no test prints or asserts a real SSH host or user value
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no test prints or asserts a real SSH host or user value
 Demo relevance: no.
 
 ### AJ-122: Enforce the 4-hour and USD 25 stop with a fake clock
 Covers: EDGE-017
+Note (2026-10-25, AJ-122): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-122-budget-guard.feature; CloudGpuBudgetGuard with BudgetDecision(Stop, Reason, Note); the budget lines go to stderr with a Warning prefix; a budget stop ends the whole plan and names the skipped tiers (fix round 1); TierStartUtc needs an offset, a future start exits 2, TimeBoxHours at most 4; the judge and the final write still run after a mid-run stop; the cloudgpu EnvironmentInfo fields are filled from CloudGpuOptions here for AJ-127.
 User story: As the user paying for the VM, I want the run to stop starting new work once the billing page shows USD 25 or four hours have passed, so that the total spend stays below the USD 30 cap.
 Acceptance criteria:
 1. `CloudGpuBudgetGuard.Check()` returns `Stop` with reason `cost-cap` when `CloudGpu:ObservedCostUsd` is at least `CloudGpu:CostStopUsd` (25) and `time-box` when `now - CloudGpu:TierStartUtc` is at least `CloudGpu:TimeBoxHours` (4), otherwise `Continue`; when both hold at the same check the reason is `cost-cap`.
@@ -233,13 +238,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/BudgetGuard.feature; unit class CloudGpuTests (design 6.1) with `[Trait("Spec","EDGE-017")]`.
 Docs impact: docs/build-log.md (stop procedure: stop runs, copy results, tell the user to delete the VM, record the reason); `docs/cloudgpu-run.md` Cost section in AJ-128.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no test waits on the wall clock
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no test waits on the wall clock
 Demo relevance: no.
 
 ### AJ-123: Keep incomplete cloudgpu run files out of reports
 Covers: EDGE-016
+Note (2026-10-25, AJ-123): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-123-incomplete-runs.feature; criterion 2 read literally: the fan-out sibling is stopped at the meter gate after a cloudgpu drop (StopAfterDropMeterGate), so the run file holds the Planner and the dropped step only; the connection-lost line is a listener method; seven production files changed (the gate and its IStoppableMeterGate interface, MeteredChatClient, the orchestrator, the listener, the console reporter and listener) plus the workflow factory's failure choice from fix round 1.
 User story: As a reader of the report, I want a run that was cut off by a lost VM or a broken connection to be kept as evidence but never shown as a result, so that no partial energy figure is read as complete.
 Acceptance criteria:
 1. A transport failure during a streaming call (an `IOException`, a `SocketException` or an `HttpRequestException` without a status code) yields a step with `outcome` `incomplete`; host shutdown (Ctrl+C, SIGTERM, SIGHUP) is not re-specified here: AJ-034 (M1) delivers the `ApplicationStopping` signal path and the exit-5 mapping, and AJ-056-T6a (M2) marks in-flight steps `incomplete`, sets `run.status` `incomplete` and writes the checkpoint; this story reuses both; the run file gets `run.status` `incomplete`, is kept on disk, the command exits 5 and asks the user to check the VM state in the console.
@@ -298,13 +304,14 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/IncompleteRuns.feature; unit classes IncompleteRunTests and ReportRenderingTests (REQ-023 list) with `[Trait("Spec","EDGE-016")]`.
 Docs impact: docs/build-log.md; the incident entry in `docs/cloudgpu-run.md` in AJ-128.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] an incomplete file never appears in a README results fixture
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] an incomplete file never appears in a README results fixture
 Demo relevance: no.
 
 ### AJ-124: Use power sampling when the energy counter is unsupported on the VM
 Covers: EDGE-015
+Note (2026-10-25, AJ-124): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-124-sampling-fallback.feature; the calibration suffix comes from a new calibrate --suffix option (the command has no tier option); the probe suffix, the sampling fallback, the header line and the README row word existed.
 User story: As a reader of the cloudgpu row, I want the report to say when the VM GPU gave no energy counter and sampling was used instead, so that the method behind the number is never hidden and nothing is estimated to fill a gap.
 Acceptance criteria:
 1. With the fake NVML returning NOT_SUPPORTED for the counter and the tier configured as `cloudgpu`, every reading has `method` `sampling` and the flag `sampling-fallback`, and the console prints the fallback line; with the counter supported the method is `counter` and the flag is absent.
@@ -373,21 +380,23 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/SamplingFallback.feature; unit classes CalibrationTests and PowerIntegrationTests (design 6.1) with `[Trait("Spec","EDGE-015")]`.
 Docs impact: docs/build-log.md; README sampling disclosure through the generated block (M6).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] no fallback value is estimated or defaulted to 0
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] no fallback value is estimated or defaulted to 0
 Demo relevance: no.
 
 ### AJ-125: Create the VM when asked, deliver the CLI and probe the GPU over SSH
 Covers: REQ-031
-User story: As the user, I want to create exactly the VM the builder asks for and hand over only the SSH host and user as environment variables, so that the builder can deliver the CLI and prove the GPU is a dedicated L40S before any money is spent on a run.
+Note (2026-10-25, AJ-125): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-125-vm-delivery-and-probe.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-125): the VM is one NVIDIA H100 (platform gpu-h100-sxm, preset 1gpu-16vcpu-200gb, region eu-north1, Regular, USD 4.63/hour incl. disk), created under the user decision of 2026-10-26 after two L40S starts in eu-north1 ended "Resource exhausted"; the probe file results/probe-20261026T122330Z-cloudgpu.json names NVIDIA H100 80GB HBM3 with migMode disabled and energyCounterSupported true. The box starts at the handover stamp 2026-10-26T12:19:28Z and ends 16:19:28Z with the USD 25 stop line; the probe ran on the VM over SSH (see the AJ-125 entry in docs/build-log.md for the deviations).
+User story: As the user, I want to create exactly the VM the builder asks for and hand over only the SSH host and user as environment variables, so that the builder can deliver the CLI and prove the GPU is a dedicated L40S (2026-10-26: an H100 under the user decision in criterion 2) before any money is spent on a run.
 Acceptance criteria:
 1. Before the VM is requested: `dotnet test --filter "Spec=REQ-020"`, `--filter "Spec=REQ-021"` and `--filter "Spec=EDGE-010"` pass and the AJ-115 commit exists (the local Definition of Done items are committed); `dotnet publish src/AgentJoules.Cli -c Release -r linux-x64 --self-contained true -o artifacts/linux-x64` exits 0 on the laptop and `git check-ignore artifacts/linux-x64` prints the path (ADR-14); the delivery choice is recorded in `docs/cloudgpu-run.md`.
-2. The builder asks the user, in one message, to create the VM with platform `gpu-l40s-a`, preset `1gpu-16vcpu-64gb` (fallbacks: `1gpu-8vcpu-32gb` on the same platform if unavailable or materially more expensive, then platform `gpu-l40s-d` with preset `1gpu-16vcpu-96gb`; no other GPU class without a new user decision), region `eu-north1`, image `ubuntu24.04-cuda12`, boot disk of at least 150 GB, public IP on, preemptible off and the user's SSH public key, and to read the hourly price shown for the preset. The user sets `CLOUDGPU_SSH_HOST` and `CLOUDGPU_SSH_USER`, gives the price (open point O-07 default: the console value at creation wins over the user-observed value in the prompt) and confirms `preemptible: off`; the handover time (UTC) is recorded as `CloudGpu:TierStartUtc` and starts the 4-hour box.
-3. Over SSH only, the builder records: `nvidia-smi --query-gpu=name,uuid,driver_version --format=csv` (an L40S name, otherwise stop and ask the user, no other GPU class), the boot disk size from `df -h /` as a `<measured>` copy (at least 150 GB, otherwise stop), `docker --version` (the image's Docker presence is not stated; when absent the install commands are recorded and counted in the box), and the NVIDIA Container Toolkit presence.
-4. The builder copies `artifacts/linux-x64`, `config/`, `tasks/` and `docs/endpoints.md` with `scp` to `$CLOUDGPU_SSH_USER@$CLOUDGPU_SSH_HOST`; on the VM `./AgentJoules.Cli probe --json --save --suffix cloudgpu` exits 0 and the copied `results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json` validates against `$defs/probe` with `name` (L40S) (2026-10-19: AJ-035 pins the probe key `name`), `gpuUuid`, `driverVersion`, `powerLimitW`, `migMode` in {`disabled`, `not-supported`}, a boolean `energyCounterSupported`, `method` and `sampleRateHz`.
+2. The builder asks the user, in one message, to create the VM with platform `gpu-l40s-a`, preset `1gpu-16vcpu-64gb` (fallbacks: `1gpu-8vcpu-32gb` on the same platform if unavailable or materially more expensive, then platform `gpu-l40s-d` with preset `1gpu-16vcpu-96gb`; no other GPU class without a new user decision; 2026-10-26 user decision after both L40S starts in eu-north1 ended "Resource exhausted": the candidates were an NVIDIA H100 in eu-north1 and an NVIDIA RTX PRO 6000 in uk-south2; the H100 in eu-north1 was created and is the only accepted GPU besides the L40S, the uk-south2 candidate is not accepted; the one created is recorded in the Instance section), region `eu-north1`, image `ubuntu24.04-cuda12`, boot disk of at least 150 GB, public IP on, preemptible off and the user's SSH public key, and to read the hourly price shown for the preset. The user sets `CLOUDGPU_SSH_HOST` and `CLOUDGPU_SSH_USER`, gives the price (open point O-07 default: the console value at creation wins over the user-observed value in the prompt) and confirms `preemptible: off`; the handover time (UTC) is recorded as `CloudGpu:TierStartUtc` and starts the 4-hour box.
+3. Over SSH only, the builder records: `nvidia-smi --query-gpu=name,uuid,driver_version --format=csv` (an L40S name, otherwise stop and ask the user, no other GPU class; 2026-10-26: the stop happened and the user decided, see criterion 2), the boot disk size from `df -h /` as a `<measured>` copy (at least 150 GB, otherwise stop), `docker --version` (the image's Docker presence is not stated; when absent the install commands are recorded and counted in the box), and the NVIDIA Container Toolkit presence.
+4. The builder copies `artifacts/linux-x64`, `config/`, `tasks/` and `docs/endpoints.md` with `scp` to `$CLOUDGPU_SSH_USER@$CLOUDGPU_SSH_HOST`; on the VM `./AgentJoules.Cli probe --json --save --suffix cloudgpu` exits 0 and the copied `results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json` validates against `$defs/probe` with `name` (L40S, or the GPU of the 2026-10-26 user decision in criterion 2) (2026-10-19: AJ-035 pins the probe key `name`), `gpuUuid`, `driverVersion`, `powerLimitW`, `migMode` in {`disabled`, `not-supported`}, a boolean `energyCounterSupported`, `method` and `sampleRateHz`.
 5. Dedicated GPU: `nvidia-smi --query-compute-apps=pid,process_name --format=csv` lists no process before NIM starts; MIG enabled stops the story (the builder cannot change it; the user is asked).
-6. No host, IP or user value appears in the repository: `git grep -nF "$CLOUDGPU_SSH_HOST"` and `git grep -nF "$CLOUDGPU_SSH_USER"` print nothing; commands in documents show the variable names only.
+6. No host, IP or user value appears in the repository: `git grep -nF "$CLOUDGPU_SSH_HOST"` and `git grep -nF "$CLOUDGPU_SSH_USER"` print nothing; commands in documents show the variable names only. (2026-10-26, spec defect found by the AJ-125 spec review: the user value is a substring of the repository owner's public GitHub handle in URLs committed long before M5, so the bare-value grep can never print nothing; the check is restated as the form the evidence oracle CloudGpuEvidence.RepositoryHoldsSshValue uses: `git grep -nF "$CLOUDGPU_SSH_USER@"` prints nothing and `git grep -nwF "$CLOUDGPU_SSH_HOST"` prints nothing; measured on the pool: both print nothing.)
 BDD scenarios:
 ```gherkin
 @integration @AJ-S125 @REQ-031
@@ -402,7 +411,7 @@ Feature: Create the VM when asked, deliver the CLI and probe the GPU over SSH
   Scenario: AJ-125 the VM matches the request and the probe is committed
     Given the user created the VM as requested and set CLOUDGPU_SSH_HOST and CLOUDGPU_SSH_USER
     When the builder copies the CLI and runs "./AgentJoules.Cli probe --json --save --suffix cloudgpu" on the VM
-    Then the probe file has an L40S name, a gpuUuid, migMode "disabled" or "not-supported" and a boolean energyCounterSupported
+    Then the probe file has an accepted GPU name, a gpuUuid, migMode "disabled" or "not-supported" and a boolean energyCounterSupported
     And the file validates against the probe schema definition
   @positive
   Scenario: AJ-125 a fallback preset is accepted and recorded
@@ -450,13 +459,15 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/VmDeliveryAndProbe.feature; SchemaValidationTests (REQ-023 list) and ProbeCommandTests (design 6.1) for the probe file; gated class CloudGpuProbeTests (design 6.3).
 Docs impact: docs/cloudgpu-run.md (`Instance`, `Probe`, delivery choice), .gitignore, results/probe-<yyyyMMddTHHmmssZ>-cloudgpu.json.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the handover time and the hourly price are recorded in the Instance section
-Demo relevance: yes: the cloudgpu probe shows the L40S, the MIG state and the counter support next to the laptop probe.
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the handover time and the hourly price are recorded in the Instance section
+Demo relevance: yes: the cloudgpu probe shows the L40S (2026-10-26: the H100 of the user decision), the MIG state and the counter support next to the laptop probe.
 
 ### AJ-126: Serve Nemotron 3 Nano in FP8 with NIM on the VM
 Covers: REQ-031
+Note (2026-10-25, AJ-126): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-126-nim-serving.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-126): NIM 2.1.4 serves nvidia/nemotron-3-nano on the VM (profile vllm-fp8-tp1-pp1-34.0, precision FP8, max_model_len 262144, bound to the loopback interface only); the model answers with thinking on by default, returned inline in content, so Tiers:cloudgpu:ExtraBodyJson sets chat_template_kwargs enable_thinking false (the only off switch measured). The calibration results/calibration-20261026T124311Z-cloudgpu.json reads counterJoules 20796.42 and samplingJoules 20679.15 (relativeDifference 0.0056 over 624 samples at 10 Hz).
 User story: As a reader of the cloudgpu row, I want the NIM image, its digest and the FP8 profile recorded and verified by a live models call, so that the row names exactly what was served.
 Acceptance criteria:
 1. `docker login nvcr.io --username '$oauthtoken' --password-stdin` receives `NGC_API_KEY` through the SSH session only (delivered by the session environment or its standard input, never a command-line argument); `DOCKER_CONFIG` points to a memory-backed directory (for example under `/dev/shm`) deleted right after the pull, `docker logout nvcr.io` follows, and the container receives the key by variable name only; `grep -c "docker logout" docs/cloudgpu-run.md` prints 1 or more with the commands shown redacted (prompt section 8 as amended); `docker pull nvcr.io/nim/nvidia/nemotron-3-nano` (a tag recorded, `latest` or a tagged version) succeeds, which confirms the inferred pull string; the digest from `docker image inspect --format '{{index .RepoDigests 0}}'` is recorded as `ContainerDigest`.
@@ -521,18 +532,20 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/NimServing.feature; ConfigValidationTests (design 6.1) for the endpoints format; gated class CloudGpuNimTests (design 6.3).
 Docs impact: docs/endpoints.md (`## cloudgpu`: Verified date, model line, usage and reasoning lines), docs/cloudgpu-run.md (image, digest, profile, context cap), config/appsettings.json (verified ID; `Enabled` stays false in the committed file).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the `## cloudgpu` section carries a `Verified:` line, which closes the REQ-018 acceptance left open by AJ-100
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the `## cloudgpu` section carries a `Verified:` line, which closes the REQ-018 acceptance left open by AJ-100
 Demo relevance: no.
 Resolved: prompt section 8 (as amended) fixes the login procedure in criterion 1 (memory-backed `DOCKER_CONFIG`, `docker logout nvcr.io`, key by variable name only); the VM and its disk are deleted at teardown (AJ-128).
 
 ### AJ-127: Run the cloudgpu workload on the VM and copy the results back
 Covers: REQ-031, EDGE-015, EDGE-016, EDGE-017
+Note (2026-10-25, AJ-127): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-127-cloudgpu-run.feature; the code part (T1) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-127): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-127-cloudgpu-run.feature; the VM was the H100 of the AJ-125 user decision in eu-north1 (the story's L40S was not offered), and the run completed at 12:49:48Z with 36 steps ok, no budget stop, no partial file and no re-run; three judge quality values are N/A (HTTP 429, reason judge-failed), and cloudCostUsd is not-reported with reason billed-after-run, so the whole-run bill is recorded in docs/cloudgpu-run.md (AJ-128).
 User story: As the author, I want the same tasks, warm-up, baseline and repeats as the laptop run executed on the VM inside the box, with the results copied back and validated, so that the cloudgpu row is measured under the same protocol and kept separate from every laptop figure.
 Acceptance criteria:
 1. On the VM, inside `tmux`, with the session environment `AGENTJOULES__Tiers__cloudgpu__Enabled=true`, `AGENTJOULES__CloudGpu__RequireSshVariables=false`, `AGENTJOULES__CloudGpu__TierStartUtc`, `...__InstancePreset`, `...__Region`, `...__ContainerImage`, `...__ContainerDigest`, `...__HourlyPriceUsd` and the judge key (`NVIDIA_API_KEY`), `./AgentJoules.Cli run --tier cloudgpu --dry-run` exits 0 and its output is recorded in `docs/cloudgpu-run.md`.
-2. `./AgentJoules.Cli calibrate` runs when the probe shows `energyCounterSupported` true (otherwise the sampling-only file of AJ-124 is written) and writes `results/calibration-<yyyyMMddTHHmmssZ>-cloudgpu.json`; `./AgentJoules.Cli run --tier cloudgpu --repeat 3` writes `results/<yyyyMMddTHHmmssZ>-cloudgpu.json` with `run.tasks` of 3, `run.repeat` 3, 36 steps, `baseline.seconds` of at least 30, `environment.provider` `nebius-ai-cloud`, `environment.precision` `FP8`, a non-empty `instancePreset`, `region` `eu-north1`, `gpuUuid`, `containerImage` and a `containerDigest` starting `sha256:`; temperature 0 and the reasoning mode equal to the other tiers.
+2. `./AgentJoules.Cli calibrate` runs when the probe shows `energyCounterSupported` true (otherwise the sampling-only file of AJ-124 is written) and writes `results/calibration-<yyyyMMddTHHmmssZ>-cloudgpu.json`; `./AgentJoules.Cli run --tier cloudgpu --repeat 3` writes `results/<yyyyMMddTHHmmssZ>-cloudgpu.json` with `run.tasks` of 3, `run.repeat` 3, 36 steps, `baseline.seconds` of at least 30, `environment.provider` `nebius-ai-cloud`, `environment.precision` `FP8`, a non-empty `instancePreset`, `region` `eu-north1` (2026-10-26: the uk-south2 candidate of the AJ-125 user decision was not chosen and is not accepted), `gpuUuid`, `containerImage` and a `containerDigest` starting `sha256:`; temperature 0 and the reasoning mode equal to the other tiers. (2026-10-26, M5 exit: the run made no warm-up call, deviation accepted by the orchestrator and put to the user at the exit, carried to M6)
 3. The guard of AJ-122 is checked before each invocation with the user-reported `ObservedCostUsd`; at USD 25 or four hours no new invocation starts and the file is `partial` (EDGE-017); a lost VM or broken connection leaves an `incomplete` file that is excluded and not retried (EDGE-016); a dropped SSH session does not stop the run because it lives in `tmux`; a host shutdown on the VM uses the AJ-034 `ApplicationStopping` signal path and exit-5 mapping with the AJ-056-T6a marking (steps `incomplete`, `run.status` `incomplete`, checkpoint written) and is not re-specified here.
 4. The results are copied back with `scp` and `AJ validate results/` exits 0 on the laptop, printing `Validated <n> files` with n equal to the number of committed run files; the report keeps the cloudgpu row separate from the laptop rows (no merged or averaged figure).
 5. Keys appear only in the session environment: `git grep -nF "$NVIDIA_API_KEY"` and `git grep -nF "$NGC_API_KEY"` print nothing; no command in the documents carries a key value; the files are committed with a message starting `AJ-127 REQ-031:` (story id first; check regex `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:`).
@@ -601,13 +614,15 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuRun.feature; SchemaValidationTests and ReportRenderingTests (REQ-023 list) for the file and the row; CloudGpuTests and IncompleteRunTests (design 6.1); gated class CloudGpuRunTests (design 6.3).
 Docs impact: docs/cloudgpu-run.md (`Commands`, `Runs`), results/ (cloudgpu run file, calibration file), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the elapsed time since the handover and the last observed cost are recorded when the story ends
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the elapsed time since the handover and the last observed cost are recorded when the story ends
 Demo relevance: yes: the cloudgpu run file is the source of the cloudgpu row in the report page, the README and the posts.
 
 ### AJ-128: Document the cloudgpu run, the cost and the user's teardown
 Covers: REQ-031, EDGE-016, EDGE-017
+Note (2026-10-25, AJ-128): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-128-run-document-contract.feature; the code part (T1 to T3) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-128): docs/cloudgpu-run.md holds the six sections Instance, Commands, Probe, Runs, Cost and Teardown (143 lines; the SSH target and the keys appear as variable names only; the exclusivity check is recorded at phase 1 and phase 6 and is not repeated before calibrate or the run). The user deleted the VM and its boot disk at 2026-10-26T13:50Z (user-confirmed at 13:51Z); the final cost is an estimate of USD 6.99 (1.509 GPU-hours at USD 4.63 per hour), while the balance difference of USD 5.92 (USD 23.54 at 12:47Z, USD 17.62 after the deletion, read between two lagging snapshots) is a lower bound and not the bill. The usage-page figure is carried forward, so the Definition of Done box for the billing figure is unticked; the boxes of AJ-125 and AJ-127 stay ticked.
 User story: As a reviewer and as the person paying, I want `docs/cloudgpu-run.md` to record the instance, commands, probe, runs, cost and the user's deletion of the VM, so that the cost cap, the incidents and the teardown are documented facts.
 Acceptance criteria:
 1. A contract test requires the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost` and `Teardown` in `docs/cloudgpu-run.md`.
@@ -667,13 +682,15 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/RunDocumentContract.feature; unit class CloudGpuRunDocumentTests with `[Trait("Spec","REQ-031")]`, `[Trait("Spec","EDGE-016")]` and `[Trait("Spec","EDGE-017")]`.
 Docs impact: docs/cloudgpu-run.md (final), docs/build-log.md.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
 - [ ] the user's deletion confirmation time and the final billing figure are in the `Teardown` and `Cost` sections
 Demo relevance: yes: the README names the VM preset, region, GPU-hours and observed cost taken from this document.
 
 ### AJ-129: Apply the partial-tier consequences to the report, README and Devpost texts
 Covers: REQ-031, EDGE-017
+Note (2026-10-25, AJ-129): feature file tests/AgentJoules.Specs/Features/CloudGpu/AJ-129-partial-tier-consequences.feature; the code part (T1, T2 and T5) shipped before the VM handover; the VM-bound and docs tasks follow.
+Note (2026-10-26, AJ-129): T6 to T8 done after the cloudgpu run file results/20261026T124721Z-cloudgpu.json (tier state complete, GPU NVIDIA H100 80GB HBM3): candidate A of docs/devpost-pitch.md carries the GPU name in place of L40S and is shortened to 199 characters, the story sentences at lines 13 and 81 name the H100, the two cloudgpu FILLs of docs/devpost-story.md are filled, and the old and new texts with the proving files are in the AJ-129 entry of docs/build-log.md, with the README facts list (T8); GPU-hours 1.51 and the observed cost (about USD 7, estimated: 1.509 GPU-hours at USD 4.63 per hour; the balance difference USD 5.92 is a lower bound) were filled after the user deleted the VM at 13:50Z (AJ-128); the review fixes of the same day re-labelled the cloud figures in the story as measured and estimated and shortened candidate A to 199 characters; the third Definition of Done box (every change to a pre-drafted Devpost sentence has a matching build-log entry) is ticked.
 User story: As the author, I want the report, the README row and the Devpost pitch and story to follow the real state of the cloudgpu tier, so that no text claims a measured cloud GPU run that did not complete.
 Acceptance criteria:
 1. The tier state is derived from committed files only: `complete` (a selectable file with status `completed`), `partial` (a selectable file with status `partial`) or `absent` (no `completed` or `partial` file for the tier; `incomplete`, `running` and `failed` files count as none).
@@ -743,9 +760,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/PartialTierConsequences.feature; unit classes ReadmeBlockTests and ReportRenderingTests (design 6.1, REQ-023 list) with `[Trait("Spec","EDGE-017")]` and `[Trait("Spec","REQ-031")]`.
 Docs impact: docs/devpost-pitch.md, docs/devpost-story.md, docs/build-log.md; the README sections themselves are written in M6 from the facts listed here.
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every change to a pre-drafted Devpost sentence has a matching entry in docs/build-log.md
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every change to a pre-drafted Devpost sentence has a matching entry in docs/build-log.md
 Demo relevance: yes: the pitch and the report row must match the real state of the cloud tier.
 Conflict: EDGE-017 acceptance requires the README row for `cloudgpu` to contain the word `partial`, but the README results block is generated by the REQ-025 story in M6. Proposed resolution: M5 proves the rule with the README block fixtures above; the live README check runs when the M6 story generates the block, and M7 re-runs it for the Definition of Done box "README results block contains `cloudgpu`".
 Conflict: REQ-028 switches the tagline to A-local when the cloudgpu tier "produced no committed run file", yet an `incomplete` or `failed` file may exist on disk while being excluded from every report (EDGE-016). Proposed resolution: a tier with no selectable file (status `completed` or `partial`) counts as having produced no committed run file; an excluded file is documented in `docs/cloudgpu-run.md` but does not keep candidate A.

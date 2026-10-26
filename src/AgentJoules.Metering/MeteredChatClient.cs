@@ -408,6 +408,15 @@ public sealed class MeteredChatClient : DelegatingChatClient
         // Closes the window, gives the gate back and publishes the reading, in this order. A call whose window never opened has nothing to publish.
         public async ValueTask FinishAsync()
         {
+            // A call that ends in any way but ok or cancelled (a lost connection above all, but a client timeout as well: security L-1) stops the gate before it is given back, so the sibling that waits for it is refused
+            // and sends no request: the step fails either way, and a dead VM must not hold a sibling for the length of the tier's timeout. Only a stoppable gate (the cloudgpu tier's) reacts; the connection-lost line is tied to incomplete elsewhere.
+            if (Error is not null
+                && owner._services.Gate is IStoppableMeterGate stoppable
+                && OutcomeClassifier.Classify(Error, owner._identity.Tier, firstUpdateSeen: AnyUpdateSeen, callerToken) is not (StepOutcomes.Ok or StepOutcomes.Cancelled))
+            {
+                stoppable.Halt();
+            }
+
             EnergyReading? energy = null;
             double elapsedMs = 0.0;
             long waitMs = 0;

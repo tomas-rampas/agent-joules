@@ -710,9 +710,10 @@ public sealed partial class ReadmeBlockTests
 
         Assert.NotNull(cloud.Probe);
         Assert.NotNull(cloud.Baseline);
-        Assert.Equal(MetricLabel.Measured, cloud.Environment.CloudCostUsd.Label);
-        Assert.Equal(0.45, cloud.Environment.CloudCostUsd.Value);
-        Assert.NotNull(cloud.Environment.CloudCostObservedUtc);
+        Assert.Equal(MetricLabel.NotReported, cloud.Environment.CloudCostUsd.Label);
+        Assert.Equal("billed-after-run", cloud.Environment.CloudCostUsd.Reason);
+        Assert.Null(cloud.Environment.CloudCostUsd.Value);
+        Assert.Null(cloud.Environment.CloudCostObservedUtc);
     }
 
     // ---- the gaps the gate found: one concurrent baseline, the whole committed row, the empty and tilde names, the cuts ----

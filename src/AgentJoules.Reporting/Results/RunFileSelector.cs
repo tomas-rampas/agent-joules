@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.Json;
 
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Labels;
@@ -27,7 +28,7 @@ public sealed record RunFileProblem(string FileName, string Reason);
 
 /// <summary>A run file that is readable but is not used, with the reason the report lists (AJ-081, P-3).</summary>
 /// <param name="FileName">The file name, without a directory.</param>
-/// <param name="Reason">One token: <c>status-running</c>, <c>status-failed</c>, <c>status-incomplete</c> or <c>non-publishable</c>.</param>
+/// <param name="Reason">One token: <c>status-running</c>, <c>status-failed</c>, <c>status-incomplete</c>, <c>non-publishable</c> or <c>partial-without-ok-step</c> (a partial file with no step whose outcome is ok).</param>
 public sealed record RunFileSkip(string FileName, string Reason);
 
 /// <summary>What <see cref="RunFileSelector.Select"/> made of its inputs.</summary>
@@ -183,6 +184,19 @@ public static class RunFileSelector
             }
 
             string? reason = SkipReason(header);
+            if (reason is null && header.Status == RunStatus.Partial)
+            {
+                try
+                {
+                    reason = HasOkStep(candidate.Path) ? null : "partial-without-ok-step";
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    problems.Add(new RunFileProblem(candidate.Name, "unreadable"));
+                    continue;
+                }
+            }
+
             if (reason is null)
             {
                 return candidate.Path;
@@ -204,6 +218,35 @@ public static class RunFileSelector
             RunStatus.Completed or RunStatus.Partial => header.Flags.Contains(RunFlagNames.NonPublishable, StringComparer.Ordinal) ? "non-publishable" : null,
             _ => throw new UnreachableException(),
         };
+
+    // A partial file that holds no step with the outcome ok (the box expired before the first step finished) holds no measurement: it is skipped so that an older valid file is not hidden by it (peer review m-2).
+    // Only a partial file is opened beyond its header. A file that cannot be parsed, an oversized file (more than RunFileValidator.MaxBytes), a non-object root and a file without a steps array
+    // are not skipped here: the full read of the selected file names the defect (peer review m-2).
+    private static bool HasOkStep(string path)
+    {
+        if (new FileInfo(path).Length > RunFileValidator.MaxBytes)
+        {
+            return true;
+        }
+
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, bufferSize: 1, FileOptions.SequentialScan);
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(stream);
+
+            return document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("steps", out JsonElement steps)
+                || steps.ValueKind != JsonValueKind.Array
+                || steps.EnumerateArray().Any(static step => step.ValueKind == JsonValueKind.Object
+                    && step.TryGetProperty("outcome", out JsonElement outcome)
+                    && outcome.ValueKind == JsonValueKind.String
+                    && outcome.ValueEquals("ok"));
+        }
+        catch (JsonException)
+        {
+            return true;
+        }
+    }
 
     // A relative input would be resolved against the process directory, which a command must never rely on (it resolves against its own working directory first).
     private static void RequireFullyQualified(string path, string parameter)

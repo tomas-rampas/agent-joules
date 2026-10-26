@@ -1052,6 +1052,19 @@ public sealed class SchemaValidationTests
     }
 
     [Fact]
+    [Trait("Spec", "REQ-021")]
+    public void The_baseline_block_has_an_optional_settleSeconds_number_after_seconds()
+    {
+        JsonNode baseline = GeneratedSchema()["properties"]!["baseline"]!;
+        JsonObject properties = baseline["properties"]!.AsObject();
+
+        Assert.Equal("number", properties["settleSeconds"]!["type"]!.GetValue<string>());
+        string[] names = [.. properties.Select(static pair => pair.Key)];
+        Assert.Equal(Array.IndexOf(names, "seconds") + 1, Array.IndexOf(names, "settleSeconds"));
+        Assert.DoesNotContain("settleSeconds", baseline["required"]!.AsArray().Select(static name => name!.GetValue<string>()));
+    }
+
+    [Fact]
     public void The_generated_text_is_indented_ascii_with_lf_and_one_final_line_feed_and_is_stable()
     {
         string text = SchemaGenerator.GenerateText();
@@ -1084,6 +1097,55 @@ public sealed class SchemaValidationTests
     public void Generated_document_validates()
     {
         AssertValid(Tree(Fixture()));
+    }
+
+    [Theory]
+    [InlineData("properties.environment.properties.powerSource")]
+    [InlineData("$defs.calibration.properties.environment.properties.powerSource")]
+    public void The_power_source_is_an_enum_of_the_three_values_or_null_in_the_generated_and_the_committed_schema(string path)
+    {
+        string[] expected = [PowerSources.Ac, PowerSources.Battery, PowerSources.Unknown];
+
+        foreach (JsonNode schema in new[] { GeneratedSchema(), JsonNode.Parse(File.ReadAllText(CommittedSchemaPath()))! })
+        {
+            JsonNode member = At(schema, path);
+            Assert.Equal(["string", "null"], Strings(member["type"]));
+            Assert.Equal(expected, EnumOf(member));
+            Assert.Contains(member["enum"]!.AsArray(), static item => item is null);
+        }
+    }
+
+    [Theory]
+    [InlineData("ac")]
+    [InlineData("battery")]
+    [InlineData("unknown")]
+    public void A_power_source_of_the_vocabulary_validates(string value)
+    {
+        JsonNode tree = Tree(Fixture());
+        Put(tree, "environment.powerSource", JsonSerializer.Serialize(value));
+
+        AssertValid(tree);
+    }
+
+    [Fact]
+    public void A_null_power_source_validates()
+    {
+        JsonNode tree = Tree(Fixture());
+        Put(tree, "environment.powerSource", "null");
+
+        AssertValid(tree);
+    }
+
+    [Theory]
+    [InlineData("mains")]
+    [InlineData("AC")]
+    [InlineData("")]
+    public void A_power_source_outside_the_vocabulary_is_rejected_at_the_member(string value)
+    {
+        JsonNode tree = Tree(Fixture());
+        Put(tree, "environment.powerSource", JsonSerializer.Serialize(value));
+
+        AssertInvalidAt(tree, "/environment/powerSource");
     }
 
     [Fact]
@@ -1323,6 +1385,8 @@ public sealed class SchemaValidationTests
     [InlineData("totals.gco2e", """{"value":0,"label":"estimated","unit":"gCO2e"}""")]
     [InlineData("environment.cloudCostUsd", """{"value":1.25,"label":"measured","currency":"USD"}""")]
     [InlineData("baseline.meanW", """{"value":null,"label":"not-reported","reason":"insufficient-samples"}""")]
+    [InlineData("baseline.settleSeconds", "0")]
+    [InlineData("baseline.settleSeconds", "2.5")]
     public void Valid_shapes_of_the_other_members_are_accepted(string path, string json)
     {
         JsonNode tree = Tree(Fixture());
@@ -1462,6 +1526,8 @@ public sealed class SchemaValidationTests
     [InlineData("steps.0.endUtc", "\"2026-13-45T99:00:00Z\"", "/steps/0/endUtc")]
     [InlineData("baseline.seconds", "0", "/baseline/seconds")]
     [InlineData("baseline.seconds", "-1", "/baseline/seconds")]
+    [InlineData("baseline.settleSeconds", "-1", "/baseline/settleSeconds")]
+    [InlineData("baseline.settleSeconds", "\"2\"", "/baseline/settleSeconds")]
     [InlineData("baseline.sampleCount", "-1", "/baseline/sampleCount")]
     [InlineData("baseline.maxCoefficientOfVariation", "0", "/baseline/maxCoefficientOfVariation")]
     [InlineData("baseline.coefficientOfVariation", "-0.5", "/baseline/coefficientOfVariation")]

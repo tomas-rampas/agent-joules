@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 using AgentJoules.Core.Cli;
+using AgentJoules.Reporting.Results;
 
 namespace AgentJoules.Cli.Commands;
 
@@ -23,10 +24,6 @@ internal static partial class ProbeFile
     private const int MaxEchoedSuffixLength = 16;
 
     private static readonly UTF8Encoding Utf8WithoutBom = new(encoderShouldEmitUTF8Identifier: false);
-
-    // \z, not $: a dollar anchor also matches before a trailing line feed, which would let "abc\n" through.
-    [GeneratedRegex(@"^[A-Za-z0-9]{1,20}\z", RegexOptions.CultureInvariant)]
-    private static partial Regex SuffixPattern();
 
     // The second line of defence of Save: whatever reaches it must have the shape of a probe file name.
     [GeneratedRegex(@"^probe-[0-9]{8}T[0-9]{6}Z(-[A-Za-z0-9]{1,20})?\.json\z", RegexOptions.CultureInvariant)]
@@ -50,7 +47,7 @@ internal static partial class ProbeFile
             throw new ConfigurationException("--suffix needs --save: it names the file --save writes");
         }
 
-        if (!SuffixPattern().IsMatch(suffix))
+        if (!CalibrationFile.IsValidSuffix(suffix))
         {
             throw new ConfigurationException($"--suffix must match ^[A-Za-z0-9]{{1,20}}$, but it is '{Echo(suffix)}'");
         }

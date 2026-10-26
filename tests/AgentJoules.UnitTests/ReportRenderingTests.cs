@@ -244,6 +244,68 @@ public sealed partial class ReportRenderingTests
         Assert.Equal(baseline, RunFileSelector.LatestBaseline(FolderOf(workspace), Tier.Nebius));
     }
 
+    [Theory]
+    [InlineData(",\"steps\":[]")]
+    [InlineData(",\"steps\":[{\"outcome\":\"failed\"},{\"outcome\":\"incomplete\"}]")]
+    public void A_partial_file_without_an_ok_step_is_skipped_and_the_older_valid_file_is_returned(string steps)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        string older = Put(workspace, "20261021T093000Z-cloudgpu.json", Text("cloudgpu", "completed", tail: ",\"steps\":[{\"outcome\":\"ok\"}]"));
+        _ = Put(workspace, "20261022T093000Z-cloudgpu.json", Text("cloudgpu", "partial", tail: steps));
+
+        RunFileSelection selection = SelectFolder(workspace);
+
+        Assert.Equal(older, selection.Latest[Tier.CloudGpu]);
+        Assert.Contains(selection.Skipped, static skip => skip.FileName == "20261022T093000Z-cloudgpu.json" && skip.Reason == "partial-without-ok-step");
+        Assert.Empty(selection.Problems);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(",\"steps\":5")]
+    [InlineData(",\"steps\":\"none\"")]
+    [InlineData(",\"steps\":[{\"outcome\":\"failed\"")]
+    public void A_partial_file_without_a_steps_array_or_with_truncated_json_is_still_selected_and_left_to_the_full_read(string tail)
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Put(workspace, "20261021T093000Z-cloudgpu.json", Text("cloudgpu", "completed", tail: ",\"steps\":[{\"outcome\":\"ok\"}]"));
+        string newer = Put(workspace, "20261022T093000Z-cloudgpu.json", Text("cloudgpu", "partial", tail: tail));
+
+        RunFileSelection selection = SelectFolder(workspace);
+
+        Assert.Equal(newer, selection.Latest[Tier.CloudGpu]);
+        Assert.Empty(selection.Skipped);
+        Assert.Empty(selection.Problems);
+    }
+
+    [Fact]
+    public void An_oversized_partial_file_is_selected_without_being_parsed_and_left_to_the_full_read()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Put(workspace, "20261021T093000Z-cloudgpu.json", Text("cloudgpu", "completed", tail: ",\"steps\":[{\"outcome\":\"ok\"}]"));
+        string padding = new('x', RunFileValidator.MaxBytes);
+        string newer = Put(workspace, "20261022T093000Z-cloudgpu.json", Text("cloudgpu", "partial", tail: ",\"steps\":[{\"outcome\":\"failed\"}],\"pad\":\"" + padding + "\""));
+
+        RunFileSelection selection = SelectFolder(workspace);
+
+        Assert.Equal(newer, selection.Latest[Tier.CloudGpu]);
+        Assert.Empty(selection.Skipped);
+        Assert.Empty(selection.Problems);
+    }
+
+    [Fact]
+    public void A_partial_file_with_an_ok_step_is_selected()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        _ = Put(workspace, "20261021T093000Z-cloudgpu.json", Text("cloudgpu", "completed", tail: ",\"steps\":[{\"outcome\":\"ok\"}]"));
+        string newer = Put(workspace, "20261022T093000Z-cloudgpu.json", Text("cloudgpu", "partial", tail: ",\"steps\":[{\"outcome\":\"failed\"},{\"outcome\":\"ok\"}]"));
+
+        RunFileSelection selection = SelectFolder(workspace);
+
+        Assert.Equal(newer, selection.Latest[Tier.CloudGpu]);
+        Assert.Empty(selection.Skipped);
+    }
+
     [Fact]
     public void Failed_and_running_files_are_skipped_and_the_older_completed_file_is_returned()
     {

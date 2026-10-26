@@ -104,6 +104,7 @@
       "unit": "W"
     },
     "seconds": 30,
+    "settleSeconds": 0,
     "sampleCount": 300,
     "coefficientOfVariation": 0.05,
     "maxCoefficientOfVariation": 0.1,

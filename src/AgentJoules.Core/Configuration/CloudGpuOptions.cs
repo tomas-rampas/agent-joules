@@ -16,4 +16,48 @@ public sealed class CloudGpuOptions
     /// </summary>
     [MinimumValue(0.0, IsExclusive = true, ErrorMessage = "CloudGpu:HourlyPriceUsd must be a finite number greater than 0 when it is set")]
     public double? HourlyPriceUsd { get; set; }
+
+    /// <summary>The largest <c>CloudGpu:CostStopUsd</c>: the USD 30 cap of the cloudgpu budget (REQ-031, EDGE-017); a larger threshold fails the configuration check.</summary>
+    public const double MaximumCostStopUsd = 30.0;
+
+    /// <summary>Key <c>CloudGpu:Provider</c>, default null: the provider named in the run file; <c>nebius-ai-cloud</c> is written while it is null (the shipped file sets it).</summary>
+    public string? Provider { get; set; }
+
+    /// <summary>Key <c>CloudGpu:InstancePreset</c>, default null: the VM preset of the run (for example the GPU and vCPU shape), written as <c>environment.instancePreset</c>; null stays null.</summary>
+    public string? InstancePreset { get; set; }
+
+    /// <summary>Key <c>CloudGpu:Region</c>, default null: the region of the VM, written as <c>environment.region</c>; null stays null.</summary>
+    public string? Region { get; set; }
+
+    /// <summary>Key <c>CloudGpu:ContainerImage</c>, default null: the NIM container image on the VM, written as <c>environment.containerImage</c>; null stays null.</summary>
+    public string? ContainerImage { get; set; }
+
+    /// <summary>Key <c>CloudGpu:ContainerDigest</c>, default null: the digest of the container image, written as <c>environment.containerDigest</c>; null stays null.</summary>
+    public string? ContainerDigest { get; set; }
+
+    /// <summary>Key <c>CloudGpu:HourlyPriceSource</c>, default null: where the hourly price was read (for example the pricing page and its date); documentation of <see cref="HourlyPriceUsd"/> only. It is bound and validated but not written to the run file (the environment block has no field for it); AJ-128 records it in <c>docs/cloudgpu-run.md</c>.</summary>
+    public string? HourlyPriceSource { get; set; }
+
+    /// <summary>
+    /// Key <c>CloudGpu:TierStartUtc</c>, default null: the instant the VM started billing, as an ISO 8601 time with an explicit offset (<c>Z</c> or <c>+hh:mm</c>); a value without an offset fails the configuration check, and so does one more than 60 s in the future (the command checks it against its clock). A real (non-dry) cloudgpu run requires it and exits 2 without it (peer review m-1); a dry run only warns once that the 4-hour box is not enforced (AJ-122).
+    /// </summary>
+    public DateTimeOffset? TierStartUtc { get; set; }
+
+    /// <summary>
+    /// Key <c>CloudGpu:ObservedCostUsd</c>, default null: the cost the billing page shows, in USD, reported by the user through <c>AGENTJOULES__CloudGpu__ObservedCostUsd</c> before each invocation; zero or more when set.
+    /// While it is null the cost cap is not reached; the value is a budget-guard input only and is never written to the run file (<c>environment.cloudCostUsd</c> is not-reported billed-after-run on the cloudgpu tier).
+    /// </summary>
+    [MinimumValue(0.0, ErrorMessage = "CloudGpu:ObservedCostUsd must be a finite number of zero or more when it is set")]
+    public double? ObservedCostUsd { get; set; }
+
+    /// <summary>Key <c>CloudGpu:CostStopUsd</c>, default 25: no new (task, repeat) starts once <see cref="ObservedCostUsd"/> reaches it; greater than 0, and at most 30 (<see cref="MaximumCostStopUsd"/>, checked by <see cref="CrossFieldValidator"/>).</summary>
+    [MinimumValue(0.0, IsExclusive = true, ErrorMessage = "CloudGpu:CostStopUsd must be a finite number greater than 0")]
+    public double CostStopUsd { get; set; } = 25.0;
+
+    /// <summary>The largest <c>CloudGpu:TimeBoxHours</c>: the 4-hour box of the cloudgpu budget (REQ-031, EDGE-017).</summary>
+    public const double MaximumTimeBoxHours = 4.0;
+
+    /// <summary>Key <c>CloudGpu:TimeBoxHours</c>, default 4: no new (task, repeat) starts once this many hours passed since <see cref="TierStartUtc"/>; greater than 0 and at most 4.</summary>
+    [MinimumValue(0.0, IsExclusive = true, Maximum = MaximumTimeBoxHours, ErrorMessage = "CloudGpu:TimeBoxHours must be a finite number greater than 0 and at most 4")]
+    public double TimeBoxHours { get; set; } = 4.0;
 }

@@ -10,7 +10,7 @@ Agent Joules is a .NET 10 command line tool and library that meters each step of
 
 Every metric value carries exactly one of five labels: measured, estimated, model-judged, N/A or not-reported. A missing value is never written as zero.
 
-The same workflow runs on four tiers: locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback, on a Nebius AI Cloud GPU instance where a Nemotron NIM container and the meter share one L40S, on Nebius Token Factory serving NVIDIA Nemotron 3, and on build.nvidia.com.
+The same workflow runs on four tiers: locally on an NVIDIA GPU with a Nemotron model through a NIM container first and Ollama as the fallback, on a Nebius AI Cloud GPU instance where a Nemotron NIM container and the meter share one H100, on Nebius Token Factory serving NVIDIA Nemotron 3, and on build.nvidia.com.
 
 Energy is measured on the two GPUs I control, the laptop and the Nebius AI Cloud instance, and the two are reported in separate rows, never merged. The hosted API tiers report tokens and latency, and cost where a published price exists. Their energy is N/A. Energy here means GPU-board energy, not CPU, system memory or wall power.
 
@@ -58,7 +58,7 @@ Research set two expectations before I started: the larger Nemotron tag I consid
 
 [[FILL: median net joules per run of the demo workflow on the local tier, with the minimum to maximum range, the number of repeats, GPU, driver, date, runtime, GPU offload percentage and model tag | source: results/TIMESTAMP-local.json fields steps.netJoules, run.repeat and the environment block, as summarized in docs/report/summary.md]]
 
-[[FILL: median net joules per run of the same workload on the Nebius AI Cloud instance, with instance preset, GPU, driver, precision, repeats and observed cost, in its own row next to the laptop figure | source: results/TIMESTAMP-cloudgpu.json and docs/cloudgpu-run.md sections Instance and Cost]]
+On the Nebius AI Cloud instance, one NVIDIA H100 80GB HBM3 (preset 1gpu-16vcpu-200gb, region eu-north1, driver 580.173.02, FP8, 3 repeats, counter method), the median net energy per run is 929.87 J (measured), with a range of 648.52 J to 1803.81 J (measured) over 9 runs. A run here is one task in one repeat, and its energy is the sum of the netJoules of its steps; the median, the range and the median per step of 233.29 J (measured) are taken from the measured per-step values in results/20261026T124721Z-cloudgpu.json. The cost is about USD 7 (estimated: 1.509 GPU-hours at USD 4.63 per hour; the balance difference USD 5.92 is a lower bound; docs/cloudgpu-run.md, Teardown). This row stays separate from the laptop row.
 
 [[FILL: which agent step used the largest share of local net energy, as a percentage of the summed step net joules and scoped to this workload on this laptop | source: results/TIMESTAMP-local.json fields steps.agent and steps.netJoules]]
 
@@ -74,11 +74,11 @@ The hosted endpoints do not expose the provider's GPU power, so hosted energy is
 
 NVML offers two paths, a counter and power sampling. When both are available, a calibration run measures the same window with both and commits both totals and their relative difference. When only one is available, the committed file says so.
 
-[[FILL: what the calibration run showed on this GPU: the relative difference between the counter and sampling methods, or that the counter is unsupported and no comparison was possible | source: results/calibration-TIMESTAMP.json fields counterJoules, samplingJoules and relativeDifference with their labels and reasons]]
+On the Nebius AI Cloud H100 the energy counter is supported, and the calibration run (60 s calibration, 62.18 s window) measured 20796.42 J with the counter and 20679.15 J with sampling, a relative difference of 0.0056 (0.56 percent, measured; results/calibration-20261026T124311Z-cloudgpu.json).
 
 ## What's next for Agent Joules
 
-I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the L40S for a like-for-like energy comparison.
+I want an energy budget guardrail that reroutes a step from the local tier to a hosted tier when a joule budget runs out. I also want a quantization comparison of joules per output token, and a second datacenter GPU class next to the H100 for a like-for-like energy comparison.
 
 A LinkedIn post and a long-form article follow, with every number traced to a results file.
 

@@ -23,6 +23,9 @@ public sealed class JudgeFailedThrows(IRunListener inner, string detail) : IRunL
     public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
 
     /// <inheritdoc />
+    public void SettleStarted(double seconds) => inner.SettleStarted(seconds);
+
+    /// <inheritdoc />
     public void TierCompleted(string displayPath, Totals totals) => inner.TierCompleted(displayPath, totals);
 
     /// <inheritdoc />
@@ -30,4 +33,7 @@ public sealed class JudgeFailedThrows(IRunListener inner, string detail) : IRunL
 
     /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
+
+    /// <inheritdoc />
+    public void BudgetStopDecided(string reason) => inner.BudgetStopDecided(reason);
 }

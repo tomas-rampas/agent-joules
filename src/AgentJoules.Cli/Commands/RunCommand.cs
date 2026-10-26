@@ -68,6 +68,9 @@ internal static class RunCommand
     private const string Serialized = "serialized";
     private const string Concurrent = "concurrent";
 
+    // The clock skew a CloudGpu:TierStartUtc may be ahead of the command's clock before it is a configuration failure.
+    private static readonly TimeSpan FutureTierStartSkew = TimeSpan.FromSeconds(60);
+
     private static readonly string[] TierValues = [.. TierOptions.KnownNames, "all"];
 
     internal static Command Create(CommandHost host)
@@ -212,6 +215,18 @@ internal static class RunCommand
         IReadOnlyList<Tier> tiers = preflight.SelectTiers(request.Tier);
         IReadOnlyList<TaskDefinition> tasks = LoadTasks(contentRoot, options.Paths.Tasks, request.Task);
 
+        // A tier start in the future would give a negative elapsed time and the 4-hour box would silently never apply (AJ-122): a configuration failure, checked on the clock of the command (60 s of skew allowed).
+        if (tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is { } tierStart && tierStart > startUtc + FutureTierStartSkew)
+        {
+            throw new ConfigurationException("CloudGpu:TierStartUtc is in the future; the value is not shown");
+        }
+
+        // The 4-hour box is the only guard that can fire in the middle of a run (the observed cost is fixed for the invocation), so a real cloudgpu run needs the handover time (peer review m-1); the dry run keeps the one warning.
+        if (!request.DryRun && tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is null)
+        {
+            throw new ConfigurationException("CloudGpu:TierStartUtc is required for a cloudgpu run; set it to the handover time (ISO 8601 with an offset)");
+        }
+
         // Paths:Prices is read now, a dry run included (AJ-071): the calculator is built on first resolution, and resolving it here turns a missing or invalid price file into exit 2 before any check or request.
         _ = services.GetRequiredService<ICostCalculator>();
 
@@ -246,6 +261,11 @@ internal static class RunCommand
 
         ConsoleReporter reporter = services.GetRequiredService<ConsoleReporter>();
         ReportFallbacks(reporter, result.Meters);
+        if (tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is null)
+        {
+            reporter.ReportBudgetNote(CloudGpuBudgetGuard.TierStartNotSetNote);
+        }
+
         foreach (ModelCheckEntry entry in result.Tiers)
         {
             output.WriteLine(DryRunService.FormatLine(entry));

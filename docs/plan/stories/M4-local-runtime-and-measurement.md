@@ -16,7 +16,7 @@ Exit criteria:
 - [x] `grep -cE '^#+ +(Measurement|Attribution|Baseline|Labels|Limitations)' docs/methodology.md` prints 5, and its Limitations section contains the seven required strings.
 - [x] One run file each for `local`, `nvidia` and `nebius` is committed under `results/`, plus the `results/probe-<yyyyMMddTHHmmssZ>.json` taken before the runs.
 - [x] `AJ validate results/` exits 0 and prints `Validated <n> files` with n equal to the number of committed run files.
-- [x] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, plan amendment P-1): `git log --format=%s main..milestone/M4` carries `REQ-018` in 5 subjects, `REQ-019` in 2, `REQ-020` in 4, `REQ-021` in 7, `REQ-022` in 1, `EDGE-009` in 2 and `EDGE-010` in 3 (M4 exit, 2026-10-25); `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` prints nothing.
+- [x] Commit messages match `^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:` (story id first, then the ids delivered, plan amendment P-1): `git log --format=%s c1bf939..2c9d331` (the branch range; `main..milestone/M4` prints nothing after the merge) carries `REQ-018` in 5 subjects, `REQ-019` in 2, `REQ-020` in 4, `REQ-021` in 7, `REQ-022` in 2 (the AJ-112 story commit and the peer-review fix 38a40e1), `EDGE-009` in 2 and `EDGE-010` in 3; the exit commits on main use the `M4 exit:` and `M4 exit addendum:` subjects allowed by the battery (M4 exit, 2026-10-25; corrected at the M5 kickoff); `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` prints nothing.
 
 ## Coverage
 

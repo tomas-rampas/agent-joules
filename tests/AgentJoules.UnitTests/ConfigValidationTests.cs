@@ -347,6 +347,29 @@ public sealed class ConfigValidationTests
         Assert.Contains("Baseline:MaxCoefficientOfVariation", failure.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [Trait("Spec", "REQ-021")]
+    [InlineData("3601")]
+    [InlineData("-1")]
+    public void ASettleIntervalOutsideZeroToAnHourFailsNamingBaselineSettleSeconds(string seconds)
+    {
+        ConfigurationException failure = Rejected(("Baseline:SettleSeconds", seconds));
+
+        Assert.Equal(ExitCode.InvalidArguments, failure.ExitCode);
+        Assert.Contains("Baseline:SettleSeconds", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [Trait("Spec", "REQ-021")]
+    [InlineData("0")]
+    [InlineData("2")]
+    [InlineData("3600")]
+    public void ASettleIntervalFromZeroToAnHourValidatesAndTheDefaultIsZero(string seconds)
+    {
+        Assert.Equal(0.0, new BaselineOptions().SettleSeconds);
+        Assert.Equal(double.Parse(seconds, CultureInfo.InvariantCulture), Load(("Baseline:SettleSeconds", seconds)).Baseline.SettleSeconds, Tolerance);
+    }
+
     [Fact]
     public void ASmallPositiveBaselineWindowAndLimitValidate()
     {

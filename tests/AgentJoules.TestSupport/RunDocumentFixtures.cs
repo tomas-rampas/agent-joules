@@ -465,7 +465,7 @@ public static class RunDocumentFixtures
 
     /// <summary>
     /// A <c>partial</c> document of the cloudgpu tier (AJ-087, EDGE-002): the run stopped early with one finished step, the energy method is <c>sampling</c> because it was forced (the step carries no
-    /// <c>sampling-fallback</c> flag), the energy is measured and the cost is an estimate in USD (the observed VM cost of the environment is a USD value too, measured because the schema types environment.cloudCostUsd as a measured metric).
+    /// <c>sampling-fallback</c> flag), the energy is measured and the cost is an estimate in USD (the VM cost of the environment is not-reported with the reason billed-after-run, as the run file of a real cloudgpu run writes it: the whole-run bill is known only after the run).
     /// </summary>
     /// <returns>The document.</returns>
     public static RunDocument CloudGpuPartialSampling() =>
@@ -479,8 +479,8 @@ public static class RunDocumentFixtures
                 GpuName = "Cloud GPU",
                 DriverVersion = "555.00",
                 Precision = "FP8",
-                CloudCostUsd = Metric.Measured(0.45, "USD"),
-                CloudCostObservedUtc = CommittedStartUtc.AddHours(1),
+                CloudCostUsd = Metric.NotReported(RunAssembler.BilledAfterRunReason),
+                CloudCostObservedUtc = null,
             });
 
     /// <summary>

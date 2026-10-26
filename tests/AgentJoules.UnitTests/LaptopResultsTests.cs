@@ -239,13 +239,14 @@ public sealed class LaptopResultsTests
 
     public static TheoryData<string> CommittedCalibrationFiles()
     {
+        // The HEAD names, so an untracked calibration file is not a row (K2).
         TheoryData<string> rows = [];
-        string folder = LaptopResults.ResultsFolder();
-        if (Directory.Exists(folder))
+        foreach (string name in LaptopResults.CommittedResultsFiles().Where(static name => name.IndexOf('/', "results/".Length) < 0 && name.EndsWith(".json", StringComparison.Ordinal)).Order(StringComparer.Ordinal))
         {
-            foreach (string path in Directory.EnumerateFiles(folder, "calibration-*.json").Order(StringComparer.Ordinal))
+            string file = name["results/".Length..];
+            if (file.StartsWith("calibration-", StringComparison.Ordinal) && File.Exists(Path.Combine(LaptopResults.ResultsFolder(), file)))
             {
-                rows.Add(Path.GetFileName(path));
+                rows.Add(file);
             }
         }
 

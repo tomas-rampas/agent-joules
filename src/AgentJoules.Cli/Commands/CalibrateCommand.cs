@@ -28,7 +28,8 @@ namespace AgentJoules.Cli.Commands;
 /// <c>results/calibration-&lt;yyyyMMddTHHmmssZ&gt;.json</c> with both totals and their relative difference. Only the local tier is calibrated: the hosted tiers have no GPU energy, so the command has no <c>--tier</c>; it
 /// reads <c>Tiers:local</c> and <c>Local:Runtime</c> as <c>run --tier local</c> does and makes the same checks in the same order (the task, the output folder, the keys, the runtime and its model, the GPU), with the same exit
 /// codes: 2 for a bad option or an unknown task, 1 for an output folder that cannot be written or a file that exists, 4 for a model the runtime does not list, 5 for a runtime that does not answer or a workflow step that fails, 6 for no GPU.
-/// Invalid option values (<c>--seconds 0</c>, a blank <c>--out</c>) are parse errors, so the command line exits 2 before any host is built.
+/// Invalid option values (<c>--seconds 0</c>, a blank <c>--out</c>, a <c>--suffix</c> that is not 1 to 20 ASCII letters or digits) are parse errors, so the command line exits 2 before any host is built.
+/// <c>--suffix</c> (AJ-124, EDGE-015) is appended to the file name, as <c>probe --save --suffix</c> does: <c>--suffix cloudgpu</c> writes <c>calibration-&lt;yyyyMMddTHHmmssZ&gt;-cloudgpu.json</c>, the file of a calibration made on the rented VM.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -59,17 +60,25 @@ internal static class CalibrateCommand
         seconds.Validators.Add(static result => RunCommand.RequireAtLeast(result, 1, "--seconds must be 1 or more"));
         var output = new Option<string>("--out") { Description = "The folder of the calibration file, relative to the working directory unless absolute.", DefaultValueFactory = static _ => RunCommand.DefaultOut };
         output.Validators.Add(static result => RunCommand.RequireNotBlank(result, "--out must not be blank"));
+        var suffix = new Option<string>("--suffix") { Description = "1 to 20 ASCII letters or digits appended to the file name, for example cloudgpu." };
+        suffix.Validators.Add(static result =>
+        {
+            if (result.Tokens.Count == 1 && !CalibrationFile.IsValidSuffix(result.Tokens[0].Value))
+            {
+                result.AddError("--suffix must be 1 to 20 ASCII letters or digits");
+            }
+        });
         Option<bool> noConsoleTelemetry = TelemetryOptions.CreateNoConsoleTelemetry();
         var config = new Option<string>("--config") { Description = "Path of the configuration file (default config/appsettings.json)." };
 
         var command = new Command("calibrate", "Measure one window of the task workflow with the energy counter and with power sampling at once and write both totals and their relative difference.")
         {
-            task, seconds, output, noConsoleTelemetry, config,
+            task, seconds, output, suffix, noConsoleTelemetry, config,
         };
 
         command.SetAction((parseResult, cancellationToken) =>
         {
-            var request = new CalibrateRequest(parseResult.GetValue(task), parseResult.GetRequiredValue(seconds), parseResult.GetRequiredValue(output));
+            var request = new CalibrateRequest(parseResult.GetValue(task), parseResult.GetRequiredValue(seconds), parseResult.GetRequiredValue(output), parseResult.GetValue(suffix));
             bool consoleEnabled = !parseResult.GetValue(noConsoleTelemetry);
 
             return host.RunAsync(
@@ -118,7 +127,7 @@ internal static class CalibrateCommand
             throw new AgentJoulesException(ExitCode.Unexpected, $"The output directory \"{TextEcho.ForMessage(request.Out)}\" cannot be written ({failure.GetType().Name}).");
         }
 
-        string path = CalibrationFile.Prepare(directory, CalibrationFile.Name(startUtc), redactor, request.Out);
+        string path = CalibrationFile.Prepare(directory, CalibrationFile.Name(startUtc, request.Suffix), redactor, request.Out);
 
         // The checks of run --tier local, minus the judge: the key of the tier, the runtime and its model, the GPU. Nothing is scored, so the judge key and the judge model are not asked for.
         KeyCheckResult keys = preflight.CheckKeys(tiers, dryRun: false);
@@ -137,5 +146,5 @@ internal static class CalibrateCommand
     }
 
     // The parsed command line; the values were validated by the parser.
-    private sealed record CalibrateRequest(string? Task, int Seconds, string Out);
+    private sealed record CalibrateRequest(string? Task, int Seconds, string Out, string? Suffix);
 }

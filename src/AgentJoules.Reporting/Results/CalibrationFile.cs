@@ -11,7 +11,7 @@ using AgentJoules.Reporting.Json;
 namespace AgentJoules.Reporting.Results;
 
 /// <summary>
-/// The name and the writer of <c>results/calibration-&lt;yyyyMMddTHHmmssZ&gt;.json</c> (REQ-021, AJ-109). The name carries the start of the command, in UTC, so a name never matches
+/// The name and the writer of <c>results/calibration-&lt;yyyyMMddTHHmmssZ&gt;[-&lt;suffix&gt;].json</c> (REQ-021, AJ-109; the suffix is AJ-124, EDGE-015: <c>-cloudgpu</c> for a calibration made on the rented VM). The name carries the start of the command, in UTC, so a name never matches
 /// <see cref="RunFileName.Pattern"/>: the run-file selector, the report and <c>validate</c> never open a calibration file. The file is written once, whole, after the window: to a partial file first,
 /// flushed to the device, then moved onto its name without replacing anything, so a name that exists is refused (exit code 1) both before the measurement starts (<see cref="Prepare"/>) and when the file is installed
 /// (<see cref="Write"/>).
@@ -19,7 +19,9 @@ namespace AgentJoules.Reporting.Results;
 public static partial class CalibrationFile
 {
     /// <summary>The pattern of a calibration file name.</summary>
-    public const string Pattern = "^calibration-\\d{8}T\\d{6}Z\\.json$";
+    public const string Pattern = "^calibration-\\d{8}T\\d{6}Z(-[A-Za-z0-9]{1,20})?\\.json$";
+
+    private const string SuffixRule = "^[A-Za-z0-9]{1,20}\\z";
 
     private const string TimestampFormat = "yyyyMMdd'T'HHmmss'Z'";
     private const string PartialSuffix = ".partial";
@@ -28,9 +30,20 @@ public static partial class CalibrationFile
 
     /// <summary>The name of the calibration file of a command that started at <paramref name="startUtc"/>.</summary>
     /// <param name="startUtc">The start of the command; converted to UTC.</param>
-    /// <returns>For example <c>calibration-20261021T100000Z.json</c>.</returns>
-    public static string Name(DateTimeOffset startUtc) =>
-        string.Create(CultureInfo.InvariantCulture, $"calibration-{startUtc.UtcDateTime.ToString(TimestampFormat, CultureInfo.InvariantCulture)}.json");
+    /// <param name="suffix">An already validated suffix (<see cref="IsValidSuffix"/>), or null for none.</param>
+    /// <returns>For example <c>calibration-20261021T100000Z.json</c>, or <c>calibration-20261021T100000Z-cloudgpu.json</c> with a suffix.</returns>
+    /// <exception cref="ArgumentException">The suffix is not null and is not a suffix (<see cref="IsValidSuffix"/>).</exception>
+    public static string Name(DateTimeOffset startUtc, string? suffix = null)
+    {
+        string tail = suffix is null ? string.Empty : IsValidSuffix(suffix) ? "-" + suffix : throw new ArgumentException("The suffix must be 1 to 20 ASCII letters or digits.", nameof(suffix));
+
+        return string.Create(CultureInfo.InvariantCulture, $"calibration-{startUtc.UtcDateTime.ToString(TimestampFormat, CultureInfo.InvariantCulture)}{tail}.json");
+    }
+
+    /// <summary>True when <paramref name="suffix"/> is 1 to 20 ASCII letters or digits.</summary>
+    /// <param name="suffix">The suffix.</param>
+    /// <returns>Whether it is a suffix.</returns>
+    public static bool IsValidSuffix(string? suffix) => suffix is not null && SuffixPattern().IsMatch(suffix);
 
     /// <summary>True when <paramref name="name"/> is exactly a calibration file name: nothing before it, nothing after it (a final line feed included).</summary>
     /// <param name="name">The file name, without a folder.</param>
@@ -171,4 +184,8 @@ public static partial class CalibrationFile
     // ECMAScript makes \d mean 0-9 only; without it .NET matches the digits of every script.
     [GeneratedRegex(Pattern, RegexOptions.CultureInvariant | RegexOptions.ECMAScript)]
     private static partial Regex NamePattern();
+
+    // \z, not $: a dollar anchor also matches before a final line feed.
+    [GeneratedRegex(SuffixRule, RegexOptions.CultureInvariant | RegexOptions.ECMAScript)]
+    private static partial Regex SuffixPattern();
 }

@@ -21,6 +21,21 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     public void BaselineMeasured(BaselineResult baseline) => _reporter.ReportBaseline(baseline);
 
     /// <inheritdoc />
+    public void SettleStarted(double seconds) => _reporter.ReportSettle(seconds);
+
+    /// <inheritdoc />
+    public void BudgetNote(string note) => _reporter.ReportBudgetNote(note);
+
+    /// <inheritdoc />
+    public void BudgetTiersSkipped(IReadOnlyList<string> tiers) => _reporter.ReportBudgetTiersSkipped(tiers);
+
+    /// <inheritdoc />
+    public void BudgetStopDecided(string reason) => _reporter.ReportBudgetStopDecided(reason);
+
+    /// <inheritdoc />
+    public void BudgetStopped(string reason) => _reporter.ReportBudgetStopped(reason);
+
+    /// <inheritdoc />
     public void TierCompleted(string displayPath, Totals totals) => _reporter.ReportTierCompleted(displayPath, totals);
 
     /// <inheritdoc />
@@ -37,4 +52,7 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
 
     /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => _reporter.ReportTierFailed(displayPath, agent, status);
+
+    /// <inheritdoc />
+    public void ConnectionLost() => _reporter.ReportConnectionLost();
 }

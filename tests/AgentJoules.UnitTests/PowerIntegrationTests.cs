@@ -6,7 +6,10 @@ using AgentJoules.Core.Cli;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Gpu;
 using AgentJoules.Core.Labels;
+using AgentJoules.Core.Results;
 using AgentJoules.Nvml.Interop;
+using AgentJoules.Reporting.Readme;
+using AgentJoules.Reporting.Render;
 using AgentJoules.TestSupport;
 
 using Microsoft.Extensions.Time.Testing;
@@ -1800,5 +1803,98 @@ public sealed class PowerIntegrationTests
         Assert.Equal(AllThrottleNames, ThrottleReasons.AllNames.ToArray());
         Assert.Same(ThrottleReasons.AllNames, ThrottleReasons.AllNames);
         Assert.IsNotType<string[]>(ThrottleReasons.AllNames);
+    }
+
+    /// <summary>
+    /// AJ-124 (EDGE-015): the energy method of the cloudgpu tier when the VM GPU gives no energy counter. The runs are the real <c>run --tier cloudgpu</c> command on the fake clock of <see cref="LocalRunRig"/> against a scripted GPU;
+    /// the report and the README block are rendered from the run file the command wrote. A nested class so that the <c>Spec=EDGE-015</c> trait does not tag the other power tests.
+    /// </summary>
+    [Trait("Spec", "EDGE-015")]
+    public sealed class CloudGpuSampling
+    {
+        private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(60);
+
+        private static async Task<(CliRunResult Result, JsonElement[] Steps, string[] RunFiles)> RunAsync(LocalRunRig rig, string command = CloudGpuMeterRig.RunCommand)
+        {
+            CliRunResult result = await rig.RunAsync(command).WaitAsync(HangGuard);
+            Assert.True(result.ExitCode == 0, $"exit code {result.ExitCode}; stdout: {result.Stdout}; stderr: {result.Stderr}");
+            string[] files = rig.RunFiles();
+            using JsonDocument document = rig.ReadRunFile();
+
+            // The steps are cloned: a cloned element stays valid after the document is disposed.
+            return (result, [.. CloudGpuMeterRig.ReadingSteps(document).Select(static step => step.Clone())], files);
+        }
+
+        [Fact]
+        public async Task A_supported_counter_keeps_the_counter_method_and_prints_no_fallback_line()
+        {
+            using LocalRunRig rig = CloudGpuMeterRig.Create(counterSupported: true);
+
+            (CliRunResult result, JsonElement[] steps, _) = await RunAsync(rig);
+
+            Assert.NotEmpty(steps);
+            Assert.All(steps, static step => Assert.Equal("counter", step.GetProperty("method").GetString()));
+            Assert.All(steps, static step => Assert.DoesNotContain("sampling-fallback", CloudGpuMeterRig.FlagsOf(step)));
+            Assert.DoesNotContain(CloudGpuMeterRig.FallbackLine, result.Stdout + result.Stderr, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task An_unsupported_counter_falls_back_to_sampling_with_the_flag_and_the_console_line()
+        {
+            using LocalRunRig rig = CloudGpuMeterRig.Create(counterSupported: false);
+
+            (CliRunResult result, JsonElement[] steps, _) = await RunAsync(rig);
+
+            Assert.NotEmpty(steps);
+            Assert.All(steps, static step => Assert.Equal("sampling", step.GetProperty("method").GetString()));
+            Assert.All(steps, static step => Assert.Contains("sampling-fallback", CloudGpuMeterRig.FlagsOf(step)));
+            _ = Assert.Single(result.StderrLines, static line => line == CloudGpuMeterRig.FallbackLine);
+        }
+
+        [Fact]
+        public async Task A_forced_sampling_method_on_a_supported_counter_is_sampling_without_the_fallback_flag()
+        {
+            using LocalRunRig rig = CloudGpuMeterRig.Create(counterSupported: true, meterMethod: "sampling");
+
+            (CliRunResult result, JsonElement[] steps, _) = await RunAsync(rig);
+
+            Assert.NotEmpty(steps);
+            Assert.All(steps, static step => Assert.Equal("sampling", step.GetProperty("method").GetString()));
+            Assert.All(steps, static step => Assert.DoesNotContain("sampling-fallback", CloudGpuMeterRig.FlagsOf(step)));
+            Assert.DoesNotContain(CloudGpuMeterRig.FallbackLine, result.Stdout + result.Stderr, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData("run --tier cloudgpu --dry-run")]
+        [InlineData(CloudGpuMeterRig.RunCommand)]
+        public async Task A_forced_counter_method_with_an_unsupported_counter_exits_6_and_writes_no_run_file(string command)
+        {
+            using LocalRunRig rig = CloudGpuMeterRig.Create(counterSupported: false, meterMethod: "counter");
+
+            CliRunResult result = await rig.RunAsync(command).WaitAsync(HangGuard);
+
+            Assert.Equal(6, result.ExitCode);
+            Assert.Contains("Meter:Method=counter", result.Stderr, StringComparison.Ordinal);
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Fact]
+        public async Task The_report_header_and_the_readme_row_disclose_sampling_for_a_cloudgpu_run_file()
+        {
+            using LocalRunRig rig = CloudGpuMeterRig.Create(counterSupported: false);
+            _ = await RunAsync(rig);
+
+            string summary = await rig.SummaryAsync();
+
+            string[] header = [.. summary.Split('\n').Where(static line => line.Contains("Energy method:", StringComparison.Ordinal))];
+            Assert.Equal("  - " + ReportSentences.SamplingFallback, Assert.Single(header));
+            Assert.Equal("Energy method: sampling (counter unsupported)", ReportSentences.SamplingFallback);
+            Assert.Contains(summary.Split('\n'), static line => line.StartsWith("- cloudgpu:", StringComparison.Ordinal));
+
+            RunDocument document = RunDocumentFixtures.Read(File.ReadAllText(Assert.Single(rig.RunFiles())));
+            string block = ReadmeResultsBlock.Render(ReportAggregator.Build([ReportRunFixtures.Wrap(document)]), dashboardScreenshotExists: false);
+            string row = Assert.Single(block.Split('\n'), static line => line.StartsWith("| cloudgpu |", StringComparison.Ordinal));
+            Assert.Matches(@"\| sampling \|$", row);
+        }
     }
 }
