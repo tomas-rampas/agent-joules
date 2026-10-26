@@ -48,7 +48,7 @@ public static partial class CloudGpuTaglineRule
     [GeneratedRegex(@"(?<=[.!?])\s+(?=[A-Z\[""(`*])", RegexOptions.CultureInvariant)]
     private static partial Regex SentenceBreak();
 
-    /// <summary>Derives the tier state from the committed results files. A selectable <c>partial</c> file with no step whose <c>outcome</c> is <c>ok</c> counts as <c>absent</c>.</summary>
+    /// <summary>Derives the tier state from the committed results files. A <c>partial</c> file with no step whose <c>outcome</c> is <c>ok</c> is skipped, as the selector skips it.</summary>
     /// <param name="committedResultsFiles">The paths or names of the committed files of <c>results/</c>; only the file name of each is used to choose, and the path as given is passed to <paramref name="readFile"/>.</param>
     /// <param name="readFile">Returns the text of a file, by the path as given.</param>
     /// <returns>The state.</returns>
@@ -66,10 +66,13 @@ public static partial class CloudGpuTaglineRule
         {
             if (Header(readFile(path)) is { } header)
             {
-                // A partial file with no ok step (the box expired during warm-up) holds no measurement: it counts as absent for the tagline (gatekeeper round 2 m-4).
-                return header.Status == "partial" && header.OkSteps == 0
-                    ? new CloudGpuTierState(Absent, null, null, null)
-                    : new CloudGpuTierState(header.Status == "completed" ? Complete : Partial, name, header.GpuName, header.Status);
+                // A partial file with no ok step (the box expired during warm-up) holds no measurement: the selector skips it (partial-without-ok-step, peer review m-2), so the rule skips it too and an older valid file stands.
+                if (header.Status == "partial" && header.OkSteps == 0)
+                {
+                    continue;
+                }
+
+                return new CloudGpuTierState(header.Status == "completed" ? Complete : Partial, name, header.GpuName, header.Status);
             }
         }
 
@@ -265,6 +268,7 @@ public static partial class CloudGpuTaglineRule
     }
 
     // The status, GPU name and count of ok steps of a selectable header: completed or partial, without the non-publishable flag, for the cloudgpu tier; null for everything else.
+    // A file without a steps array (or with a steps value that is not an array) is not skipped by the selector, which leaves it to the full read (peer review n-3): it is counted as one ok step here, so the rule keeps it selectable too.
     private static (string Status, string? GpuName, int OkSteps)? Header(string json)
     {
         try
@@ -305,7 +309,7 @@ public static partial class CloudGpuTaglineRule
 
             int okSteps = root.TryGetProperty("steps", out JsonElement steps) && steps.ValueKind == JsonValueKind.Array
                 ? steps.EnumerateArray().Count(static step => step.ValueKind == JsonValueKind.Object && step.TryGetProperty("outcome", out JsonElement outcome) && outcome.ValueKind == JsonValueKind.String && outcome.GetString() == "ok")
-                : 0;
+                : 1;
 
             return (status, gpu, okSteps);
         }

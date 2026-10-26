@@ -76,6 +76,9 @@ public sealed class CloudGpuBudgetRig : IDisposable
 
         // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself; the run here is a fake and has no host.
         rig.Setup.Settings["AgentJoules:CloudGpu:RequireSshVariables"] = "false";
+
+        // A real cloudgpu run needs the handover time (peer review m-1): the default is the start of the fake clock, so no time box fires unless a test moves the clock or sets another start.
+        rig.Setup.Settings["AgentJoules:CloudGpu:TierStartUtc"] = ClockStart.ToString("O", CultureInfo.InvariantCulture);
         return new CloudGpuBudgetRig(rig, cloud);
     }
 
@@ -91,6 +94,9 @@ public sealed class CloudGpuBudgetRig : IDisposable
     /// <summary>Sets <c>CloudGpu:TierStartUtc</c>.</summary>
     /// <param name="start">The instant the tier started.</param>
     public void SetTierStart(DateTimeOffset start) => Set("TierStartUtc", start.ToString("O", CultureInfo.InvariantCulture));
+
+    /// <summary>Removes <c>CloudGpu:TierStartUtc</c>, as a builder who forgot the handover time would run.</summary>
+    public void ClearTierStart() => _ = _rig.Setup.Settings.Remove("AgentJoules:CloudGpu:TierStartUtc");
 
     /// <summary>Moves the fake clock by <paramref name="by"/> as the answer to the <paramref name="completion"/>-th chat completion is returned.</summary>
     /// <param name="completion">The 1-based number of the completion.</param>

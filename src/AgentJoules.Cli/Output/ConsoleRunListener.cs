@@ -30,6 +30,9 @@ internal sealed class ConsoleRunListener(ConsoleReporter reporter) : IRunListene
     public void BudgetTiersSkipped(IReadOnlyList<string> tiers) => _reporter.ReportBudgetTiersSkipped(tiers);
 
     /// <inheritdoc />
+    public void BudgetStopDecided(string reason) => _reporter.ReportBudgetStopDecided(reason);
+
+    /// <inheritdoc />
     public void BudgetStopped(string reason) => _reporter.ReportBudgetStopped(reason);
 
     /// <inheritdoc />

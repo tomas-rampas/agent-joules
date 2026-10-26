@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace AgentJoules.TestSupport;
@@ -25,6 +26,7 @@ public static class CloudGpuMeterRig
 
         // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself; the run here is a fake and has no host.
         rig.Setup.Settings["AgentJoules:CloudGpu:RequireSshVariables"] = "false";
+        rig.Setup.Settings["AgentJoules:CloudGpu:TierStartUtc"] = CloudGpuBudgetRig.ClockStart.ToString("O", CultureInfo.InvariantCulture);
         if (meterMethod is not null)
         {
             rig.Setup.Settings["AgentJoules:Meter:Method"] = meterMethod;

@@ -83,4 +83,11 @@ public sealed class OrderRecordingListener(IRunListener inner, Func<string?> sta
         _calls.Enqueue(nameof(TierFailed));
         inner.TierFailed(displayPath, agent, status);
     }
+
+    /// <inheritdoc />
+    public void BudgetStopDecided(string reason)
+    {
+        _calls.Enqueue(nameof(BudgetStopDecided));
+        inner.BudgetStopDecided(reason);
+    }
 }

@@ -955,6 +955,7 @@ public sealed class LocalRuntimeTests
 
             // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself (CloudGpu:RequireSshVariables); the run here is a fake and has no host.
             rig.Setup.Settings["AgentJoules:CloudGpu:RequireSshVariables"] = "false";
+            rig.Setup.Settings["AgentJoules:CloudGpu:TierStartUtc"] = CloudGpuBudgetRig.ClockStart.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
             CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
 

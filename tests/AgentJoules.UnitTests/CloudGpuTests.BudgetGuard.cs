@@ -232,16 +232,32 @@ public sealed partial class CloudGpuTests
         }
 
         [Fact]
-        public async Task A_missing_tier_start_warns_once_and_the_run_completes()
+        public async Task A_missing_tier_start_warns_once_on_a_dry_run()
         {
             using CloudGpuBudgetRig rig = CloudGpuBudgetRig.Create();
             rig.SetObservedCost(1.00);
+            rig.ClearTierStart();
 
-            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 2 --task " + Task);
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --dry-run");
 
             AssertExit(0, result);
             Assert.Single(result.StderrLines, static line => line == "Warning: " + CloudGpuBudgetGuard.TierStartNotSetNote);
             Assert.DoesNotContain(CloudGpuBudgetGuard.TierStartNotSetNote, result.Stdout, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task A_missing_tier_start_on_a_real_cloudgpu_run_exits_2_before_any_work()
+        {
+            using CloudGpuBudgetRig rig = CloudGpuBudgetRig.Create();
+            rig.SetObservedCost(1.00);
+            rig.ClearTierStart();
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 2 --task " + Task);
+
+            AssertExit(2, result);
+            Assert.Contains("CloudGpu:TierStartUtc is required for a cloudgpu run; set it to the handover time (ISO 8601 with an offset)", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(0, rig.Completions);
+            Assert.Empty(rig.RunFiles());
         }
 
         // ---- between iterations (criterion 2) ----
@@ -270,6 +286,7 @@ public sealed partial class CloudGpuTests
             Assert.Equal("partial", run.GetProperty("status").GetString());
             Assert.Equal("time-box", run.GetProperty("stopReason").GetString());
             Assert.Equal(2, document.RootElement.GetProperty("steps").EnumerateArray().Select(static step => step.GetProperty("repeat").GetInt32()).Distinct().Count());
+            Assert.Contains("Warning: Budget stop (time-box): no further work started; the judge pass and the final write follow; do not delete the VM yet", result.StderrLines);
             Assert.Contains("Warning: Budget stop (time-box): no further work started; copy the results and delete the VM now", result.StderrLines);
             Assert.Equal("Warning: Budget stop (time-box): no further work started; copy the results and delete the VM now", result.StderrLines.Last(static line => line.Length > 0));
             Assert.DoesNotContain(result.StderrLines, static line => line.Contains("tiers skipped", StringComparison.Ordinal));
@@ -282,8 +299,9 @@ public sealed partial class CloudGpuTests
             Assert.Equal("registry.example/nim/llm", environment.GetProperty("containerImage").GetString());
             Assert.Equal("sha256:abc123", environment.GetProperty("containerDigest").GetString());
             JsonElement cost = environment.GetProperty("cloudCostUsd");
-            Assert.Equal(6.0, cost.GetProperty("value").GetDouble());
-            Assert.Equal("measured", cost.GetProperty("label").GetString());
+            Assert.Equal("not-reported", cost.GetProperty("label").GetString());
+            Assert.Equal("billed-after-run", cost.GetProperty("reason").GetString());
+            Assert.Equal(JsonValueKind.Null, cost.GetProperty("value").ValueKind);
         }
 
         // ---- a stop ends the whole plan (EDGE-017) ----
@@ -305,8 +323,28 @@ public sealed partial class CloudGpuTests
             Assert.Equal(["cloudgpu", "local"], tiers);
             Assert.Equal(perRepeat, rig.Completions);
             string[] lines = [.. result.StderrLines.Where(static line => line.Length > 0)];
-            Assert.Equal("Warning: Budget stop: tiers skipped: nvidia, nebius", lines[^2]);
+            Assert.Equal("Warning: Budget stop: tiers skipped: nvidia, nebius", lines[^3]);
+            Assert.Equal("Warning: Budget stop (time-box): no further work started; the judge pass and the final write follow; do not delete the VM yet", lines[^2]);
             Assert.Equal("Warning: Budget stop (time-box): no further work started; copy the results and delete the VM now", lines[^1]);
+        }
+
+        [Fact]
+        public async Task The_early_stop_lines_are_told_before_the_judge_pass_and_the_stop_line_after_the_closing_line_of_the_tier()
+        {
+            int perRepeat = await CloudGpuBudgetRig.CompletionsPerRepeatAsync(Task);
+            using CloudGpuBudgetRig rig = CloudGpuBudgetRig.Create();
+            rig.EnableAllTiers();
+            rig.SetObservedCost(6.00);
+            rig.SetTierStart(CloudGpuBudgetRig.ClockStart);
+            rig.AdvanceAtCompletion(perRepeat, TimeSpan.FromHours(4));
+            List<string> order = [];
+            rig.DecorateListener(inner => new OrderRecorder(inner, order));
+
+            CliRunResult result = await rig.RunAsync("run --tier all --repeat 3 --task " + Task);
+
+            AssertExit(0, result);
+            // The local tier closes first; the cloudgpu tier tells the early notice when the stop is decided and the stop line (copy and delete) after its own closing line.
+            Assert.Equal(["TierCompleted", "BudgetTiersSkipped", "BudgetStopDecided", "TierCompleted", "BudgetStopped"], order);
         }
 
         // ---- the configuration of the budget (AJ-122 fix round 1) ----
@@ -467,7 +505,51 @@ public sealed partial class CloudGpuTests
 
             public void BudgetTiersSkipped(IReadOnlyList<string> tiers) => throw new IOException(detail);
 
+            public void BudgetStopDecided(string reason) => throw new IOException(detail);
+
             public void BudgetStopped(string reason) => throw new IOException(detail);
+        }
+
+        /// <summary>The run listener of the command, except that it records the order of the budget lines and the closing line of the tier.</summary>
+        private sealed class OrderRecorder(IRunListener inner, List<string> order) : IRunListener
+        {
+            public void StepFinished(StepReading reading) => inner.StepFinished(reading);
+
+            public void CheckpointFailed(string exceptionTypeName, bool previousCheckpointKept, CheckpointKind kind) => inner.CheckpointFailed(exceptionTypeName, previousCheckpointKept, kind);
+
+            public void BaselineMeasured(BaselineResult baseline) => inner.BaselineMeasured(baseline);
+
+            public void SettleStarted(double seconds) => inner.SettleStarted(seconds);
+
+            public void TierCompleted(string displayPath, Totals totals)
+            {
+                order.Add("TierCompleted");
+                inner.TierCompleted(displayPath, totals);
+            }
+
+            public void JudgeFailed(Tier tier, int failedSteps, int judgedSteps, IReadOnlyList<string> failureKinds) => inner.JudgeFailed(tier, failedSteps, judgedSteps, failureKinds);
+
+            public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
+
+            public void BudgetNote(string note) => inner.BudgetNote(note);
+
+            public void BudgetTiersSkipped(IReadOnlyList<string> tiers)
+            {
+                order.Add("BudgetTiersSkipped");
+                inner.BudgetTiersSkipped(tiers);
+            }
+
+            public void BudgetStopDecided(string reason)
+            {
+                order.Add("BudgetStopDecided");
+                inner.BudgetStopDecided(reason);
+            }
+
+            public void BudgetStopped(string reason)
+            {
+                order.Add("BudgetStopped");
+                inner.BudgetStopped(reason);
+            }
         }
     }
 }

@@ -28,7 +28,7 @@ namespace AgentJoules.Core.Results;
 /// <param name="ContainerImage">The NIM container image of a cloudgpu run, or null.</param>
 /// <param name="ContainerDigest">The digest of the container image, or null.</param>
 /// <param name="Precision">The model precision (for example <c>FP8</c>), or null.</param>
-/// <param name="CloudCostUsd">The observed cost of the VM in USD; N/A on a tier without a rented VM.</param>
+/// <param name="CloudCostUsd">The billed cost of the VM in USD, not-reported billed-after-run on the cloudgpu tier (the bill is recorded in docs/cloudgpu-run.md); N/A not-cloudgpu elsewhere.</param>
 /// <param name="EnergyScope">What the energy figures cover; <see cref="GpuBoardOnly"/>.</param>
 /// <param name="Assumptions">The factors behind the cost and carbon figures.</param>
 /// <param name="Models">The model each agent used; no element is null.</param>

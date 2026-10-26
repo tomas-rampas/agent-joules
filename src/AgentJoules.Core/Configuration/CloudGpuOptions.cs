@@ -39,13 +39,13 @@ public sealed class CloudGpuOptions
     public string? HourlyPriceSource { get; set; }
 
     /// <summary>
-    /// Key <c>CloudGpu:TierStartUtc</c>, default null: the instant the VM started billing, as an ISO 8601 time with an explicit offset (<c>Z</c> or <c>+hh:mm</c>); a value without an offset fails the configuration check, and so does one more than 60 s in the future (the command checks it against its clock). While it is null the 4-hour box is not enforced and the command says so once (AJ-122).
+    /// Key <c>CloudGpu:TierStartUtc</c>, default null: the instant the VM started billing, as an ISO 8601 time with an explicit offset (<c>Z</c> or <c>+hh:mm</c>); a value without an offset fails the configuration check, and so does one more than 60 s in the future (the command checks it against its clock). A real (non-dry) cloudgpu run requires it and exits 2 without it (peer review m-1); a dry run only warns once that the 4-hour box is not enforced (AJ-122).
     /// </summary>
     public DateTimeOffset? TierStartUtc { get; set; }
 
     /// <summary>
     /// Key <c>CloudGpu:ObservedCostUsd</c>, default null: the cost the billing page shows, in USD, reported by the user through <c>AGENTJOULES__CloudGpu__ObservedCostUsd</c> before each invocation; zero or more when set.
-    /// While it is null the cost cap is not reached and <c>environment.cloudCostUsd</c> is not-reported.
+    /// While it is null the cost cap is not reached; the value is a budget-guard input only and is never written to the run file (<c>environment.cloudCostUsd</c> is not-reported billed-after-run on the cloudgpu tier).
     /// </summary>
     [MinimumValue(0.0, ErrorMessage = "CloudGpu:ObservedCostUsd must be a finite number of zero or more when it is set")]
     public double? ObservedCostUsd { get; set; }

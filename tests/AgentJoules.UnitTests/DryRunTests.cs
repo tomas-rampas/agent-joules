@@ -354,7 +354,7 @@ public sealed partial class DryRunTests
         var endpoints = new Dictionary<string, HttpMessageHandler> { ["cloudgpu"] = Lists(ModelOf("cloudgpu")), ["nvidia"] = Lists(JudgeModel) };
         CliRunResult result = await RunAsync(
             "run --tier cloudgpu --dry-run",
-            Settings(("AgentJoules:Tiers:cloudgpu:Enabled", "true"), ("AgentJoules:CloudGpu:RequireSshVariables", "false"), ("NVIDIA_API_KEY", Key())),
+            Settings(("AgentJoules:Tiers:cloudgpu:Enabled", "true"), ("AgentJoules:CloudGpu:RequireSshVariables", "false"), ("AgentJoules:CloudGpu:TierStartUtc", "2026-01-01T00:00:00Z"), ("NVIDIA_API_KEY", Key())),
             endpoints,
             ScriptedGpu());
 

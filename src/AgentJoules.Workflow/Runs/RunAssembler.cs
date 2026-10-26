@@ -54,8 +54,8 @@ public static class RunAssembler
     /// <summary>The reason of <c>environment.cloudCostUsd</c> on every tier other than <c>cloudgpu</c>: no VM is rented.</summary>
     public const string NotCloudGpuReason = "not-cloudgpu";
 
-    /// <summary>The reason of <c>environment.cloudCostUsd</c> on <c>cloudgpu</c> while no cost was observed (<c>CloudGpu:ObservedCostUsd</c> not set, AJ-122).</summary>
-    public const string NotObservedReason = "not-observed";
+    /// <summary>The reason of <c>environment.cloudCostUsd</c> on <c>cloudgpu</c>: the whole-run bill is known only after the invocation, so the run file states it as not reported and the final bill is recorded in the Cost and Teardown sections of <c>docs/cloudgpu-run.md</c> (peer review M-1). <c>CloudGpu:ObservedCostUsd</c> is a budget-guard input only.</summary>
+    public const string BilledAfterRunReason = "billed-after-run";
 
     /// <summary>The reason of every currency of <c>costByCurrency</c> when at least one step carries no cost: a partial sum would understate the run.</summary>
     public const string MissingStepCostsReason = "missing-step-costs";
@@ -179,9 +179,7 @@ public static class RunAssembler
             ContainerImage: Text(rented?.ContainerImage),
             ContainerDigest: Text(rented?.ContainerDigest),
             Precision: PrecisionOf(runtime, tierOptions),
-            CloudCostUsd: tier != Tier.CloudGpu
-                ? Metric.NotApplicable(NotCloudGpuReason)
-                : rented?.ObservedCostUsd is { } observed ? Metric.MeasuredCost(observed, CostCalculator.CloudGpuCurrency) : Metric.NotReported(NotObservedReason),
+            CloudCostUsd: tier == Tier.CloudGpu ? Metric.NotReported(BilledAfterRunReason) : Metric.NotApplicable(NotCloudGpuReason),
             EnergyScope: EnvironmentInfo.GpuBoardOnly,
             Assumptions: new EnvironmentAssumptions(
                 Metric.Estimated(assumed.ElectricityPricePerKwh, assumed.Currency),

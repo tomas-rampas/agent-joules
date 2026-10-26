@@ -19,7 +19,7 @@ public static partial class MethodologyDocumentParser
     public const string OpenApplicationsSentence = "The 2026-10-25 campaign that produced the published local file ran with the user's other GPU applications open (the user's decision of 12:32Z recorded in the AJ-114 entry of docs/build-log.md), so that load sits in the baseline and in every local window.";
 
     /// <summary>The Baseline sentence that discloses the missing settle interval (m-4).</summary>
-    public const string BaselineSettleSentence = "The baseline window starts after the warm-up call returns and the runtime version call that follows it (a few milliseconds), plus the configured settle interval Baseline:SettleSeconds (default 0, as in the published runs).";
+    public const string BaselineSettleSentence = "The baseline window starts after the warm-up call returns and the runtime version call that follows it, plus the configured settle interval Baseline:SettleSeconds (default 0, as in the published runs).";
 
     private const string BaselineHeading = "Baseline";
     private static readonly string[] Tiers = ["local", "nebius", "nvidia"];

@@ -35,7 +35,7 @@ public sealed partial class CloudGpuTests
         };
 
         [Fact]
-        public void The_cloudgpu_tier_writes_the_five_fields_and_the_measured_cost()
+        public void The_cloudgpu_tier_writes_the_five_fields_and_the_cost_as_billed_after_the_run()
         {
             EnvironmentInfo environment = Build(Tier.CloudGpu, Rented());
 
@@ -44,9 +44,9 @@ public sealed partial class CloudGpuTests
             Assert.Equal("eu-north1", environment.Region);
             Assert.Equal("registry.example/nim/llm", environment.ContainerImage);
             Assert.Equal("sha256:abc123", environment.ContainerDigest);
-            Assert.Equal(MetricLabel.Measured, environment.CloudCostUsd.Label);
-            Assert.Equal(12.4, environment.CloudCostUsd.Value);
-            Assert.Equal("USD", environment.CloudCostUsd.Currency);
+            Assert.Equal(MetricLabel.NotReported, environment.CloudCostUsd.Label);
+            Assert.Equal(RunAssembler.BilledAfterRunReason, environment.CloudCostUsd.Reason);
+            Assert.Null(environment.CloudCostUsd.Value);
         }
 
         [Fact]
@@ -90,7 +90,7 @@ public sealed partial class CloudGpuTests
         }
 
         [Fact]
-        public void A_cost_that_was_not_observed_is_not_reported()
+        public void A_cost_that_was_not_observed_is_billed_after_the_run_too()
         {
             CloudGpuOptions options = Rented();
             options.ObservedCostUsd = null;
@@ -98,7 +98,7 @@ public sealed partial class CloudGpuTests
             Metric cost = Build(Tier.CloudGpu, options).CloudCostUsd;
 
             Assert.Equal(MetricLabel.NotReported, cost.Label);
-            Assert.Equal(RunAssembler.NotObservedReason, cost.Reason);
+            Assert.Equal(RunAssembler.BilledAfterRunReason, cost.Reason);
         }
 
         [Fact]

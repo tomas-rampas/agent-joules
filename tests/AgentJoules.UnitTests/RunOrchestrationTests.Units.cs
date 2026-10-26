@@ -377,7 +377,7 @@ public sealed partial class RunOrchestrationTests
 
         [Theory]
         [InlineData(Tier.Local, "laptop", "N/A", "not-cloudgpu")]
-        [InlineData(Tier.CloudGpu, "nebius-ai-cloud", "not-reported", "not-observed")]
+        [InlineData(Tier.CloudGpu, "nebius-ai-cloud", "not-reported", "billed-after-run")]
         [InlineData(Tier.Nvidia, "build.nvidia.com", "N/A", "not-cloudgpu")]
         [InlineData(Tier.Nebius, "nebius-token-factory", "N/A", "not-cloudgpu")]
         public void The_environment_names_the_provider_and_the_cloud_cost_of_each_tier(Tier tier, string provider, string costLabel, string costReason)

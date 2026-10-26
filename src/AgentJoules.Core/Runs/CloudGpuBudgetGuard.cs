@@ -12,9 +12,10 @@ public readonly record struct BudgetDecision(bool Stop, string? Reason, string? 
 /// The 4-hour and USD 25 stop of the cloudgpu tier (EDGE-017, design 3.8): stop when <c>CloudGpu:ObservedCostUsd</c> is at least <c>CloudGpu:CostStopUsd</c> (<see cref="CostCap"/>) or when the time since <c>CloudGpu:TierStartUtc</c> is at least
 /// <c>CloudGpu:TimeBoxHours</c> (<see cref="TimeBox"/>), whichever holds; when both hold the cost cap is the reason. A cost that was not reported counts as not reached, and a tier start that is not set means the box is not enforced (the decision says so in
 /// <see cref="BudgetDecision.Note"/>). The clock is the injected <see cref="TimeProvider"/>, so a test decides without waiting.
+/// The note is defence in depth (peer review n-4): a real cloudgpu run requires <c>TierStartUtc</c> (the command exits 2 without it), so the orchestrator never reaches the note from a real run; only a caller that builds the guard or the orchestrator without the command's check can.
 /// </summary>
 /// <param name="time">The clock of the run.</param>
-/// <param name="options">The <c>CloudGpu</c> section; read on every check.</param>
+/// <param name="options">The <c>CloudGpu</c> section. The observed cost is fixed for the invocation (the user sets it before the command starts), so only the time box can change its answer in the middle of a run; a real cloudgpu run therefore requires <c>TierStartUtc</c> (the command refuses to start without it).</param>
 public sealed class CloudGpuBudgetGuard(TimeProvider time, CloudGpuOptions options)
 {
     /// <summary>The reason of a stop at the observed cost.</summary>

@@ -142,7 +142,7 @@ public sealed class RunOrchestrator(
         return (int)ExitCode.Success;
     }
 
-    // Returns true when the budget guard stopped the tier: the plan then starts no later tier. The tiers that would have followed are told before the stop line, which stays the last one.
+    // Returns true when the budget guard stopped the tier: the plan then starts no later tier. The tiers that would have followed (BudgetTiersSkipped) and the do-not-delete notice (BudgetStopDecided) are told when the stop is decided; the pinned stop line (BudgetStopped) follows the final write and TierCompleted, before the judge pass.
     private async Task<bool> RunTierAsync(RunPlan plan, Tier tier, Tier[] later, ShutdownSignal shutdown, CancellationToken cancellationToken)
     {
         AgentJoulesOptions options = _options.Value;
@@ -299,6 +299,19 @@ public sealed class RunOrchestrator(
 
             progress.StopReason = stopReason;
 
+            // The stop is told when it is decided, before the judge pass (peer review n-1): the tiers-skipped line, then the early notice that the final write follows. The line that
+            // tells the user to copy the results and delete the VM waits for the final write and TierCompleted (peer review M-1): until then the file on disk is the checkpoint.
+            if (stopReason is { } stoppedFor)
+            {
+                if (later.Length > 0)
+                {
+                    string[] skipped = [.. later.Select(TierOptions.NameOf)];
+                    listening.Tell(listener => listener.BudgetTiersSkipped(skipped));
+                }
+
+                listening.Tell(listener => listener.BudgetStopDecided(stoppedFor));
+            }
+
             // The judge scores the steps on its own sink: its services are the tier run's with the sink replaced, the null live sink and the plain gate of the mode (a dropped judge call must not stop the workflow gate, m-3), so a judge reading never reaches the workflow sink, the listener (no step line) or the dashboard.
             IReadOnlyList<StepReading> workflow = sink.Snapshot();
             JudgeResult? judged = await JudgeAsync(plan, tier, workflow, services with { Sink = judgeSink, Live = NullLiveEventSink.Instance, Gate = _gate }, cancellationToken).ConfigureAwait(false);
@@ -325,21 +338,16 @@ public sealed class RunOrchestrator(
             }
 
             listening.Tell(listener => listener.TierCompleted(displayPath, completed.Totals));
-            _live.EmitSafely(new RunCompletedEvent(_time.GetUtcNow(), false, completed.Run, completed.Totals));
 
-            if (stopReason is { } stoppedFor)
+            // The stop line is the last one of the tier: the partial file is written and the user may copy the results and delete the VM (peer review M-1).
+            if (stopReason is { } stopLine)
             {
-                if (later.Length > 0)
-                {
-                    string[] skipped = [.. later.Select(TierOptions.NameOf)];
-                    listening.Tell(listener => listener.BudgetTiersSkipped(skipped));
-                }
-
-                listening.Tell(listener => listener.BudgetStopped(stoppedFor));
-                return true;
+                listening.Tell(listener => listener.BudgetStopped(stopLine));
             }
 
-            return false;
+            _live.EmitSafely(new RunCompletedEvent(_time.GetUtcNow(), false, completed.Run, completed.Totals));
+
+            return stopReason is not null;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

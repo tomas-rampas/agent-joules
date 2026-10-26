@@ -150,6 +150,11 @@ public sealed class ConsoleReporter(TextWriter output, TextWriter error)
         _error.WriteLine("Warning: Budget stop: tiers skipped: " + string.Join(", ", tiers));
     }
 
+    /// <summary>Tells the user that the budget guard decided to stop the cloudgpu tier and that the final write follows (peer review M-1): one warning line on the error writer, <c>Warning: Budget stop (time-box): no further work started; the judge pass and the final write follow; do not delete the VM yet</c>.</summary>
+    /// <param name="reason">The stop reason, <c>cost-cap</c> or <c>time-box</c>.</param>
+    public void ReportBudgetStopDecided(string reason) =>
+        _error.WriteLine("Warning: Budget stop (" + reason + "): no further work started; the judge pass and the final write follow; do not delete the VM yet");
+
     /// <summary>Tells the user that the budget guard stopped the cloudgpu tier (AJ-122, EDGE-017): one warning line on the error writer, <c>Warning: Budget stop (time-box): no further work started; copy the results and delete the VM now</c>.</summary>
     /// <param name="reason">The stop reason, <c>cost-cap</c> or <c>time-box</c>.</param>
     public void ReportBudgetStopped(string reason) =>

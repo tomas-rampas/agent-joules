@@ -64,9 +64,15 @@ public interface IRunListener
     {
     }
 
-    /// <summary>The budget guard stopped the cloudgpu tier and the plan has later tiers (AJ-122, EDGE-017): they do not start. Called once, after <see cref="TierCompleted"/> and before <see cref="BudgetStopped"/>, so the stop line stays the last one. The default does nothing.</summary>
+    /// <summary>The budget guard stopped the cloudgpu tier and the plan has later tiers (AJ-122, EDGE-017): they do not start. Called once, when the stop is decided (before the judge pass), before <see cref="BudgetStopDecided"/>. The default does nothing.</summary>
     /// <param name="tiers">The names of the skipped tiers, in plan order; at least one.</param>
     void BudgetTiersSkipped(IReadOnlyList<string> tiers)
+    {
+    }
+
+    /// <summary>The budget guard decided to stop the cloudgpu tier between two iterations (AJ-122, EDGE-017): called when the stop is decided, before the judge pass and the final write (peer review M-1); the VM must not be deleted yet. The default does nothing.</summary>
+    /// <param name="reason">The stop reason: <c>cost-cap</c> or <c>time-box</c>.</param>
+    void BudgetStopDecided(string reason)
     {
     }
 

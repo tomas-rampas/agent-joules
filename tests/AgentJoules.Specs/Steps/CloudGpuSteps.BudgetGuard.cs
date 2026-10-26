@@ -163,7 +163,7 @@ public sealed partial class CloudGpuSteps
     {
         CliRunResult result = BudgetResult();
         ExitIs(0, result);
-        Assert.Contains("delete the VM", result.Stdout + result.Stderr, StringComparison.Ordinal);
+        Assert.Contains("copy the results and delete the VM now", result.Stderr, StringComparison.Ordinal);
     }
 
     [Given(@"^CloudGpu:CostStopUsd is (\d+)$")]

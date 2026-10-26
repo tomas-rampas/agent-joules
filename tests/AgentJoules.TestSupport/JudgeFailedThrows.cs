@@ -33,4 +33,7 @@ public sealed class JudgeFailedThrows(IRunListener inner, string detail) : IRunL
 
     /// <inheritdoc />
     public void TierFailed(string displayPath, string agent, RunStatus status) => inner.TierFailed(displayPath, agent, status);
+
+    /// <inheritdoc />
+    public void BudgetStopDecided(string reason) => inner.BudgetStopDecided(reason);
 }

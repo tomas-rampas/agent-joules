@@ -221,6 +221,12 @@ internal static class RunCommand
             throw new ConfigurationException("CloudGpu:TierStartUtc is in the future; the value is not shown");
         }
 
+        // The 4-hour box is the only guard that can fire in the middle of a run (the observed cost is fixed for the invocation), so a real cloudgpu run needs the handover time (peer review m-1); the dry run keeps the one warning.
+        if (!request.DryRun && tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is null)
+        {
+            throw new ConfigurationException("CloudGpu:TierStartUtc is required for a cloudgpu run; set it to the handover time (ISO 8601 with an offset)");
+        }
+
         // Paths:Prices is read now, a dry run included (AJ-071): the calculator is built on first resolution, and resolving it here turns a missing or invalid price file into exit 2 before any check or request.
         _ = services.GetRequiredService<ICostCalculator>();
 
@@ -255,6 +261,11 @@ internal static class RunCommand
 
         ConsoleReporter reporter = services.GetRequiredService<ConsoleReporter>();
         ReportFallbacks(reporter, result.Meters);
+        if (tiers.Contains(Tier.CloudGpu) && options.CloudGpu.TierStartUtc is null)
+        {
+            reporter.ReportBudgetNote(CloudGpuBudgetGuard.TierStartNotSetNote);
+        }
+
         foreach (ModelCheckEntry entry in result.Tiers)
         {
             output.WriteLine(DryRunService.FormatLine(entry));
