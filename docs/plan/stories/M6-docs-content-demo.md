@@ -376,7 +376,7 @@ Docs impact: docs/build-log.md; README.md CLI reference (option names, written i
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
-- [ ] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0 (open until AJ-133-T3 and AJ-134-T6 run the flags on the committed files, 2026-10-26)
+- [x] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0 (open until AJ-133-T3 and AJ-134-T6 run the flags on the committed files, 2026-10-26) (done: AJ-133 on 2026-10-26 and AJ-134 at 20:43Z, both exit 0)
 Demo relevance: yes: demo steps 7 and 8 run these flags.
 
 ### AJ-133: Generate and verify the README results block
@@ -1293,6 +1293,7 @@ Acceptance criteria:
 10. Rule 9 (browser note): README, `content/demo-script.md` and `docs/methodology.md` each contain the statement that the published results were recorded without a browser open.
 
 Amended 2026-10-26 (M6 kickoff, K4; carry 3 of the M5 interim exit review fixes): a completed cloudgpu run file exists (results/20261026T124721Z-cloudgpu.json, gpuName `NVIDIA H100 80GB HBM3`), so rule 8 also covers the present-file case: no audited file states or implies a cloudgpu measurement on a GPU other than the one the latest completed or partial cloudgpu run file names (the first token matching `[A-Z]+[0-9]+[A-Z]*` in its gpuName, here `H100`; `HBM3` is the second match and is not the GPU token); the string `L40S` may appear only in a sentence that says it was planned, not available, or replaced (words `planned`, `exhausted`, `instead`, `replaced`, `replaces`, `in place of` or `not available`), and in docs/devpost-pitch.md the non-chosen candidates B and C, the scoring tables and the iteration and "Points still open" notes are exempt as historical drafts (the exemption widened 2026-10-26 after the interim peer review of ca7155f found the pitch file's history lines would fail the narrower rule). The absent-file wording of rule 8 stays for the fallback path.
+Amended 2026-10-26 (AJ-143 build, the first audit run over the committed set, 73 findings triaged): (a) the quantity pattern of rules 1 and 2 is the criterion's own `[0-9]+(.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` plus Wh, kJ and the spelled-out joule(s) and watt(s); the words seconds, minutes and percent, the memory units MiB and GiB and the currency-first costs (`USD 7`) lie outside the mechanical pattern, and a measured value in seconds or percent still carries a source and a label, checked by hand (the shot budgets `170 seconds` and `165 seconds` are required literally by AJ-136, the heading `Spoken version (30 seconds)` is a plan value, and `100 percent` and the agent shares are read by the mapping rows with their labels in the same paragraph); (b) rule 1 reads "in the same sentence, table row or paragraph" for a `results/` file as it does for the two docs sources (pool B amendment), because the story's mapping rows and the feedback answers name each file once per passage; rule 2 keeps "the same sentence or table row" for the label word; (c) for content/linkedin-posts.md the `Sources:` line of the rendered file is the source of every quantity (AJ-134 criterion 3 proves every number is a placeholder and REQ-026 makes the Sources line the provenance), so rule 1 reads that file's quantities against its Sources line; (d) withdrawn on 2026-10-26 (UTC; the first stamp read 2026-10-27, the local date) after the gatekeeper's review: no exemption for option defaults or library settings; the README writes such values without a unit word (the console metrics interval reads "ten seconds"); rules 3 to 9 are unchanged.
 
 BDD scenarios:
 ```gherkin
@@ -1360,16 +1361,16 @@ Feature: AJ-143 Key scan with the real keys
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-143-T1 | Write the failing honesty feature (nine rule scenarios) | tests/AgentJoules.Specs/Features/Reporting/ContentHonesty.feature | 0.5 | AJ-134-T2 |
+| AJ-143-T1 | Write the failing honesty feature (nine rule scenarios) | tests/AgentJoules.Specs/Features/Reporting/AJ-143-content-honesty.feature (repository convention; the @integration feature in AJ-143-key-scan.feature) | 0.5 | AJ-134-T2 |
 | AJ-143-T2 | Implement the eight audit rules as `HonestyAudit` in DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 1.5 | AJ-143-T1 |
 | AJ-143-T3 | Run the audit over all files and fix each finding at its source | README.md, content/linkedin-posts.template.md, content/demo-script.md, content/article.md, docs/devpost-story.md, docs/devpost-feedback.md, docs/devpost-checklist.md | 1.5 | AJ-143-T2, AJ-140-T7, AJ-142-T7, AJ-137-T6, AJ-136-T5 |
 | AJ-143-T4 | Run the key scan with the three keys set and record the commands and exit codes | docs/build-log.md | 0.5 | AJ-143-T3 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ContentHonesty.feature; RedactionTests (key redaction, M0 to M2)
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-143-content-honesty.feature (repository convention; the @integration feature in AJ-143-key-scan.feature); RedactionTests (key redaction, M0 to M2)
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the audit is rerun after the last results file or text change before M7 starts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the audit is rerun after the last results file or text change before M7 starts (rerun 2026-10-26 after the last content edit: 0 findings)
 Demo relevance: no.
 
 ## Risks
