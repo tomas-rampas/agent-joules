@@ -179,7 +179,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <remarks>
     /// A factory, so the setting is read when the runtime is first resolved, after the options were validated. The registration uses <c>TryAdd</c>: one that is already there wins and a second call changes
-    /// nothing, and a test replaces it with <c>RemoveAll&lt;ILocalRuntime&gt;()</c> followed by <c>AddSingleton</c>. The Ollama and NIM runtimes ask through the named HTTP client of the local tier, so the
+    /// nothing, and a test replaces it with <c>RemoveAll&lt;ILocalRuntime&gt;()</c> followed by <c>AddSingleton</c>. The same call registers the <see cref="ITierRuntimes"/> the orchestrator warms up and describes a measured tier through (K2 of M6, 2026-10-26): that local runtime for the local tier and a <see cref="NimRuntime"/> bound to the cloudgpu tier for the cloudgpu tier. The Ollama and NIM runtimes ask through the named HTTP client of the bound tier (local by default; the cloudgpu tier for the orchestrator's cloudgpu runtime), so the
     /// provider clients (<see cref="AddAgentJoulesProviderClients(IServiceCollection)"/>) must be registered; the host does.
     /// </remarks>
     /// <param name="services">The collection to add the runtime to.</param>
@@ -199,6 +199,12 @@ public static class ServiceCollectionExtensions
                 _ => new NoOpLocalRuntime(),
             };
         });
+        services.TryAddSingleton<ITierRuntimes>(static provider => new TierRuntimes(
+            provider.GetRequiredService<ILocalRuntime>(),
+            provider.GetRequiredService<ProviderClientFactory>(),
+            provider.GetRequiredService<IHttpClientFactory>(),
+            provider.GetRequiredService<IOptions<AgentJoulesOptions>>(),
+            provider.GetRequiredService<TimeProvider>()));
         return services;
     }
 

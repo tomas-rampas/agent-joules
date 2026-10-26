@@ -28,7 +28,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <remarks>
 /// <para>
 /// A measured tier (<c>local</c>, <c>cloudgpu</c>) opens the GPU at <c>Gpu:Index</c> (the preflight closed its own session), selects the meter method, starts a
-/// <see cref="SampledEnergyMeter"/>, and, for the local tier only, calls the unmetered warm-up of the <see cref="ILocalRuntime"/> once for every distinct model of the tier (the sum of the times is <c>environment.modelLoadSeconds</c>; a failing warm-up ends the run with exit code 5 before the baseline) and asks the runtime to describe itself, then measures the idle baseline for
+/// <see cref="SampledEnergyMeter"/>, and, for the local tier and the cloudgpu tier (a NIM runtime bound to the tier's own base URL and request factory, K2 of M6), calls the unmetered warm-up of the <see cref="ILocalRuntime"/> of the tier once for every distinct model of the tier (the sum of the times is <c>environment.modelLoadSeconds</c>; a failing warm-up ends the run with exit code 5 before the baseline) and asks the runtime to describe itself, then measures the idle baseline for
 /// the plan's baseline length; the meter and the GPU are released in a <c>finally</c>. A GPU offload below 100 in that description adds the run flag <c>partial-offload</c> to every write of the tier, checkpoints and
 /// the final file alike (<see cref="RunAssembler.RunFlagsOf(LocalRuntimeInfo?)"/>, AJ-105); an offload that is not a number from 0 to 100 stops the run with exit code 6 before the baseline. A hosted tier (<c>nvidia</c>, <c>nebius</c>) uses an <see cref="UnmeteredEnergyMeter"/>, never opens the
 /// GPU and records no probe and no baseline. The sampling-fallback disclosure is the command's (it prints it once); the orchestrator never prints it.
@@ -66,7 +66,7 @@ namespace AgentJoules.Workflow.Runs;
 /// <param name="time">The clock of the meter, the windows, the latencies and the workflow wall times.</param>
 /// <param name="listener">Receives the step lines, the baseline, the judge warning and the closing lines of each tier.</param>
 /// <param name="judge">Scores the steps of a tier (the hosted judge; a test registers a double).</param>
-/// <param name="localRuntime">The runtime of a measured tier: its warm-up and its description (M2: a no-op; M4: Ollama or NIM).</param>
+/// <param name="runtimes">Gives the runtime that warms up and describes a measured tier (REQ-031): the configured local runtime for the local tier, a NIM runtime bound to the cloudgpu tier for the cloudgpu tier; a hosted tier has none and gets no warm-up and no description.</param>
 /// <param name="powerSource">Tells where the machine takes its power from; read once per tier run, before the idle baseline, and written as <c>environment.powerSource</c> of every tier, hosted ones included (the machine still runs the client). A value outside the vocabulary is written as <c>unknown</c>.</param>
 /// <param name="live">The live sink of the dashboard (<see cref="NullLiveEventSink"/> without <c>--dashboard</c>): when it also takes readings, the workflow readings of every tier run fan out to it after the listener sink; a measured tier forwards its stored power samples to it at <c>Dashboard:PowerIntervalMs</c>; the judge's services keep the null sink, so a judge reading never reaches it. Each tier run emits one run-started event (a measured tier once its meter started, before the warm-up and the baseline; a hosted tier once its meter started, followed by one N/A power event), the baseline next to the listener's, one progress event per (task, repeat) and one run-completed event after its final document was written or attempted (AJ-091); every emit goes through <see cref="LiveEventSinkExtensions.EmitSafely"/>.</param>
 /// <param name="logger">The logger of the Debug records of a failed listener call, a failed shutdown checkpoint and a failed write of the partial file of a failed step (exception types only).</param>
@@ -81,7 +81,7 @@ public sealed class RunOrchestrator(
     TimeProvider time,
     IRunListener listener,
     IJudgeService judge,
-    ILocalRuntime localRuntime,
+    ITierRuntimes runtimes,
     IPowerSourceDetector powerSource,
     ILiveEventSink live,
     ILogger<RunOrchestrator> logger) : IRunOrchestrator
@@ -109,7 +109,7 @@ public sealed class RunOrchestrator(
     private readonly TimeProvider _time = time ?? throw new ArgumentNullException(nameof(time));
     private readonly IRunListener _listener = listener ?? throw new ArgumentNullException(nameof(listener));
     private readonly IJudgeService _judge = judge ?? throw new ArgumentNullException(nameof(judge));
-    private readonly ILocalRuntime _localRuntime = localRuntime ?? throw new ArgumentNullException(nameof(localRuntime));
+    private readonly ITierRuntimes _runtimes = runtimes ?? throw new ArgumentNullException(nameof(runtimes));
     private readonly IPowerSourceDetector _powerSource = powerSource ?? throw new ArgumentNullException(nameof(powerSource));
     private readonly ILiveEventSink _live = live ?? throw new ArgumentNullException(nameof(live));
     private readonly ILogger<RunOrchestrator> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -206,19 +206,20 @@ public sealed class RunOrchestrator(
                 await meter.StartAsync(cancellationToken).ConfigureAwait(false);
 
                 // The live view's run starts once the GPU is known and before the warm-up and the baseline (AJ-091, P-72).
-                // The local tier alone is served by the local runtime (a cloudgpu run sends it nothing and keeps Tiers:cloudgpu:Precision). A runtime that names itself is known by name from here on: a run
-                // interrupted before its description is written states the runtime, a precision and an offload of null and no flag, never the configured precision of another runtime.
-                if (tier == Tier.Local && !string.Equals(_localRuntime.Name, NoOpLocalRuntime.NoneName, StringComparison.Ordinal))
+                // The runtime of the tier warms the model up and describes itself (ITierRuntimes): the local runtime for the local tier and, since K2 of M6 (2026-10-26, REQ-031), a NIM runtime bound to the cloudgpu
+                // tier's own base URL and request factory for the cloudgpu tier (M5 ran its cloudgpu tier without a warm-up). A runtime that names itself is known by name from here on: a run interrupted before its
+                // description is written states the runtime, a precision and an offload of null and no flag, never the configured precision of another runtime.
+                ILocalRuntime? runtime = _runtimes.RuntimeOf(tier);
+                if (runtime is not null && !string.Equals(runtime.Name, NoOpLocalRuntime.NoneName, StringComparison.Ordinal))
                 {
-                    progress.Runtime = new LocalRuntimeInfo(_localRuntime.Name, null, null, null);
+                    progress.Runtime = new LocalRuntimeInfo(runtime.Name, null, null, null);
                 }
 
                 _live.EmitSafely(progress.Started(_time.GetUtcNow()));
-                if (tier == Tier.Local)
+                if (runtime is not null)
                 {
-                    // The warm-up, like the description, belongs to the local tier: a cloudgpu run sends nothing to the local runtime and its modelLoadSeconds stays null (M5 ran without a cloudgpu warm-up, recorded in docs/cloudgpu-run.md; a warm-up through the cloudgpu tier's own client is carried to M6).
-                    progress.ModelLoad = await WarmUpAsync(tierOptions, cancellationToken).ConfigureAwait(false);
-                    progress.Runtime = await _localRuntime.DescribeAsync(cancellationToken).ConfigureAwait(false);
+                    progress.ModelLoad = await LocalWarmUp.RunAsync(runtime, tierOptions, cancellationToken).ConfigureAwait(false);
+                    progress.Runtime = await runtime.DescribeAsync(cancellationToken).ConfigureAwait(false);
                 }
 
                 // A description that cannot come from a measurement (an offload that is not a number or lies outside 0 to 100) stops the run before the baseline, not at the first write.
@@ -390,9 +391,6 @@ public sealed class RunOrchestrator(
 
         progress.Current = null;
     }
-
-    // The warm-up of every distinct model the agents of the tier call (TierOptions.ResolvedModelIds); the load time is the sum of the times the runtime observed, null when it observed none.
-    private Task<TimeSpan?> WarmUpAsync(TierOptions tierOptions, CancellationToken cancellationToken) => LocalWarmUp.RunAsync(_localRuntime, tierOptions, cancellationToken);
 
     // The judge scores the steps of the tier and its steps are put in their places; it is skipped when the judge key is missing (the command warned). The count, the windows and the quality range of what it returns are checked.
     private async Task<JudgeResult?> JudgeAsync(RunPlan plan, Tier tier, IReadOnlyList<StepReading> steps, MeteringServices judgeServices, CancellationToken cancellationToken)

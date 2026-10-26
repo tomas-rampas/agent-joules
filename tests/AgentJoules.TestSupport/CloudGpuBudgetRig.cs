@@ -71,7 +71,7 @@ public sealed class CloudGpuBudgetRig : IDisposable
     public static CloudGpuBudgetRig Create(TimeSpan responseDelay = default)
     {
         LocalRunRig rig = LocalRunRig.Nim();
-        var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1), ResponseDelay = responseDelay };
+        var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1), ResponseDelay = responseDelay, WarmUpApart = true };
         rig.Setup.Endpoints["cloudgpu"] = cloud;
 
         // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself; the run here is a fake and has no host.
