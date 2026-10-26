@@ -8,10 +8,10 @@ namespace AgentJoules.Specs.Support;
 public sealed record MermaidBlockResult(string? Failure, IReadOnlyList<string> Lines);
 
 /// <summary>
-/// Pure checks over the text of a committed document (AJ-130 and the later documentation stories). Each check takes strings and returns a failure text or a list of them; none starts a process, reads
-/// the network or touches a file, so a test feeds it a mutated copy of the committed text. A later story adds its check as another static method here.
+/// Pure checks over the text of a committed document (AJ-130 and the later documentation stories). Each check takes strings and returns a failure text or a list of them; none starts a process,
+/// touches a file or reads the network, except <c>CheckLinksAsync</c>, which requests the addresses through the <see cref="HttpClient"/> its caller supplies (a fake handler in the tests, the real one only under the integration gate), so a test feeds it a mutated copy of the committed text. A later story adds its check as another static method here.
 /// </summary>
-public static class DocumentChecks
+public static partial class DocumentChecks
 {
     /// <summary>The fence line that opens the architecture diagram.</summary>
     public const string MermaidFence = "```mermaid";

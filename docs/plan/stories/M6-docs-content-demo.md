@@ -200,19 +200,19 @@ Feature: AJ-131 Prior-art citations resolve
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature | 0.5 | AJ-130-T2 |
+| AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/AJ-131-readme-guides.feature (repository convention; the @integration feature in AJ-131-prior-art-links.feature) | 0.5 | AJ-130-T2 |
 | AJ-131-T2 | Add the option-versus-help check and the exit-code table parser to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-131-T1 |
 | AJ-131-T3 | Write `Quick start` and `Judges without a GPU` | README.md | 0.75 | AJ-131-T2 |
 | AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output, and leave the screenshot link to the generated block (AJ-144, criterion 8); do not hand-write it | README.md | 0.75 | AJ-131-T3 |
 | AJ-131-T5 | Write `Reproduce` from the ten demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-131-readme-guides.feature (repository convention; the @integration feature in AJ-131-prior-art-links.feature)
 Docs impact: README.md sections Quick start, Judges without a GPU, CLI reference, Reproduce, Prior art; docs/build-log.md
 Docs impact (deferred from AJ-079, 2026-10-23): README section "Results schema" naming `docs/results-schema.json`, the update command `AGENTJOULES_UPDATE_SCHEMA=1 dotnet test --filter "FullyQualifiedName~CommittedSchemaMatchesGenerated"` and "then rebuild" (no M6 story names a field reference explicitly; the CLI reference section is the closest owner).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every command in `Reproduce` that needs no GPU and no key was executed once by the builder and its exit code recorded in `docs/build-log.md`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every command in `Reproduce` that needs no GPU and no key was executed once by the builder and its exit code recorded in `docs/build-log.md` (executed 2026-10-26 with exit 0: step 6 `validate results/` literally, step 10 as `dashboard --replay results/20261025T133440Z-nebius.json --speed 50 --exit-after 5` (the literal `--speed 4 --exit-after 60` form also exit 0 in the spec review), step 1 as `probe --json` without `--save`, the update half of step 7 as `report --in results/ --out docs/report/ --update-readme` and the six --help calls; step 7 in its literal form exits 2 until AJ-134 ships the template and is recorded then; steps 2 to 4 need keys or the GPU (the AJ-135 rehearsal) and step 5 the VM)
 Demo relevance: yes: the commands in this README are the commands shown in shot 3 and shot 4.
 
 ### AJ-132: Write the README sections the Devpost form requires
@@ -270,18 +270,18 @@ Feature: AJ-132 README sections required by the Devpost form
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-132-T1 | Write the failing feature for the Devpost-form sections and the model-ID check | tests/AgentJoules.Specs/Features/Reporting/ReadmeDevpostSections.feature | 0.5 | AJ-130-T2 |
+| AJ-132-T1 | Write the failing feature for the Devpost-form sections and the model-ID check | tests/AgentJoules.Specs/Features/Reporting/AJ-132-readme-devpost-sections.feature (repository convention) | 0.5 | AJ-130-T2 |
 | AJ-132-T2 | Add the model-ID and source-reference checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-132-T1 |
 | AJ-132-T3 | Write `How this project uses NVIDIA Nemotron` and `Where Nebius Token Factory accelerated the workflow` from endpoints.md and the run files | README.md | 0.75 | AJ-132-T2 |
 | AJ-132-T4 | Write `Other Nebius tools or services used` and `NIM-local outcome` from cloudgpu-run.md and nim-local-attempt.md | README.md | 0.75 | AJ-132-T3 |
 | AJ-132-T5 | Write the methodology summary, the short honesty rules, the judge disclosure and the local-runtime sentence | README.md | 0.75 | AJ-132-T4 |
 | AJ-132-T6 | Record the source file of each README fact in the build log | docs/build-log.md | 0.25 | AJ-132-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeDevpostSections.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-132-readme-devpost-sections.feature (repository convention)
 Docs impact: README.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the README sentences about the cloudgpu tier match the tier outcome (completed, partial or not run) stated in `docs/cloudgpu-run.md`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the README sentences about the cloudgpu tier match the tier outcome (completed, partial or not run) stated in `docs/cloudgpu-run.md` (completed; checked 2026-10-26)
 Demo relevance: yes: shot 7 shows the `Other Nebius tools or services used` section (or the not-run fallback).
 
 ### AJ-144: Build the `report` flags `--update-readme`, `--verify-readme`, `--render-content` and the content template renderer
@@ -429,16 +429,16 @@ Feature: AJ-133 README results block
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature | 0.5 | AJ-130-T2, AJ-144-T6 |
+| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/AJ-133-readme-results-block.feature (repository convention) | 0.5 | AJ-130-T2, AJ-144-T6 |
 | AJ-133-T2 | Add the partial-row and not-run-row cases that AJ-144 does not cover | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-133-T1 |
 | AJ-133-T3 | Run `AJ report --in results/ --out docs/report/ --update-readme` on the final results and inspect the block | README.md, docs/report/summary.md, docs/report/joules-per-step.svg, docs/report/index.html | 0.5 | AJ-133-T2 |
 | AJ-133-T4 | Run verify, edit one number, confirm exit 7, restore, confirm exit 0, record the exit codes | docs/build-log.md | 0.25 | AJ-133-T3 |
-Test mapping: ReadmeBlockTests, with `Spec=EDGE-002` on the `sampling` disclosure case; tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature
+Test mapping: ReadmeBlockTests, with `Spec=EDGE-002` on the `sampling` disclosure case; tests/AgentJoules.Specs/Features/Reporting/AJ-133-readme-results-block.feature (repository convention)
 Docs impact: README.md results block (generated); docs/report/*; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the generated block is committed together with the results files it was generated from
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the generated block is committed together with the results files it was generated from (generated 2026-10-26 against the run files committed in c4da501 and 9fa9cb8, which are unchanged, and committed with docs/report/ in the pool B commit)
 Demo relevance: yes: shot 8 shows the results block and the honesty sentence.
 
 ### AJ-134: Write and render the three LinkedIn post drafts
@@ -656,7 +656,7 @@ Demo definition (binding for AJ-135, AJ-136, AJ-138 and AJ-141):
 | 2 | `AJ run --tier all --dry-run` | console line per enabled tier: endpoint, matched model IDs, `OK`; no file | measured (console) |
 | 3 | `AJ run --tier all` | `results/<ts>-local.json`, `results/<ts>-nvidia.json`, `results/<ts>-nebius.json` | measured (laptop), tokens and latency measured (hosted), energy N/A (hosted) |
 | 4 | `AJ calibrate` | `results/calibration-<ts>.json` | measured |
-| 5 (on the VM, if M5 ran) | `./AgentJoules.Cli probe --json --save --suffix cloudgpu`, then `./AgentJoules.Cli run --tier cloudgpu`, then `./AgentJoules.Cli calibrate` | `results/probe-<ts>-cloudgpu.json`, `results/<ts>-cloudgpu.json`, `results/calibration-<ts>-cloudgpu.json` | measured (VM GPU) |
+| 5 (on the VM, if M5 ran) | `./AgentJoules.Cli probe --json --save --suffix cloudgpu`, then `./AgentJoules.Cli run --tier cloudgpu`, then `./AgentJoules.Cli calibrate --suffix cloudgpu` (amended 2026-10-26, pool B gate S-7: without the suffix the file name of the next column cannot be produced; the M5 run used `--seconds 60 --suffix cloudgpu`, docs/cloudgpu-run.md) | `results/probe-<ts>-cloudgpu.json`, `results/<ts>-cloudgpu.json`, `results/calibration-<ts>-cloudgpu.json` | measured (VM GPU) |
 | 6 | `AJ validate results/` | `Validated <n> files`, exit 0 | measured (console) |
 | 7 | `AJ report --update-readme --render-content` | `docs/report/summary.md`, `docs/report/joules-per-step.svg`, `docs/report/index.html`, `docs/.nojekyll`, README results block, `content/linkedin-posts.md` | derived from files |
 | 8 | `AJ report --verify-readme` | exit 0 | measured (console) |
@@ -1280,7 +1280,7 @@ Covers: REQ-025, REQ-026, REQ-027, REQ-028
 User story: As a reader of any public Agent Joules text, I want every number traced to a results file with its label and no hidden zero, so that I can trust the claims.
 Acceptance criteria:
 1. The audit covers `README.md` (outside the generated results block), `content/linkedin-posts.md`, `content/demo-script.md`, `content/article.md`, `docs/devpost-story.md`, `docs/devpost-feedback.md`, `docs/devpost-checklist.md` and `docs/devpost-pitch.md`, and exits 0 through `dotnet test` over the `ContentHonesty` feature.
-2. Rule 1 (source): every quantity matching `[0-9]+(\.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` names an existing `results/` file or `docs/cloudgpu-run.md` in the same sentence or table row.
+2. Rule 1 (source): every quantity matching `[0-9]+(\.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` names an existing `results/` file or `docs/cloudgpu-run.md` in the same sentence or table row. Amended 2026-10-26 (pool B gate, S-A): `docs/nim-local-attempt.md` is a third accepted source, for the NIM-attempt figures the README `NIM-local outcome` and `Local runtime: NIM attempt` sections quote (README rule 1 says the same), and "in the same sentence or table row" is read as "in the same sentence, table row or paragraph" for those two docs sources, because the README names the file once per paragraph.
 3. Rule 2 (label): that sentence or row also holds one label word from the vocabulary. Check: the audit prints `finding: no label` for each quantity without a label word and exits 0 when it prints none.
 4. Rule 3 (no hidden zero): no hosted-tier energy is written as `0`; `N/A` or `not-reported` is written instead; `grep -nE "(energy|joules).{0,20}[^0-9.]0 ?(J|joules)" <files>` prints nothing.
 5. Rule 4 (scope sentence): README, the article, the demo script, every post variant and the story each contain `GPU-board energy`.

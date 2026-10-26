@@ -1,0 +1,268 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1530" height="1352" viewBox="0 0 1530 1352" font-family="sans-serif" style="background-color:#ffffff">
+  <text class="title" x="24" y="26" text-anchor="start" font-size="16" fill="#222222" font-weight="bold">Measured net energy per step in joules (J), median of the repeats of each bar</text>
+  <text class="scope" x="24" y="48" text-anchor="start" font-size="12" fill="#222222">Energy is GPU-board energy only.</text>
+  <g class="row">
+    <text class="row-label" x="24" y="76" text-anchor="start" font-size="13" fill="#222222" font-weight="bold">incident-brief</text>
+    <line class="axis" x1="24" y1="342" x2="1400" y2="342" stroke="#555555" stroke-width="1" />
+    <g class="group">
+      <text class="group-label" x="184" y="480" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Planner</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="40" y="273.31" width="48" height="68.69" fill="#2a6f97" />
+        <text class="value" x="64" y="268.31" text-anchor="middle" font-size="11" fill="#222222">437.7</text>
+        <text class="slot-label" x="64" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 64 376)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="120" y="307.87" width="48" height="34.13" fill="#7b5ea7" />
+        <text class="value" x="144" y="302.87" text-anchor="middle" font-size="11" fill="#222222">217.5</text>
+        <text class="slot-label" x="144" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 144 376)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="224" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="224" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 224 376)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="304" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="304" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 304 376)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="536" y="480" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Researcher</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="392" y="196.02" width="48" height="145.98" fill="#2a6f97" />
+        <text class="value" x="416" y="191.02" text-anchor="middle" font-size="11" fill="#222222">930.2</text>
+        <text class="slot-label" x="416" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 416 376)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="472" y="303.54" width="48" height="38.46" fill="#7b5ea7" />
+        <text class="value" x="496" y="298.54" text-anchor="middle" font-size="11" fill="#222222">245.1</text>
+        <text class="slot-label" x="496" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 496 376)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="576" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="576" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 576 376)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="656" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="656" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 656 376)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="888" y="480" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Writer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="744" y="253.94" width="48" height="88.06" fill="#2a6f97" />
+        <text class="value" x="768" y="248.94" text-anchor="middle" font-size="11" fill="#222222">561.1</text>
+        <text class="slot-label" x="768" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 768 376)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="824" y="307.52" width="48" height="34.48" fill="#7b5ea7" />
+        <text class="value" x="848" y="302.52" text-anchor="middle" font-size="11" fill="#222222">219.7</text>
+        <text class="slot-label" x="848" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 848 376)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="928" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="928" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 928 376)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1008" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1008" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1008 376)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="1240" y="480" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Reviewer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="1096" y="196.46" width="48" height="145.54" fill="#2a6f97" />
+        <text class="value" x="1120" y="191.46" text-anchor="middle" font-size="11" fill="#222222">927.4</text>
+        <text class="slot-label" x="1120" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1120 376)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="1176" y="302.75" width="48" height="39.25" fill="#7b5ea7" />
+        <text class="value" x="1200" y="297.75" text-anchor="middle" font-size="11" fill="#222222">250.1</text>
+        <text class="slot-label" x="1200" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1200 376)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="1280" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1280" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1280 376)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1360" y="334" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1360" y="376" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1360 376)">nebius</text>
+      </g>
+    </g>
+  </g>
+  <g class="row">
+    <text class="row-label" x="24" y="506" text-anchor="start" font-size="13" fill="#222222" font-weight="bold">api-migration</text>
+    <line class="axis" x1="24" y1="772" x2="1400" y2="772" stroke="#555555" stroke-width="1" />
+    <g class="group">
+      <text class="group-label" x="184" y="910" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Planner</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="40" y="591.72" width="48" height="180.28" fill="#2a6f97" />
+        <text class="value" x="64" y="586.72" text-anchor="middle" font-size="11" fill="#222222">1148.8</text>
+        <text class="slot-label" x="64" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 64 806)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="120" y="708.97" width="48" height="63.03" fill="#7b5ea7" />
+        <text class="value" x="144" y="703.97" text-anchor="middle" font-size="11" fill="#222222">401.6</text>
+        <text class="slot-label" x="144" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 144 806)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="224" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="224" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 224 806)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="304" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="304" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 304 806)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="536" y="910" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Researcher</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="392" y="542.69" width="48" height="229.31" fill="#2a6f97" />
+        <text class="value" x="416" y="537.69" text-anchor="middle" font-size="11" fill="#222222">1461.3</text>
+        <text class="slot-label" x="416" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 416 806)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="472" y="694.46" width="48" height="77.54" fill="#7b5ea7" />
+        <text class="value" x="496" y="689.46" text-anchor="middle" font-size="11" fill="#222222">494.1</text>
+        <text class="slot-label" x="496" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 496 806)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="576" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="576" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 576 806)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="656" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="656" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 656 806)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="888" y="910" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Writer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="744" y="538.15" width="48" height="233.85" fill="#2a6f97" />
+        <text class="value" x="768" y="533.15" text-anchor="middle" font-size="11" fill="#222222">1490.1</text>
+        <text class="slot-label" x="768" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 768 806)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="824" y="702.95" width="48" height="69.05" fill="#7b5ea7" />
+        <text class="value" x="848" y="697.95" text-anchor="middle" font-size="11" fill="#222222">440.0</text>
+        <text class="slot-label" x="848" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 848 806)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="928" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="928" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 928 806)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1008" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1008" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1008 806)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="1240" y="910" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Reviewer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="1096" y="532" width="48" height="240" fill="#2a6f97" />
+        <text class="value" x="1120" y="527" text-anchor="middle" font-size="11" fill="#222222">1529.4</text>
+        <text class="slot-label" x="1120" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1120 806)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="1176" y="702.77" width="48" height="69.23" fill="#7b5ea7" />
+        <text class="value" x="1200" y="697.77" text-anchor="middle" font-size="11" fill="#222222">441.1</text>
+        <text class="slot-label" x="1200" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1200 806)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="1280" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1280" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1280 806)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1360" y="764" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1360" y="806" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1360 806)">nebius</text>
+      </g>
+    </g>
+  </g>
+  <g class="row">
+    <text class="row-label" x="24" y="936" text-anchor="start" font-size="13" fill="#222222" font-weight="bold">energy-explainer</text>
+    <line class="axis" x1="24" y1="1202" x2="1400" y2="1202" stroke="#555555" stroke-width="1" />
+    <g class="group">
+      <text class="group-label" x="184" y="1340" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Planner</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="40" y="1085.4" width="48" height="116.6" fill="#2a6f97" />
+        <text class="value" x="64" y="1080.4" text-anchor="middle" font-size="11" fill="#222222">743.0</text>
+        <text class="slot-label" x="64" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 64 1236)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="120" y="1176" width="48" height="26" fill="#7b5ea7" />
+        <text class="value" x="144" y="1171" text-anchor="middle" font-size="11" fill="#222222">165.7</text>
+        <text class="slot-label" x="144" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 144 1236)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="224" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="224" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 224 1236)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="304" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="304" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 304 1236)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="536" y="1340" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Researcher</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="392" y="1082.43" width="48" height="119.57" fill="#2a6f97" />
+        <text class="value" x="416" y="1077.43" text-anchor="middle" font-size="11" fill="#222222">761.9</text>
+        <text class="slot-label" x="416" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 416 1236)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="472" y="1174.77" width="48" height="27.23" fill="#7b5ea7" />
+        <text class="value" x="496" y="1169.77" text-anchor="middle" font-size="11" fill="#222222">173.5</text>
+        <text class="slot-label" x="496" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 496 1236)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="576" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="576" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 576 1236)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="656" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="656" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 656 1236)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="888" y="1340" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Writer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="744" y="1102.39" width="48" height="99.61" fill="#2a6f97" />
+        <text class="value" x="768" y="1097.39" text-anchor="middle" font-size="11" fill="#222222">634.7</text>
+        <text class="slot-label" x="768" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 768 1236)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="824" y="1174.57" width="48" height="27.43" fill="#7b5ea7" />
+        <text class="value" x="848" y="1169.57" text-anchor="middle" font-size="11" fill="#222222">174.8</text>
+        <text class="slot-label" x="848" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 848 1236)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="928" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="928" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 928 1236)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1008" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1008" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1008 1236)">nebius</text>
+      </g>
+    </g>
+    <g class="group">
+      <text class="group-label" x="1240" y="1340" text-anchor="middle" font-size="12" fill="#222222" font-weight="bold">Reviewer</text>
+      <g class="slot" data-tier="local" data-variant="primary">
+        <rect class="bar" x="1096" y="1108.45" width="48" height="93.55" fill="#2a6f97" />
+        <text class="value" x="1120" y="1103.45" text-anchor="middle" font-size="11" fill="#222222">596.2</text>
+        <text class="slot-label" x="1120" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1120 1236)">local</text>
+      </g>
+      <g class="slot" data-tier="cloudgpu" data-variant="primary">
+        <rect class="bar" x="1176" y="1171.64" width="48" height="30.36" fill="#7b5ea7" />
+        <text class="value" x="1200" y="1166.64" text-anchor="middle" font-size="11" fill="#222222">193.5</text>
+        <text class="slot-label" x="1200" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1200 1236)">cloudgpu</text>
+      </g>
+      <g class="slot" data-tier="nvidia" data-variant="primary">
+        <text class="marker" x="1280" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1280" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1280 1236)">nvidia</text>
+      </g>
+      <g class="slot" data-tier="nebius" data-variant="primary">
+        <text class="marker" x="1360" y="1194" text-anchor="middle" font-size="11" fill="#6b6b6b" font-weight="bold">N/A</text>
+        <text class="slot-label" x="1360" y="1236" text-anchor="start" font-size="10" fill="#222222" transform="rotate(35 1360 1236)">nebius</text>
+      </g>
+    </g>
+  </g>
+</svg>
