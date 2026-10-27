@@ -7,14 +7,14 @@ Goal: prove every box of the Definition of Done with a command or an artifact, h
 Dates: 2026-10-29 to 2026-10-30 (two working days, about 12 working hours at six hours per day; the M6 window ends on 2026-10-29). Deadline: 2026-10-30 10:00 PDT = 17:00 UTC (PDT is UTC-7 until 2026-11-01).
 
 Exit criteria:
-- [ ] Each of the 24 Definition of Done boxes is ticked by the command or artifact named in the mapping table below, or is listed as unchecked with its reason in the final report (prompt section 10).
-- [ ] `dotnet build -warnaserror -tl:off --no-incremental` exits 0 with `0 Warning(s)` and `0 Error(s)`; `dotnet format --verify-no-changes` exits 0; `dotnet test` exits 0 with the three counts in `docs/build-log.md`.
-- [ ] `git log --oneline <build-start>..HEAD | wc -l` equals the number of build-session commits (`<build-start>` is the HEAD hash recorded by M0 AJ-002 in `docs/build-log.md`) and `git log --no-merges <build-start>..HEAD --format=%s | grep -vE "^M[0-9] exit( addendum)?:" | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0; nothing is pushed (`git ls-remote origin main` equals the recorded `origin/main` hash).  (the `--no-merges` flag and the exit-subject exclusion were added 2026-10-19 because the session prompt mandates merge and `M<k> exit` subjects, see docs/build-log.md `## M0 exit`)
-- [ ] The last `peer-review-critic` run of the session ends with `VERDICT: APPROVED`.
-- [ ] `ls artifacts/agent-joules-v0.1.0-*.zip | wc -l` prints 3 and `docs/release-notes-v0.1.0.md` exists.
-- [ ] `docs/devpost-checklist.md` holds the sections `Submission order`, `Cut-off plan` and `Timeline`, and `docs/build-log.md` holds the section `Drop order`.
-- [ ] User actions done and checked (the user's, listed in AJ-157 and AJ-158): `curl -s -o /dev/null -w "%{http_code}" https://tomas-rampas.github.io/agent-joules/report/` prints 200; `gh release view v0.1.0 --repo tomas-rampas/agent-joules` exits 0; the Devpost page shows the project as submitted before 2026-10-30 17:00 UTC.
-- [ ] After the push, `gh run list --workflow ci.yml --branch main --limit 1` shows `completed` and `success` for both `windows-latest` and `ubuntu-latest` (not a Definition of Done box; REQ-024).
+- [x] Each of the 24 Definition of Done boxes is ticked by the command or artifact named in the mapping table below, or is listed as unchecked with its reason in the final report (prompt section 10). (the `## M7 exit` entry: box 1 listed unchecked, the REQ-032 screenshot is a pending user action; the other 23 boxes ticked by the stories and the exit battery)
+- [x] `dotnet build -warnaserror -tl:off --no-incremental` exits 0 with `0 Warning(s)` and `0 Error(s)`; `dotnet format --verify-no-changes` exits 0; `dotnet test` exits 0 with the three counts in `docs/build-log.md`. (the exit battery on abddeac, 2026-10-27T12:24:43Z, and the re-run on ff3e269: both builds 0 warnings 0 errors, format exit 0, passed=6950 failed=0 skipped=25 exit=0)
+- [x] `git log --oneline <build-start>..HEAD | wc -l` equals the number of build-session commits (`<build-start>` is the HEAD hash recorded by M0 AJ-002 in `docs/build-log.md`) and `git log --no-merges <build-start>..HEAD --format=%s | grep -vE "^M[0-9] exit( addendum)?:" | grep -vcE "^AJ-[0-9]{3}( (REQ|EDGE)-[0-9]{3})*:"` prints 0; nothing is pushed (`git ls-remote origin main` equals the recorded `origin/main` hash).  (the `--no-merges` flag and the exit-subject exclusion were added 2026-10-19 because the session prompt mandates merge and `M<k> exit` subjects, see docs/build-log.md `## M0 exit`) (PASS under the AJ-156 amendments: on abddeac 177 commits equal to the rev-list count, the amended subject check 0; see the exit entry)
+- [x] The last `peer-review-critic` run of the session ends with `VERDICT: APPROVED`. (peer-review-critic round 2 APPROVED, 2026-10-27 12:52Z, see the exit entry)
+- [x] `ls artifacts/agent-joules-v0.1.0-*.zip | wc -l` prints 3 and `docs/release-notes-v0.1.0.md` exists. (three zips and the release notes, see the AJ-157 entry; the zips are rebuilt from the published commit before the release, recorded in the addendum)
+- [x] `docs/devpost-checklist.md` holds the sections `Submission order`, `Cut-off plan` and `Timeline`, and `docs/build-log.md` holds the section `Drop order`. (the three checklist sections and the Drop order present, 12 drop rows, see the exit entry)
+- [ ] User actions done and checked (the user's, listed in AJ-157 and AJ-158): `curl -s -o /dev/null -w "%{http_code}" https://tomas-rampas.github.io/agent-joules/report/` prints 200; `gh release view v0.1.0 --repo tomas-rampas/agent-joules` exits 0; the Devpost page shows the project as submitted before 2026-10-30 17:00 UTC. (pending: the delegated steps and the CI run, recorded in the M7 exit addendum; the Devpost submission is the user's)
+- [ ] After the push, `gh run list --workflow ci.yml --branch main --limit 1` shows `completed` and `success` for both `windows-latest` and `ubuntu-latest` (not a Definition of Done box; REQ-024). (pending: the delegated steps and the CI run, recorded in the M7 exit addendum; the Devpost submission is the user's)
 
 ## Coverage
 
@@ -678,7 +678,7 @@ Docs impact: docs/build-log.md
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
-- [ ] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings (boxes 13 and 14 ticked 2026-10-27 under amendments (a) and (b), see the AJ-156 entry; the last peer-review-critic verdict is recorded at the M7 exit, which ticks this box)
+- [x] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings (boxes 13 and 14 ticked 2026-10-27 under amendments (a) and (b), see the AJ-156 entry; ticked by the M7 exit entry: the last peer-review-critic verdict APPROVED (round 2, 2026-10-27 12:52Z))
 Demo relevance: no.
 
 ### AJ-157: Prepare the v0.1.0 release (the tag and the GitHub release are the user's actions)
