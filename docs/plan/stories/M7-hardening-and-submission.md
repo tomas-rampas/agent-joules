@@ -53,14 +53,14 @@ Stories AJ-157 (release), AJ-158 (submission and cut-off plan) and AJ-159 (buffe
 
 Needs: M0 to M6 complete or explicitly reported as partial; the M6 content freeze at 2026-10-29 17:00 UTC (assumed planning target, 10:00 PDT).
 
-User actions (the user's, not the builder's; section 12 step numbers; every one is also a `(user)` line in `docs/devpost-checklist.md`):
+User actions (the user's, not the builder's; section 12 step numbers; every one is also a `(user)` line in `docs/devpost-checklist.md`; except the git and gh steps delegated to the session at the M7 exit (user decision 2026-10-27 12:11Z; AJ-156 amendment (c), AJ-157 amendment (d))):
 
 | Step | User action | Story | Planning target, UTC (PDT in parentheses; assumed) |
 |---|---|---|---|
 | 13 | Delete the VM and boot disk; give deletion time and final cost (if M5 ran) | AJ-151 | before 2026-10-29 17:00 (10:00 PDT) |
-| - | `git push -u origin main` after the M7 gate (decision D-6) | AJ-156, AJ-158 | 2026-10-29 20:00 (13:00 PDT); latest 2026-10-30 07:00 (00:00 PDT) |
-| - | Enable GitHub Pages (main, `/docs`) and confirm the report URL answers 200 | AJ-158 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
-| - | `gh release create v0.1.0 ...` with the three assets | AJ-157 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): `git push -u origin main` after the M7 gate (decision D-6) | AJ-156, AJ-158 | 2026-10-29 20:00 (13:00 PDT); latest 2026-10-30 07:00 (00:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): Enable GitHub Pages (main, `/docs`) and confirm the report URL answers 200 | AJ-158 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): `gh release create v0.1.0 ...` with the three assets | AJ-157 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
 | - | Fill the seven `owner: user` placeholders of `docs/devpost-feedback.md`; fill `{{repo.url}}` in the posts before posting | AJ-158 | 2026-10-29 22:00 (15:00 PDT); latest 2026-10-30 10:00 (03:00 PDT) |
 | - | Record the video on 2026-10-29 (decision D-7) and upload it as a public YouTube video | AJ-158 | public by 2026-10-30 07:00 (00:00 PDT); latest 2026-10-30 11:00 (04:00 PDT) |
 | 8 | Submit on Devpost, fields in the order of `Submission order` | AJ-158 | 2026-10-30 14:00 (07:00 PDT) |
@@ -84,7 +84,7 @@ Acceptance criteria:
 8. Box 24, first command: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser (@integration, needs the laptop GPU and the local runtime for the dry run).
 9. Box 24, second command: `AJ dashboard --replay results/<newest nebius file> --speed 50 --exit-after 5` exits 0 and emits one server-sent event per step of that file (36 for the demo shape), served from `127.0.0.1` only; the replay needs no GPU and no key (@unit through the in-process harness).
 10. The published run files were recorded without a browser open: `docs/build-log.md` contains the statement for the local run, `docs/methodology.md` states both facts (the server adds no GPU work; a browser tab adds compositing load), and the README says so (REQ-032 text).
-Amendments (2026-10-27, M7 kickoff and pool A gates): (a) criterion 10 is read as the M6 exit fix reads it: the statement is "recorded without a browser showing the dashboard" plus the open-applications note of the 2026-10-25 campaign (the AJ-114 record), and the evidence rule asserts the substring `recorded without a browser` in `docs/build-log.md`; (b) in the scenario "A hosted energy value of 0 is rejected", "names the hosted step" means the validator's failure line names the hosted run file and the metric `grossJoules` (the validator prints the file and the parameter, not a step index); (c) the step bindings live in `tests/AgentJoules.Specs/Steps/EvidenceSteps.*.cs` partial classes with one `EvidenceContext`, not in `ConfigurationSteps.cs` (the AJ-043 class), and `EvidenceChecks` is split per story like `DocumentChecks`; (d) one `Feature:` per file, so the `@integration` block is `RunEvidence.Integration.feature` (likewise `CloudGpuEvidence.Integration.feature` for AJ-151).
+Amendments (2026-10-27, M7 kickoff and pool A gates): (a) criterion 10 is read as the M6 exit fix reads it: the statement is "recorded without a browser showing the dashboard" plus the open-applications note of the 2026-10-25 campaign (the AJ-114 record), and the evidence rule asserts the substring `recorded without a browser` in `docs/build-log.md`; after K2 the published local file is results/20261027T095519Z-local.json, recorded without a browser, with the still-open applications named in the README notes; (b) in the scenario "A hosted energy value of 0 is rejected", "names the hosted step" means the validator's failure line names the hosted run file and the metric `grossJoules` (the validator prints the file and the parameter, not a step index); (c) the step bindings live in `tests/AgentJoules.Specs/Steps/EvidenceSteps.*.cs` partial classes with one `EvidenceContext`, not in `ConfigurationSteps.cs` (the AJ-043 class), and `EvidenceChecks` is split per story like `DocumentChecks`; (d) one `Feature:` per file, so the `@integration` block is `RunEvidence.Integration.feature` (likewise `CloudGpuEvidence.Integration.feature` for AJ-151).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S150 @REQ-032 @DoD

@@ -23,8 +23,9 @@ public static partial class EvidenceChecks
     public const string BuildStartHash = "aafaba934b50db74947090086bc32fb2441c2380";
 
     /// <summary>
-    /// The recorded reference of the live push check: the previous milestone's exit commit, the one on origin/main since the M6 exit. The 2026-10-20 user decision (recorded under "User decisions after the M1 exit" in the build log)
-    /// has the session publish main at every milestone exit, so the M0 base is not the remote main any more. It is meaningful only before the exit upload of main, and it is updated at each milestone exit.
+    /// The recorded reference of the commit-count report: it names the previous milestone's exit commit (the M6 exit commit, the one on origin/main at the time of writing). The 2026-10-20 user decision (recorded under
+    /// "User decisions after the M1 exit" in the build log) has the session publish main at every milestone exit. It feeds only <see cref="CommitsAhead"/> and <see cref="BoundaryCheck"/>;
+    /// the live <c>ls-remote</c> reading does not compare with it (see <see cref="RemoteMainViolations"/>), so it does not turn red when main is published.
     /// </summary>
     public const string RemoteReferenceHash = "01df5cf";
 
@@ -154,11 +155,14 @@ public static partial class EvidenceChecks
         return new BoundaryResult(violations, ahead, origin, output);
     }
 
-    /// <summary>The ls-remote check: the hash the remote main prints must be the recorded one.</summary>
+    /// <summary>
+    /// The ls-remote check: the hash the remote main prints must be a commit this checkout holds and that HEAD descends from (<c>git merge-base --is-ancestor</c>), so nothing exists on the remote that the checkout lacks.
+    /// This holds before and after the exit publication of main, unlike a comparison with a recorded hash.
+    /// </summary>
+    /// <param name="root">The repository folder whose HEAD is the reference.</param>
     /// <param name="lsRemoteOutput">What <c>git ls-remote origin refs/heads/main</c> printed.</param>
-    /// <param name="recorded">The recorded hash (full or abbreviated).</param>
-    /// <returns><c>remote main moved</c> unless exactly one line was printed, its ref is <c>refs/heads/main</c> and its hash is the recorded one.</returns>
-    public static IReadOnlyList<string> RemoteMainViolations(string lsRemoteOutput, string recorded)
+    /// <returns><c>remote main moved</c> unless exactly one line was printed, its ref is <c>refs/heads/main</c>, its hash is a full hash present in the repository and an ancestor of (or equal to) HEAD.</returns>
+    public static IReadOnlyList<string> RemoteMainViolations(string root, string lsRemoteOutput)
     {
         ArgumentNullException.ThrowIfNull(lsRemoteOutput);
         string[] lines = lsRemoteOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -168,8 +172,23 @@ public static partial class EvidenceChecks
         }
 
         string[] fields = lines[0].Split(['\t', ' '], StringSplitOptions.RemoveEmptyEntries);
-        bool ok = fields.Length == 2 && string.Equals(fields[1], "refs/heads/main", StringComparison.Ordinal) && recorded.Length > 0 && fields[0].StartsWith(recorded, StringComparison.OrdinalIgnoreCase);
-        return ok ? [] : ["remote main moved"];
+        if (fields.Length != 2 || !string.Equals(fields[1], "refs/heads/main", StringComparison.Ordinal) || !HexHash().IsMatch(fields[0]))
+        {
+            return ["remote main moved"];
+        }
+
+        // A hash absent locally makes git exit 128, a commit outside HEAD's history exit 1: both are a moved remote.
+        return GitRunner.Run(root, "merge-base", "--is-ancestor", fields[0] + "^{commit}", "HEAD").ExitCode == 0 ? [] : ["remote main moved"];
+    }
+
+    /// <summary>The hash a one-line <c>ls-remote</c> output prints, for the scenario output.</summary>
+    /// <param name="lsRemoteOutput">What <c>git ls-remote origin refs/heads/main</c> printed.</param>
+    /// <returns>The first field of the first line, or an empty string.</returns>
+    public static string RemoteMainHash(string lsRemoteOutput)
+    {
+        ArgumentNullException.ThrowIfNull(lsRemoteOutput);
+        string? line = lsRemoteOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        return line?.Split(['\t', ' '], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
     }
 
     /// <summary>The clean-tree check that precedes the review gates.</summary>
@@ -306,6 +325,9 @@ public static partial class EvidenceChecks
 
         return blocks;
     }
+
+    [GeneratedRegex(@"^[0-9a-f]{40}$", RegexOptions.CultureInvariant)]
+    private static partial Regex HexHash();
 
     [GeneratedRegex(@"^AJ-[0-9]{3}( AJ-[0-9]{3})*( (REQ|EDGE)-[0-9]{3})*:", RegexOptions.CultureInvariant)]
     private static partial Regex StoryForm();

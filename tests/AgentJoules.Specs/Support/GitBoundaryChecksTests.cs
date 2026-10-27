@@ -158,17 +158,48 @@ public sealed class GitBoundaryChecksTests
         Assert.Contains("cannot count the commits ahead", EvidenceChecks.BoundaryCheck(repo.Root, "deadbeef").Violations);
     }
 
+    [GitFact]
+    public void RemoteMainPassesWhenItIsAnAncestorOfHeadAndFailsWhenHeadDoesNotHoldIt()
+    {
+        using GitBoundaryContext repo = new();
+        string parent = repo.NewRepository("AJ-001: base");
+        repo.Commit("AJ-002: next");
+        string head = repo.Head();
+
+        // The parent of HEAD and HEAD itself are held by the checkout; the remote may be behind it (before the exit publication) or equal to it (after).
+        Assert.Empty(EvidenceChecks.RemoteMainViolations(repo.Root, parent + "\trefs/heads/main\n"));
+        Assert.Empty(EvidenceChecks.RemoteMainViolations(repo.Root, head + "\trefs/heads/main\r\n"));
+        Assert.Equal("remote main moved", Assert.Single(EvidenceChecks.RemoteMainViolations(repo.Root, "abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\n")));
+        Assert.Equal(head, EvidenceChecks.RemoteMainHash(head + "\trefs/heads/main\n"));
+
+        // A commit the checkout holds but HEAD does not descend from is a moved remote as well.
+        repo.Git("checkout", "--quiet", "-b", "side", parent);
+        repo.Commit("AJ-003: a side commit");
+        string side = repo.Head();
+        repo.Git("checkout", "--quiet", "main");
+        Assert.Equal("remote main moved", Assert.Single(EvidenceChecks.RemoteMainViolations(repo.Root, side + "\trefs/heads/main\n")));
+    }
+
     [Theory]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\n", "abcdef1", true)]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\r\n", "abcdef1234567890abcdef1234567890abcdef12", true)]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\n", "0123456", false)]
-    [InlineData("", "abcdef1", false)]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\n", "", false)]
-    [InlineData("1111111111111111111111111111111111111111\trefs/heads/a/main\nabcdef1234567890abcdef1234567890abcdef12\trefs/tags/main\n2222222222222222222222222222222222222222\trefs/heads/main\n", "abcdef1", false)]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/a/main\n", "abcdef1", false)]
-    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\nabcdef1234567890abcdef1234567890abcdef12\trefs/tags/main\n", "abcdef1", false)]
-    public void RemoteMainIsComparedWithTheRecordedHash(string printed, string recorded, bool passes) =>
-        Assert.Equal(passes ? [] : ["remote main moved"], EvidenceChecks.RemoteMainViolations(printed, recorded));
+    [InlineData("")]
+    [InlineData("abcdef1\trefs/heads/main\n")]
+    [InlineData("\trefs/heads/main\n")]
+    [InlineData("HEAD\trefs/heads/main\n")]
+    [InlineData("1111111111111111111111111111111111111111\trefs/heads/a/main\nabcdef1234567890abcdef1234567890abcdef12\trefs/tags/main\n2222222222222222222222222222222222222222\trefs/heads/main\n")]
+    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/a/main\n")]
+    [InlineData("abcdef1234567890abcdef1234567890abcdef12\trefs/heads/main\nabcdef1234567890abcdef1234567890abcdef12\trefs/tags/main\n")]
+    public void RemoteMainOutputOfTheWrongShapeIsMoved(string printed) =>
+        Assert.Equal(["remote main moved"], EvidenceChecks.RemoteMainViolations(RepositoryRoot.Path, printed));
+
+    [GitFact]
+    public void RemoteMainWithTheHeadHashButTheWrongRefOrTwoLinesIsMoved()
+    {
+        using GitBoundaryContext repo = new();
+        _ = repo.NewRepository("AJ-001: base");
+        string head = repo.Head();
+        Assert.Equal(["remote main moved"], EvidenceChecks.RemoteMainViolations(repo.Root, head + "\trefs/tags/main\n"));
+        Assert.Equal(["remote main moved"], EvidenceChecks.RemoteMainViolations(repo.Root, head + "\trefs/heads/main\n" + head + "\trefs/tags/main\n"));
+    }
 
     [GitFact]
     public void CleanTreeAcceptsACommittedTreeAndRejectsAnUntrackedFile()

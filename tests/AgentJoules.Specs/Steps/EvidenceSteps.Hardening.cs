@@ -24,6 +24,9 @@ public sealed class EvidenceHardeningSteps(HardeningContext context, IReqnrollOu
     private readonly HardeningContext _context = context;
     private readonly IReqnrollOutputHelper _output = output;
 
+    // The key-shaped value of the negative scan scenario, built at run time; a random string, never a real key, held only to compare.
+    private string _syntheticKey = string.Empty;
+
     private static string TestSummaryText(int passed, int failed, int skipped) =>
         string.Create(CultureInfo.InvariantCulture, $"{(failed > 0 ? "Failed!" : "Passed!")}  - Failed: {failed,5}, Passed: {passed,5}, Skipped: {skipped,5}, Total: {passed + failed + skipped,5}, Duration: 1 s - AgentJoules.Specs.dll (net10.0)\n");
 
@@ -219,17 +222,18 @@ public sealed class EvidenceHardeningSteps(HardeningContext context, IReqnrollOu
     [Given(@"^a temporary tracked file containing the NGC_API_KEY value$")]
     public void GivenATrackedFileWithTheNgcKey()
     {
-        _context.OpenGate("NGC_API_KEY");
+        _context.OpenGate();
         if (_context.SkipNote is not null)
         {
             return;
         }
 
-        // The value is written to a temporary folder outside the repository for the lifetime of the scenario; the folder is deleted when the scenario ends.
+        // A synthetic key-shaped value (the nvapi- prefix and 32 random characters, built at run time) is written to a temporary folder outside the repository for the lifetime of the scenario; no real key reaches a file or a blob.
         Assert.True(GitRunner.Available(), "git is not on PATH");
+        _syntheticKey = string.Concat("nvapi", "-", RandomNumberGenerator.GetString("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 32));
         TempWorkspace workspace = _context.NewFixture();
         _context.TrackedName = "tracked-note.txt";
-        _ = workspace.WriteFile(_context.TrackedName, "token=" + _context.KeyValue!.Trim() + "\n");
+        _ = workspace.WriteFile(_context.TrackedName, "token=" + _syntheticKey + "\n");
         Assert.Equal(0, GitRunner.Run(workspace.Root, "init", "--quiet", workspace.Root).ExitCode);
         Assert.Equal(0, GitRunner.Run(workspace.Root, "add", _context.TrackedName).ExitCode);
     }
@@ -242,7 +246,7 @@ public sealed class EvidenceHardeningSteps(HardeningContext context, IReqnrollOu
             return;
         }
 
-        _context.Scans.Add(("NGC_API_KEY", EvidenceChecks.TrackedFilesContaining(_context.Root, _context.KeyValue!)));
+        _context.Scans.Add(("NGC_API_KEY", EvidenceChecks.TrackedFilesContaining(_context.Root, _syntheticKey)));
     }
 
     [Then(@"^the scan fails and prints the file name only$")]
@@ -256,7 +260,7 @@ public sealed class EvidenceHardeningSteps(HardeningContext context, IReqnrollOu
         GitResult result = Assert.Single(_context.Scans).Result;
 
         // Ordered first and worded without the output: a failure of this assertion must not show the value.
-        Assert.False(result.Stdout.Contains(_context.KeyValue!.Trim(), StringComparison.Ordinal), "the scan output contains the key value (the value is not echoed)");
+        Assert.False(result.Stdout.Contains(_syntheticKey, StringComparison.Ordinal), "the scan output contains the key value (the value is not echoed)");
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(_context.TrackedName, result.Stdout.Trim());
     }

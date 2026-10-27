@@ -13,7 +13,7 @@ Every number below names the results file, docs/cloudgpu-run.md or, for the NIM-
 - `report` writes the report page (docs/report/index.html), a summary and a chart from the run files, and with `--update-readme`, `--verify-readme` and `--render-content` it regenerates the README results block, checks it byte for byte, and resolves the post templates from the committed run files.
 - `dashboard` has two views of the same page: `run --dashboard` serves a live page on loopback during a run (estimates on it are labelled estimated and never enter a run file), and `dashboard --replay <run file>` replays a committed run on its recorded timeline without a GPU.
 - The results schema is `docs/results-schema.json`, generated from the results model and compared with the model by a test.
-- The CI workflow `.github/workflows/ci.yml` restores, builds with warnings as errors, runs the unit tests and runs `probe --json` on `windows-latest` and `ubuntu-latest`, and references no secret.
+- The CI workflow `.github/workflows/ci.yml` restores, builds with warnings as errors, runs dotnet test over every suite and a key-pattern scan and runs `probe --json` on `windows-latest` and `ubuntu-latest`, and references no secret.
 
 Tiers that ran, with their run files:
 
@@ -38,7 +38,7 @@ The NIM-local attempt (docs/nim-local-attempt.md, measured): a NIM container for
 ## Fixes
 
 - The statement that published runs were recorded "without a browser open" was corrected to "recorded without a browser showing the dashboard", with the other open applications of the 2026-10-25 campaign disclosed next to the README results block (the M6 exit review fix in docs/build-log.md).
-- The local run was repeated on 2026-10-27 with the other GPU applications closed (a data refresh, the K2 entry in docs/build-log.md): results/20261027T095519Z-local.json is now the published local run, and the README block, the report page, the posts, the article and the Devpost texts were regenerated or re-derived from it.
+- The local run was repeated on 2026-10-27 with no browser open and the other GPU applications closed except the listed ones (the Claude desktop app, two Edge WebView2 hosts, explorer, ShareX, Windows Terminal, Widget Board, TextInputHost, ApplicationFrameHost and NahimicSvc64 held GPU contexts; 26 dotnet test processes of the build session ran on the CPU during the run; see the README notes and docs/methodology.md) (a data refresh, the K2 entry in docs/build-log.md): results/20261027T095519Z-local.json is now the published local run, and the README block, the report page, the posts, the article and the Devpost texts were regenerated or re-derived from it.
 
 ## Breaking changes
 
@@ -61,6 +61,7 @@ None (first release)
 - Output caps: each task caps its answer, and steps that stopped at the cap are judged as returned and carry no flag (counted in docs/methodology.md from results/20261027T095519Z-local.json, results/20261025T133440Z-nebius.json and results/20261025T135121Z-nvidia.json).
 - Reasoning mode: every tier runs with reasoning off, so the energy is that of the answer and not of a thinking trace (docs/endpoints.md).
 - Judge coverage: the judge failed for some steps, and the quality of those steps is N/A with the reason recorded, never 0 (results/20261027T095519Z-local.json, results/20261026T124721Z-cloudgpu.json and results/20261025T133440Z-nebius.json).
+- Open applications: the published local run still carried the GPU contexts of the listed applications and a CPU load from the build session's test runs, the meter reads GPU-board energy only, and the earlier 2026-10-25 campaign with two browsers open stays in results/ as history (README notes, docs/methodology.md).
 - Scope: the numbers describe one laptop, one workload and one model set; they are not a leaderboard and carry no general claim that one model is greener than another.
 
 ## Honesty rules
@@ -75,7 +76,7 @@ None (first release)
 
 ## Assets
 
-The three assets are built under the git-ignored `artifacts/` folder and attached to the release by the user; none of them holds a `.raw` file, an API key or a private key.
+The three assets are built under the git-ignored `artifacts/` folder and attached to the release by the session at the M7 exit on the user's delegation of 2026-10-27 12:11Z, rebuilt from the exit commit; none of them holds a `.raw` file, an API key or a private key.
 
 - agent-joules-v0.1.0-fdd.zip: the framework-dependent CLI, the output of `dotnet publish src/AgentJoules.Cli -c Release --no-self-contained -o artifacts/fdd`; it lists `AgentJoules.Cli.dll` and needs the .NET 10 runtime.
 - agent-joules-v0.1.0-results.zip: every `results/*.json` file, that is the four run files named above, the earlier local campaign file, the probe files and the calibration files.
@@ -97,3 +98,5 @@ dotnet artifacts/fdd/AgentJoules.Cli.dll validate results/
 ```
 
 Both exit 0; `probe --json` reports `gpuPresent` true on a machine with an NVIDIA GPU and false elsewhere, and `validate results/` checks every run file against `docs/results-schema.json`. The README results block is checked with `report --verify-readme` (exit 0).
+
+- The assembly version printed by `dotnet artifacts/fdd/AgentJoules.Cli.dll --version` is 1.0.0 plus the commit hash (no `<Version>` is set in the build); the release tag is v0.1.0 and the three zips are rebuilt from the exit commit before the release, with their hashes recorded in the M7 exit entry of docs/build-log.md.

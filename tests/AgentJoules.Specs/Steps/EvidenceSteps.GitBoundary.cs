@@ -11,7 +11,7 @@ namespace AgentJoules.Specs.Steps;
 /// <summary>
 /// AJ-156: the git history and the push boundary. The hermetic scenarios build a temporary repository with a local identity and no hook, and stage origin/main with a bare remote inside the temporary folder
 /// (cloned from the work repository and fetched), so nothing leaves the machine and nothing is pushed. The checklist scenario reads the committed file. The @integration scenarios are gated by
-/// <c>AGENTJOULES_INTEGRATION</c>: the one about the live remote asks <c>git ls-remote origin main</c> and compares the printed hash with <see cref="EvidenceChecks.RemoteReferenceHash"/>;
+/// <c>AGENTJOULES_INTEGRATION</c>: the one about the live remote asks <c>git ls-remote origin main</c> and requires the printed hash to be a commit that HEAD descends from (so it stays green after the exit publication of main);
 /// the one about a moved remote reads a bare remote inside the temporary folder, and the question for the user is written to the scenario output, never asked.
 /// </summary>
 [Binding]
@@ -166,8 +166,11 @@ public sealed class EvidenceGitBoundarySteps(GitBoundaryContext context, IReqnro
             return;
         }
 
-        IReadOnlyList<string> violations = EvidenceChecks.RemoteMainViolations(_context.Text ?? string.Empty, _context.Recorded);
-        Assert.True(violations.Count == 0, "the remote main is not " + _context.Recorded + ": " + (_context.Text ?? string.Empty).Trim());
+        // The printed hash is the remote main; it satisfies the scenario when this checkout holds it and HEAD descends from it.
+        string printed = EvidenceChecks.RemoteMainHash(_context.Text ?? string.Empty);
+        _output.WriteLine("the remote main " + printed + " is checked as an ancestor of HEAD (the recorded base " + _context.Recorded + " names the previous milestone's exit commit)");
+        IReadOnlyList<string> violations = EvidenceChecks.RemoteMainViolations(RepositoryRoot.Path, _context.Text ?? string.Empty);
+        Assert.True(violations.Count == 0, "the remote main is not an ancestor of HEAD: " + (_context.Text ?? string.Empty).Trim());
     }
 
     [Given(@"^the remote main differs from the recorded base$")]
@@ -179,10 +182,13 @@ public sealed class EvidenceGitBoundarySteps(GitBoundaryContext context, IReqnro
         _context.AttachOrigin();
         string recorded = _context.Git("rev-parse", "HEAD~1").Trim();
         _context.Recorded = recorded;
+
+        // The work repository goes back to the recorded base: the remote main is then a commit HEAD does not descend from.
+        _ = _context.Git("reset", "--quiet", "--hard", recorded);
         _context.Check = () =>
         {
             GitResult result = GitRunner.Run(_context.Root, "ls-remote", "origin", "refs/heads/main");
-            return result.ExitCode == 0 ? EvidenceChecks.RemoteMainViolations(result.Stdout, recorded) : ["remote main moved"];
+            return result.ExitCode == 0 ? EvidenceChecks.RemoteMainViolations(_context.Root, result.Stdout) : ["remote main moved"];
         };
     }
 
