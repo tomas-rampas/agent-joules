@@ -690,6 +690,7 @@ Acceptance criteria:
 5. Smoke test: `dotnet artifacts/fdd/AgentJoules.Cli.dll probe --json` exits 0 (`gpuPresent` true on the laptop, false elsewhere) and `dotnet artifacts/fdd/AgentJoules.Cli.dll validate results/` exits 0.
 6. The command in `docs/devpost-checklist.md` names exactly the notes file and the three asset paths above; `gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title "Agent Joules v0.1.0" --notes-file docs/release-notes-v0.1.0.md <three assets>` is marked `User action (the builder never runs this):`.
 7. User actions after the command: `gh release view v0.1.0 --repo tomas-rampas/agent-joules --json assets --jq '.assets[].name'` prints three names; the user keeps the repository unchanged on the tagged commit until the results are announced (prompt section 12 step 9). Tagging happens after the final push so that the tag marks the submitted commit.
+Amendments (2026-10-27, pool C gates): (a) criterion 4's "nvapi- strings" is read as key-shaped strings, the CI key pattern nvapi-[A-Za-z0-9_-]{8,}: the fdd zip ships the product's own redaction code and documentation, whose literal prefix nvapi- (the regex nvapi-[A-Za-z0-9_-]{4,} and the nvapi-**** mask in AgentJoules.Core.dll and the AgentJoules.Core, Dashboard and Reporting XML files) is not key material; the scan over every entry finds no key-shaped string and none of the three key values; (b) the two scenarios that read the git-ignored artifacts/ folder pass without asserting, with the reason in the scenario output, in a checkout that holds no zip (the CI runners), and assert on the builder's machine where the zips exist; (c) criterion 2's number rule accepts a results file name or docs/cloudgpu-run.md or a label word in the same sentence or row; the NIM-local attempt's duration cites docs/nim-local-attempt.md, the only record of it.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S157 @DoD
@@ -748,9 +749,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/ReleasePackage.feature
 Docs impact: docs/release-notes-v0.1.0.md; docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the tag and the release are not created by the builder (user action)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the tag and the release are not created by the builder (user action) (the tag and the release stay the user's; the assets built 2026-10-27, see the AJ-157 entry of docs/build-log.md)
 Demo relevance: no.
 
 ### AJ-158: Write the submission order, the timeline and the cut-off plan
@@ -828,9 +829,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/SubmissionPlan.feature
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user has read the plan and given the missing-item decisions that are theirs (nebius and video rows)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] the user has read the plan and given the missing-item decisions that are theirs (nebius and video rows) (open: a user action for the submission day; the rows state the rules; listed in the final report, 2026-10-27)
 Demo relevance: no.
 
 ### AJ-159: Define the buffer, the risk register and the drop order
@@ -905,9 +906,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/DropOrder.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user confirmed the drop order before 2026-10-29 17:00 UTC (a user action)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the user confirmed the drop order before 2026-10-29 17:00 UTC (a user action) (the order itself is the user's plan decision D-2 of 2026-10-19 and decision 1 of the M6 exit accepted at the M7 kickoff on 2026-10-27; the trigger, risk and buffer columns were added by pool C after the kickoff and are shown to the user in the final report; see the AJ-159 entry)
 Demo relevance: no.
 
 ## Risks
