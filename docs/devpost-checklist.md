@@ -164,7 +164,7 @@ Before you push, check:
 
 Push the branch:
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 git push -u origin main
@@ -183,7 +183,7 @@ Both runners (`build (windows-latest)` and `build (ubuntu-latest)`) must show `s
 
 Enable GitHub Pages for the report (Settings, Pages, Deploy from a branch, branch `main`, folder `/docs`), or use the command, then check the address:
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 # Settings > Pages > Build and deployment > Source: Deploy from a branch > Branch: main, folder: /docs
@@ -193,7 +193,7 @@ curl -sI https://tomas-rampas.github.io/agent-joules/report/ | head -1
 
 Create the release. The notes file docs/release-notes-v0.1.0.md and the three zip assets are produced by M7 (AJ-157); do not run this before they exist.
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title "Agent Joules v0.1.0" --notes-file docs/release-notes-v0.1.0.md artifacts/agent-joules-v0.1.0-fdd.zip artifacts/agent-joules-v0.1.0-results.zip artifacts/agent-joules-v0.1.0-report.zip
@@ -201,7 +201,7 @@ gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title 
 
 After the release exists, check that it holds exactly the three assets (the command prints three names):
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 gh release view v0.1.0 --repo tomas-rampas/agent-joules --json assets --jq '.assets[].name'
@@ -260,3 +260,5 @@ The latest acceptable targets, used only when the evening plan slips:
 - Submission complete by 2026-10-30 14:00 UTC (07:00 PDT)
 
 3 hours of buffer remain between the last target and the deadline. For a user in central Europe the local time on that date is UTC+1 (CET), so the deadline is 18:00 CET and the last target is 15:00 CET.
+
+Delegation (2026-10-27 12:11Z): the user asked the session to run the git and gh steps on their behalf, so the publication of main, the v0.1.0 tag, the GitHub release with the three assets and the Pages source setting are performed by the session at the M7 exit after the CI run on the merged main succeeds, each recorded with its command and exit code in docs/build-log.md; the Devpost form, the video and the questionnaire stay the user's.

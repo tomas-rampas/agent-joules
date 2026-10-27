@@ -252,7 +252,7 @@ public static partial class EvidenceChecks
 
         var violations = new List<string>();
         string previous = lines.Take(open).LastOrDefault(static line => !string.IsNullOrWhiteSpace(line))?.Trim() ?? string.Empty;
-        if (!string.Equals(previous, DocumentChecks.UserActionLabel, StringComparison.Ordinal))
+        if (!DocumentChecks.IsUserActionLabel(previous))
         {
             violations.Add("release command not marked as user action");
         }

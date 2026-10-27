@@ -257,6 +257,20 @@ public sealed class SubmissionChecksTests
     }
 
     [Fact]
+    public void TheDelegatedLabelIsAcceptedOnTheReleaseCommandAndANearMissIsNot()
+    {
+        using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+        SubmissionFixtures.WritePackage(workspace);
+        const string Original = "User action (the builder never runs this):\n\n```\ngh release create";
+        static string Block(string label) => label + "\n\n```\ngh release create";
+        _ = workspace.WriteFile("docs/devpost-checklist.md", SubmissionFixtures.Change(SubmissionFixtures.Checklist(), Original, Block(DocumentChecks.DelegatedUserActionLabel)));
+        AssertClean(EvidenceChecks.ReleaseCommandViolations(workspace.Root));
+
+        _ = workspace.WriteFile("docs/devpost-checklist.md", SubmissionFixtures.Change(SubmissionFixtures.Checklist(), Original, Block("Delegated to the session:")));
+        AssertViolation(EvidenceChecks.ReleaseCommandViolations(workspace.Root), "release command not marked as user action");
+    }
+
+    [Fact]
     public void ADropOrderWithAMissingStepIsRejected()
     {
         string log = string.Join('\n', SubmissionFixtures.BuildLog().Split('\n').Where(static line => !line.StartsWith("| C7 |", StringComparison.Ordinal)));

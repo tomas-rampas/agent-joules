@@ -68,7 +68,7 @@ public sealed class DevpostUserActionsSteps(DevpostContext context)
         string[] lines = DocumentChecks.Lines(_context.Text);
         int command = Array.FindIndex(lines, static line => line.Contains("git push -u origin main", StringComparison.Ordinal));
         Assert.True(command > 0, "The checklist has no push command.");
-        int label = Array.FindLastIndex(lines, command, static line => line.Trim() == DocumentChecks.UserActionLabel);
+        int label = Array.FindLastIndex(lines, command, static line => DocumentChecks.IsUserActionLabel(line.Trim()));
         Assert.True(label >= 0, "The push block has no label.");
         lines[label] = "Run this yourself:";
         _context.Text = string.Join('\n', lines);
@@ -139,7 +139,7 @@ public sealed class DevpostUserActionsSteps(DevpostContext context)
         foreach (string command in new[] { "git push", "gh release create", "gh api" })
         {
             LabelledBlock block = _context.Blocks.First(entry => entry.Lines.Any(line => line.Contains(command, StringComparison.Ordinal)));
-            Assert.Equal(DocumentChecks.UserActionLabel, block.Label);
+            Assert.True(DocumentChecks.IsUserActionLabel(block.Label), $"Unexpected label: {block.Label}");
         }
     }
 

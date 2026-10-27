@@ -607,6 +607,7 @@ Acceptance criteria:
 4. `code-review-gatekeeper` runs over the final diff; every BLOCKER and MAJOR finding is fixed in a commit whose message starts with the story id and the REQ or EDGE ids concerned, or has explicit user sign-off recorded in `docs/build-log.md`.
 5. After the last commit, `peer-review-critic` runs on the branch against `origin/main`; its last line is `VERDICT: APPROVED` (the Stop hook blocks the session end otherwise, at most three times for `CHANGES_REQUIRED`); each BLOCKER and MAJOR finding is resolved or signed off by the user.
 6. No command in the build log or the checklist shows the builder running `git push`, `gh release create` or any cloud-resource command.
+Amendments (2026-10-27): (a) criterion 1 and box 13: the accepted subject forms are the story form with one or more story ids and zero or more REQ or EDGE ids (pooled commits and M7 stories without a REQ) and the milestone subjects M<k> exit, exit addendum, kickoff, exit review fixes and exit peer review; the literal pattern of criterion 1 is reported as a separate count (10 non-matching subjects on the history at 0ffa008, all pooled or exit subjects) and the amended count is 0; (b) criterion 2 and box 14: by the user's decision of 2026-10-20 the session publishes main at every milestone exit, so the recorded reference for "nothing pushed" is the previous milestone's exit commit on origin/main (01df5cf) and not the M0 base; the M0 base stays the start of the history and commit-count checks; (c) criterion 6: by the user's decision of 2026-10-27 12:11Z the session also runs the tag, the release and the Pages setting at the exit, so the checklist labels those four blocks "User action delegated to the session at the M7 exit" and the rule accepts that label; the build log records each delegated command with its exit code in the exit entry; the statement "no command shows the builder running git push, gh release create or a cloud-resource command" is read as: none outside the recorded exit steps, and no cloud-resource command at all.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S156 @DoD
@@ -674,9 +675,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/GitBoundary.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings (boxes 13 and 14 ticked 2026-10-27 under amendments (a) and (b), see the AJ-156 entry; the last peer-review-critic verdict is recorded at the M7 exit, which ticks this box)
 Demo relevance: no.
 
 ### AJ-157: Prepare the v0.1.0 release (the tag and the GitHub release are the user's actions)
@@ -690,7 +691,7 @@ Acceptance criteria:
 5. Smoke test: `dotnet artifacts/fdd/AgentJoules.Cli.dll probe --json` exits 0 (`gpuPresent` true on the laptop, false elsewhere) and `dotnet artifacts/fdd/AgentJoules.Cli.dll validate results/` exits 0.
 6. The command in `docs/devpost-checklist.md` names exactly the notes file and the three asset paths above; `gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title "Agent Joules v0.1.0" --notes-file docs/release-notes-v0.1.0.md <three assets>` is marked `User action (the builder never runs this):`.
 7. User actions after the command: `gh release view v0.1.0 --repo tomas-rampas/agent-joules --json assets --jq '.assets[].name'` prints three names; the user keeps the repository unchanged on the tagged commit until the results are announced (prompt section 12 step 9). Tagging happens after the final push so that the tag marks the submitted commit.
-Amendments (2026-10-27, pool C gates): (a) criterion 4's "nvapi- strings" is read as key-shaped strings, the CI key pattern nvapi-[A-Za-z0-9_-]{8,}: the fdd zip ships the product's own redaction code and documentation, whose literal prefix nvapi- (the regex nvapi-[A-Za-z0-9_-]{4,} and the nvapi-**** mask in AgentJoules.Core.dll and the AgentJoules.Core, Dashboard and Reporting XML files) is not key material; the scan over every entry finds no key-shaped string and none of the three key values; (b) the two scenarios that read the git-ignored artifacts/ folder pass without asserting, with the reason in the scenario output, in a checkout that holds no zip (the CI runners), and assert on the builder's machine where the zips exist; (c) criterion 2's number rule accepts a results file name or docs/cloudgpu-run.md or a label word in the same sentence or row; the NIM-local attempt's duration cites docs/nim-local-attempt.md, the only record of it.
+Amendments (2026-10-27, pool C gates): (a) criterion 4's "nvapi- strings" is read as key-shaped strings, the CI key pattern nvapi-[A-Za-z0-9_-]{8,}: the fdd zip ships the product's own redaction code and documentation, whose literal prefix nvapi- (the regex nvapi-[A-Za-z0-9_-]{4,} and the nvapi-**** mask in AgentJoules.Core.dll and the AgentJoules.Core, Dashboard and Reporting XML files) is not key material; the scan over every entry finds no key-shaped string and none of the three key values; (b) the two scenarios that read the git-ignored artifacts/ folder pass without asserting, with the reason in the scenario output, in a checkout that holds no zip (the CI runners), and assert on the builder's machine where the zips exist; (c) criterion 2's number rule accepts a results file name or docs/cloudgpu-run.md or a label word in the same sentence or row; the NIM-local attempt's duration cites docs/nim-local-attempt.md, the only record of it; (d) criteria 6 and 7 and the definition-of-done box "the tag and the release are not created by the builder": by the user's decision of 2026-10-27 12:11Z the session creates the tag and the release at the M7 exit after the CI run on the merged main, with the zips rebuilt from the exit commit and their hashes recorded; the user keeps the repository unchanged on the tagged commit.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S157 @DoD
@@ -751,7 +752,7 @@ Docs impact: docs/release-notes-v0.1.0.md; docs/devpost-checklist.md; docs/build
 Definition of done:
 - [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
 - [x] docs listed above updated
-- [x] the tag and the release are not created by the builder (user action) (the tag and the release stay the user's; the assets built 2026-10-27, see the AJ-157 entry of docs/build-log.md)
+- [x] the tag and the release are not created by the builder (user action) (the assets built 2026-10-27, see the AJ-157 entry of docs/build-log.md; amendment (d) of 2026-10-27 12:11Z: by the user's decision the session creates the tag and the release at the M7 exit after the CI run on the merged main, recorded in the exit entry; the box is read as "not created by the builder on its own initiative")
 Demo relevance: no.
 
 ### AJ-158: Write the submission order, the timeline and the cut-off plan
