@@ -1,5 +1,7 @@
 # Agent Joules: Devpost submission checklist
 
+Verified: 2026-10-26
+
 This file records the verified hackathon rules, maps every Devpost field to a repository artifact and holds the commands the user runs. The builder fills no value that belongs to the user (Devpost handle, join date, credit date, video link, team, track) and runs none of the commands below.
 
 ## Source and verification

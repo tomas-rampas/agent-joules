@@ -84,6 +84,7 @@ Acceptance criteria:
 8. Box 24, first command: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser (@integration, needs the laptop GPU and the local runtime for the dry run).
 9. Box 24, second command: `AJ dashboard --replay results/<newest nebius file> --speed 50 --exit-after 5` exits 0 and emits one server-sent event per step of that file (36 for the demo shape), served from `127.0.0.1` only; the replay needs no GPU and no key (@unit through the in-process harness).
 10. The published run files were recorded without a browser open: `docs/build-log.md` contains the statement for the local run, `docs/methodology.md` states both facts (the server adds no GPU work; a browser tab adds compositing load), and the README says so (REQ-032 text).
+Amendments (2026-10-27, M7 kickoff and pool A gates): (a) criterion 10 is read as the M6 exit fix reads it: the statement is "recorded without a browser showing the dashboard" plus the open-applications note of the 2026-10-25 campaign (the AJ-114 record), and the evidence rule asserts the substring `recorded without a browser` in `docs/build-log.md`; (b) in the scenario "A hosted energy value of 0 is rejected", "names the hosted step" means the validator's failure line names the hosted run file and the metric `grossJoules` (the validator prints the file and the parameter, not a step index); (c) the step bindings live in `tests/AgentJoules.Specs/Steps/EvidenceSteps.*.cs` partial classes with one `EvidenceContext`, not in `ConfigurationSteps.cs` (the AJ-043 class), and `EvidenceChecks` is split per story like `DocumentChecks`; (d) one `Feature:` per file, so the `@integration` block is `RunEvidence.Integration.feature` (likewise `CloudGpuEvidence.Integration.feature` for AJ-151).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S150 @REQ-032 @DoD
@@ -180,9 +181,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/RunEvidence.feature; SchemaValidationTests (hosted N/A rule); the dashboard unit tests of REQ-032 (SSE payload, replay events)
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 7, 20 and 24 ticked with the command output in `docs/build-log.md`, or listed unchecked with the reason
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 7, 20 and 24 ticked with the command output in `docs/build-log.md`, or listed unchecked with the reason (boxes 7, 20 and 24 ticked 2026-10-27, see the AJ-150 entry of docs/build-log.md)
 Demo relevance: yes: these files are the source of every number the video shows, and the dashboard commands are shots 4 and 5 (replay is the fallback).
 
 ### AJ-151: Verify the cloudgpu evidence
@@ -192,6 +193,7 @@ Acceptance criteria:
 1. `ls results | grep -E "^[0-9]{8}T[0-9]{6}Z-cloudgpu\.json$"` prints at least one file and `ls results | grep -E "^probe-[0-9]{8}T[0-9]{6}Z-cloudgpu\.json$"` prints at least one; `AJ validate results/` exits 0 with both included in the count.
 2. The newest cloudgpu run file has `environment.provider` `nebius-ai-cloud`, `environment.precision` `FP8`, a non-empty `environment.instancePreset` and `run.status` `completed` or `partial`; a file with status `incomplete`, `failed` or `running` does not count as evidence.
 3. The cloudgpu probe records `energyCounterSupported` (boolean) and `migMode` `disabled` (a value `enabled` fails the story).
+Amendments (2026-10-27, pool A gates): (a) criterion 1's "both included in the count" is read with AJ-150 criterion 4: `validate results/` counts run files only (`Validated 4 files` on the committed tree), so the run file is in that count and the cloudgpu probe's schema validity is shown separately (`validate <probe file>` when the command accepts a file, else the AJ-125 probe tests); (b) `migMode` `not-supported` is accepted besides `disabled` (AJ-125 allows it; only `enabled` fails); (c) the cost rule reads the first `USD <decimal>` of the `- Whole-run cost:` line of `## Cost` (7 on the committed record) against the cap 30, and the teardown rule looks for `deleted` in `## Teardown`.
 4. `docs/cloudgpu-run.md` has the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost`, `Teardown`; the `Cost` section contains `USD` and a value of 30 or less; the `Teardown` section contains the word `deleted` and the user's deletion confirmation time (user action, section 12 step 13).
 5. `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` with the key set returns no hits (@integration) and `grep -cE "nvapi-[A-Za-z0-9_-]{8,}" docs/cloudgpu-run.md` prints 0.
 6. `sed -n '/<!-- results:begin -->/,/<!-- results:end -->/p' README.md | grep -c "cloudgpu"` prints 1 or more.
@@ -268,9 +270,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuEvidence.feature; CloudGpuTests, IncompleteRunTests
 Docs impact: docs/build-log.md; docs/cloudgpu-run.md (only a missing Teardown or Cost line)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 21, 22 and 23 ticked with command output, or listed unchecked with the reason (the user's VM deletion and cost are user actions)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 21, 22 and 23 ticked with command output, or listed unchecked with the reason (the user's VM deletion and cost are user actions) (boxes 21, 22 and 23 ticked 2026-10-27, see the AJ-151 entry of docs/build-log.md)
 Demo relevance: yes: the cloudgpu row and the Nebius AI Cloud section appear in shot 6.
 
 ### AJ-152: Verify the report page, README block and content artifacts
@@ -345,9 +347,9 @@ Tasks:
 Test mapping: ReadmeBlockTests, ReportRenderingTests, ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/ReportAndContentEvidence.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the generated files are committed in the same commit as the last results file they reflect
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the generated files are committed in the same commit as the last results file they reflect (boxes 8, 10, 11 and 16 ticked 2026-10-27, see the AJ-152 entry of docs/build-log.md; no generated file changed, so nothing new to commit)
 Demo relevance: yes: the report page is the Try it out URL.
 
 ### AJ-153: Verify the documentation and Devpost files
@@ -422,9 +424,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/DocsEvidence.feature
 Docs impact: docs/build-log.md; the four documents (verification line only)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 9, 17, 18 and 19 ticked with command output, or unchecked with the reason (a checklist that is `not verified` leaves box 9 unchecked)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 9, 17, 18 and 19 ticked with command output, or unchecked with the reason (a checklist that is `not verified` leaves box 9 unchecked) (boxes 9, 17, 18 and 19 ticked 2026-10-27, see the AJ-153 entry of docs/build-log.md)
 Demo relevance: no.
 
 ### AJ-154: Verify spec conformance, Spec traits and scope
