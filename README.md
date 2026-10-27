@@ -94,7 +94,7 @@ Four actions need neither a GPU nor a key. Run them from the repository root.
 Every tier of the workflow runs an NVIDIA model; the model IDs below are the ones recorded in the named run files and listed as `- model:` lines in [docs/endpoints.md](docs/endpoints.md). Tier order is local, cloudgpu, nvidia, nebius.
 
 - `local`: `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`, served by an NVIDIA NIM container on the laptop GPU; run file `results/20261027T095519Z-local.json`.
-- `cloudgpu`: `nvidia/nemotron-3-nano`, served by an NVIDIA NIM container on a Nebius AI Cloud GPU virtual machine; run file `results/20261026T124721Z-cloudgpu.json`.
+- `cloudgpu`: `nvidia/nemotron-3-nano`, served by an NVIDIA NIM container on a Nebius AI Cloud virtual machine with one NVIDIA H100 80GB GPU (preset 1gpu-16vcpu-200gb, recorded in the run file and docs/cloudgpu-run.md); run file `results/20261026T124721Z-cloudgpu.json`.
 - `nvidia`: `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, called on the hosted build.nvidia.com endpoint; run file `results/20261025T135121Z-nvidia.json`.
 - `nebius`: `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`, called on the Nebius Token Factory endpoint; run file `results/20261025T133440Z-nebius.json`.
 
