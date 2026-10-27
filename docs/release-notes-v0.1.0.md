@@ -80,7 +80,7 @@ The three assets are built under the git-ignored `artifacts/` folder and attache
 
 - agent-joules-v0.1.0-fdd.zip: the framework-dependent CLI, the output of `dotnet publish src/AgentJoules.Cli -c Release --no-self-contained -o artifacts/fdd`; it lists `AgentJoules.Cli.dll` and needs the .NET 10 runtime.
 - agent-joules-v0.1.0-results.zip: every `results/*.json` file, that is the four run files named above, the earlier local campaign file, the probe files and the calibration files.
-- agent-joules-v0.1.0-report.zip: the contents of `docs/report/`, that is `index.html` (the static report page), `summary.md` and `joules-per-step.svg`.
+- agent-joules-v0.1.0-report.zip: the contents of `docs/report/`, that is `index.html` (the static report page), `summary.md` and `joules-per-step.svg`, plus `dashboard.png` once the user adds the screenshot.
 
 ## Verification
 
@@ -99,4 +99,4 @@ dotnet artifacts/fdd/AgentJoules.Cli.dll validate results/
 
 Both exit 0; `probe --json` reports `gpuPresent` true on a machine with an NVIDIA GPU and false elsewhere, and `validate results/` checks every run file against `docs/results-schema.json`. The README results block is checked with `report --verify-readme` (exit 0).
 
-- The assembly version printed by `dotnet artifacts/fdd/AgentJoules.Cli.dll --version` is 1.0.0 plus the commit hash (no `<Version>` is set in the build); the release tag is v0.1.0 and the three zips are rebuilt from the exit commit before the release, with their hashes recorded in the M7 exit entry of docs/build-log.md.
+- The assembly version printed by `dotnet artifacts/fdd/AgentJoules.Cli.dll --version` is 1.0.0 plus the commit hash (no `<Version>` is set in the build); the release tag is v0.1.0 and the three zips are rebuilt before the release from the last commit of the exit sequence that holds the published tree (the fdd zip embeds that commit's hash in its version string), with their hashes recorded in the M7 exit addendum of docs/build-log.md.

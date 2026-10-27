@@ -24,7 +24,7 @@ public static partial class EvidenceChecks
 
     /// <summary>
     /// The recorded reference of the commit-count report: it names the previous milestone's exit commit (the M6 exit commit, the one on origin/main at the time of writing). The 2026-10-20 user decision (recorded under
-    /// "User decisions after the M1 exit" in the build log) has the session publish main at every milestone exit. It feeds only <see cref="CommitsAhead"/> and <see cref="BoundaryCheck"/>;
+    /// "User decisions after the M1 exit" in the build log) has the session publish main at every milestone exit. It is printed in the gated scenario output line and feeds the commit-count report of <see cref="CommitsAhead"/> and <see cref="BoundaryCheck"/> (the temporary-repository scenarios use their own hashes);
     /// the live <c>ls-remote</c> reading does not compare with it (see <see cref="RemoteMainViolations"/>), so it does not turn red when main is published.
     /// </summary>
     public const string RemoteReferenceHash = "01df5cf";
