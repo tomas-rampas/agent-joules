@@ -29,6 +29,15 @@ public sealed partial class EvidenceSteps
         // The report reads Report:RepositoryUrl from the configuration file; the committed page carries that link.
         EvidenceContext.CopyCommitted(workspace, "config/appsettings.json");
         _ = workspace.WriteFile("README.md", ReadmeFixtures.WithMarkers(RepositoryRoot.ReadAllText("README.md")));
+        // The README links the screenshot when the file exists, so the fixture carries it too (a binary copy).
+        string screenshot = RepositoryRoot.Resolve("docs/report/dashboard.png");
+        if (File.Exists(screenshot))
+        {
+            string target = Path.Combine(workspace.Root, "docs", "report", "dashboard.png");
+            _ = Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(screenshot, target, overwrite: true);
+        }
+
         // The rendered posts are left out, so the currency check proves that the run wrote them; the renderer reads the template.
         foreach (string path in Directory.EnumerateFiles(RepositoryRoot.Resolve("content")).Where(static path => !string.Equals(Path.GetFileName(path), "linkedin-posts.md", StringComparison.Ordinal)))
         {
@@ -38,7 +47,8 @@ public sealed partial class EvidenceSteps
         return workspace;
     }
 
-    // The README, every file of docs/report/ and the rendered posts of the fixture, compared byte for byte with the committed ones.
+    // The README, every file of docs/report/ and the rendered posts of the fixture, compared byte for byte with the committed ones
+    // (docs/report/dashboard.png is the user's screenshot copied in by the fixture, not an output of the run, so its comparison holds by construction).
     private static string[] CommittedOutputViolations(string root)
     {
         string[] relative =
