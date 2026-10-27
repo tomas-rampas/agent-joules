@@ -70,7 +70,7 @@ GPU: NVIDIA H100 80GB HBM3; driver: 580.173.02; run date (UTC): 2026-10-26; loca
 | Net energy per task repeat, minimum (derived) | 648.52 J | measured | results/20261026T124721Z-cloudgpu.json |
 | Net energy per task repeat, maximum (derived) | 1803.81 J | measured | results/20261026T124721Z-cloudgpu.json |
 
-The cloud run file records no local runtime; the engine was NIM 2.1.4 (docs/cloudgpu-run.md). The VM was a Nebius AI Cloud preset 1gpu-16vcpu-200gb in region eu-north1. Three of the thirty-six judge calls are N/A after an HTTP 429 (docs/cloudgpu-run.md records the RetriesExhaustedException), so their quality is N/A, not zero. The cloud run made no warm-up call before its baseline (deviation D-1 in docs/cloudgpu-run.md): the engine had served the endpoint checks and the calibration minutes earlier, modelLoadSeconds is null in the file, and the first-token latencies of repeat 1 are disclosed there.
+The cloud run file records no local runtime; the engine was NIM 2.1.4 (docs/cloudgpu-run.md). The VM was a Nebius AI Cloud preset 1gpu-16vcpu-200gb in region eu-north1. Three of the thirty-six judge calls are N/A after an HTTP 429 (docs/cloudgpu-run.md records the RetriesExhaustedException), so their quality is N/A, not zero. The cloud run made no warm-up call before its baseline (the "Deviation, no warm-up call" entry of docs/cloudgpu-run.md): the engine had served the endpoint checks and the calibration minutes earlier, modelLoadSeconds is null in the file, and the first-token latencies of repeat 1 are disclosed there.
 
 - Rental: 1.509 GPU-hours at USD 4.63 per hour, a whole-run cost of about USD 7 estimated from the console hourly price, not the bill (docs/cloudgpu-run.md).
 
