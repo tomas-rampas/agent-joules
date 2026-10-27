@@ -868,6 +868,198 @@ public sealed class ExitCodeTests
             _ = Assert.Throws<ArgumentOutOfRangeException>(() => ExitCodeMapper.Describe((ExitCode)99));
         }
     }
+
+    /// <summary>
+    /// AJ-144 (REQ-025): the exit code 7 of <c>report --verify-readme</c> through the real command under the harness: a results block that differs from the generated one ends with
+    /// <see cref="ContentDiffersException"/>, one <c>error:</c> line and no write; the same block verifies with 0 and a missing marker is 2. A nested class, so the <c>Spec=REQ-006</c> trait of the probe tests does not tag these rows.
+    /// </summary>
+    [Trait("Spec", "REQ-025")]
+    public sealed class ReportVerifyCode
+    {
+        private const string Readme = "# Title\n\n<!-- results:begin -->\nstale\n<!-- results:end -->\n";
+
+        private static TempWorkspace Workspace()
+        {
+            TempWorkspace workspace = TempWorkspace.CreateEmpty();
+            _ = workspace.WriteFile(Path.Combine("results", RunDocumentFixtures.CommittedFileName(Core.Runs.Tier.Local)), RunDocumentFixtures.CommittedText(Core.Runs.Tier.Local));
+            return workspace;
+        }
+
+        private static Task<CliRunResult> RunAsync(TempWorkspace workspace, string arguments) =>
+            CliHarness.RunTokensAsync(arguments.Split(' '), new CliHostOverrides(WorkingDirectory: workspace.Root)).WaitAsync(HangGuard);
+
+        private static Task<CliRunResult> RunWithKeyAsync(TempWorkspace workspace, string arguments) =>
+            CliHarness.RunTokensAsync(
+                arguments.Split(' '),
+                new CliHostOverrides(Configuration: new Dictionary<string, string?> { ["NEBIUS_API_KEY"] = ProviderClientFixtures.FakeKey() }, WorkingDirectory: workspace.Root)).WaitAsync(HangGuard);
+
+        [Fact]
+        public async Task A_verify_only_run_writes_no_file_and_creates_no_folder()
+        {
+            using TempWorkspace workspace = Workspace();
+            _ = workspace.WriteFile("README.md", Readme);
+
+            Assert.Equal(7, (await RunAsync(workspace, "report --verify-readme")).ExitCode);
+            _ = await RunAsync(workspace, "report --update-readme");
+            Directory.Delete(Path.Combine(workspace.Root, "docs"), recursive: true);
+            Assert.Equal(0, (await RunAsync(workspace, "report --verify-readme")).ExitCode);
+
+            Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        }
+
+        [Fact]
+        public async Task Update_and_verify_together_are_an_argument_error_exit_2_and_nothing_is_written()
+        {
+            using TempWorkspace workspace = Workspace();
+            string path = workspace.WriteFile("README.md", Readme);
+
+            CliRunResult result = await RunAsync(workspace, "report --update-readme --verify-readme");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("--update-readme and --verify-readme cannot be combined", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(Readme, File.ReadAllText(path));
+            Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        }
+
+        [Fact]
+        public async Task A_registered_key_written_escaped_in_a_run_file_value_the_template_uses_is_refused_and_nothing_is_written()
+        {
+            using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+            string key = ProviderClientFixtures.FakeKey();
+            string escaped = "\\u" + ((int)key[0]).ToString("X4", System.Globalization.CultureInfo.InvariantCulture) + key[1..];
+            string text = RunDocumentFixtures.CommittedText(Core.Runs.Tier.Local);
+            string edited = text.Replace("\"os\": \"fixture-os\"", "\"os\": \"" + escaped + "\"", StringComparison.Ordinal);
+            Assert.NotEqual(text, edited);
+            _ = workspace.WriteFile(Path.Combine("results", RunDocumentFixtures.CommittedFileName(Core.Runs.Tier.Local)), edited);
+            _ = workspace.WriteFile(Path.Combine("content", "linkedin-posts.template.md"), "## Variant: A\nOS {{results.local.environment.os}}\n");
+
+            CliRunResult result = await RunWithKeyAsync(workspace, "report --render-content");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("linkedin-posts.md holds a registered key; nothing written", result.Stderr, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(workspace.Root, "content", "linkedin-posts.md")));
+            Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        }
+
+        [Fact]
+        public async Task A_key_variable_that_only_the_config_file_names_is_registered_and_its_value_in_the_content_is_refused()
+        {
+            // report builds no host: the variable name PROBE_ONLY_API_KEY is declared by config/appsettings.json alone, so the early registration cannot know it; its value is held by the overrides configuration.
+            using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+            string key = ProviderClientFixtures.FakeKey();
+            string escaped = "\\u" + ((int)key[0]).ToString("X4", System.Globalization.CultureInfo.InvariantCulture) + key[1..];
+            string text = RunDocumentFixtures.CommittedText(Core.Runs.Tier.Local);
+            string edited = text.Replace("\"os\": \"fixture-os\"", "\"os\": \"" + escaped + "\"", StringComparison.Ordinal);
+            Assert.NotEqual(text, edited);
+            _ = workspace.WriteFile(Path.Combine("results", RunDocumentFixtures.CommittedFileName(Core.Runs.Tier.Local)), edited);
+            _ = workspace.WriteFile(Path.Combine("content", "linkedin-posts.template.md"), "## Variant: A\nOS {{results.local.environment.os}}\n");
+            _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), "{\"AgentJoules\":{\"Tiers\":{\"nebius\":{\"ApiKeyVariable\":\"PROBE_ONLY_API_KEY\"}}}}");
+
+            CliRunResult result = await CliHarness.RunTokensAsync(
+                ["report", "--render-content"],
+                new CliHostOverrides(Configuration: new Dictionary<string, string?> { ["PROBE_ONLY_API_KEY"] = key }, WorkingDirectory: workspace.Root)).WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("linkedin-posts.md holds a registered key; nothing written", result.Stderr, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(workspace.Root, "content", "linkedin-posts.md")));
+        }
+
+        [Fact]
+        public async Task A_key_variable_valued_differently_in_the_environment_and_in_the_later_sources_has_both_values_registered()
+        {
+            // The host's order puts the environment last, report's combined order puts the secrets and the override after it: the process environment value (the one the host uses) must be registered too.
+            // User secrets cannot be faked in the harness, so the override (added after the environment, as the secrets are) stands in for them; the variable name is declared by the config file alone.
+            const string variable = "PROBE_TWO_VALUES_API_KEY";
+            using TempWorkspace workspace = TempWorkspace.CreateEmpty();
+            string environmentValue = ProviderClientFixtures.FakeKey();
+            string laterValue = ProviderClientFixtures.FakeKey() + "x";
+            string escaped = "\\u" + ((int)environmentValue[0]).ToString("X4", System.Globalization.CultureInfo.InvariantCulture) + environmentValue[1..];
+            string text = RunDocumentFixtures.CommittedText(Core.Runs.Tier.Local);
+            string edited = text.Replace("\"os\": \"fixture-os\"", "\"os\": \"" + escaped + "\"", StringComparison.Ordinal);
+            Assert.NotEqual(text, edited);
+            _ = workspace.WriteFile(Path.Combine("results", RunDocumentFixtures.CommittedFileName(Core.Runs.Tier.Local)), edited);
+            _ = workspace.WriteFile(Path.Combine("content", "linkedin-posts.template.md"), "## Variant: A\nOS {{results.local.environment.os}}\n");
+            _ = workspace.WriteFile(Path.Combine("config", "appsettings.json"), "{\"AgentJoules\":{\"Tiers\":{\"nebius\":{\"ApiKeyVariable\":\"" + variable + "\"}}}}");
+            string? previous = Environment.GetEnvironmentVariable(variable);
+            Environment.SetEnvironmentVariable(variable, environmentValue);
+            try
+            {
+                CliRunResult result = await CliHarness.RunTokensAsync(
+                    ["report", "--render-content"],
+                    new CliHostOverrides(Configuration: new Dictionary<string, string?> { [variable] = laterValue }, IncludeProcessEnvironment: true, WorkingDirectory: workspace.Root)).WaitAsync(HangGuard);
+
+                Assert.Equal(2, result.ExitCode);
+                Assert.Contains("linkedin-posts.md holds a registered key; nothing written", result.Stderr, StringComparison.Ordinal);
+                Assert.False(File.Exists(Path.Combine(workspace.Root, "content", "linkedin-posts.md")));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, previous);
+            }
+        }
+
+        [Fact]
+        public async Task A_registered_key_of_17_characters_typed_into_a_variant_name_is_refused_and_never_echoed()
+        {
+            using TempWorkspace workspace = Workspace();
+            string key = ProviderClientFixtures.FakeKey() + "k";
+            _ = workspace.WriteFile(Path.Combine("content", "linkedin-posts.template.md"), "## Variant: " + key + "\n" + new string('x', 1301) + "\n");
+
+            CliRunResult result = await CliHarness.RunTokensAsync(
+                ["report", "--render-content"],
+                new CliHostOverrides(Configuration: new Dictionary<string, string?> { ["NEBIUS_API_KEY"] = key }, WorkingDirectory: workspace.Root)).WaitAsync(HangGuard);
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("linkedin-posts.template.md holds a registered key; nothing written", result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain(key[..9], result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain(key[..9], result.Stdout, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(workspace.Root, "content", "linkedin-posts.md")));
+        }
+
+        [Fact]
+        public async Task A_registered_key_in_the_readme_outside_the_markers_is_refused_and_no_file_changes()
+        {
+            using TempWorkspace workspace = Workspace();
+            string readme = "# Title " + ProviderClientFixtures.FakeKey() + "\n\n<!-- results:begin -->\nstale\n<!-- results:end -->\n";
+            string path = workspace.WriteFile("README.md", readme);
+
+            CliRunResult result = await RunWithKeyAsync(workspace, "report --update-readme");
+
+            Assert.Equal(2, result.ExitCode);
+            Assert.Contains("README.md holds a registered key; nothing written", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal(readme, File.ReadAllText(path));
+            Assert.False(Directory.Exists(Path.Combine(workspace.Root, "docs")));
+        }
+
+        [Fact]
+        public async Task A_stale_block_exits_7_with_one_error_line_and_the_readme_is_not_touched()
+        {
+            using TempWorkspace workspace = Workspace();
+            string path = workspace.WriteFile("README.md", Readme);
+
+            CliRunResult result = await RunAsync(workspace, "report --verify-readme");
+
+            Assert.Equal(7, result.ExitCode);
+            Assert.EndsWith("(ContentDiffersException)", Assert.Single(result.ErrorLines), StringComparison.Ordinal);
+            Assert.Equal(Readme, File.ReadAllText(path));
+        }
+
+        [Fact]
+        public async Task An_updated_block_verifies_with_0_and_a_missing_marker_exits_2()
+        {
+            using TempWorkspace workspace = Workspace();
+            _ = workspace.WriteFile("README.md", Readme);
+
+            Assert.Equal(0, (await RunAsync(workspace, "report --update-readme")).ExitCode);
+            Assert.Equal(0, (await RunAsync(workspace, "report --verify-readme")).ExitCode);
+
+            _ = workspace.WriteFile("README.md", "# Title\n");
+            CliRunResult missing = await RunAsync(workspace, "report --verify-readme");
+
+            Assert.Equal(2, missing.ExitCode);
+            Assert.Contains("<!-- results:begin -->", missing.Stderr, StringComparison.Ordinal);
+        }
+    }
 }
 
 internal sealed class ThrowOnStopService : IHostedService

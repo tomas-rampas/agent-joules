@@ -34,6 +34,9 @@ public enum FakeRoute
 
     /// <summary><c>POST .../api/generate</c>, the native route of the Ollama warm-up: answers <c>{"model":"&lt;tag&gt;","done":true}</c> after the scripted time on the fake clock (AJ-106).</summary>
     OllamaGenerate = 8,
+
+    /// <summary><c>POST .../chat/completions</c> of the NIM warm-up (its fixed prompt and 8-token limit), classified apart only when the handler has <see cref="FakeHttpMessageHandler.WarmUpApart"/> set, so that the scripted answers, the counts and the hooks of <see cref="ChatCompletions"/> keep meaning the task calls (K2 of M6).</summary>
+    NimWarmUp = 9,
 }
 
 /// <summary>
@@ -218,6 +221,9 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
     /// <summary>The recorder that is told <see cref="OperationRecorder.WarmUp"/> for the warm-up call (<c>POST /api/generate</c>, or the short chat completion of the NIM warm-up) and <see cref="OperationRecorder.TaskCall"/> for every other chat completion; null for none (AJ-106).</summary>
     public OperationRecorder? Recorder { get; init; }
 
+    /// <summary>True to classify the NIM warm-up chat completion as <see cref="FakeRoute.NimWarmUp"/> instead of <see cref="FakeRoute.ChatCompletions"/>: a cloudgpu run warms up through its own client (K2 of M6), and the tests of its task calls script and count the task calls only.</summary>
+    public bool WarmUpApart { get; init; }
+
     /// <summary>Refuses the connections of one route only: the request is recorded and an <see cref="HttpRequestException"/> with an inner <see cref="SocketException"/> is thrown, while the other routes answer as before.</summary>
     /// <param name="route">The route that refuses.</param>
     public void RefuseConnections(FakeRoute route)
@@ -349,6 +355,11 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
 
         FakeRoute route = Classify(request);
         string? body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (WarmUpApart && route == FakeRoute.ChatCompletions && IsNimWarmUp(body))
+        {
+            route = FakeRoute.NimWarmUp;
+        }
+
         Record(request, route, body);
         RecordOperation(route, body);
 
@@ -378,7 +389,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
             FakeRoute.OllamaShow => Json(OllamaShowBody),
             FakeRoute.OllamaGenerate => Json(new JsonObject { ["model"] = ModelOf(body), ["done"] = true }.ToJsonString()),
             FakeRoute.NimVersion => Json(new JsonObject { ["release"] = NimRelease, ["api"] = "3.1.0" }.ToJsonString()),
-            FakeRoute.ChatCompletions => Chat(body, answer),
+            FakeRoute.ChatCompletions or FakeRoute.NimWarmUp => Chat(body, answer),
             _ => Error((int)HttpStatusCode.NotFound),
         };
 
@@ -419,7 +430,7 @@ public sealed class FakeHttpMessageHandler : HttpMessageHandler
         {
             Recorder.Record(OperationRecorder.WarmUp);
         }
-        else if (route == FakeRoute.ChatCompletions)
+        else if (route is FakeRoute.ChatCompletions or FakeRoute.NimWarmUp)
         {
             Recorder.Record(IsNimWarmUp(body) ? OperationRecorder.WarmUp : OperationRecorder.TaskCall);
         }

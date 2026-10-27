@@ -5205,7 +5205,7 @@ public sealed partial class ReportRenderingTests
 
     [Fact]
     [Trait("Spec", "REQ-016")]
-    public async Task Help_lists_in_out_config_only()
+    public async Task Help_lists_the_six_options()
     {
         using TempWorkspace workspace = TempWorkspace.CreateEmpty();
 
@@ -5214,18 +5214,9 @@ public sealed partial class ReportRenderingTests
         Assert.Equal(0, help.ExitCode);
         Assert.DoesNotContain("(default results)", help.Stdout, StringComparison.Ordinal);
         Assert.DoesNotContain("(default docs/report)", help.Stdout, StringComparison.Ordinal);
-        Assert.Equal(["--config", "--in", "--out"], HelpOption().Matches(help.Stdout).Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
-        foreach (string later in new[] { "--update-readme", "--verify-readme", "--render-content" })
-        {
-            Assert.DoesNotContain(later, help.Stdout, StringComparison.Ordinal);
-
-            CliRunResult refused = await ReportAsync(workspace, later);
-
-            Assert.Equal(2, refused.ExitCode);
-            Assert.Contains("(ParseError)", refused.Stderr, StringComparison.Ordinal);
-        }
-
-        AssertNothingWritten(workspace, "docs");
+        Assert.Equal(
+            ["--config", "--in", "--out", "--render-content", "--update-readme", "--verify-readme"],
+            HelpOption().Matches(help.Stdout).Select(match => match.Groups[1].Value).Order(StringComparer.Ordinal));
     }
 
     [Fact]

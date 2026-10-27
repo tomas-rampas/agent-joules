@@ -930,10 +930,10 @@ public sealed class LocalRuntimeTests
             Assert.Equal(OllamaFixtures.StoryTag, show.Json!["model"]!.GetValue<string>());
         }
 
-        // ---- the local runtime serves the local tier only ----
+        // ---- each measured tier is warmed up and described by its own runtime (K2 of M6, 2026-10-26, REQ-031) ----
 
         [Fact]
-        public async Task A_cloudgpu_run_under_the_nim_runtime_sends_nothing_to_the_local_runtime_and_keeps_its_own_precision()
+        public async Task A_cloudgpu_run_under_the_nim_runtime_warms_up_and_describes_through_its_own_tier_client_and_sends_nothing_to_the_local_runtime()
         {
             using LocalRunRig rig = LocalRunRig.Nim();
 
@@ -941,38 +941,302 @@ public sealed class LocalRuntimeTests
         }
 
         [Fact]
-        public async Task A_cloudgpu_run_under_the_ollama_runtime_sends_nothing_to_the_local_runtime_and_keeps_its_own_precision()
+        public async Task A_cloudgpu_run_under_the_ollama_runtime_warms_up_and_describes_through_its_own_tier_client_and_sends_nothing_to_the_local_runtime()
         {
             using LocalRunRig rig = LocalRunRig.Ollama(Ps(Size, 620L));
 
             await AssertCloudGpuRunAsync(rig);
         }
 
-        private static async Task AssertCloudGpuRunAsync(LocalRunRig rig)
+        private static FakeHttpMessageHandler UseCloudGpu(LocalRunRig rig)
         {
-            var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1) };
+            var cloud = new FakeHttpMessageHandler { ModelIds = ConfigurationFixtures.ShippedModelIds(), Clock = rig.Time, DefaultDuration = TimeSpan.FromSeconds(1), NimRelease = "2.5.1", Recorder = rig.Recorder };
             rig.Setup.Endpoints["cloudgpu"] = cloud;
 
             // The cloudgpu tier asks for SSH variables unless the run happens on the VM itself (CloudGpu:RequireSshVariables); the run here is a fake and has no host.
             rig.Setup.Settings["AgentJoules:CloudGpu:RequireSshVariables"] = "false";
             rig.Setup.Settings["AgentJoules:CloudGpu:TierStartUtc"] = CloudGpuBudgetRig.ClockStart.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            return cloud;
+        }
+
+        private static string CloudBaseUrl() => ConfigurationFixtures.ShippedOptions().Tiers["cloudgpu"].BaseUrl!.TrimEnd('/');
+
+        private static bool IsWarmUp(RecordedRequest request) => request.Json?["max_tokens"]?.GetValue<int>() == 8;
+
+        private static async Task AssertCloudGpuRunAsync(LocalRunRig rig)
+        {
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            TierOptions tier = ConfigurationFixtures.ShippedOptions().Tiers["cloudgpu"];
 
             CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
 
             AssertExit(0, result);
+
+            // The local runtime stands aside: nothing reaches its endpoint.
             Assert.Equal(0, rig.Local.RequestCount);
-            Assert.True(cloud.Count(FakeRoute.ChatCompletions) > 0);
-            Assert.Equal(0, cloud.Count(FakeRoute.OllamaVersion) + cloud.Count(FakeRoute.OllamaPs) + cloud.Count(FakeRoute.OllamaShow) + cloud.Count(FakeRoute.NimVersion));
+
+            // The cloudgpu runtime is always NIM, whatever Local:Runtime says: no Ollama route reaches its endpoint.
+            Assert.Equal(0, cloud.Count(FakeRoute.OllamaVersion) + cloud.Count(FakeRoute.OllamaPs) + cloud.Count(FakeRoute.OllamaShow) + cloud.Count(FakeRoute.OllamaGenerate));
+
+            // The warm-up (one short chat completion per distinct model, 8 tokens at most) and the description (GET /v1/version) go to the cloudgpu base URL.
+            RecordedRequest[] warmUps = [.. cloud.RequestsFor(FakeRoute.ChatCompletions).Where(IsWarmUp)];
+            Assert.Equal(tier.ResolvedModelIds().Count, warmUps.Length);
+            Assert.All(warmUps, request => Assert.Equal(CloudBaseUrl() + "/chat/completions", request.Uri.AbsoluteUri));
+            Assert.Equal(tier.ResolvedModelIds(), [.. warmUps.Select(static request => request.Json!["model"]!.GetValue<string>())]);
+            RecordedRequest version = Assert.Single(cloud.RequestsFor(FakeRoute.NimVersion));
+            Assert.Equal(("GET", CloudBaseUrl() + "/version"), (version.Method, version.Uri.AbsoluteUri));
+            Assert.True(cloud.Count(FakeRoute.ChatCompletions) > warmUps.Length);
+            Assert.Equal(warmUps.Length, rig.Recorder.Count(OperationRecorder.WarmUp));
+            Assert.StartsWith("probe, meter-start, warm-up", rig.Recorder.Describe(), StringComparison.Ordinal);
+
+            // The order continues with the description and then the baseline after the last warm-up. The recorder names no describe operation: the description is the one GET /v1/version,
+            // so its place is read on the cloudgpu fake's own request order, which holds every warm-up of this run.
+            List<string> operations = [.. rig.Recorder.Operations];
+            int lastWarmUp = operations.LastIndexOf(OperationRecorder.WarmUp);
+            Assert.True(lastWarmUp >= 0, "The warm-up was not recorded");
+            Assert.Equal(OperationRecorder.Baseline, operations[lastWarmUp + 1]);
+            int lastCloudWarmUp = cloud.Requests.ToList().FindLastIndex(request => request.Route == FakeRoute.ChatCompletions && IsWarmUp(request));
+            int describedAt = cloud.Requests.ToList().FindIndex(request => request.Route == FakeRoute.NimVersion);
+            Assert.True(lastCloudWarmUp >= 0 && describedAt > lastCloudWarmUp, "The description does not follow the last warm-up");
+
             using JsonDocument document = rig.ReadRunFile();
             JsonElement environment = Environment(document);
-            Assert.Equal(ConfigurationFixtures.ShippedOptions().Tiers["cloudgpu"].Precision, environment.GetProperty("precision").GetString());
+            Assert.Equal("nim", environment.GetProperty("localRuntime").GetString());
+            Assert.Equal("2.5.1", environment.GetProperty("runtimeVersion").GetString());
+            Assert.Equal(100.0, environment.GetProperty("gpuOffloadPercent").GetDouble());
+            Assert.Equal(warmUps.Length * 1.0, environment.GetProperty("modelLoadSeconds").GetDouble());
+            Assert.Equal(tier.Precision, environment.GetProperty("precision").GetString());
             Assert.Equal("FP8", environment.GetProperty("precision").GetString());
-            Assert.Equal(JsonValueKind.Null, environment.GetProperty("localRuntime").ValueKind);
-            Assert.Equal(JsonValueKind.Null, environment.GetProperty("gpuOffloadPercent").ValueKind);
-            Assert.Equal(JsonValueKind.Null, environment.GetProperty("modelLoadSeconds").ValueKind);
-            Assert.Equal(0, rig.Local.Count(FakeRoute.OllamaGenerate) + rig.Local.Count(FakeRoute.ChatCompletions));
-            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.WarmUp));
             Assert.Empty(Flags(document.RootElement.GetProperty("run")));
+        }
+
+        [Fact]
+        public async Task A_key_configured_for_the_cloudgpu_tier_travels_with_its_warm_up_and_never_reaches_the_output()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            var probe = new BearerProbe(cloud);
+            rig.Setup.Endpoints["cloudgpu"] = probe;
+            string key = ProviderClientFixtures.FakeKey();
+            rig.Setup.Settings["AgentJoules:Tiers:cloudgpu:ApiKeyVariable"] = "CLOUDGPU_TEST_API_KEY";
+            rig.Setup.Settings["CLOUDGPU_TEST_API_KEY"] = key;
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
+
+            AssertExit(0, result);
+            RecordedRequest warmUp = cloud.RequestsFor(FakeRoute.ChatCompletions).First(IsWarmUp);
+            Assert.Equal("Bearer", warmUp.AuthorizationScheme);
+            Assert.Equal(key, probe.WarmUpToken);
+            Assert.DoesNotContain(key, result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public async Task A_key_configured_for_the_local_tier_only_is_not_sent_to_the_cloudgpu_warm_up()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            var probe = new BearerProbe(cloud);
+            rig.Setup.Endpoints["cloudgpu"] = probe;
+            string key = ProviderClientFixtures.FakeKey();
+            rig.Setup.Settings["AgentJoules:Tiers:local:ApiKeyVariable"] = "LOCAL_TEST_API_KEY";
+            rig.Setup.Settings["LOCAL_TEST_API_KEY"] = key;
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
+
+            AssertExit(0, result);
+            RecordedRequest warmUp = cloud.RequestsFor(FakeRoute.ChatCompletions).First(IsWarmUp);
+            Assert.False(warmUp.HasBearerToken);
+            Assert.Null(warmUp.AuthorizationScheme);
+            Assert.Null(probe.WarmUpToken);
+            Assert.DoesNotContain(key, result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+        }
+
+        // Stands where the primary handler stands and keeps the token of the first warm-up request (8 tokens at most): the recorder of the fake keeps the scheme word only.
+        private sealed class BearerProbe(FakeHttpMessageHandler inner) : DelegatingHandler(inner)
+        {
+            public string? WarmUpToken { get; private set; }
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                if (request.Method == HttpMethod.Post && request.Content is not null && request.RequestUri?.AbsolutePath.EndsWith("/chat/completions", StringComparison.Ordinal) == true)
+                {
+                    string body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    if (body.Contains("\"max_tokens\":8", StringComparison.Ordinal))
+                    {
+                        WarmUpToken ??= request.Headers.Authorization?.Parameter;
+                    }
+                }
+
+                return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        [Fact]
+        public async Task A_cloudgpu_warm_up_answered_with_HTTP_500_exits_5_before_the_baseline_with_a_message_that_names_no_host_and_writes_no_file()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            cloud.SetAnswers(FakeRoute.ChatCompletions, new FakeAnswer(500, ErrorBody: "{\"detail\":\"body-marker-9e27\"}"));
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
+
+            AssertExit(5, result);
+            string model = ConfigurationFixtures.ShippedOptions().Tiers["cloudgpu"].ResolvedModelIds()[0];
+            Assert.Contains($"tier cloudgpu: the warm-up of {model} failed with HTTP 500 (/chat/completions)", result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain(new Uri(CloudBaseUrl()).Host, result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("body-marker-9e27", result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Equal(0, rig.Local.RequestCount);
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Fact]
+        public async Task A_hosted_tier_run_sends_neither_a_warm_up_nor_a_version_request()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+
+            AssertExit(0, await rig.RunAsync("run --tier nvidia --repeat 1 --task incident-brief"));
+
+            Assert.Equal(0, rig.Hosted.Count(FakeRoute.NimVersion));
+            Assert.DoesNotContain(rig.Hosted.RequestsFor(FakeRoute.ChatCompletions), static request => IsWarmUp(request));
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.WarmUp));
+            Assert.Equal(0, rig.Local.RequestCount);
+            using JsonDocument document = rig.ReadRunFile();
+            JsonElement environment = Environment(document);
+            foreach (string absent in new[] { "localRuntime", "runtimeVersion", "gpuOffloadPercent", "modelLoadSeconds" })
+            {
+                Assert.Equal(JsonValueKind.Null, environment.GetProperty(absent).ValueKind);
+            }
+        }
+
+        [Fact]
+        public async Task A_refused_cloudgpu_warm_up_exits_5_with_a_message_that_names_the_tier_and_the_route_and_no_host_and_writes_no_file()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            cloud.RefuseConnections(FakeRoute.ChatCompletions);
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
+
+            AssertExit(5, result);
+            Assert.Contains("tier cloudgpu: NIM not reachable (/chat/completions)", result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain(new Uri(CloudBaseUrl()).Host, result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("docs/nim-local-attempt.md", result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Fact]
+        public async Task A_refused_cloudgpu_version_request_exits_5_with_a_message_that_names_the_tier_and_the_route_and_no_host_and_writes_no_file()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            cloud.RefuseConnections(FakeRoute.NimVersion);
+
+            CliRunResult result = await rig.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief");
+
+            AssertExit(5, result);
+            Assert.Contains("tier cloudgpu: NIM not reachable (/version)", result.Stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain(new Uri(CloudBaseUrl()).Host, result.Stdout + "\n" + result.Stderr, StringComparison.Ordinal);
+            Assert.Equal("probe, meter-start, warm-up", rig.Recorder.Describe());
+            Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+            Assert.Empty(rig.RunFiles());
+        }
+
+        [Fact]
+        public async Task The_cloudgpu_warm_up_runs_under_the_timeout_of_the_cloudgpu_tier_and_not_the_one_of_the_local_tier()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+            rig.Setup.Settings["AgentJoules:Tiers:cloudgpu:TimeoutSeconds"] = "5";
+            var hold = new HoldingHttpMessageHandler(cloud, FakeRoute.ChatCompletions, 1);
+            rig.Setup.Endpoints["cloudgpu"] = hold;
+
+            // Not driven: the test moves the clock itself. The local tier keeps its 300 s, so only the 5 s of the cloudgpu tier can end the held warm-up at 6 s.
+            Task<CliRunResult> run = RunCommandHarness.RunAsync("run --tier cloudgpu --repeat 1 --task incident-brief", rig.Setup);
+            try
+            {
+                await hold.Reached.WaitAsync(TimeSpan.FromSeconds(30));
+
+                rig.Time.Advance(TimeSpan.FromSeconds(6));
+                CliRunResult result = await run.WaitAsync(TimeSpan.FromSeconds(30));
+
+                AssertExit(5, result);
+                Assert.Contains("tier cloudgpu: NIM not reachable (/chat/completions)", result.Stderr, StringComparison.Ordinal);
+                Assert.Equal(0, rig.Recorder.Count(OperationRecorder.Baseline));
+                Assert.Empty(rig.RunFiles());
+            }
+            finally
+            {
+                if (!run.IsCompleted)
+                {
+                    rig.Time.Advance(TimeSpan.FromSeconds(600));
+                    _ = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(30)));
+                }
+            }
+        }
+
+        [Fact]
+        public async Task A_shutdown_inside_the_cloudgpu_description_writes_the_nim_runtime_name_with_a_null_version_offload_and_precision()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            _ = UseCloudGpu(rig);
+            using var shutdown = new CancellationTokenSource();
+            RunOrchestrationFixtures.AddServices(rig.Setup, services =>
+            {
+                _ = services.RemoveAll<ITierRuntimes>();
+                _ = services.AddSingleton<ITierRuntimes>(new SingleTierRuntimes(Tier.CloudGpu, new CancellingRuntime(NimRuntime.RuntimeName, shutdown)));
+            });
+
+            CliRunResult result = await RunOrchestrationFixtures.RunDrivenAsync("run --tier cloudgpu --repeat 1 --task incident-brief", rig.Setup, rig.Time, shutdown.Token).WaitAsync(TimeSpan.FromSeconds(60));
+
+            AssertExit(5, result);
+            using JsonDocument document = rig.ReadRunFile();
+            Assert.Equal("incomplete", document.RootElement.GetProperty("run").GetProperty("status").GetString());
+            JsonElement environment = Environment(document);
+            Assert.Equal("nim", environment.GetProperty("localRuntime").GetString());
+            Assert.Equal(JsonValueKind.Null, environment.GetProperty("runtimeVersion").ValueKind);
+            Assert.Equal(JsonValueKind.Null, environment.GetProperty("gpuOffloadPercent").ValueKind);
+            Assert.Equal(JsonValueKind.Null, environment.GetProperty("precision").ValueKind);
+            Assert.Empty(Flags(document.RootElement.GetProperty("run")));
+        }
+
+        [Fact]
+        public void The_tier_runtimes_give_the_local_runtime_a_cached_cloudgpu_nim_runtime_and_none_to_a_hosted_tier()
+        {
+            using ProviderClientHost host = ProviderClientFixtures.Build(ProviderClientFixtures.FourTiers());
+            var local = new StaticRuntime(LocalRuntimeInfo.Unknown);
+            var runtimes = new TierRuntimes(local, host.Factory, host.HttpClients, Options.Create(host.Options));
+
+            Assert.Null(runtimes.RuntimeOf(Tier.Nvidia));
+            Assert.Null(runtimes.RuntimeOf(Tier.Nebius));
+            Assert.Same(local, runtimes.RuntimeOf(Tier.Local));
+            ILocalRuntime cloud = runtimes.RuntimeOf(Tier.CloudGpu)!;
+            _ = Assert.IsType<NimRuntime>(cloud);
+            Assert.NotSame(local, cloud);
+            Assert.Same(cloud, runtimes.RuntimeOf(Tier.CloudGpu));
+        }
+
+        private sealed class SingleTierRuntimes(Tier tier, ILocalRuntime runtime) : ITierRuntimes
+        {
+            public ILocalRuntime? RuntimeOf(Tier asked) => asked == tier ? runtime : null;
+        }
+
+        [Fact]
+        public async Task The_local_tier_still_warms_up_and_describes_through_the_configured_local_runtime_and_not_through_the_cloudgpu_endpoint()
+        {
+            using LocalRunRig rig = LocalRunRig.Nim();
+            FakeHttpMessageHandler cloud = UseCloudGpu(rig);
+
+            AssertExit(0, await rig.RunAsync());
+
+            Assert.Equal(1, rig.Recorder.Count(OperationRecorder.WarmUp));
+            Assert.True(rig.Local.Count(FakeRoute.NimVersion) > 0);
+            Assert.Equal(0, cloud.RequestCount);
+            using JsonDocument document = rig.ReadRunFile();
+            Assert.Equal("nim", Environment(document).GetProperty("localRuntime").GetString());
+            Assert.Equal(1.0, Environment(document).GetProperty("modelLoadSeconds").GetDouble());
+            Assert.Equal("1.8.5", Environment(document).GetProperty("runtimeVersion").GetString());
         }
 
         // ---- a run interrupted before the description names the runtime and states nothing it did not read ----

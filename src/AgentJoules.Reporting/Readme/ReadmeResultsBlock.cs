@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 
+using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Energy;
 using AgentJoules.Core.Labels;
@@ -22,11 +23,16 @@ namespace AgentJoules.Reporting.Readme;
 /// metered by sampling and <c>concurrent</c> for a concurrent run; under the table a concurrent run adds <see cref="ReportSentences.ConcurrentCostOverlap"/>. Tiers are never merged, averaged, ranked or
 /// compared. The text is deterministic: no clock, file, environment or configuration is read, the invariant culture is used, newlines are LF, and the text is ASCII (every text from a file is cleaned, escaped
 /// for Markdown with <see cref="MarkdownText"/>, defused against the GitHub filters that turn a bare address, a <c>www.</c> host, an e-mail address or a <c>:name:</c> shortcode into a link or an image and a
-/// dollar sign into math, and then every character above U+007E is written as a numeric character reference, which GitHub renders). The function writes no marker; the update and verify
-/// options of the README belong to a later milestone.
+/// dollar sign into math, and then every character above U+007E is written as a numeric character reference, which GitHub renders). The function writes no marker; <see cref="Update"/> and <see cref="Verify"/> place and compare the block between the marker lines of the README (AJ-144).
 /// </summary>
 public static class ReadmeResultsBlock
 {
+    /// <summary>The line that opens the results block in the README.</summary>
+    public const string BeginMarker = "<!-- results:begin -->";
+
+    /// <summary>The line that closes the results block in the README.</summary>
+    public const string EndMarker = "<!-- results:end -->";
+
     private const string Heading = "### Results";
     private const string DashboardLine = "![Live dashboard during the demo rehearsal](docs/report/dashboard.png)";
     private const string NotAvailable = "N/A";
@@ -86,6 +92,87 @@ public static class ReadmeResultsBlock
         }
 
         return text.ToString();
+    }
+
+    /// <summary>Replaces the text between the two marker lines of the README with <paramref name="block"/> (AJ-144, REQ-025) and leaves everything else as it was, except that line endings become LF.</summary>
+    /// <param name="readmeText">The README text; CRLF is read as LF.</param>
+    /// <param name="block">The generated block, as <see cref="Render"/> returns it.</param>
+    /// <returns>The README text with LF line endings: the text up to and including the begin marker line, the block, then the end marker line and the rest. Updating its own result gives the same text.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="readmeText"/> or <paramref name="block"/> is null.</exception>
+    /// <exception cref="ConfigurationException">A marker line is missing (the message names the marker).</exception>
+    public static string Update(string readmeText, string block)
+    {
+        ArgumentNullException.ThrowIfNull(readmeText);
+        ArgumentNullException.ThrowIfNull(block);
+
+        string readme = Lf(readmeText);
+        (int begin, int end) = Locate(readme);
+
+        return string.Concat(readme.AsSpan(0, begin), BlockText(block), readme.AsSpan(end));
+    }
+
+    /// <summary>Tells whether the text between the marker lines of the README is the generated block (AJ-144, REQ-025); CRLF is read as LF on both sides.</summary>
+    /// <param name="readmeText">The README text.</param>
+    /// <param name="block">The generated block, as <see cref="Render"/> returns it.</param>
+    /// <returns>True when they are equal.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="readmeText"/> or <paramref name="block"/> is null.</exception>
+    /// <exception cref="ConfigurationException">A marker line is missing (the message names the marker).</exception>
+    public static bool Verify(string readmeText, string block)
+    {
+        ArgumentNullException.ThrowIfNull(readmeText);
+        ArgumentNullException.ThrowIfNull(block);
+
+        string readme = Lf(readmeText);
+        (int begin, int end) = Locate(readme);
+
+        return readme.AsSpan(begin, end - begin).SequenceEqual(BlockText(block));
+    }
+
+    private static string Lf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+    // The block as it stands between the markers: LF, ending with one line feed.
+    private static string BlockText(string block)
+    {
+        string text = Lf(block);
+
+        return text.Length == 0 || text.EndsWith('\n') ? text : text + '\n';
+    }
+
+    // The offset just after the begin marker line and its line feed, and the offset where the end marker line starts. A marker is a whole line.
+    private static (int Begin, int End) Locate(string readme)
+    {
+        int begin = -1;
+        int end = -1;
+        int offset = 0;
+        while (offset <= readme.Length)
+        {
+            int newline = readme.IndexOf('\n', offset);
+            int lineEnd = newline < 0 ? readme.Length : newline;
+            ReadOnlySpan<char> line = readme.AsSpan(offset, lineEnd - offset);
+            if (begin < 0 && line.SequenceEqual(BeginMarker))
+            {
+                begin = newline < 0 ? readme.Length : newline + 1;
+            }
+            else if (begin >= 0 && line.SequenceEqual(EndMarker))
+            {
+                end = offset;
+                break;
+            }
+
+            if (newline < 0)
+            {
+                break;
+            }
+
+            offset = newline + 1;
+        }
+
+        if (begin < 0)
+        {
+            throw new ConfigurationException($"the README has no line \"{BeginMarker}\"");
+        }
+
+        return end < 0 ? throw new ConfigurationException($"the README has no line \"{EndMarker}\" after the line \"{BeginMarker}\"") : (begin, end);
     }
 
     // A text from a file: cleaned and escaped for Markdown, defused, then written in ASCII.

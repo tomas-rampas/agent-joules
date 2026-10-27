@@ -10,8 +10,11 @@ using AgentJoules.Core.Cli;
 using AgentJoules.Core.Configuration;
 using AgentJoules.Core.Labels;
 using AgentJoules.Core.Results;
+using AgentJoules.Core.Runs;
 using AgentJoules.Core.Security;
+using AgentJoules.Reporting.Content;
 using AgentJoules.Reporting.Json;
+using AgentJoules.Reporting.Readme;
 using AgentJoules.Reporting.Render;
 using AgentJoules.Reporting.Results;
 
@@ -20,8 +23,11 @@ using Microsoft.Extensions.Configuration;
 namespace AgentJoules.Cli.Commands;
 
 /// <summary>
-/// <c>report [--in path]... [--out folder] [--config path]</c> (AJ-086, REQ-016, REQ-030): turns the newest usable run file of each tier into <c>summary.md</c>, <c>joules-per-step.svg</c> and <c>index.html</c>. The
-/// command builds no host (no key, no GPU, no telemetry) and reads files only; relative paths resolve against <see cref="CommandHost.WorkingDirectory"/>.
+/// <c>report [--in path]... [--out folder] [--update-readme] [--verify-readme] [--render-content] [--config path]</c> (AJ-086, AJ-144, REQ-016, REQ-025, REQ-026, REQ-030): turns the newest usable run file of each tier
+/// into <c>summary.md</c>, <c>joules-per-step.svg</c> and <c>index.html</c>. The command builds no host (no key, no GPU, no telemetry) and reads files only; relative paths resolve against <see cref="CommandHost.WorkingDirectory"/>.
+/// <c>--update-readme</c> replaces the text between the results markers of <c>README.md</c> with <see cref="ReadmeResultsBlock"/> (the screenshot link only while <c>docs/report/dashboard.png</c> exists); <c>--verify-readme</c>
+/// compares the same block and exits 7 on a difference (and writes nothing when it is the only flag); <c>--render-content</c> renders <c>content/linkedin-posts.template.md</c> into <c>content/linkedin-posts.md</c> with
+/// <see cref="ContentTemplateRenderer"/>. Both texts are computed, and every failure raised, before any file is written; a text that holds a registered key is refused, never masked.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -51,6 +57,11 @@ internal static partial class ReportCommand
     private const string DocsFolder = "docs";
     private const string SummaryFileName = "summary.md";
     private const string PageFileName = "index.html";
+    private const string ReadmeName = "README.md";
+    private const string ScreenshotFileName = "dashboard.png";
+    private const string ContentFolder = "content";
+    private const string TemplateFileName = "linkedin-posts.template.md";
+    private const string ContentFileName = "linkedin-posts.md";
     private const string PartialSuffix = ".partial";
     private const string BuilderParameterSuffix = " (Parameter 'runs')";
     private const int PathEchoLength = 256;
@@ -82,20 +93,56 @@ internal static partial class ReportCommand
             HelpName = "path",
         };
 
-        var command = new Command("report", "Write the Markdown summary, the SVG chart and the HTML page from the run files.") { input, output, config };
+        var updateReadme = new Option<bool>("--update-readme")
+        {
+            Description = "Replace the text between the results markers of README.md with the generated results block.",
+        };
+        var verifyReadme = new Option<bool>("--verify-readme")
+        {
+            Description = "Exit 7 when the text between the results markers of README.md is not the generated results block.",
+        };
+        var renderContent = new Option<bool>("--render-content")
+        {
+            Description = "Render content/linkedin-posts.template.md from the latest run files into content/linkedin-posts.md.",
+        };
+
+        var command = new Command("report", "Write the Markdown summary, the SVG chart and the HTML page from the run files.") { input, output, updateReadme, verifyReadme, renderContent, config };
+        command.Validators.Add(result =>
+        {
+            // An update writes the block and a verify compares it; asked for together, the verify would be skipped and a stale block would pass.
+            if (result.GetValue(updateReadme) && result.GetValue(verifyReadme))
+            {
+                result.AddError("--update-readme and --verify-readme cannot be combined");
+            }
+        });
         command.SetAction((parseResult, cancellationToken) =>
-            ReportAsync(host, parseResult.GetValue(input) ?? [DefaultIn], parseResult.GetValue(output) ?? DefaultOut, parseResult.GetValue(config), cancellationToken));
+            ReportAsync(
+                host,
+                parseResult.GetValue(input) ?? [DefaultIn],
+                parseResult.GetValue(output) ?? DefaultOut,
+                new ContentFlags(parseResult.GetValue(updateReadme), parseResult.GetValue(verifyReadme), parseResult.GetValue(renderContent)),
+                parseResult.GetValue(config),
+                cancellationToken));
         return command;
+    }
+
+    // The three flags of AJ-144. Without any of them the command only writes the summary, the chart and the page.
+    private readonly record struct ContentFlags(bool UpdateReadme, bool VerifyReadme, bool RenderContent)
+    {
+        // A run that only verifies writes nothing, not even the report files.
+        public bool WritesReport => !VerifyReadme || UpdateReadme || RenderContent;
+
+        public bool Any => UpdateReadme || VerifyReadme || RenderContent;
     }
 
     [GeneratedRegex(@"^runs\[(\d+)\]")]
     private static partial Regex RunIndex();
 
-    private static async Task<int> ReportAsync(CommandHost host, string[] inputs, string output, string? configPath, CancellationToken cancellationToken)
+    private static async Task<int> ReportAsync(CommandHost host, string[] inputs, string output, ContentFlags flags, string? configPath, CancellationToken cancellationToken)
     {
         try
         {
-            await RunAsync(host, inputs, output, configPath, cancellationToken);
+            await RunAsync(host, inputs, output, flags, configPath, cancellationToken);
             return (int)ExitCode.Success;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -106,7 +153,7 @@ internal static partial class ReportCommand
         }
     }
 
-    private static async Task RunAsync(CommandHost host, string[] inputs, string output, string? configPath, CancellationToken cancellationToken)
+    private static async Task RunAsync(CommandHost host, string[] inputs, string output, ContentFlags flags, string? configPath, CancellationToken cancellationToken)
     {
         string workingDirectory = host.WorkingDirectory;
         Uri? repositoryUrl = ReadRepositoryUrl(host, workingDirectory, configPath);
@@ -120,7 +167,7 @@ internal static partial class ReportCommand
             throw new ConfigurationException(string.Create(CultureInfo.InvariantCulture, $"report: {selection.Problems.Count} run {Plural(selection.Problems.Count, "file", "files")} cannot be used"));
         }
 
-        List<SelectedRun> runs = await ReadSelectedAsync(host, selection, cancellationToken);
+        (List<SelectedRun> runs, Dictionary<string, string> texts) = await ReadSelectedAsync(host, selection, cancellationToken);
         ReportModel model = Build(host, runs);
 
         (string Name, string Text)[] files =
@@ -139,11 +186,104 @@ internal static partial class ReportCommand
             }
         }
 
+        // The README and the content are computed (and every failure of theirs raised) before anything is written, so a run that fails leaves every file as it was.
+        List<(string Folder, string Name, string Text)> extra = [];
+        if (flags.Any)
+        {
+            await PrepareContentAsync(host, flags, model, selection, texts, extra, cancellationToken);
+        }
+
         // Everything has passed and been rendered; from here the files are written.
         WriteCapped(host.Output, [.. selection.Skipped.Select(static skip => $"Skipped {skip.FileName}: {skip.Reason}")], static count => $"Skipped {count} more {Plural(count, "file", "files")}");
-        WriteFiles(outputFolder, files);
-        host.Output.WriteLine($"Report written to {Echo(host.Redactor, output)}: {string.Join(", ", files.Select(static file => file.Name))}");
-        EnsureNoJekyll(workingDirectory);
+        if (flags.WritesReport)
+        {
+            WriteFiles(outputFolder, files);
+            host.Output.WriteLine($"Report written to {Echo(host.Redactor, output)}: {string.Join(", ", files.Select(static file => file.Name))}");
+            EnsureNoJekyll(workingDirectory);
+        }
+
+        foreach ((string folder, string name, string text) in extra)
+        {
+            WriteFiles(folder, [(name, text)]);
+            host.Output.WriteLine($"{name} written");
+        }
+
+        if (flags.VerifyReadme)
+        {
+            host.Output.WriteLine($"{ReadmeName} results block matches the generated block");
+        }
+    }
+
+    // ---- the README and the content (AJ-144) ----
+
+    private static async Task PrepareContentAsync(CommandHost host, ContentFlags flags, ReportModel model, RunFileSelection selection, Dictionary<string, string> texts, List<(string Folder, string Name, string Text)> extra, CancellationToken cancellationToken)
+    {
+        string workingDirectory = host.WorkingDirectory;
+        if (flags.UpdateReadme || flags.VerifyReadme)
+        {
+            // The screenshot is a file the user adds; the block links it only while it exists, and verify applies the same rule.
+            string block = ReadmeResultsBlock.Render(model, File.Exists(Path.Combine(workingDirectory, DocsFolder, "report", ScreenshotFileName)));
+            string readmePath = Path.Combine(workingDirectory, ReadmeName);
+            string readme = await ReadTextFileAsync(readmePath, ReadmeName, cancellationToken);
+            if (flags.UpdateReadme)
+            {
+                string updated = ReadmeResultsBlock.Update(readme, block);
+                RefuseKey(host, updated, ReadmeName);
+                extra.Add((workingDirectory, ReadmeName, updated));
+            }
+            else if (!ReadmeResultsBlock.Verify(readme, block))
+            {
+                throw new ContentDiffersException($"{ReadmeName}: the results block differs from the generated block");
+            }
+        }
+
+        if (flags.RenderContent)
+        {
+            string template = await ReadTextFileAsync(Path.Combine(workingDirectory, ContentFolder, TemplateFileName), TemplateFileName, cancellationToken, ContentTemplateRenderer.MaxTemplateBytes);
+            // A template that holds a registered key is refused with the fixed message before anything of it is echoed, as a run file is.
+            RefuseKey(host, template, TemplateFileName);
+            Dictionary<Tier, ContentSource> sources = [];
+            foreach ((Tier tier, string path) in selection.Latest)
+            {
+                // The text that was read and validated, not a second read of the file.
+                string fileName = Path.GetFileName(path);
+                sources[tier] = new ContentSource(fileName, texts[fileName]);
+            }
+
+            string rendered = ContentTemplateRenderer.Render(template, sources);
+            RefuseKey(host, rendered, ContentFileName);
+            extra.Add((Path.Combine(workingDirectory, ContentFolder), ContentFileName, rendered));
+        }
+    }
+
+    // A text that holds a key the process knows is refused, never masked.
+    private static void RefuseKey(CommandHost host, string text, string name)
+    {
+        if (!string.Equals(host.Redactor.Redact(text), text, StringComparison.Ordinal))
+        {
+            throw new ConfigurationException($"report: {name} holds a registered key; nothing written");
+        }
+    }
+
+    private static async Task<string> ReadTextFileAsync(string path, string name, CancellationToken cancellationToken, int maxBytes = RunFileValidator.MaxBytes)
+    {
+        if (!File.Exists(path))
+        {
+            throw new ConfigurationException($"report: the file {name} does not exist");
+        }
+
+        try
+        {
+            // On Unix a FIFO named like the file would block in open(); an entry of size zero is not opened at all (the same guard as the configuration read).
+            RefuseEmptyWithoutOpening(path, $"report: the file {name} could not be read as UTF-8 text");
+            byte[]? bytes = await ReadBoundedAsync(path, cancellationToken, maxBytes);
+
+            return bytes is null ? throw new ConfigurationException($"report: the file {name} is larger than {maxBytes} bytes") : StrictUtf8.GetString(bytes);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException or DecoderFallbackException or System.Security.SecurityException)
+        {
+            throw new ConfigurationException($"report: the file {name} could not be read as UTF-8 text");
+        }
     }
 
     private static string Plural(int count, string singular, string plural) => count == 1 ? singular : plural;
@@ -284,6 +424,9 @@ internal static partial class ReportCommand
             _ = configuration.AddEnvironmentVariables();
         }
 
+        // report builds no host, so the key variables the file declares (a tier's ApiKeyVariable) are registered here, as the host does, before any text is judged against the redactor.
+        host.RegisterConfiguredKeys(configuration);
+
         // The shape check refuses an unknown key anywhere in the section; nothing else of the file is judged, because report renders committed files and needs no tier.
         string? value = OptionsLoader.Bind(configuration).Report.RepositoryUrl;
 
@@ -304,7 +447,7 @@ internal static partial class ReportCommand
     {
         try
         {
-            RefuseEmptyWithoutOpening(path, name);
+            RefuseEmptyWithoutOpening(path, $"the configuration file \"{name}\" could not be read as JSON");
             using FileStream stream = File.OpenRead(path);
             if (!stream.CanSeek)
             {
@@ -339,7 +482,7 @@ internal static partial class ReportCommand
         }
     }
 
-    private static void RefuseEmptyWithoutOpening(string path, string name)
+    private static void RefuseEmptyWithoutOpening(string path, string message)
     {
         if (OperatingSystem.IsWindows())
         {
@@ -350,14 +493,14 @@ internal static partial class ReportCommand
         FileSystemInfo target = info.ResolveLinkTarget(returnFinalTarget: true) ?? info;
         if (target is FileInfo { Exists: true, Length: 0 })
         {
-            throw new ConfigurationException($"the configuration file \"{name}\" could not be read as JSON");
+            throw new ConfigurationException(message);
         }
     }
 
     // ---- the run files ----
 
     // Reads the newest usable file of each tier and variant, in ordinal order of the file name. Every file is checked even when an earlier one failed, so one run lists all the broken files.
-    private static async Task<List<SelectedRun>> ReadSelectedAsync(CommandHost host, RunFileSelection selection, CancellationToken cancellationToken)
+    private static async Task<(List<SelectedRun> Runs, Dictionary<string, string> Texts)> ReadSelectedAsync(CommandHost host, RunFileSelection selection, CancellationToken cancellationToken)
     {
         (RunVariant Variant, string Path)[] selected =
         [
@@ -367,35 +510,45 @@ internal static partial class ReportCommand
         Array.Sort(selected, static (left, right) => string.CompareOrdinal(Path.GetFileName(left.Path), Path.GetFileName(right.Path)));
 
         List<SelectedRun> runs = [];
+        Dictionary<string, string> texts = new(StringComparer.Ordinal);
         int failed = 0;
         foreach ((RunVariant variant, string path) in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             string name = Path.GetFileName(path);
-            (IReadOnlyList<string> failures, RunDocument? document) = await ReadAndCheckAsync(path, name, host.Redactor, cancellationToken);
+            (IReadOnlyList<string> failures, RunDocument? document, string? text) = await ReadCheckedAsync(path, name, host.Redactor, cancellationToken);
             foreach (string line in failures)
             {
                 host.Output.WriteLine(line);
             }
 
-            if (failures.Count > 0 || document is null)
+            if (failures.Count > 0 || document is null || text is null)
             {
                 failed++;
             }
             else
             {
                 runs.Add(new SelectedRun(variant, name, document));
+                texts[name] = text;
             }
         }
 
         return failed == 0
-            ? runs
+            ? (runs, texts)
             : throw new ConfigurationException(string.Create(CultureInfo.InvariantCulture, $"report: {failed} run {Plural(failed, "file", "files")} failed validation"));
     }
 
     // One read serves the check and the model, so the file that was checked is the file that is rendered. The failure lines are those of validate; the three read failures use its wording.
     internal static async Task<(IReadOnlyList<string> Failures, RunDocument? Document)> ReadAndCheckAsync(string path, string name, SecretRedactor redactor, CancellationToken cancellationToken)
+    {
+        (IReadOnlyList<string> failures, RunDocument? document, _) = await ReadCheckedAsync(path, name, redactor, cancellationToken);
+
+        return (failures, document);
+    }
+
+    // The same read with the checked text as well, so that --render-content renders the bytes that were validated and reads no run file a second time.
+    private static async Task<(IReadOnlyList<string> Failures, RunDocument? Document, string? Text)> ReadCheckedAsync(string path, string name, SecretRedactor redactor, CancellationToken cancellationToken)
     {
         byte[]? bytes;
         try
@@ -404,12 +557,12 @@ internal static partial class ReportCommand
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or NotSupportedException or System.Security.SecurityException)
         {
-            return ([$"{name}: (root) could not be read"], null);
+            return ([$"{name}: (root) could not be read"], null, null);
         }
 
         if (bytes is null)
         {
-            return ([string.Create(CultureInfo.InvariantCulture, $"{name}: (root) is larger than {RunFileValidator.MaxBytes} bytes")], null);
+            return ([string.Create(CultureInfo.InvariantCulture, $"{name}: (root) is larger than {RunFileValidator.MaxBytes} bytes")], null, null);
         }
 
         string text;
@@ -419,36 +572,36 @@ internal static partial class ReportCommand
         }
         catch (DecoderFallbackException)
         {
-            return ([$"{name}: (root) is not valid UTF-8"], null);
+            return ([$"{name}: (root) is not valid UTF-8"], null, null);
         }
 
         // A file that holds a key the process knows is refused before anything is parsed or rendered: no text of it is printed, and the render never has to be masked.
         if (!string.Equals(redactor.Redact(text), text, StringComparison.Ordinal))
         {
-            return ([$"{name}: (root) holds a registered key"], null);
+            return ([$"{name}: (root) holds a registered key"], null, null);
         }
 
         IReadOnlyList<string> failures = RunFileValidator.Check(name, text);
         if (failures.Count > 0)
         {
-            return (failures, null);
+            return (failures, null, null);
         }
 
         try
         {
             RunDocument? document = JsonSerializer.Deserialize(text, AgentJoulesJsonContext.Default.RunDocument);
 
-            return document is null ? ([$"{name}: (root) holds no run document"], null) : (failures, document);
+            return document is null ? ([$"{name}: (root) holds no run document"], null, null) : (failures, document, text);
         }
         catch (Exception failure) when (failure is JsonException or ArgumentException)
         {
             // The check read the same text through the same model, so this does not happen; it is a failure of the file if it does, never a crash.
-            return ([$"{name}: (model) could not be read"], null);
+            return ([$"{name}: (model) could not be read"], null, null);
         }
     }
 
-    // At most RunFileValidator.MaxBytes bytes are held; a longer file gives null.
-    private static async Task<byte[]?> ReadBoundedAsync(string path, CancellationToken cancellationToken)
+    // At most maxBytes (by default RunFileValidator.MaxBytes) bytes are held; a longer file gives null.
+    private static async Task<byte[]?> ReadBoundedAsync(string path, CancellationToken cancellationToken, int maxBytes = RunFileValidator.MaxBytes)
     {
         var options = new FileStreamOptions
         {
@@ -477,7 +630,7 @@ internal static partial class ReportCommand
                     return held.ToArray();
                 }
 
-                if (held.Length + read > RunFileValidator.MaxBytes)
+                if (held.Length + read > maxBytes)
                 {
                     return null;
                 }

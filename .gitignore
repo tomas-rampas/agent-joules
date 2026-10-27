@@ -500,6 +500,8 @@ id_rsa*
 # AgentJoules: half-written results files are never committed (REQ-029, AJ-009)
 results/*.partial
 docs/report/*.partial
+README.md.partial
+content/*.partial
 
 # Left behind when the CI probe line is run locally (tee probe.json); never committed
 /probe.json

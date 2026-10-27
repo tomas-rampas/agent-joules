@@ -7,17 +7,17 @@ Goal: turn the committed results files into the public face of Agent Joules. The
 Dates: 2026-10-27 to 2026-10-29 (three working days, about 18 working hours at six hours per day). Deadline for the whole project: 2026-10-30 10:00 PDT (17:00 UTC).
 
 Exit criteria:
-- [ ] `AJ report --help` exits 0 and lists `--update-readme`, `--verify-readme` and `--render-content` (AJ-144).
-- [ ] `AJ report --verify-readme` exits 0 and `grep -c "<!-- results:begin -->" README.md` prints 1.
-- [ ] `grep -c "Filled during the build" README.md` prints 0 and `grep -c '^```mermaid$' README.md` prints 1.
-- [ ] `grep -c "{{results\." content/linkedin-posts.md` prints 0 and every file named on the `Sources:` line of `content/linkedin-posts.md` exists.
-- [ ] The duration column of the shot list in `content/demo-script.md` sums to 170 or less (planned: 165) and `AJ <command> --help` exits 0 for probe, run, report, validate and calibrate.
-- [ ] `content/article.md` contains `2407.16893`, `TokenPowerBench`, `2604.09048`, `greentoken` and a `Limitations` heading.
-- [ ] `docs/devpost-checklist.md` contains the headings `Registration`, `Tracks`, `Judging criteria`, `Credits`, `Feedback form, user fills`, a line starting `Demo URL:`, the string `2026-10-30 10:00 PDT (17:00 UTC)` and fenced blocks with `git push`, `gh release create` and the Pages settings.
-- [ ] `grep -cF "[[FILL:" docs/devpost-story.md` prints 0 and `grep -ci "Fill-after-build" docs/devpost-story.md` prints 0.
-- [ ] `grep -cF "owner: builder" docs/devpost-feedback.md` prints 0 and `grep -cF "owner: user" docs/devpost-feedback.md` prints 7.
-- [ ] `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` with `http://127.0.0.1:` and exits 0; `AJ dashboard --replay <committed hosted run file> --speed 50 --exit-after 5` exits 0; README and `content/demo-script.md` both mention `--dashboard`, `dashboard --replay` and that the published results were recorded without a browser open.
-- [ ] The honesty audit of AJ-143 exits 0 over README, content and Devpost files, and `dotnet test` exits 0.
+- [x] `AJ report --help` exits 0 and lists `--update-readme`, `--verify-readme` and `--render-content` (AJ-144).
+- [x] `AJ report --verify-readme` exits 0 and `grep -c "<!-- results:begin -->" README.md` prints 1.
+- [x] `grep -c "Filled during the build" README.md` prints 0 and `grep -c '^```mermaid$' README.md` prints 1.
+- [x] `grep -c "{{results\." content/linkedin-posts.md` prints 0 and every file named on the `Sources:` line of `content/linkedin-posts.md` exists.
+- [x] The duration column of the shot list in `content/demo-script.md` sums to 170 or less (planned: 165) and `AJ <command> --help` exits 0 for probe, run, report, validate and calibrate.
+- [x] `content/article.md` contains `2407.16893`, `TokenPowerBench`, `2604.09048`, `greentoken` and a `Limitations` heading.
+- [x] `docs/devpost-checklist.md` contains the headings `Registration`, `Tracks`, `Judging criteria`, `Credits`, `Feedback form, user fills`, a line starting `Demo URL:`, the string `2026-10-30 10:00 PDT (17:00 UTC)` and fenced blocks with `git push`, `gh release create` and the Pages settings.
+- [x] `grep -cF "[[FILL:" docs/devpost-story.md` prints 0 and `grep -ci "Fill-after-build" docs/devpost-story.md` prints 0.
+- [x] `grep -cF "owner: builder" docs/devpost-feedback.md` prints 0 and `grep -cF "owner: user" docs/devpost-feedback.md` prints 7.
+- [x] `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` with `http://127.0.0.1:` and exits 0; `AJ dashboard --replay <committed hosted run file> --speed 50 --exit-after 5` exits 0; README and `content/demo-script.md` both mention `--dashboard`, `dashboard --replay` and that the published results were recorded without a browser open (amended 2026-10-26 at the exit peer review: the statement reads "without a browser showing the dashboard", because the 2026-10-25 local campaign ran with the user's browsers open, by the user's decision recorded in the AJ-114 entry).
+- [x] The honesty audit of AJ-143 exits 0 over README, content and Devpost files, and `dotnet test` exits 0.
 
 ## Coverage
 
@@ -107,17 +107,17 @@ Feature: AJ-130 README pitch and architecture diagram
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-130-T1 | Write the failing structure feature for README pitch and diagram | tests/AgentJoules.Specs/Features/Reporting/ReadmeStructure.feature | 0.25 | - |
-| AJ-130-T2 | Add the `RepositoryRoot` helper and the `DocumentChecks` class with `MermaidBlock`, `HasHeading`, `NoLeftoverText` checks plus step bindings | tests/AgentJoules.TestSupport/RepositoryRoot.cs, tests/AgentJoules.Specs/Support/DocumentChecks.cs, tests/AgentJoules.Specs/Steps/ReportingSteps.cs | 0.75 | AJ-130-T1 |
+| AJ-130-T1 | Write the failing structure feature for README pitch and diagram | tests/AgentJoules.Specs/Features/Reporting/AJ-130-readme-structure.feature (repository convention) | 0.25 | - |
+| AJ-130-T2 | Add the `RepositoryRoot` helper and the `DocumentChecks` class with `MermaidBlock`, `HasHeading`, `NoLeftoverText` checks plus step bindings | tests/AgentJoules.TestSupport/RepositoryRoot.cs, tests/AgentJoules.Specs/Support/DocumentChecks.cs, tests/AgentJoules.Specs/Steps/ReadmeStructureSteps.cs (built 2026-10-26; ReportingSteps.cs already held the AJ-112 bindings) | 0.75 | AJ-130-T1 |
 | AJ-130-T3 | Rewrite the README opening: tagline line, status paragraph, `What it measures` | README.md | 0.5 | AJ-130-T2 |
 | AJ-130-T4 | Draw the Mermaid architecture diagram from the project graph of the technical design | README.md | 0.5 | AJ-130-T3 |
 | AJ-130-T5 | Record the diagram source and the pitch alignment in the build log | docs/build-log.md | 0.25 | AJ-130-T4 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeStructure.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-130-readme-structure.feature (repository convention)
 Docs impact: README.md sections What it measures and Architecture; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] Mermaid syntax passes the `flowchart LR` and bracket-balance check; the user confirms rendering on GitHub after the push (user action in M7)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] Mermaid syntax passes the `flowchart LR` and bracket-balance check; the user confirms rendering on GitHub after the push (user action in M7) (the flowchart LR and bracket-balance checks pass on 2026-10-26; the GitHub rendering confirmation stays the user's M7 action)
 Demo relevance: yes: shot 2 of the video shows this diagram.
 
 ### AJ-131: Write the README quick start, CLI reference and reproduce steps
@@ -200,19 +200,19 @@ Feature: AJ-131 Prior-art citations resolve
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature | 0.5 | AJ-130-T2 |
+| AJ-131-T1 | Write the failing guide feature (sections, key-free judges path, option and exit-code checks) | tests/AgentJoules.Specs/Features/Reporting/AJ-131-readme-guides.feature (repository convention; the @integration feature in AJ-131-prior-art-links.feature) | 0.5 | AJ-130-T2 |
 | AJ-131-T2 | Add the option-versus-help check and the exit-code table parser to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-131-T1 |
 | AJ-131-T3 | Write `Quick start` and `Judges without a GPU` | README.md | 0.75 | AJ-131-T2 |
 | AJ-131-T4 | Create the exit-code table (codes 0 to 7 with the interrupted-run and dashboard-port wording of exit 5) and write `CLI reference`, the dashboard options and the browser-load note, copying option names from the help output, and leave the screenshot link to the generated block (AJ-144, criterion 8); do not hand-write it | README.md | 0.75 | AJ-131-T3 |
 | AJ-131-T5 | Write `Reproduce` from the ten demo steps and `Prior art` with checked links | README.md | 0.75 | AJ-131-T4 |
 | AJ-131-T6 | Record the citation check date and any dead link in the build log | docs/build-log.md | 0.25 | AJ-131-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeGuides.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-131-readme-guides.feature (repository convention; the @integration feature in AJ-131-prior-art-links.feature)
 Docs impact: README.md sections Quick start, Judges without a GPU, CLI reference, Reproduce, Prior art; docs/build-log.md
 Docs impact (deferred from AJ-079, 2026-10-23): README section "Results schema" naming `docs/results-schema.json`, the update command `AGENTJOULES_UPDATE_SCHEMA=1 dotnet test --filter "FullyQualifiedName~CommittedSchemaMatchesGenerated"` and "then rebuild" (no M6 story names a field reference explicitly; the CLI reference section is the closest owner).
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] every command in `Reproduce` that needs no GPU and no key was executed once by the builder and its exit code recorded in `docs/build-log.md`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] every command in `Reproduce` that needs no GPU and no key was executed once by the builder and its exit code recorded in `docs/build-log.md` (executed 2026-10-26 with exit 0: step 6 `validate results/` literally, step 10 as `dashboard --replay results/20261025T133440Z-nebius.json --speed 50 --exit-after 5` (the literal `--speed 4 --exit-after 60` form also exit 0 in the spec review), step 1 as `probe --json` without `--save`, the update half of step 7 as `report --in results/ --out docs/report/ --update-readme` and the six --help calls; step 7 in its literal form exits 2 until AJ-134 ships the template and is recorded then; steps 2 to 4 need keys or the GPU (the AJ-135 rehearsal) and step 5 the VM)
 Demo relevance: yes: the commands in this README are the commands shown in shot 3 and shot 4.
 
 ### AJ-132: Write the README sections the Devpost form requires
@@ -223,7 +223,7 @@ Acceptance criteria:
 2. Every model ID or tag named in the README appears as a `- model: <id>` line in `docs/endpoints.md` and `AJ validate --config` exits 0. Every results file named in these sections exists (`test -f` over the extracted names exits 0).
 3. The README contains the sentence `Local numbers were produced with <runtime> running <tag>.` with `<runtime>` and `<tag>` equal to `environment.localRuntime` and the model tag of the latest local results file (sentence defined by the local-runtime requirement of M4).
 4. The section `NIM-local outcome` links `docs/nim-local-attempt.md` and states the outcome in the words of that file's `Decision` section; if the decision records a fallback, the README says NIM-local was attempted and why it was not used.
-5. `Other Nebius tools or services used` names the Nebius AI Cloud VM with preset, region, GPU-hours and observed cost, each copied from `docs/cloudgpu-run.md` with the file named, when a completed or partial cloudgpu run file exists. Otherwise it contains exactly the sentence `None besides Token Factory.` and the README labels the tier `cloudgpu | not run`. The README contains the string `cloudgpu` in both cases.
+5. `Other Nebius tools or services used` names the Nebius AI Cloud VM with preset, region, GPU-hours and observed cost, each copied from `docs/cloudgpu-run.md` with the file named, when a completed or partial cloudgpu run file exists (amended 2026-10-26, M6 kickoff K6: the section also names the engine that served the tier, NIM 2.1.4, from `docs/cloudgpu-run.md`, because the committed cloudgpu run file records no runtime). Otherwise it contains exactly the sentence `None besides Token Factory.` and the README labels the tier `cloudgpu | not run`. The README contains the string `cloudgpu` in both cases.
 6. The methodology summary links `docs/methodology.md`; the seven honesty rules of prompt section 6 appear in short form, one line each; the judge model ID is named, judge calls are stated as excluded from workflow totals, and self-judging is disclosed when `run.selfJudged` is true in the latest file.
 7. `grep -c "Filled during the build" README.md` prints 0 after this story.
 BDD scenarios:
@@ -270,18 +270,18 @@ Feature: AJ-132 README sections required by the Devpost form
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-132-T1 | Write the failing feature for the Devpost-form sections and the model-ID check | tests/AgentJoules.Specs/Features/Reporting/ReadmeDevpostSections.feature | 0.5 | AJ-130-T2 |
+| AJ-132-T1 | Write the failing feature for the Devpost-form sections and the model-ID check | tests/AgentJoules.Specs/Features/Reporting/AJ-132-readme-devpost-sections.feature (repository convention) | 0.5 | AJ-130-T2 |
 | AJ-132-T2 | Add the model-ID and source-reference checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-132-T1 |
 | AJ-132-T3 | Write `How this project uses NVIDIA Nemotron` and `Where Nebius Token Factory accelerated the workflow` from endpoints.md and the run files | README.md | 0.75 | AJ-132-T2 |
 | AJ-132-T4 | Write `Other Nebius tools or services used` and `NIM-local outcome` from cloudgpu-run.md and nim-local-attempt.md | README.md | 0.75 | AJ-132-T3 |
 | AJ-132-T5 | Write the methodology summary, the short honesty rules, the judge disclosure and the local-runtime sentence | README.md | 0.75 | AJ-132-T4 |
 | AJ-132-T6 | Record the source file of each README fact in the build log | docs/build-log.md | 0.25 | AJ-132-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ReadmeDevpostSections.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-132-readme-devpost-sections.feature (repository convention)
 Docs impact: README.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the README sentences about the cloudgpu tier match the tier outcome (completed, partial or not run) stated in `docs/cloudgpu-run.md`
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the README sentences about the cloudgpu tier match the tier outcome (completed, partial or not run) stated in `docs/cloudgpu-run.md` (completed; checked 2026-10-26)
 Demo relevance: yes: shot 7 shows the `Other Nebius tools or services used` section (or the not-run fallback).
 
 ### AJ-144: Build the `report` flags `--update-readme`, `--verify-readme`, `--render-content` and the content template renderer
@@ -364,19 +364,19 @@ Feature: AJ-144 report flags and the content template renderer
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature | 0.5 | AJ-130-T2 |
+| AJ-144-T1 | Write the failing feature for update, verify, CRLF, render, null value and the exit codes | tests/AgentJoules.Specs/Features/Reporting/AJ-144-report-flags.feature (repository convention) | 0.5 | AJ-130-T2 |
 | AJ-144-T2 | Write the failing unit cases for block update, verify (exit 7), placeholder resolution and variant length | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.75 | AJ-144-T1 |
 | AJ-144-T3 | Add `Update` and `Verify` with LF normalization and the `dashboardScreenshotExists` parameter (conditional screenshot link) to the results block | src/AgentJoules.Reporting/Readme/ReadmeResultsBlock.cs | 1.25 | AJ-144-T2 |
 | AJ-144-T4 | Implement `ContentTemplateRenderer` (placeholders, `[index]`, `.value`, formats, null as label text, Sources line, variant split and length check) | src/AgentJoules.Reporting/Content/ContentTemplateRenderer.cs | 2.0 | AJ-144-T2 |
 | AJ-144-T5 | Wire `--update-readme`, `--verify-readme` and `--render-content` into the report command with the exit codes 0, 2 and 7 | src/AgentJoules.Cli/Commands/ReportCommand.cs | 1.0 | AJ-144-T3, AJ-144-T4 |
 | AJ-144-T6 | Create or extend `ExitCodeTests` with the exit-code 7 case and run the feature green | tests/AgentJoules.UnitTests/ExitCodeTests.cs | 0.5 | AJ-144-T5 |
 | AJ-144-T7 | Record the flags and their exit codes in the build log | docs/build-log.md | 0.25 | AJ-144-T6 |
-Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/ReportFlags.feature
+Test mapping: ReadmeBlockTests, ContentRenderingTests, ExitCodeTests (code 7); tests/AgentJoules.Specs/Features/Reporting/AJ-144-report-flags.feature (repository convention)
 Docs impact: docs/build-log.md; README.md CLI reference (option names, written in AJ-131)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `AJ report --update-readme --render-content` runs once on the committed results and exits 0, then `AJ report --verify-readme` exits 0 (open until AJ-133-T3 and AJ-134-T6 run the flags on the committed files, 2026-10-26) (done: AJ-133 on 2026-10-26 and AJ-134 at 20:43Z, both exit 0)
 Demo relevance: yes: demo steps 7 and 8 run these flags.
 
 ### AJ-133: Generate and verify the README results block
@@ -429,16 +429,16 @@ Feature: AJ-133 README results block
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature | 0.5 | AJ-130-T2, AJ-144-T6 |
+| AJ-133-T1 | Write the failing feature for update, verify, idempotence and the not-run row | tests/AgentJoules.Specs/Features/Reporting/AJ-133-readme-results-block.feature (repository convention) | 0.5 | AJ-130-T2, AJ-144-T6 |
 | AJ-133-T2 | Add the partial-row and not-run-row cases that AJ-144 does not cover | tests/AgentJoules.UnitTests/ReadmeBlockTests.cs | 0.5 | AJ-133-T1 |
 | AJ-133-T3 | Run `AJ report --in results/ --out docs/report/ --update-readme` on the final results and inspect the block | README.md, docs/report/summary.md, docs/report/joules-per-step.svg, docs/report/index.html | 0.5 | AJ-133-T2 |
 | AJ-133-T4 | Run verify, edit one number, confirm exit 7, restore, confirm exit 0, record the exit codes | docs/build-log.md | 0.25 | AJ-133-T3 |
-Test mapping: ReadmeBlockTests, with `Spec=EDGE-002` on the `sampling` disclosure case; tests/AgentJoules.Specs/Features/Reporting/ReadmeResultsBlock.feature
+Test mapping: ReadmeBlockTests, with `Spec=EDGE-002` on the `sampling` disclosure case; tests/AgentJoules.Specs/Features/Reporting/AJ-133-readme-results-block.feature (repository convention)
 Docs impact: README.md results block (generated); docs/report/*; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the generated block is committed together with the results files it was generated from
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the generated block is committed together with the results files it was generated from (generated 2026-10-26 against the run files committed in c4da501 and 9fa9cb8, which are unchanged, and committed with docs/report/ in the pool B commit)
 Demo relevance: yes: shot 8 shows the results block and the honesty sentence.
 
 ### AJ-134: Write and render the three LinkedIn post drafts
@@ -506,19 +506,19 @@ Resolved: the rendering of a null metric value (label `N/A` or `not-reported`, a
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature, tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2, AJ-144-T4 |
+| AJ-134-T1 | Write the failing feature and the failing unit cases for render, length, missing path and null value | tests/AgentJoules.Specs/Features/Reporting/AJ-134-linkedin-posts.feature (repository convention), tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-130-T2, AJ-144-T4 |
 | AJ-134-T2 | Add the hand-typed-quantity and label-adjacency checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-134-T1 |
 | AJ-134-T3 | Add the template-level null-value and cloudgpu-absent cases against the AJ-144 renderer | tests/AgentJoules.UnitTests/ContentRenderingTests.cs | 0.5 | AJ-134-T1, AJ-144-T4 |
 | AJ-134-T4 | Write the `launch` variant with its placeholders, verified paths and the required sentence | content/linkedin-posts.template.md | 0.5 | AJ-134-T2 |
 | AJ-134-T5 | Write the `lesson-learned` and `hackathon` variants | content/linkedin-posts.template.md | 0.75 | AJ-134-T4 |
 | AJ-134-T6 | Render the posts with `AJ report --render-content`, trim any variant above 1 300 characters, and commit the rendered file | content/linkedin-posts.md | 0.5 | AJ-134-T3, AJ-134-T5, AJ-144-T5 |
 | AJ-134-T7 | Record each placeholder path and its source file in the build log | docs/build-log.md | 0.25 | AJ-134-T6 |
-Test mapping: ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/LinkedInPosts.feature
+Test mapping: ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/AJ-134-linkedin-posts.feature (repository convention)
 Docs impact: content/linkedin-posts.template.md, content/linkedin-posts.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the rendered file keeps `{{repo.url}}` three times for the user to fill before posting (user action in M7)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the rendered file keeps `{{repo.url}}` three times for the user to fill before posting (user action in M7) (rendered 2026-10-26; three `{{repo.url}}` left for the user)
 Demo relevance: no.
 
 ### AJ-135: Demo program end to end
@@ -532,7 +532,7 @@ Acceptance criteria:
 5. Every artifact in the artifact table of the Demo definition exists (`test -f` loop exits 0) or, for the three cloudgpu artifacts, the section `If the cloudgpu tier is absent` exists in the script and `AJ report --in results/ --out docs/report/` exits 0 with a `cloudgpu | not run` row.
 6. The Try it out URL is the report page: the script and `docs/devpost-checklist.md` (AJ-138) name `https://tomas-rampas.github.io/agent-joules/report/` (inferred from the standard GitHub Pages project URL, confirmed by the user after Pages is enabled), and `docs/report/index.html` exists with `grep -c "<script" docs/report/index.html` printing 0.
 7. The shot table of the Demo definition appears in the script with the same order and seconds; AJ-136 owns its wording. Check: the `DemoDefinition` parser compares shot number, start and duration of both tables and exits 0 only when all nine rows are equal.
-8. The dashboard shots work: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser; `AJ dashboard --replay results/<ts>-nebius.json --speed 50 --exit-after 5` exits 0 and emits one event per step of that file (replay is the fallback when no GPU or local runtime is available at recording time, and its banner is visible in shot 5). The script and the README state that the published results files were recorded without a browser open and only the demo recording shows the live page (the load of a browser tab on the measured GPU is a stated limitation).
+8. The dashboard shots work: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser; (amended 2026-10-26 at the exit reviews: the browser statement of shots 5 and 8 reads "recorded without a browser showing the dashboard" and names the open applications of the 2026-10-25 campaign, AJ-114 entry); `AJ dashboard --replay results/<ts>-nebius.json --speed 50 --exit-after 5` exits 0 and emits one event per step of that file (replay is the fallback when no GPU or local runtime is available at recording time, and its banner is visible in shot 5). The script and the README state that the published results files were recorded without a browser open and only the demo recording shows the live page (the load of a browser tab on the measured GPU is a stated limitation).
 9. The live run shown in the video writes to `artifacts/demo-run` and `git check-ignore artifacts/demo-run/x.json` prints the path; no file from it is under `results/`.
 10. The rehearsal run with `--dashboard` produces a screenshot of the live dashboard page, taken by the user (USER ACTION, AJ-135-T6) and saved as `docs/report/dashboard.png`: `test -f docs/report/dashboard.png` exits 0 and `file docs/report/dashboard.png` reports a PNG image. Until the user delivers it the item is listed as an open user action, not as a failure, and the README carries no link to it (AJ-131 criterion 8).
 11. The live page has no horizontal scroll at 1280 px and at 1920 px viewport width, checked manually during the rehearsal run and recorded in `docs/build-log.md` as the line `Dashboard width check: 1280 ok, 1920 ok`: `grep -c "Dashboard width check: 1280 ok, 1920 ok" docs/build-log.md` prints 1. A width that shows a horizontal scrollbar is recorded as a finding and reported to the M3 dashboard stories.
@@ -633,19 +633,19 @@ Conflict: REQ-027 and design section 10 show `AJ run --tier local --task energy-
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-135-T1 | Write the failing demo feature (order, help, shape, fallback, missing artifact) | tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature | 0.5 | AJ-130-T2 |
+| AJ-135-T1 | Write the failing demo feature (order, help, shape, fallback, missing artifact) | tests/AgentJoules.Specs/Features/Reporting/AJ-135-demo-program.feature (repository convention; the @integration feature in AJ-135-demo-rehearsal.feature) | 0.5 | AJ-130-T2 |
 | AJ-135-T2 | Add `DemoDefinition` parsing and the artifact and run-shape checks to DocumentChecks; ensure `artifacts/` is in `.gitignore` | tests/AgentJoules.Specs/Support/DocumentChecks.cs, .gitignore | 0.75 | AJ-135-T1 |
 | AJ-135-T3 | Write the `## Demo program` section: ten commands, task set, tiers, artifact table, order of the video, fallback section | content/demo-script.md | 1.0 | AJ-135-T2 |
 | AJ-135-T4 | Rehearse steps 2, 6, 7, 8, the dashboard dry run, the replay and the six `--help` calls, then record the exit codes | docs/build-log.md | 0.75 | AJ-135-T3, AJ-144-T6, AJ-133-T3 |
 | AJ-135-T5 | Check that every artifact in the table exists or is covered by the fallback and record the result | docs/build-log.md | 0.25 | AJ-135-T4 |
 | AJ-135-T6 | USER ACTION: take a screenshot of the live dashboard page during the rehearsal run with `--dashboard` and save it as `docs/report/dashboard.png` | docs/report/dashboard.png (user) | 0.25 | AJ-135-T4 |
 | AJ-135-T7 | Check the live page at 1280 px and 1920 px width for horizontal scroll and record the `Dashboard width check` line | docs/build-log.md | 0.25 | AJ-135-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoProgram.feature; ReportRenderingTests (not-run row)
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-135-demo-program.feature (repository convention; the @integration feature in AJ-135-demo-rehearsal.feature); ReportRenderingTests (not-run row)
 Docs impact: content/demo-script.md; docs/build-log.md; .gitignore
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] steps 2, 6, 7, 8 and 10 and the dashboard dry run of step 9 rehearsed with exit codes in `docs/build-log.md`; steps 1, 3, 4, 5 verified through their committed artifacts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] steps 2, 6, 7, 8 and 10 and the dashboard dry run of step 9 rehearsed with exit codes in `docs/build-log.md`; steps 1, 3, 4, 5 verified through their committed artifacts (rehearsed 2026-10-26 with exit 0 each; the screenshot of T6 stays the user's action)
 Demo relevance: yes: this story defines the demo.
 
 Demo definition (binding for AJ-135, AJ-136, AJ-138 and AJ-141):
@@ -656,7 +656,7 @@ Demo definition (binding for AJ-135, AJ-136, AJ-138 and AJ-141):
 | 2 | `AJ run --tier all --dry-run` | console line per enabled tier: endpoint, matched model IDs, `OK`; no file | measured (console) |
 | 3 | `AJ run --tier all` | `results/<ts>-local.json`, `results/<ts>-nvidia.json`, `results/<ts>-nebius.json` | measured (laptop), tokens and latency measured (hosted), energy N/A (hosted) |
 | 4 | `AJ calibrate` | `results/calibration-<ts>.json` | measured |
-| 5 (on the VM, if M5 ran) | `./AgentJoules.Cli probe --json --save --suffix cloudgpu`, then `./AgentJoules.Cli run --tier cloudgpu`, then `./AgentJoules.Cli calibrate` | `results/probe-<ts>-cloudgpu.json`, `results/<ts>-cloudgpu.json`, `results/calibration-<ts>-cloudgpu.json` | measured (VM GPU) |
+| 5 (on the VM, if M5 ran) | `./AgentJoules.Cli probe --json --save --suffix cloudgpu`, then `./AgentJoules.Cli run --tier cloudgpu`, then `./AgentJoules.Cli calibrate --suffix cloudgpu` (amended 2026-10-26, pool B gate S-7: without the suffix the file name of the next column cannot be produced; the M5 run used `--seconds 60 --suffix cloudgpu`, docs/cloudgpu-run.md) | `results/probe-<ts>-cloudgpu.json`, `results/<ts>-cloudgpu.json`, `results/calibration-<ts>-cloudgpu.json` | measured (VM GPU) |
 | 6 | `AJ validate results/` | `Validated <n> files`, exit 0 | measured (console) |
 | 7 | `AJ report --update-readme --render-content` | `docs/report/summary.md`, `docs/report/joules-per-step.svg`, `docs/report/index.html`, `docs/.nojekyll`, README results block, `content/linkedin-posts.md` | derived from files |
 | 8 | `AJ report --verify-readme` | exit 0 | measured (console) |
@@ -694,9 +694,10 @@ Acceptance criteria:
 1. The header of `content/demo-script.md` contains the lines `Upload target: public YouTube video`, `Budget: at most 170 seconds` and `Planned total: 165 seconds`.
 2. The `## Shot list` table has the columns `Shot`, `Start (s)`, `Duration (s)`, `On-screen content`, `Narration`. The durations sum to 170 or less: `awk -F'|' '/^\| [0-9]/{s+=$4} END{print s}' content/demo-script.md` prints 165 (the same awk sum prints a value of 170 or less for the fallback variant).
 3. Each start second equals the previous start plus the previous duration, and the last start plus duration equals the planned total. Check: an awk pass over the table asserts start[n] = start[n-1] + duration[n-1] for every row, prints `contiguous` and exits 0.
+Amended 2026-10-26 (pool C gates, M-4): the file holds two shot tables; the fallback table labels its shots F1 to F9, so the criterion's whole-file awk counts the main table only (165) and the fallback table is checked by the parser under its own heading (163, contiguous); the section-scoped form `awk -F'|' '/^## /{f=($0=="## Shot list")} f&&/^| [0-9]/{s+=$4} END{print s}' content/demo-script.md` prints the same 165.
 4. Narration has at most 2.5 words per second of its shot (shot 1: 30 words or fewer). Check: the parser (`awk` over the shot table) divides the word count of each narration cell by its duration, prints the highest ratio and exits 0 only when it is 2.5 or less.
 5. The `## Commands shown` fenced block lists the exact commands shown (shots 3, 4 and 5: probe, `run ... --dashboard`, `dashboard --replay`): `AJ <command> --help` exits 0 for each command named there, and the script mentions `--dashboard` and `dashboard --replay`.
-6. Every number in the on-screen or narration cells is followed by `(results/<file>)` naming an existing committed file; shot 4 and shot 5 narration contain the words `illustrative` and `not the source of any published figure`, and shot 5 or shot 8 states that the published results were recorded without a browser open.
+6. Every number in the on-screen or narration cells is followed by `(results/<file>)` naming an existing committed file; shot 4 and shot 5 narration contain the words `illustrative` and `not the source of any published figure`, and shot 5 or shot 8 states that the published results were recorded without a browser open (amended 2026-10-26 at the exit reviews: the statement reads "without a browser showing the dashboard" and the honesty paragraph names the open applications of the 2026-10-25 campaign, because the AJ-114 entry records browsers open during it).
 7. Shot 8 contains the sentence `Energy is GPU-board energy only.` and names the five labels measured, estimated, model-judged, N/A, not-reported.
 8. The script gives the fallback text for shot 7 when the cloudgpu tier is absent and the replay fallback text for shot 5; narration mentions Nebius AI Cloud only in the variant where the cloudgpu file exists; narration of shots 1 to 9 makes no ranking claim (`greener`, `more efficient than`, `beats`, `outperforms` absent).
 BDD scenarios:
@@ -763,18 +764,18 @@ Feature: AJ-136 Demo video script
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-136-T1 | Write the failing feature for budget, contiguity, words per second, commands and sources | tests/AgentJoules.Specs/Features/Reporting/DemoScript.feature | 0.5 | AJ-135-T2 |
+| AJ-136-T1 | Write the failing feature for budget, contiguity, words per second, commands and sources | tests/AgentJoules.Specs/Features/Reporting/AJ-136-demo-script.feature (repository convention) | 0.5 | AJ-135-T2 |
 | AJ-136-T2 | Add the shot-list parser, sum check, words-per-second check and command check to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-136-T1 |
 | AJ-136-T3 | Write the script header and the `## Shot list` table from the shot order of AJ-135 | content/demo-script.md | 0.75 | AJ-136-T2, AJ-135-T3 |
 | AJ-136-T4 | Write the narration cells with file-named numbers read from the committed results and the browser statement | content/demo-script.md | 0.75 | AJ-136-T3 |
 | AJ-136-T5 | Write `## Commands shown` and the shot 6 fallback variant | content/demo-script.md | 0.5 | AJ-136-T4 |
 | AJ-136-T6 | Time a read-aloud of the narration against the table and record the result | docs/build-log.md | 0.25 | AJ-136-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/DemoScript.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-136-demo-script.feature (repository convention)
 Docs impact: content/demo-script.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the shot list total is 170 or less for both the cloudgpu-present and the cloudgpu-absent variants
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the shot list total is 170 or less for both the cloudgpu-present and the cloudgpu-absent variants (165 and 163 on 2026-10-26)
 Demo relevance: yes: this is the script of the video.
 
 ### AJ-137: Write the long-form article
@@ -846,19 +847,19 @@ Feature: AJ-137 Article citations resolve
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-137-T1 | Write the failing feature for citations, sections, sources, labels and length | tests/AgentJoules.Specs/Features/Reporting/Article.feature | 0.5 | AJ-134-T2 |
+| AJ-137-T1 | Write the failing feature for citations, sections, sources, labels and length | tests/AgentJoules.Specs/Features/Reporting/AJ-137-article.feature (repository convention; the @integration feature in AJ-137-article-links.feature) | 0.5 | AJ-134-T2 |
 | AJ-137-T2 | Add the citation, ranking-claim and word-count checks to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-137-T1 |
 | AJ-137-T3 | Write the outline, `Prior art` with checked links and `What is new` | content/article.md | 1.0 | AJ-137-T2 |
 | AJ-137-T4 | Write `How it works` (attribution by construction, counter versus sampling, baseline, the serialized gate) from docs/methodology.md | content/article.md | 0.75 | AJ-137-T3 |
 | AJ-137-T5 | Write `Results` with each number copied from a named results file, label and environment header | content/article.md | 1.5 | AJ-137-T4 |
 | AJ-137-T6 | Write `Limitations`, `Reproduce` and `What is next` | content/article.md | 0.75 | AJ-137-T5 |
 | AJ-137-T7 | Re-check the four links and record the date | docs/build-log.md | 0.25 | AJ-137-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/Article.feature
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-137-article.feature (repository convention; the @integration feature in AJ-137-article-links.feature)
 Docs impact: content/article.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the TokenPowerBench and greentoken URLs were found by search and opened by the builder, not typed from memory
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the TokenPowerBench and greentoken URLs were found by search and opened by the builder, not typed from memory (found by web search and fetched on 2026-10-26, HTTP 200)
 Demo relevance: no.
 
 ### AJ-138: Write the Devpost checklist: rules, fields and demo URL
@@ -940,18 +941,18 @@ Feature: AJ-138 Official rules page fetch
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-138-T1 | Write the failing checklist feature (rules, fields, Demo URL, deadline, tags) | tests/AgentJoules.Specs/Features/Configuration/DevpostChecklist.feature | 0.5 | AJ-130-T2 |
+| AJ-138-T1 | Write the failing checklist feature (rules, fields, Demo URL, deadline, tags) | tests/AgentJoules.Specs/Features/Configuration/AJ-138-devpost-checklist.feature (repository convention; the @integration feature in AJ-138-devpost-rules-fetch.feature) | 0.5 | AJ-130-T2 |
 | AJ-138-T2 | Add the checklist parser (rule items, checkbox list, tag count, path existence) to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-138-T1 |
 | AJ-138-T3 | Fetch the official rules page, record the status and fetch date, and ask the user to paste the text on failure | docs/devpost-checklist.md | 0.5 | AJ-138-T2 |
 | AJ-138-T4 | Write the `Rules` items and the `Conflicts` section from the fetched or pasted text and the aggregator evidence | docs/devpost-checklist.md | 1.0 | AJ-138-T3 |
 | AJ-138-T5 | Write `Fields to artifacts`, the Built-with list and the `Demo URL:` line | docs/devpost-checklist.md | 1.0 | AJ-138-T4, AJ-135-T3 |
 | AJ-138-T6 | Record the verification outcome and any rule conflict in the build log | docs/build-log.md | 0.25 | AJ-138-T5 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostChecklist.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-138-devpost-checklist.feature (repository convention; the @integration feature in AJ-138-devpost-rules-fetch.feature)
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the file carries a verification date or the `not verified` statement
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the file carries a verification date or the `not verified` statement (Verified: 2026-10-26, the official pages answered HTTP 200)
 Demo relevance: no.
 
 ### AJ-139: Write the user-action sections and commands of the Devpost checklist
@@ -1015,17 +1016,17 @@ Feature: AJ-139 Devpost checklist user actions
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-139-T1 | Write the failing feature for headings, registration lines, labelled command blocks | tests/AgentJoules.Specs/Features/Configuration/DevpostUserActions.feature | 0.5 | AJ-138-T2 |
+| AJ-139-T1 | Write the failing feature for headings, registration lines, labelled command blocks | tests/AgentJoules.Specs/Features/Configuration/AJ-139-devpost-user-actions.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-139-T2 | Write `Registration`, `Tracks` and `Credits` | docs/devpost-checklist.md | 0.75 | AJ-139-T1, AJ-138-T4 |
 | AJ-139-T3 | Write `Judging criteria` mapped to README sections and artifacts | docs/devpost-checklist.md | 0.5 | AJ-139-T2, AJ-132-T5 |
 | AJ-139-T4 | Write the push, Pages and release blocks and the `Before you push` list | docs/devpost-checklist.md | 0.75 | AJ-139-T3 |
 | AJ-139-T5 | Record in the build log that no command of the checklist was run by the builder | docs/build-log.md | 0.25 | AJ-139-T4 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostUserActions.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-139-devpost-user-actions.feature (repository convention)
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] `git log origin/main..HEAD --oneline` still lists every commit and no push was made (checked again in AJ-156)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] `git log origin/main..HEAD --oneline` still lists every commit and no push was made (checked again in AJ-156) (checked 2026-10-26: nothing pushed)
 Demo relevance: no.
 
 ### AJ-140: Fill the Devpost story placeholders and delete its checklist
@@ -1039,6 +1040,7 @@ Acceptance criteria:
 5. The comparison passage states cost per currency (EUR for local, USD for hosted), `N/A` with the reason for a tier without a price, the model on each tier, and ends with the scope `on this workload`; it contains no ranking word (`greener`, `better`, `faster than`, `cheaper than`).
 6. The calibration passage quotes `relativeDifference` with its label or states `N/A` with the reason from the calibration file.
 7. `docs/devpost-checklist.md` names `docs/devpost-story.md` for the About the project field.
+Amended 2026-10-26 (pool D gates): criterion 2's "a unit" applies where the passage states a quantity (passage 4 states none; passage 1 states a count of agents with the label measured); the laptop calibration sentence sits in What I learned next to the cloud one, outside the nine passages; the mapping table's sentence counts are read literally.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S140 @REQ-028
@@ -1108,19 +1110,19 @@ Fill mapping (the rows of the story's own checklist, expanded):
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-140-T1 | Write the failing story feature (placeholders, sources, byte-identical remainder, cloudgpu absent) | tests/AgentJoules.Specs/Features/Configuration/DevpostStory.feature | 0.5 | AJ-138-T2 |
+| AJ-140-T1 | Write the failing story feature (placeholders, sources, byte-identical remainder, cloudgpu absent) | tests/AgentJoules.Specs/Features/Configuration/AJ-140-devpost-story.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-140-T2 | Add the story checker with the pre-fill diff against the build-log entries to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.75 | AJ-140-T1 |
 | AJ-140-T3 | Commit the per-run median and share expressions and their output as a build-log entry | docs/build-log.md | 0.75 | AJ-140-T2 |
 | AJ-140-T4 | Replace placeholders 1, 2, 3, 4 and 9 | docs/devpost-story.md | 0.75 | AJ-140-T3 |
 | AJ-140-T5 | Replace placeholders 5, 6, 7 and 8 | docs/devpost-story.md | 1.0 | AJ-140-T3 |
 | AJ-140-T6 | Review every other sentence against the measured facts and log each change | docs/devpost-story.md, docs/build-log.md | 0.75 | AJ-140-T4, AJ-140-T5 |
 | AJ-140-T7 | Delete the Fill-after-build section and run the story checks | docs/devpost-story.md | 0.25 | AJ-140-T6 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostStory.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-140-devpost-story.feature (repository convention)
 Docs impact: docs/devpost-story.md; docs/build-log.md; docs/devpost-checklist.md (About the project row)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] after any new run file the numbers of passages 5 to 8 are regenerated from the recorded expressions and the story check is rerun
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] after any new run file the numbers of passages 5 to 8 are regenerated from the recorded expressions and the story check is rerun (the expressions recorded in the AJ-140 entry, 2026-10-26)
 Demo relevance: no.
 
 ### AJ-141: Apply the tagline rule: candidate A, A-local or the GPU-name swap
@@ -1129,10 +1131,13 @@ User story: As the user pasting the Devpost elevator pitch, I want the pitch to 
 Acceptance criteria:
 1. The rule is decided by a command: a completed or partial cloudgpu run file exists when `grep -lE '"status": "(completed|partial)"' results/*Z-cloudgpu.json` prints a file (probe and calibration files excluded by the glob and name pattern `^[0-9]{8}T[0-9]{6}Z-cloudgpu\.json$`); the decision and the command output are recorded in `docs/build-log.md`.
 2. File exists and `grep -o '"gpuName": "[^"]*"'` on it contains `L40S`: the elevator pitch is candidate A unchanged (197 characters); `docs/devpost-checklist.md` names `docs/devpost-pitch.md` candidate A for the elevator-pitch field, holds the text verbatim in a fenced block and the line `Characters: 197`.
-3. File exists and the GPU name lacks `L40S`: the token matching `[A-Z]+[0-9]+[A-Z]*` of the name replaces `L40S` in candidate A (in `docs/devpost-pitch.md`, in the checklist block), the result is 200 characters or fewer, and `docs/build-log.md` has a `Pitch change:` entry with before and after. A change of GPU class needs a user decision (prompt section 2); the swap renames only.
+3. File exists and the GPU name lacks `L40S`: the first token matching `[A-Z]+[0-9]+[A-Z]*` in the name (clarified 2026-10-26, M6 kickoff K3: for `NVIDIA H100 80GB HBM3` that is `H100`, not the later `HBM3`) replaces `L40S` in candidate A (in `docs/devpost-pitch.md`, in the checklist block), the result is 200 characters or fewer, and `docs/build-log.md` has a `Pitch change:` entry with before and after. A change of GPU class needs a user decision (prompt section 2); the swap renames only.
 4. No such file: the pitch is candidate A-local (192 characters), the checklist says so with the reason `cloudgpu tier produced no committed run file`, and the text contains neither `Nebius AI Cloud` nor `L40S`.
 5. The short tagline row of the checklist reads `Agent Joules: energy per agent step, measured on your GPUs` (58) when the cloudgpu file exists and `Agent Joules: energy per agent step, measured on your GPU` (57) when not.
 6. `wc -m` of the checklist's pitch block is 200 or less in every case, and the block equals the chosen candidate in `docs/devpost-pitch.md` byte for byte.
+
+Amended 2026-10-26 (M6 kickoff, K3; carry 2 of the M5 interim exit review fixes): AJ-129 already applied the GPU-token swap on 2026-10-26, so candidate A in docs/devpost-pitch.md reads the 199-character text with `NVIDIA H100 80GB HBM3` (the AJ-129 entry of docs/build-log.md holds old and new text). Criteria 2 and 3 are read against that state: the checklist block equals the current 199-character candidate A byte for byte and carries the line `Characters: 199`; the swap's before and after text is the AJ-129 entry (no line of docs/build-log.md is labelled `Pitch change:` yet), and AJ-141-T4 adds no second swap; the re-score of the 199-character text (carried from the pitch file's rubric note) is done in AJ-141-T3 and recorded in docs/build-log.md.
+
 BDD scenarios:
 ```gherkin
 @unit @AJ-S141 @REQ-028
@@ -1179,16 +1184,16 @@ Feature: AJ-141 Devpost pitch rule
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-141-T1 | Write the failing pitch-rule feature (three outcomes and four rejections) | tests/AgentJoules.Specs/Features/Configuration/DevpostTagline.feature | 0.5 | AJ-138-T2 |
+| AJ-141-T1 | Write the failing pitch-rule feature (three outcomes and four rejections) | tests/AgentJoules.Specs/Features/Configuration/AJ-141-devpost-tagline.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-141-T2 | Add the pitch selector, character counter and byte-equality check to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-141-T1 |
 | AJ-141-T3 | Apply the rule: record the command output, write the pitch block and character line in the checklist | docs/devpost-checklist.md, docs/build-log.md | 0.5 | AJ-141-T2, AJ-138-T5 |
 | AJ-141-T4 | Swap the GPU token in candidate A only when the GPU name lacks L40S, and log it | docs/devpost-pitch.md, docs/build-log.md | 0.25 | AJ-141-T3 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostTagline.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-141-devpost-tagline.feature (repository convention)
 Docs impact: docs/devpost-checklist.md; docs/devpost-pitch.md (swap case only); docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the decision is rerun after any change to the set of cloudgpu run files
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the decision is rerun after any change to the set of cloudgpu run files (decided 2026-10-26 on the committed cloudgpu file)
 Demo relevance: yes: shot 1 shows the tagline chosen here.
 
 ### AJ-142: Fill the builder placeholders of the feedback file and list the user ones
@@ -1257,19 +1262,19 @@ Feature: AJ-142 Devpost feedback answers
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-142-T1 | Write the failing feedback feature (markers, byte-identical user lines, checklist heading, credits) | tests/AgentJoules.Specs/Features/Configuration/DevpostFeedback.feature | 0.5 | AJ-138-T2 |
+| AJ-142-T1 | Write the failing feedback feature (markers, byte-identical user lines, checklist heading, credits) | tests/AgentJoules.Specs/Features/Configuration/AJ-142-devpost-feedback.feature (repository convention) | 0.5 | AJ-138-T2 |
 | AJ-142-T2 | Add the owner-marker counter and the user-line byte comparison to DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 0.5 | AJ-142-T1 |
 | AJ-142-T3 | Fill Q2 and Q4 builder placeholders from the three run files and the optional baseline file | docs/devpost-feedback.md | 1.0 | AJ-142-T2, AJ-140-T3 |
 | AJ-142-T4 | Fill Q5 builder placeholders from endpoints.md, cloudgpu-run.md and the user's credits statement | docs/devpost-feedback.md | 0.75 | AJ-142-T3 |
 | AJ-142-T5 | Fill Q7 builder placeholders from the run files and nim-local-attempt.md | docs/devpost-feedback.md | 0.75 | AJ-142-T4 |
 | AJ-142-T6 | Check the Q1, Q3 and Q5 design sentences against the facts and log each change | docs/devpost-feedback.md, docs/build-log.md | 0.5 | AJ-142-T5 |
 | AJ-142-T7 | Remove the builder rows from the Fill checklist table and write the `Feedback form, user fills` section | docs/devpost-feedback.md, docs/devpost-checklist.md | 0.5 | AJ-142-T6, AJ-139-T2 |
-Test mapping: tests/AgentJoules.Specs/Features/Configuration/DevpostFeedback.feature
+Test mapping: tests/AgentJoules.Specs/Features/Configuration/AJ-142-devpost-feedback.feature (repository convention)
 Docs impact: docs/devpost-feedback.md; docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the seven user placeholders remain for the user (user action in M7 AJ-158)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the seven user placeholders remain for the user (user action in M7 AJ-158) (seven left on 2026-10-26)
 Demo relevance: no.
 
 ### AJ-143: Audit every content artifact against the honesty rules
@@ -1277,7 +1282,7 @@ Covers: REQ-025, REQ-026, REQ-027, REQ-028
 User story: As a reader of any public Agent Joules text, I want every number traced to a results file with its label and no hidden zero, so that I can trust the claims.
 Acceptance criteria:
 1. The audit covers `README.md` (outside the generated results block), `content/linkedin-posts.md`, `content/demo-script.md`, `content/article.md`, `docs/devpost-story.md`, `docs/devpost-feedback.md`, `docs/devpost-checklist.md` and `docs/devpost-pitch.md`, and exits 0 through `dotnet test` over the `ContentHonesty` feature.
-2. Rule 1 (source): every quantity matching `[0-9]+(\.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` names an existing `results/` file or `docs/cloudgpu-run.md` in the same sentence or table row.
+2. Rule 1 (source): every quantity matching `[0-9]+(\.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` names an existing `results/` file or `docs/cloudgpu-run.md` in the same sentence or table row. Amended 2026-10-26 (pool B gate, S-A): `docs/nim-local-attempt.md` is a third accepted source, for the NIM-attempt figures the README `NIM-local outcome` and `Local runtime: NIM attempt` sections quote (README rule 1 says the same), and "in the same sentence or table row" is read as "in the same sentence, table row or paragraph" for those two docs sources, because the README names the file once per paragraph.
 3. Rule 2 (label): that sentence or row also holds one label word from the vocabulary. Check: the audit prints `finding: no label` for each quantity without a label word and exits 0 when it prints none.
 4. Rule 3 (no hidden zero): no hosted-tier energy is written as `0`; `N/A` or `not-reported` is written instead; `grep -nE "(energy|joules).{0,20}[^0-9.]0 ?(J|joules)" <files>` prints nothing.
 5. Rule 4 (scope sentence): README, the article, the demo script, every post variant and the story each contain `GPU-board energy`.
@@ -1286,6 +1291,10 @@ Acceptance criteria:
 8. Rule 7 (format): `grep -nP "[^\x00-\x7F]" <files>` prints nothing (no em-dash), `grep -c $'\r' <files>` prints 0 for each.
 9. Rule 8 (cloudgpu consistency): with no completed or partial cloudgpu run file, no audited file except the feedback design paragraph of Q5 and the non-chosen pitch candidates mentions `Nebius AI Cloud` or `L40S` outside a sentence containing `not run` or `did not run`.
 10. Rule 9 (browser note): README, `content/demo-script.md` and `docs/methodology.md` each contain the statement that the published results were recorded without a browser open.
+
+Amended 2026-10-26 (M6 kickoff, K4; carry 3 of the M5 interim exit review fixes): a completed cloudgpu run file exists (results/20261026T124721Z-cloudgpu.json, gpuName `NVIDIA H100 80GB HBM3`), so rule 8 also covers the present-file case: no audited file states or implies a cloudgpu measurement on a GPU other than the one the latest completed or partial cloudgpu run file names (the first token matching `[A-Z]+[0-9]+[A-Z]*` in its gpuName, here `H100`; `HBM3` is the second match and is not the GPU token); the string `L40S` may appear only in a sentence that says it was planned, not available, or replaced (words `planned`, `exhausted`, `instead`, `replaced`, `replaces`, `in place of` or `not available`), and in docs/devpost-pitch.md the non-chosen candidates B and C, the scoring tables and the iteration and "Points still open" notes are exempt as historical drafts (the exemption widened 2026-10-26 after the interim peer review of ca7155f found the pitch file's history lines would fail the narrower rule). The absent-file wording of rule 8 stays for the fallback path.
+Amended 2026-10-26 (AJ-143 build, the first audit run over the committed set, 73 findings triaged): (a) the quantity pattern of rules 1 and 2 is the criterion's own `[0-9]+(.[0-9]+)? ?(J|W|kWh|ms|tokens|%|EUR|USD)` plus Wh, kJ and the spelled-out joule(s) and watt(s); the words seconds, minutes and percent, the memory units MiB and GiB and the currency-first costs (`USD 7`) lie outside the mechanical pattern, and a measured value in seconds or percent still carries a source and a label, checked by hand (the shot budgets `170 seconds` and `165 seconds` are required literally by AJ-136, the heading `Spoken version (30 seconds)` is a plan value, and `100 percent` and the agent shares are read by the mapping rows with their labels in the same paragraph); (b) rule 1 reads "in the same sentence, table row or paragraph" for a `results/` file as it does for the two docs sources (pool B amendment), because the story's mapping rows and the feedback answers name each file once per passage; rule 2 keeps "the same sentence or table row" for the label word; (c) for content/linkedin-posts.md the `Sources:` line of the rendered file is the source of every quantity (AJ-134 criterion 3 proves every number is a placeholder and REQ-026 makes the Sources line the provenance), so rule 1 reads that file's quantities against its Sources line; (d) withdrawn on 2026-10-26 (UTC; the first stamp read 2026-10-27, the local date) after the gatekeeper's review: no exemption for option defaults or library settings; the README writes such values without a unit word (the console metrics interval reads "ten seconds"); rules 3 to 9 are unchanged.
+
 BDD scenarios:
 ```gherkin
 @unit @AJ-S143 @REQ-025 @REQ-026 @REQ-027 @REQ-028
@@ -1352,16 +1361,16 @@ Feature: AJ-143 Key scan with the real keys
 Tasks:
 | Task | Description (one verb, one artifact) | Files | Estimate (h) | Depends on |
 |---|---|---|---|---|
-| AJ-143-T1 | Write the failing honesty feature (nine rule scenarios) | tests/AgentJoules.Specs/Features/Reporting/ContentHonesty.feature | 0.5 | AJ-134-T2 |
+| AJ-143-T1 | Write the failing honesty feature (nine rule scenarios) | tests/AgentJoules.Specs/Features/Reporting/AJ-143-content-honesty.feature (repository convention; the @integration feature in AJ-143-key-scan.feature) | 0.5 | AJ-134-T2 |
 | AJ-143-T2 | Implement the eight audit rules as `HonestyAudit` in DocumentChecks | tests/AgentJoules.Specs/Support/DocumentChecks.cs | 1.5 | AJ-143-T1 |
 | AJ-143-T3 | Run the audit over all files and fix each finding at its source | README.md, content/linkedin-posts.template.md, content/demo-script.md, content/article.md, docs/devpost-story.md, docs/devpost-feedback.md, docs/devpost-checklist.md | 1.5 | AJ-143-T2, AJ-140-T7, AJ-142-T7, AJ-137-T6, AJ-136-T5 |
 | AJ-143-T4 | Run the key scan with the three keys set and record the commands and exit codes | docs/build-log.md | 0.5 | AJ-143-T3 |
-Test mapping: tests/AgentJoules.Specs/Features/Reporting/ContentHonesty.feature; RedactionTests (key redaction, M0 to M2)
+Test mapping: tests/AgentJoules.Specs/Features/Reporting/AJ-143-content-honesty.feature (repository convention; the @integration feature in AJ-143-key-scan.feature); RedactionTests (key redaction, M0 to M2)
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the audit is rerun after the last results file or text change before M7 starts
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the audit is rerun after the last results file or text change before M7 starts (rerun 2026-10-26 after the last content edit: 0 findings)
 Demo relevance: no.
 
 ## Risks

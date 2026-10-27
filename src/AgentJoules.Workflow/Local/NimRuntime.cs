@@ -11,20 +11,21 @@ using Microsoft.Extensions.Options;
 namespace AgentJoules.Workflow.Local;
 
 /// <summary>
-/// The NIM container behind the local tier (REQ-019, REQ-020, design 3.4 "Local runtimes"), selected by <c>Local:Runtime</c> <c>nim</c> (AJ-102). <see cref="CheckAvailableAsync"/> asks <c>GET &lt;BaseUrl&gt;/version</c>
+/// The NIM container behind the bound tier (the local tier by default; REQ-019, REQ-020, design 3.4 "Local runtimes"), selected for the local tier by <c>Local:Runtime</c> <c>nim</c> (AJ-102); the cloudgpu tier always runs NIM. <see cref="CheckAvailableAsync"/> asks <c>GET &lt;BaseUrl&gt;/version</c>
 /// (the <c>/v1/version</c> route of the container), so a container that is not running is reported as <c>NIM not reachable at &lt;BaseUrl&gt;; start the container as recorded in docs/nim-local-attempt.md</c> (exit code
-/// 5). <see cref="DescribeAsync"/> states the <c>environment</c> of a local run (AJ-105): the version is the <c>release</c> of that answer (null when it holds none), the GPU offload is 100 by construction (a NIM
-/// container serves the model from GPU memory only), and the precision is <c>Tiers:local:Precision</c>, which the configuration validator requires for this runtime, so no precision is ever guessed. <see cref="WarmUpAsync"/> (AJ-106) sends one short chat
+/// 5); for a tier other than local the message is <c>tier cloudgpu: NIM not reachable (/version)</c>, which names the tier and the route and no host. <see cref="DescribeAsync"/> states the <c>environment</c> of a local run (AJ-105): the version is the <c>release</c> of that answer (null when it holds none), the GPU offload is 100 by construction (a NIM
+/// container serves the model from GPU memory only), and the precision is <c>Precision</c> of the bound tier: <c>Tiers:local:Precision</c> for the local tier, which the configuration validator (<c>CrossFieldValidator</c>) requires only when <c>Local:Runtime</c> is <c>nim</c>; for the cloudgpu tier <c>Tiers:cloudgpu:Precision</c> is read as configured and a blank value gives a null precision. No precision is ever guessed. <see cref="WarmUpAsync"/> (AJ-106) sends one short chat
 /// completion (<c>POST &lt;BaseUrl&gt;/chat/completions</c>, the single word <c>ready</c> asked for, 8 tokens at most, temperature 0) through the plain client and returns how long it took on the injected clock.
 /// </summary>
 /// <remarks>
-/// The request goes through the named <see cref="HttpClient"/> of the local tier, with the time limit of <see cref="OllamaRuntime"/>, and carries no key: the version route needs none. The warm-up completion is built by the factory of the models request (a key configured for the local tier travels with it as on the preflight) and runs under the full <c>TimeoutSeconds</c> of the tier on the injected clock. No text of a response leaves this class.
+/// The request goes through the named <see cref="HttpClient"/> of the bound tier (local by default; the cloudgpu tier for the orchestrator's cloudgpu runtime), with the time limit of <see cref="OllamaRuntime"/>, and carries no key: the version route needs none. The warm-up completion is built by the factory of the models request (a key configured for the bound tier travels with it as on the preflight) and runs under the full <c>TimeoutSeconds</c> of the tier on the injected clock. No text of a response leaves this class.
 /// </remarks>
-/// <param name="factory">The provider client factory; it validates the local tier and gives its endpoint and network timeout.</param>
+/// <param name="factory">The provider client factory; it validates the bound tier and gives its endpoint and network timeout.</param>
 /// <param name="httpClients">The factory of the named <see cref="HttpClient"/> of each tier.</param>
-/// <param name="options">The options, for the configured precision of the local tier.</param>
+/// <param name="options">The options, for the configured precision of the bound tier.</param>
 /// <param name="time">The clock that measures the warm-up call; the system clock when null.</param>
-public sealed class NimRuntime(ProviderClientFactory factory, IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options, TimeProvider? time = null) : ILocalRuntime
+/// <param name="tier">The tier the runtime is bound to: its base URL, request factory (a configured key travels with the request), time limit and <c>Precision</c>. The local tier by default; the cloudgpu tier for a NIM served on a rented VM (K2 of M6, 2026-10-26, REQ-031), which is warmed up and described through its own tier client.</param>
+public sealed class NimRuntime(ProviderClientFactory factory, IHttpClientFactory httpClients, IOptions<AgentJoulesOptions> options, TimeProvider? time = null, Tier tier = Tier.Local) : ILocalRuntime
 {
     /// <summary>The name of the runtime, the value of <c>Local:Runtime</c> that selects it.</summary>
     public const string RuntimeName = LocalOptions.Nim;
@@ -47,29 +48,29 @@ public sealed class NimRuntime(ProviderClientFactory factory, IHttpClientFactory
     public string Name => RuntimeName;
 
     /// <inheritdoc />
-    /// <exception cref="ConfigurationException">The local tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
-    /// <exception cref="EndpointUnreachableException">The connection was refused, nothing answered within the limit or the status is not a success; the message is <c>NIM not reachable at &lt;BaseUrl&gt;; start the container as recorded in docs/nim-local-attempt.md</c> (exit code 5).</exception>
+    /// <exception cref="ConfigurationException">The bound tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
+    /// <exception cref="EndpointUnreachableException">The connection was refused, nothing answered within the limit or the status is not a success; the message is <c>NIM not reachable at &lt;BaseUrl&gt;; start the container as recorded in docs/nim-local-attempt.md</c> (exit code 5); for a tier other than local the message is <c>tier cloudgpu: NIM not reachable (/version)</c>, which names the tier and the route and no host.</exception>
     public async Task CheckAvailableAsync(CancellationToken cancellationToken)
     {
-        (HttpClient client, string baseUrl, TimeSpan limit, string unreachable) = Prepare();
+        (HttpClient client, string baseUrl, TimeSpan limit, string unreachable) = Prepare(VersionRoute);
         _ = await LocalRuntimeHttp.SendAsync(client, HttpMethod.Get, new Uri(baseUrl + VersionRoute), jsonBody: null, readBody: false, limit, unreachable, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    /// <returns>The runtime name, the <c>release</c> of the version route, 100 and <c>Tiers:local:Precision</c> (null when it is blank).</returns>
-    /// <exception cref="ConfigurationException">The local tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
+    /// <returns>The runtime name, the <c>release</c> of the version route, 100 and the <c>Precision</c> of the bound tier (null when it is blank).</returns>
+    /// <exception cref="ConfigurationException">The bound tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
     /// <exception cref="EndpointUnreachableException">The request was refused, timed out or answered a status other than success (exit code 5).</exception>
     public async Task<LocalRuntimeInfo> DescribeAsync(CancellationToken cancellationToken)
     {
-        (HttpClient client, string baseUrl, TimeSpan limit, string unreachable) = Prepare();
+        (HttpClient client, string baseUrl, TimeSpan limit, string unreachable) = Prepare(VersionRoute);
         string? release;
         using (JsonDocument? answer = await LocalRuntimeHttp.SendAsync(client, HttpMethod.Get, new Uri(baseUrl + VersionRoute), jsonBody: null, readBody: true, limit, unreachable, cancellationToken).ConfigureAwait(false))
         {
             release = answer is null ? null : LocalRuntimeHttp.Text(answer.RootElement, "release", MaxDisclosureLength);
         }
 
-        string? precision = _options.Value.Tiers.TryGetValue(TierOptions.NameOf(Tier.Local), out TierOptions? local) && local is not null && !string.IsNullOrWhiteSpace(local.Precision)
-            ? local.Precision.Trim()
+        string? precision = _options.Value.Tiers.TryGetValue(TierOptions.NameOf(tier), out TierOptions? bound) && bound is not null && !string.IsNullOrWhiteSpace(bound.Precision)
+            ? bound.Precision.Trim()
             : null;
 
         return new LocalRuntimeInfo(RuntimeName, release, GpuOffloadPercent, precision);
@@ -78,33 +79,42 @@ public sealed class NimRuntime(ProviderClientFactory factory, IHttpClientFactory
     /// <inheritdoc />
     /// <returns>The wall time of the one short chat completion, measured on the injected clock around the call.</returns>
     /// <exception cref="ArgumentException"><paramref name="modelId"/> is null or blank.</exception>
-    /// <exception cref="ConfigurationException">The local tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
-    /// <exception cref="MissingKeyException">The local tier names a key variable that has no value (exit code 3), as on the models request.</exception>
-    /// <exception cref="EndpointUnreachableException">The connection was refused or nothing answered within the timeout of the tier (the container record message), or the container answered a status other than success (<c>the warm-up of &lt;model&gt; failed with HTTP &lt;status&gt; at &lt;BaseUrl&gt;</c>, never the body); exit code 5.</exception>
+    /// <exception cref="ConfigurationException">The bound tier is not configured or its base URL or timeout is not usable (exit code 2).</exception>
+    /// <exception cref="MissingKeyException">The bound tier names a key variable that has no value (exit code 3), as on the models request.</exception>
+    /// <exception cref="EndpointUnreachableException">The connection was refused or nothing answered within the timeout of the tier (the container record message of the local tier; <c>tier cloudgpu: NIM not reachable (/chat/completions)</c> for the cloudgpu tier, which names no host), or the container answered a status other than success (<c>the warm-up of &lt;model&gt; failed with HTTP &lt;status&gt; at &lt;BaseUrl&gt;</c> for the local tier, <c>tier cloudgpu: the warm-up of &lt;model&gt; failed with HTTP &lt;status&gt; (/chat/completions)</c> for the cloudgpu tier, never the body); exit code 5.</exception>
     public async Task<TimeSpan?> WarmUpAsync(string modelId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
         cancellationToken.ThrowIfCancellationRequested();
 
-        (HttpClient client, string baseUrl, _, string unreachable) = Prepare();
-        TimeSpan limit = LocalRuntimeHttp.LoadLimitOf(_factory.SettingsFor(Tier.Local));
+        (HttpClient client, string baseUrl, _, _) = Prepare(VersionRoute);
+        string unreachable = UnreachableText(baseUrl, CompletionsRoute);
+        TimeSpan limit = LocalRuntimeHttp.LoadLimitOf(_factory.SettingsFor(tier));
         var message = new JsonObject { ["role"] = "user", ["content"] = WarmUpPrompt };
         string body = new JsonObject { ["model"] = modelId, ["messages"] = new JsonArray(message), ["max_tokens"] = WarmUpMaxTokens, ["temperature"] = 0 }.ToJsonString();
 
-        // Built by the factory of the models request: a key configured for the local tier travels with the warm-up exactly as it does on the preflight.
-        HttpRequestMessage request = _factory.CreateRequest(Tier.Local, HttpMethod.Post, CompletionsRoute);
+        // Built by the factory of the models request: a key configured for the bound tier travels with the warm-up exactly as it does on the preflight.
+        HttpRequestMessage request = _factory.CreateRequest(tier, HttpMethod.Post, CompletionsRoute);
         request.Content = LocalRuntimeHttp.JsonContent(body);
 
-        return await LocalRuntimeHttp.TimeWarmUpAsync(_time, client, request, limit, unreachable, status => LocalRuntimeHttp.WarmUpFailed(modelId, status, baseUrl), cancellationToken).ConfigureAwait(false);
+        return await LocalRuntimeHttp.TimeWarmUpAsync(_time, client, request, limit, unreachable, status => tier == Tier.Local ? LocalRuntimeHttp.WarmUpFailed(modelId, status, baseUrl) : HostFreeWarmUpFailed(modelId, status), cancellationToken).ConfigureAwait(false);
     }
 
-    // The client, the configured base URL without a trailing slash, the time limit and the unreachable message of the local tier; the factory validates the tier.
-    private (HttpClient Client, string BaseUrl, TimeSpan Limit, string Unreachable) Prepare()
+    // The client, the configured base URL without a trailing slash, the time limit and the unreachable message of the bound tier; the factory validates the tier.
+    private (HttpClient Client, string BaseUrl, TimeSpan Limit, string Unreachable) Prepare(string route)
     {
-        ProviderClientSettings settings = _factory.SettingsFor(Tier.Local);
+        ProviderClientSettings settings = _factory.SettingsFor(tier);
         string baseUrl = settings.Endpoint.AbsoluteUri.TrimEnd('/');
-        HttpClient client = _httpClients.CreateClient(ProviderClientFactory.HttpClientName(TierOptions.NameOf(Tier.Local)));
+        HttpClient client = _httpClients.CreateClient(ProviderClientFactory.HttpClientName(TierOptions.NameOf(tier)));
 
-        return (client, baseUrl, LocalRuntimeHttp.LimitOf(settings), $"NIM not reachable at {baseUrl}; start the container as recorded in docs/nim-local-attempt.md");
+        return (client, baseUrl, LocalRuntimeHttp.LimitOf(settings), UnreachableText(baseUrl, route));
     }
+
+    // The container record exists for the local container only. A rented VM is told by its tier and route, like the preflight: the host or address an operator configured never reaches stderr.
+    private string UnreachableText(string baseUrl, string route) => tier == Tier.Local
+        ? $"NIM not reachable at {baseUrl}; start the container as recorded in docs/nim-local-attempt.md"
+        : $"tier {TierOptions.NameOf(tier)}: NIM not reachable ({route})";
+
+    private string HostFreeWarmUpFailed(string modelId, int status) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"tier {TierOptions.NameOf(tier)}: the warm-up of {modelId} failed with HTTP {status} ({CompletionsRoute})");
 }
