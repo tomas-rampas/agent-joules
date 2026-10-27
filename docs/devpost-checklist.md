@@ -170,6 +170,17 @@ User action (the builder never runs this):
 git push -u origin main
 ```
 
+After the push, check the CI run on main that the push starts (REQ-024; the run is not a Definition of Done item; the builder ran the same read-only commands on the earlier run 40426079785):
+
+Read-only check (the user runs it after the push; the builder may run it too):
+
+```
+gh run list --workflow ci.yml --branch main --limit 1 --json status,conclusion,databaseId
+gh run view <id> --json jobs --jq '.jobs[] | [.name,.conclusion]'
+```
+
+Both runners (`build (windows-latest)` and `build (ubuntu-latest)`) must show `success`. If a runner is red: paste the failing step's name and its last lines to the builder; the builder records the finding in `docs/build-log.md`, prepares the fix as a local commit for you to push, and the submission does not wait for it (REQ-024 says the first run is not a Definition of Done item).
+
 Enable GitHub Pages for the report (Settings, Pages, Deploy from a branch, branch `main`, folder `/docs`), or use the command, then check the address:
 
 User action (the builder never runs this):

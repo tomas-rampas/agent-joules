@@ -15,8 +15,8 @@ namespace AgentJoules.TestSupport.Docs;
 /// </summary>
 public static partial class MethodologyDocumentParser
 {
-    /// <summary>The sentence that follows the compositing sentence: the campaign ran with other GPU applications open (M-1).</summary>
-    public const string OpenApplicationsSentence = "The 2026-10-25 campaign that produced the published local file ran with the user's other GPU applications open (the user's decision of 12:32Z recorded in the AJ-114 entry of docs/build-log.md), so that load sits in the baseline and in every local window.";
+    /// <summary>The sentence that follows the compositing sentence: the recording conditions of the published local run of 2026-10-27, the GPU applications still open and the unmetered CPU load, with the 2026-10-25 campaign as history (M-1; moved to the K2 file in M7).</summary>
+    public const string OpenApplicationsSentence = "The published local run of 2026-10-27 (results/20261027T095519Z-local.json) was recorded with no browser and with these applications still holding GPU contexts: the Claude desktop app, two Edge WebView2 hosts, explorer, ShareX, Windows Terminal, Widget Board, TextInputHost, ApplicationFrameHost and NahimicSvc64, and the load of those GPU applications sits in the baseline and in every local window; 26 dotnet test processes of the session's review agents (counted during the run) also ran on the CPU, which is not metered (GPU-board energy only) but can lengthen a step and so its gross joules, and that CPU load was present during the steps, not shown for the baseline window; the earlier 2026-10-25 campaign (results/20261025T131930Z-local.json, kept in results/ as history) ran with two browsers and other applications open.";
 
     /// <summary>The Baseline sentence that discloses the missing settle interval (m-4).</summary>
     public const string BaselineSettleSentence = "The baseline window starts after the warm-up call returns and the runtime version call that follows it, plus the configured settle interval Baseline:SettleSeconds (default 0, as in the published runs).";

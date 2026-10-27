@@ -438,6 +438,7 @@ Acceptance criteria:
 3. Box 3: `grep -E "AgentHooks|Agents.AI.Mcp|DevUI|Agents.AI.A2A|SemanticKernel|Plotly|ScottPlot|OxyPlot" Directory.Packages.props` prints nothing; `git ls-files "*.py" | wc -l` prints 0; `grep -c "<IsPackable>false</IsPackable>" Directory.Build.props` prints 1; the project folders under `src/` and `tests/` equal the eleven projects of the technical design (seven under `src/`, four under `tests/`); `git log --format=%s | grep -c "^STRETCH:"` prints 0 unless every box is already ticked.
 4. EDGE-010 and EDGE-014 (document-only acceptances) and the user-action rows (first CI run) are marked with their evidence file or `USER-ACTION`, not left blank.
 5. When `specs/agent-joules.md` exists (option B), `spec-compliance-reviewer` runs against it and its `VERDICT` line is recorded; with option A the same review reads Layer 2 of the prompt.
+Amendments (2026-10-27, pool B): (a) criterion 2's literal grep over the whole log cannot print 51 (the older Per-ID filter results table holds 220 rows of that shape and the Spec filter results table adds 36 in the `Spec=<ID>` form); the check is the EvidenceChecks.Conformance parser over the table under the `Acceptance matrix` caption, 51 rows, no empty status; (b) the `Acceptance matrix` carries a fifth column `Reason`, required on every row whose status is not MET; (c) the `Spec filter results` ID cells read `Spec=<ID>`; (d) criterion 5: no `specs/agent-joules.md` exists (option A), so T6 is the full-spec spec-compliance-reviewer pass over the prompt's Layer 2 at the M7 exit (session prompt section 7.2).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S154 @DoD
@@ -496,9 +497,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/SpecConformance.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 1, 3 and 15 ticked, or listed unchecked with the reason of each non-MET row
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 1, 3 and 15 ticked, or listed unchecked with the reason of each non-MET row (boxes 3 and 15 ticked 2026-10-27: the scope commands clean, the 36 Spec filters green; box 1 listed unchecked with its reason: the Acceptance matrix has 50 MET rows and one USER-ACTION row, REQ-032, whose Acceptance includes the live-page screenshot docs/report/dashboard.png that the user takes during the M7 rehearsal (decision 7 of the M6 exit); box 1 is ticked when the screenshot lands and the row turns MET; see the AJ-154 entry and the two tables at the end of docs/build-log.md)
 Demo relevance: no.
 
 ### AJ-155: Final hardening: build, format, tests, secret scan, CI preparation
@@ -591,9 +592,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/Hardening.feature; RedactionTests
 Docs impact: docs/build-log.md; docs/devpost-checklist.md (CI check commands, marked user action)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 2, 4, 5, 6 and 12 ticked with command output, or listed unchecked with the reason
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 2, 4, 5, 6 and 12 ticked with command output, or listed unchecked with the reason (boxes 4, 5, 6 and 12 ticked 2026-10-27 from the hardening battery, see the AJ-155 entry of docs/build-log.md; box 2 listed pending: criteria 1 to 3 hold on the measured tree, and the commit hash at which `git status --short` is empty is recorded by the M7 exit battery, which ticks box 2)
 Demo relevance: no.
 
 ### AJ-156: Verify the git history and the push boundary, then run the final review gates
