@@ -13,7 +13,7 @@ namespace AgentJoules.UnitTests;
 [Trait("Spec", "REQ-022")]
 public sealed class MethodologyEvidenceTests
 {
-    private const string LocalRun = "results/20261025T131930Z-local.json";
+    private const string LocalRun = "results/20261027T095519Z-local.json";
     private const string CampaignProbe = "results/probe-20261025T131800Z.json";
 
     private static string Document() => File.ReadAllText(MethodologyDocumentParser.CommittedPath());
@@ -49,7 +49,7 @@ public sealed class MethodologyEvidenceTests
     public void A_cited_results_file_that_is_not_committed_fails_and_is_named()
     {
         // The file the first M4 draft cited and git never held.
-        string document = Mutated("results/20261025T131930Z-local.json, started", "results/20261025T024349Z-local.json, started");
+        string document = Mutated("results/20261027T095519Z-local.json, started", "results/20261025T024349Z-local.json, started");
 
         Assert.Contains(Evidence(document), static failure => failure.Contains("results/20261025T024349Z-local.json", StringComparison.Ordinal) && failure.Contains("not a committed file", StringComparison.Ordinal));
     }
@@ -57,7 +57,7 @@ public sealed class MethodologyEvidenceTests
     [Fact]
     public void A_run_file_named_without_its_folder_is_the_same_citation()
     {
-        string document = Mutated("results/20261025T131930Z-local.json, started", "20261025T024349Z-local.json, started");
+        string document = Mutated("results/20261027T095519Z-local.json, started", "20261025T024349Z-local.json, started");
 
         Assert.Contains(Evidence(document), static failure => failure.Contains("results/20261025T024349Z-local.json", StringComparison.Ordinal) && failure.Contains("not a committed file", StringComparison.Ordinal));
     }
@@ -83,10 +83,10 @@ public sealed class MethodologyEvidenceTests
     // ---- rule 2: the baseline-unstable example and the EDGE-013 statement, read from the cited run file ----
 
     [Theory]
-    [InlineData("mean 20.109 W", "mean 16.453 W", "16.453", "20.109")]
-    [InlineData("standard deviation 6.971 W", "standard deviation 8.559 W", "8.559", "6.971")]
-    [InlineData("302 samples over 30.003 s", "302 samples over 30.013 s", "30.013", "30.003")]
-    [InlineData("coefficient of variation 0.347", "coefficient of variation 0.520", "0.520", "0.347")]
+    [InlineData("mean 22.419 W", "mean 16.453 W", "16.453", "22.419")]
+    [InlineData("standard deviation 6.880 W", "standard deviation 8.559 W", "8.559", "6.880")]
+    [InlineData("302 samples over 30.016 s", "302 samples over 30.013 s", "30.013", "30.016")]
+    [InlineData("coefficient of variation 0.307", "coefficient of variation 0.520", "0.520", "0.307")]
     public void The_baseline_example_quotes_the_run_file_rounded_to_three_decimals(string from, string to, string quoted, string stored)
     {
         string failure = Assert.Single(Evidence(Mutated(from, to)));
@@ -100,9 +100,9 @@ public sealed class MethodologyEvidenceTests
     [Theory]
     [InlineData("on 36 of its 36 steps", "on 12 of its 36 steps", "12", "36")]
     [InlineData("with the reason SwPowerCap", "with the reason HwSlowdown", "HwSlowdown", "SwPowerCap")]
-    [InlineData("peak power 95.4 to 106.1 W", "peak power 95.8 to 106.1 W", "95.8", "95.4")]
-    [InlineData("peak power 95.4 to 106.1 W", "peak power 95.4 to 107.8 W", "107.8", "106.1")]
-    [InlineData("its embedded probe recorded powerLimitW 105;", "its embedded probe recorded powerLimitW 95;", "95", "105")]
+    [InlineData("peak power 87.8 to 160.7 W", "peak power 88.2 to 160.7 W", "88.2", "87.8")]
+    [InlineData("peak power 87.8 to 160.7 W", "peak power 87.8 to 161.4 W", "161.4", "160.7")]
+    [InlineData("its embedded probe recorded powerLimitW 78.157;", "its embedded probe recorded powerLimitW 95;", "95", "78.157")]
     public void The_throttled_statement_quotes_the_run_file_with_peaks_rounded_to_one_decimal(string from, string to, string quoted, string stored)
     {
         string failure = Assert.Single(Evidence(Mutated(from, to)));
@@ -115,7 +115,7 @@ public sealed class MethodologyEvidenceTests
     [Fact]
     public void The_baseline_example_must_cite_the_latest_committed_local_run()
     {
-        string document = Mutated("Measured example (the published local run results/20261025T131930Z-local.json,", "Measured example (the published local run,");
+        string document = Mutated("Measured example (the published local run results/20261027T095519Z-local.json,", "Measured example (the published local run,");
 
         Assert.Contains(Evidence(document), static failure => failure.Contains("baseline-unstable example", StringComparison.Ordinal) && failure.Contains(LocalRun, StringComparison.Ordinal));
     }
@@ -125,11 +125,11 @@ public sealed class MethodologyEvidenceTests
     [Fact]
     public void The_power_limit_item_quotes_the_embedded_probe_of_the_latest_local_run_as_the_run_time_value()
     {
-        string failure = Assert.Single(Evidence(Mutated("records powerLimitW 105 (the run-time value)", "records powerLimitW 87.393 (the run-time value)")));
+        string failure = Assert.Single(Evidence(Mutated("records powerLimitW 78.157 (the run-time value)", "records powerLimitW 87.393 (the run-time value)")));
 
         Assert.Contains("power limit item run-time value", failure, StringComparison.Ordinal);
         Assert.Contains("87.393", failure, StringComparison.Ordinal);
-        Assert.Contains("105", failure, StringComparison.Ordinal);
+        Assert.Contains("78.157", failure, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class MethodologyEvidenceTests
     [Fact]
     public void The_power_limit_item_must_name_the_latest_committed_probe()
     {
-        string document = Mutated("the campaign probe results/probe-20261025T131800Z.json, saved before the run at 13:18:00Z, records powerLimitW 96.39;", "the campaign probe records 96.39;");
+        string document = Mutated("the probe results/probe-20261025T131800Z.json, saved at 13:18:00Z before the earlier 2026-10-25 campaign run, records powerLimitW 96.39;", "the probe records 96.39;");
 
         Assert.Contains(Evidence(document), static failure => failure.Contains("does not name the latest committed probe", StringComparison.Ordinal) && failure.Contains(CampaignProbe, StringComparison.Ordinal));
     }

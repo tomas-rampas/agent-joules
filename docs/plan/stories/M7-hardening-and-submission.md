@@ -53,14 +53,14 @@ Stories AJ-157 (release), AJ-158 (submission and cut-off plan) and AJ-159 (buffe
 
 Needs: M0 to M6 complete or explicitly reported as partial; the M6 content freeze at 2026-10-29 17:00 UTC (assumed planning target, 10:00 PDT).
 
-User actions (the user's, not the builder's; section 12 step numbers; every one is also a `(user)` line in `docs/devpost-checklist.md`):
+User actions (the user's, not the builder's; section 12 step numbers; every one is also a `(user)` line in `docs/devpost-checklist.md`; except the git and gh steps delegated to the session at the M7 exit (user decision 2026-10-27 12:11Z; AJ-156 amendment (c), AJ-157 amendment (d))):
 
 | Step | User action | Story | Planning target, UTC (PDT in parentheses; assumed) |
 |---|---|---|---|
 | 13 | Delete the VM and boot disk; give deletion time and final cost (if M5 ran) | AJ-151 | before 2026-10-29 17:00 (10:00 PDT) |
-| - | `git push -u origin main` after the M7 gate (decision D-6) | AJ-156, AJ-158 | 2026-10-29 20:00 (13:00 PDT); latest 2026-10-30 07:00 (00:00 PDT) |
-| - | Enable GitHub Pages (main, `/docs`) and confirm the report URL answers 200 | AJ-158 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
-| - | `gh release create v0.1.0 ...` with the three assets | AJ-157 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): `git push -u origin main` after the M7 gate (decision D-6) | AJ-156, AJ-158 | 2026-10-29 20:00 (13:00 PDT); latest 2026-10-30 07:00 (00:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): Enable GitHub Pages (main, `/docs`) and confirm the report URL answers 200 | AJ-158 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
+| - | session (delegated 2026-10-27 12:11Z; the user checks the result): `gh release create v0.1.0 ...` with the three assets | AJ-157 | 2026-10-29 21:00 (14:00 PDT); latest 2026-10-30 08:00 (01:00 PDT) |
 | - | Fill the seven `owner: user` placeholders of `docs/devpost-feedback.md`; fill `{{repo.url}}` in the posts before posting | AJ-158 | 2026-10-29 22:00 (15:00 PDT); latest 2026-10-30 10:00 (03:00 PDT) |
 | - | Record the video on 2026-10-29 (decision D-7) and upload it as a public YouTube video | AJ-158 | public by 2026-10-30 07:00 (00:00 PDT); latest 2026-10-30 11:00 (04:00 PDT) |
 | 8 | Submit on Devpost, fields in the order of `Submission order` | AJ-158 | 2026-10-30 14:00 (07:00 PDT) |
@@ -84,6 +84,7 @@ Acceptance criteria:
 8. Box 24, first command: `AJ run --tier local --dashboard --dry-run` prints a line starting `Dashboard:` containing `http://127.0.0.1:` and exits 0 without a browser (@integration, needs the laptop GPU and the local runtime for the dry run).
 9. Box 24, second command: `AJ dashboard --replay results/<newest nebius file> --speed 50 --exit-after 5` exits 0 and emits one server-sent event per step of that file (36 for the demo shape), served from `127.0.0.1` only; the replay needs no GPU and no key (@unit through the in-process harness).
 10. The published run files were recorded without a browser open: `docs/build-log.md` contains the statement for the local run, `docs/methodology.md` states both facts (the server adds no GPU work; a browser tab adds compositing load), and the README says so (REQ-032 text).
+Amendments (2026-10-27, M7 kickoff and pool A gates): (a) criterion 10 is read as the M6 exit fix reads it: the statement is "recorded without a browser showing the dashboard" plus the open-applications note of the 2026-10-25 campaign (the AJ-114 record), and the evidence rule asserts the substring `recorded without a browser` in `docs/build-log.md`; after K2 the published local file is results/20261027T095519Z-local.json, recorded without a browser, with the still-open applications named in the README notes; (b) in the scenario "A hosted energy value of 0 is rejected", "names the hosted step" means the validator's failure line names the hosted run file and the metric `grossJoules` (the validator prints the file and the parameter, not a step index); (c) the step bindings live in `tests/AgentJoules.Specs/Steps/EvidenceSteps.*.cs` partial classes with one `EvidenceContext`, not in `ConfigurationSteps.cs` (the AJ-043 class), and `EvidenceChecks` is split per story like `DocumentChecks`; (d) one `Feature:` per file, so the `@integration` block is `RunEvidence.Integration.feature` (likewise `CloudGpuEvidence.Integration.feature` for AJ-151).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S150 @REQ-032 @DoD
@@ -180,9 +181,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/RunEvidence.feature; SchemaValidationTests (hosted N/A rule); the dashboard unit tests of REQ-032 (SSE payload, replay events)
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 7, 20 and 24 ticked with the command output in `docs/build-log.md`, or listed unchecked with the reason
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 7, 20 and 24 ticked with the command output in `docs/build-log.md`, or listed unchecked with the reason (boxes 7, 20 and 24 ticked 2026-10-27, see the AJ-150 entry of docs/build-log.md)
 Demo relevance: yes: these files are the source of every number the video shows, and the dashboard commands are shots 4 and 5 (replay is the fallback).
 
 ### AJ-151: Verify the cloudgpu evidence
@@ -192,6 +193,7 @@ Acceptance criteria:
 1. `ls results | grep -E "^[0-9]{8}T[0-9]{6}Z-cloudgpu\.json$"` prints at least one file and `ls results | grep -E "^probe-[0-9]{8}T[0-9]{6}Z-cloudgpu\.json$"` prints at least one; `AJ validate results/` exits 0 with both included in the count.
 2. The newest cloudgpu run file has `environment.provider` `nebius-ai-cloud`, `environment.precision` `FP8`, a non-empty `environment.instancePreset` and `run.status` `completed` or `partial`; a file with status `incomplete`, `failed` or `running` does not count as evidence.
 3. The cloudgpu probe records `energyCounterSupported` (boolean) and `migMode` `disabled` (a value `enabled` fails the story).
+Amendments (2026-10-27, pool A gates): (a) criterion 1's "both included in the count" is read with AJ-150 criterion 4: `validate results/` counts run files only (`Validated 4 files` on the committed tree), so the run file is in that count and the cloudgpu probe's schema validity is shown separately (`validate <probe file>` when the command accepts a file, else the AJ-125 probe tests); (b) `migMode` `not-supported` is accepted besides `disabled` (AJ-125 allows it; only `enabled` fails); (c) the cost rule reads the first `USD <decimal>` of the `- Whole-run cost:` line of `## Cost` (7 on the committed record) against the cap 30, and the teardown rule looks for `deleted` in `## Teardown`.
 4. `docs/cloudgpu-run.md` has the headings `Instance`, `Commands`, `Probe`, `Runs`, `Cost`, `Teardown`; the `Cost` section contains `USD` and a value of 30 or less; the `Teardown` section contains the word `deleted` and the user's deletion confirmation time (user action, section 12 step 13).
 5. `grep -F "$NGC_API_KEY" docs/cloudgpu-run.md` with the key set returns no hits (@integration) and `grep -cE "nvapi-[A-Za-z0-9_-]{8,}" docs/cloudgpu-run.md` prints 0.
 6. `sed -n '/<!-- results:begin -->/,/<!-- results:end -->/p' README.md | grep -c "cloudgpu"` prints 1 or more.
@@ -268,9 +270,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/CloudGpu/CloudGpuEvidence.feature; CloudGpuTests, IncompleteRunTests
 Docs impact: docs/build-log.md; docs/cloudgpu-run.md (only a missing Teardown or Cost line)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 21, 22 and 23 ticked with command output, or listed unchecked with the reason (the user's VM deletion and cost are user actions)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 21, 22 and 23 ticked with command output, or listed unchecked with the reason (the user's VM deletion and cost are user actions) (boxes 21, 22 and 23 ticked 2026-10-27, see the AJ-151 entry of docs/build-log.md)
 Demo relevance: yes: the cloudgpu row and the Nebius AI Cloud section appear in shot 6.
 
 ### AJ-152: Verify the report page, README block and content artifacts
@@ -345,9 +347,9 @@ Tasks:
 Test mapping: ReadmeBlockTests, ReportRenderingTests, ContentRenderingTests; tests/AgentJoules.Specs/Features/Reporting/ReportAndContentEvidence.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the generated files are committed in the same commit as the last results file they reflect
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the generated files are committed in the same commit as the last results file they reflect (boxes 8, 10, 11 and 16 ticked 2026-10-27, see the AJ-152 entry of docs/build-log.md; no generated file changed, so nothing new to commit)
 Demo relevance: yes: the report page is the Try it out URL.
 
 ### AJ-153: Verify the documentation and Devpost files
@@ -422,9 +424,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/DocsEvidence.feature
 Docs impact: docs/build-log.md; the four documents (verification line only)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 9, 17, 18 and 19 ticked with command output, or unchecked with the reason (a checklist that is `not verified` leaves box 9 unchecked)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 9, 17, 18 and 19 ticked with command output, or unchecked with the reason (a checklist that is `not verified` leaves box 9 unchecked) (boxes 9, 17, 18 and 19 ticked 2026-10-27, see the AJ-153 entry of docs/build-log.md)
 Demo relevance: no.
 
 ### AJ-154: Verify spec conformance, Spec traits and scope
@@ -436,6 +438,7 @@ Acceptance criteria:
 3. Box 3: `grep -E "AgentHooks|Agents.AI.Mcp|DevUI|Agents.AI.A2A|SemanticKernel|Plotly|ScottPlot|OxyPlot" Directory.Packages.props` prints nothing; `git ls-files "*.py" | wc -l` prints 0; `grep -c "<IsPackable>false</IsPackable>" Directory.Build.props` prints 1; the project folders under `src/` and `tests/` equal the eleven projects of the technical design (seven under `src/`, four under `tests/`); `git log --format=%s | grep -c "^STRETCH:"` prints 0 unless every box is already ticked.
 4. EDGE-010 and EDGE-014 (document-only acceptances) and the user-action rows (first CI run) are marked with their evidence file or `USER-ACTION`, not left blank.
 5. When `specs/agent-joules.md` exists (option B), `spec-compliance-reviewer` runs against it and its `VERDICT` line is recorded; with option A the same review reads Layer 2 of the prompt.
+Amendments (2026-10-27, pool B): (a) criterion 2's literal grep over the whole log cannot print 51 (the older Per-ID filter results table holds 220 rows of that shape and the Spec filter results table adds 36 in the `Spec=<ID>` form); the check is the EvidenceChecks.Conformance parser over the table under the `Acceptance matrix` caption, 51 rows, no empty status; (b) the `Acceptance matrix` carries a fifth column `Reason`, required on every row whose status is not MET; (c) the `Spec filter results` ID cells read `Spec=<ID>`; (d) criterion 5: no `specs/agent-joules.md` exists (option A), so T6 is the full-spec spec-compliance-reviewer pass over the prompt's Layer 2 at the M7 exit (session prompt section 7.2).
 BDD scenarios:
 ```gherkin
 @unit @AJ-S154 @DoD
@@ -494,9 +497,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/SpecConformance.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 1, 3 and 15 ticked, or listed unchecked with the reason of each non-MET row
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 1, 3 and 15 ticked, or listed unchecked with the reason of each non-MET row (boxes 3 and 15 ticked 2026-10-27: the scope commands clean, the 36 Spec filters green; box 1 listed unchecked with its reason: the Acceptance matrix has 50 MET rows and one USER-ACTION row, REQ-032, whose Acceptance includes the live-page screenshot docs/report/dashboard.png that the user takes during the M7 rehearsal (decision 7 of the M6 exit); box 1 is ticked when the screenshot lands and the row turns MET; see the AJ-154 entry and the two tables at the end of docs/build-log.md)
 Demo relevance: no.
 
 ### AJ-155: Final hardening: build, format, tests, secret scan, CI preparation
@@ -510,6 +513,7 @@ Acceptance criteria:
 5. Box 2 is ticked only when criteria 1, 2 and 3 all hold in the same commit. Check: the commit hash is recorded once for criteria 1 to 3 and `git status --short` prints nothing at that hash.
 6. CI preparation: `.github/workflows/ci.yml` contains `windows-latest`, `ubuntu-latest`, `dotnet build -warnaserror -tl:off`, `dotnet format --verify-no-changes`, `dotnet test` and a probe step: `grep -c` of each prints 1 or more; `grep -n "secrets\." .github/workflows/ci.yml` prints nothing.
 7. CI green on both runners is a user-dependent check after the push (user action): `gh run list --workflow ci.yml --branch main --limit 1 --json status,conclusion` shows `completed` and `success`, and `gh run view <id> --json jobs --jq '.jobs[] | [.name,.conclusion]'` shows both runners `success`. A red run is recorded as a finding with its failing step; the builder prepares the fix as a local commit for the user to push and the submission does not wait for it (REQ-024 says the first run is not a Definition of Done item).
+Amendments (2026-10-27 12:50Z, the exit peer review): (a) the negative scenario "A key value found in the tree fails the scan" writes a synthetic key-shaped value built at run time into its temporary tracked file instead of the real NGC_API_KEY value (keys never reach a file, the AJ-143 precedent); the positive scenario still scans the tracked tree for the three real values, read-only, printing file names only.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S155 @DoD
@@ -589,9 +593,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/Hardening.feature; RedactionTests
 Docs impact: docs/build-log.md; docs/devpost-checklist.md (CI check commands, marked user action)
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 2, 4, 5, 6 and 12 ticked with command output, or listed unchecked with the reason
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] boxes 2, 4, 5, 6 and 12 ticked with command output, or listed unchecked with the reason (boxes 4, 5, 6 and 12 ticked 2026-10-27 from the hardening battery, see the AJ-155 entry of docs/build-log.md; box 2 listed pending: criteria 1 to 3 hold on the measured tree, and the commit hash at which `git status --short` is empty is recorded by the M7 exit battery, which ticks box 2)
 Demo relevance: no.
 
 ### AJ-156: Verify the git history and the push boundary, then run the final review gates
@@ -604,6 +608,7 @@ Acceptance criteria:
 4. `code-review-gatekeeper` runs over the final diff; every BLOCKER and MAJOR finding is fixed in a commit whose message starts with the story id and the REQ or EDGE ids concerned, or has explicit user sign-off recorded in `docs/build-log.md`.
 5. After the last commit, `peer-review-critic` runs on the branch against `origin/main`; its last line is `VERDICT: APPROVED` (the Stop hook blocks the session end otherwise, at most three times for `CHANGES_REQUIRED`); each BLOCKER and MAJOR finding is resolved or signed off by the user.
 6. No command in the build log or the checklist shows the builder running `git push`, `gh release create` or any cloud-resource command.
+Amendments (2026-10-27): (a) criterion 1 and box 13: the accepted subject forms are the story form with one or more story ids and zero or more REQ or EDGE ids (pooled commits and M7 stories without a REQ) and the milestone subjects M<k> exit, exit addendum, kickoff, exit review fixes and exit peer review; the literal pattern of criterion 1 is reported as a separate count (10 non-matching subjects on the history at 0ffa008, all pooled or exit subjects) and the amended count is 0; (b) criterion 2 and box 14: by the user's decision of 2026-10-20 the session publishes main at every milestone exit, so the recorded reference for "nothing pushed" is the previous milestone's exit commit on origin/main (01df5cf) and not the M0 base; the M0 base stays the start of the history and commit-count checks; (c) criterion 6: by the user's decision of 2026-10-27 12:11Z the session also runs the tag, the release and the Pages setting at the exit, so the checklist labels those four blocks "User action delegated to the session at the M7 exit" and the rule accepts that label; the build log records each delegated command with its exit code in the exit entry; the statement "no command shows the builder running git push, gh release create or a cloud-resource command" is read as: none outside the recorded exit steps, and no cloud-resource command at all. (d) 2026-10-27 12:50Z, the exit peer review: the gated scenario "The remote main still points at the recorded base" reads the remote refs/heads/main hash and asserts it is a commit the local HEAD descends from (the remote holds nothing this checkout does not), so it stays green after the session's own publication of main; box 14 rests on the ls-remote result measured at abddeac (01df5cf, 5 commits behind HEAD) and the recorded reference stays in the commit-count report only.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S156 @DoD
@@ -671,9 +676,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/GitBoundary.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] boxes 13 and 14 ticked, and the last `peer-review-critic` verdict is `VERDICT: APPROVED` or the user signed off the open findings (boxes 13 and 14 ticked 2026-10-27 under amendments (a) and (b), see the AJ-156 entry; the last peer-review-critic verdict is recorded at the M7 exit, which ticks this box)
 Demo relevance: no.
 
 ### AJ-157: Prepare the v0.1.0 release (the tag and the GitHub release are the user's actions)
@@ -687,6 +692,7 @@ Acceptance criteria:
 5. Smoke test: `dotnet artifacts/fdd/AgentJoules.Cli.dll probe --json` exits 0 (`gpuPresent` true on the laptop, false elsewhere) and `dotnet artifacts/fdd/AgentJoules.Cli.dll validate results/` exits 0.
 6. The command in `docs/devpost-checklist.md` names exactly the notes file and the three asset paths above; `gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title "Agent Joules v0.1.0" --notes-file docs/release-notes-v0.1.0.md <three assets>` is marked `User action (the builder never runs this):`.
 7. User actions after the command: `gh release view v0.1.0 --repo tomas-rampas/agent-joules --json assets --jq '.assets[].name'` prints three names; the user keeps the repository unchanged on the tagged commit until the results are announced (prompt section 12 step 9). Tagging happens after the final push so that the tag marks the submitted commit.
+Amendments (2026-10-27, pool C gates): (a) criterion 4's "nvapi- strings" is read as key-shaped strings, the CI key pattern nvapi-[A-Za-z0-9_-]{8,}: the fdd zip ships the product's own redaction code and documentation, whose literal prefix nvapi- (the regex nvapi-[A-Za-z0-9_-]{4,} and the nvapi-**** mask in AgentJoules.Core.dll and the AgentJoules.Core, Dashboard and Reporting XML files) is not key material; the scan over every entry finds no key-shaped string and none of the three key values; (b) the two scenarios that read the git-ignored artifacts/ folder pass without asserting, with the reason in the scenario output, in a checkout that holds no zip (the CI runners), and assert on the builder's machine where the zips exist; (c) criterion 2's number rule accepts a results file name or docs/cloudgpu-run.md or a label word in the same sentence or row; the NIM-local attempt's duration cites docs/nim-local-attempt.md, the only record of it; (d) criteria 6 and 7 and the definition-of-done box "the tag and the release are not created by the builder": by the user's decision of 2026-10-27 12:11Z the session creates the tag and the release at the M7 exit after the CI run on the merged main, with the zips rebuilt from the exit commit and their hashes recorded; the user keeps the repository unchanged on the tagged commit.
 BDD scenarios:
 ```gherkin
 @unit @AJ-S157 @DoD
@@ -745,9 +751,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/ReleasePackage.feature
 Docs impact: docs/release-notes-v0.1.0.md; docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the tag and the release are not created by the builder (user action)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the tag and the release are not created by the builder (user action) (the assets built 2026-10-27, see the AJ-157 entry of docs/build-log.md; amendment (d) of 2026-10-27 12:11Z: by the user's decision the session creates the tag and the release at the M7 exit after the CI run on the merged main, recorded in the exit entry; the box is read as "not created by the builder on its own initiative")
 Demo relevance: no.
 
 ### AJ-158: Write the submission order, the timeline and the cut-off plan
@@ -825,9 +831,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/SubmissionPlan.feature
 Docs impact: docs/devpost-checklist.md; docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user has read the plan and given the missing-item decisions that are theirs (nebius and video rows)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [ ] the user has read the plan and given the missing-item decisions that are theirs (nebius and video rows) (open: a user action for the submission day; the rows state the rules; listed in the final report, 2026-10-27)
 Demo relevance: no.
 
 ### AJ-159: Define the buffer, the risk register and the drop order
@@ -902,9 +908,9 @@ Tasks:
 Test mapping: tests/AgentJoules.Specs/Features/Configuration/DropOrder.feature
 Docs impact: docs/build-log.md
 Definition of done:
-- [ ] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
-- [ ] docs listed above updated
-- [ ] the user confirmed the drop order before 2026-10-29 17:00 UTC (a user action)
+- [x] scenarios green, unit tests green, `dotnet build -warnaserror -tl:off` 0 warnings
+- [x] docs listed above updated
+- [x] the user confirmed the drop order before 2026-10-29 17:00 UTC (a user action) (the order itself is the user's plan decision D-2 of 2026-10-19 and decision 1 of the M6 exit accepted at the M7 kickoff on 2026-10-27; the trigger, risk and buffer columns were added by pool C after the kickoff and are shown to the user in the final report; see the AJ-159 entry)
 Demo relevance: no.
 
 ## Risks

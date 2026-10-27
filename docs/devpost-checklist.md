@@ -1,6 +1,8 @@
 # Agent Joules: Devpost submission checklist
 
-This file records the verified hackathon rules, maps every Devpost field to a repository artifact and holds the commands the user runs. The builder fills no value that belongs to the user (Devpost handle, join date, credit date, video link, team, track) and runs none of the commands below.
+Verified: 2026-10-26
+
+This file records the verified hackathon rules, maps every Devpost field to a repository artifact and holds the commands the user runs. The builder fills no value that belongs to the user (Devpost handle, join date, credit date, video link, team, track) and runs none of the commands below except the git and gh steps delegated to the session at the M7 exit by the user's decision of 2026-10-27 12:11Z.
 
 ## Source and verification
 
@@ -49,7 +51,7 @@ No other conflict was found on 2026-10-26.
 - [ ] YouTube video link -> (user)
 - [ ] track -> Coding and agentic engineering recommended, the user decides, see Tracks (user)
 - [ ] team members -> (user)
-- [ ] repository URL -> https://github.com/tomas-rampas/agent-joules (user) (the push is a user action, see User actions)
+- [ ] repository URL -> https://github.com/tomas-rampas/agent-joules (user) (the publication of main is the session's at the M7 exit on the user's delegation of 2026-10-27 12:11Z, see User actions)
 - [ ] OSI license -> LICENSE
 - [ ] README with setup instructions -> README.md (section Quick start)
 - [ ] Nemotron usage highlights -> README.md section `How this project uses NVIDIA Nemotron`
@@ -154,7 +156,9 @@ Seven answers need the user's own opinion. Each is a placeholder in docs/devpost
 
 ## User actions
 
-Before you push, check:
+Screenshot (user action, decision 7 of the M6 exit; the README alt text says "Live dashboard during the demo rehearsal"): run the live rehearsal run of README step 9 with the NIM container up, `dotnet run --project src/AgentJoules.Cli -- run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard` (it writes outside results/), or, when the container is down, the replay `dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261027T095519Z-local.json` (the page then shows the replay banner), open the printed Dashboard address in a browser set to the dark theme (the page default, rule R6), capture the page at about 1280 px width and save it as `docs/report/dashboard.png`; then `dotnet run --project src/AgentJoules.Cli -- report --in results/ --out docs/report/ --update-readme` adds the README link, and Definition of Done box 1 (REQ-032) is ticked.
+
+Before you push (or before the session's publication of main at the M7 exit, on the user's delegation), check:
 
 - `dotnet run --project src/AgentJoules.Cli -- report --verify-readme` exits 0
 - `git grep -nE "nvapi-[A-Za-z0-9_-]{8,}"` returns nothing
@@ -162,15 +166,26 @@ Before you push, check:
 
 Push the branch:
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 git push -u origin main
 ```
 
+After the push, check the CI run on main that the push starts (REQ-024; the run is not a Definition of Done item; the builder ran the same read-only commands on the earlier run 40426079785):
+
+Read-only check (the user runs it after the push; the builder may run it too):
+
+```
+gh run list --workflow ci.yml --branch main --limit 1 --json status,conclusion,databaseId
+gh run view <id> --json jobs --jq '.jobs[] | [.name,.conclusion]'
+```
+
+Both runners (`build (windows-latest)` and `build (ubuntu-latest)`) must show `success`. If a runner is red: paste the failing step's name and its last lines to the builder; the builder records the finding in `docs/build-log.md`, prepares the fix as a local commit for you to push, and the submission does not wait for it (REQ-024 says the first run is not a Definition of Done item).
+
 Enable GitHub Pages for the report (Settings, Pages, Deploy from a branch, branch `main`, folder `/docs`), or use the command, then check the address:
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 # Settings > Pages > Build and deployment > Source: Deploy from a branch > Branch: main, folder: /docs
@@ -180,12 +195,72 @@ curl -sI https://tomas-rampas.github.io/agent-joules/report/ | head -1
 
 Create the release. The notes file docs/release-notes-v0.1.0.md and the three zip assets are produced by M7 (AJ-157); do not run this before they exist.
 
-User action (the builder never runs this):
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 
 ```
 gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title "Agent Joules v0.1.0" --notes-file docs/release-notes-v0.1.0.md artifacts/agent-joules-v0.1.0-fdd.zip artifacts/agent-joules-v0.1.0-results.zip artifacts/agent-joules-v0.1.0-report.zip
 ```
 
+After the release exists, check that it holds exactly the three assets (the command prints three names):
+
+User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
+
+```
+gh release view v0.1.0 --repo tomas-rampas/agent-joules --json assets --jq '.assets[].name'
+```
+
+The release is created after the final publication of main (the session's publication of main at the M7 exit, on the user's delegation). The tag marks the release snapshot created at the M7 exit; the commits that follow it (the dashboard screenshot, a Demo URL change, a video-cut note) are documentation-only; to move the tag to the final submitted commit the user runs `git tag -f -a v0.1.0 -m "Agent Joules v0.1.0" <commit>`, `git push -f origin v0.1.0`, and, if docs/report changed, rebuilds the report zip and runs `gh release upload v0.1.0 artifacts/agent-joules-v0.1.0-report.zip --clobber`. The user keeps the repository unchanged on the submitted commit (the tagged commit or, after a documentation-only commit such as the screenshot, the commit the tag is moved to) until the results are announced (prompt section 12, step 9); a later commit would move main away from the submitted commit.
+
 ## Submission order
 
-The twelve-step order is written in M7 (AJ-158).
+The twelve fields below follow the order of the Devpost form. Every step is the user's own action, and each one names the artifact it takes its text from.
+
+1. Enter the project name, Agent Joules (README.md line 1) (user)
+2. Paste the elevator pitch of 200 characters at most, the text of docs/devpost-pitch.md candidate A (199 characters; the text is in Elevator pitch above) (user)
+3. Paste the About the project text from docs/devpost-story.md (user)
+4. Pick the Built-with tags, 25 at most, from the list in the Built-with section of this checklist (13 tags) (user)
+5. Fill the Try it out links with the `Demo URL:` line of this checklist and the repository https://github.com/tomas-rampas/agent-joules (user)
+6. Paste the public YouTube video link, `<user fills>` (the video is recorded and uploaded by the user, see Timeline) (user)
+7. Select the track, the user's pick; the recommendation is in Tracks (Coding and agentic engineering) (user)
+8. Add the team members, from the Registration section (solo unless stated) (user)
+9. Enter the repository URL, https://github.com/tomas-rampas/agent-joules, with the MIT license (LICENSE, read as an OSI-approved license) and the README highlights (the sections on Nemotron, Token Factory and the other Nebius tools, listed in Fields to artifacts) (user)
+10. Answer the Nemotron and Nebius feedback questionnaire from docs/devpost-feedback.md, whose seven user placeholders are listed in Feedback form, user fills (user)
+11. Review every field once more and submit the project on Devpost before the deadline of 2026-10-30 10:00 PDT (17:00 UTC) (user)
+12. After submission, keep the repository unchanged on the submitted commit and confirm that the v0.1.0 tag marks it (see User actions) (user)
+
+## Cut-off plan
+
+If an item is missing, submit what exists and regenerate every surface that quotes it, so that no sentence claims a file that is absent. In this table `AJ` stands for `dotnet run --project src/AgentJoules.Cli --`. The regeneration is always the pair `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` (exit 0). A step of the pair that the row does not need reads `none`. A row whose regeneration cell reads none needs no generator run; its files are edited by hand. The fallback story is the story whose acceptance criteria define the fallback. The boxes are the numbered Definition of Done boxes of the prompt (7 and 20: run files per tier; 8: README results block; 21 to 23: cloudgpu files, cost and teardown, README row).
+
+| Missing item | What is submitted | Files that change | Regeneration commands | Fallback story | Boxes unchecked |
+|---|---|---|---|---|---|
+| cloudgpu tier (no completed or partial `results/*Z-cloudgpu.json`) | README row `cloudgpu \| not run`; pitch A-local (docs/devpost-pitch.md, 192 characters); the singular tagline; the Built-with list without `Nebius AI Cloud`; the README sentence `None besides Token Factory.`; no cloudgpu sentence in the story, posts, article or script. The platform rule is met through the nebius run file. | README.md (tagline, results block, the Nebius tools sentence); docs/devpost-pitch.md and the Elevator pitch section here (pitch A-local); the Built-with list here; `content/linkedin-posts.template.md` (its cloudgpu sentence, line 25, is replaced by the A-local wording before the regeneration, because the renderer exits 2 on unresolved cloudgpu placeholders when no cloudgpu file exists); docs/devpost-story.md, content/article.md and content/demo-script.md (the cloudgpu sentences removed); docs/devpost-feedback.md and docs/release-notes-v0.1.0.md (their cloudgpu sentences and figures removed, and the zip assets are rebuilt); generated: docs/report/index.html, docs/report/summary.md, docs/report/joules-per-step.svg, content/linkedin-posts.md | `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` | AJ-129 (tier consequences), AJ-151 (the cloudgpu absent record), AJ-133 (the not-run row) | 21, 22 and the substance of 23 |
+| local tier (no local run file) | BLOCKED on this item: the local run file is part of the minimum submission (build log, Never dropped). Only if the user decides to submit anyway: README row `local \| not run`, the energy claims resting on the cloudgpu row alone, and every laptop figure removed from the story, posts, article and script | README.md (tagline, results block); docs/devpost-pitch.md; docs/devpost-checklist.md (the Elevator pitch section: the candidate A copy and the short tagline row); docs/devpost-story.md; content/article.md; content/demo-script.md; docs/release-notes-v0.1.0.md; docs/devpost-feedback.md; docs/methodology.md; content/linkedin-posts.template.md (its local placeholders on lines 5, 14, 16 and 25 are replaced or removed before the regeneration, because the renderer exits 2 on an unresolved local placeholder when no local file exists); generated: docs/report/index.html, docs/report/summary.md, docs/report/joules-per-step.svg, content/linkedin-posts.md; the zip assets are rebuilt | `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` | AJ-129 (tier consequences), AJ-133 (the not-run row) | 7 and 20 for the local tier; 8 until the block is regenerated |
+| nvidia tier (no nvidia run file) | README row `nvidia \| not run`; no nvidia figure in the story, posts, article or script | README.md (results block); docs/devpost-story.md; content/article.md; content/demo-script.md; docs/release-notes-v0.1.0.md; docs/devpost-feedback.md; docs/methodology.md; generated: docs/report/index.html, docs/report/summary.md, docs/report/joules-per-step.svg, content/linkedin-posts.md | `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` | AJ-129 (tier consequences), AJ-133 (the not-run row) | 7 and 20 for the nvidia tier |
+| nebius tier (no nebius run file) | BLOCKED. The hard rule: the Token Factory run is a hackathon requirement, so without a nebius run file the build is reported BLOCKED on that item and no submission is made with a claim the files do not support. When nebius is missing and a cloudgpu run file exists, the platform rule is met through Nebius AI Cloud and the nebius row reads `not run`. When both are missing, the user decides, with the missing key, URL or model named. | README.md (results block, Token Factory section); docs/devpost-story.md; content/article.md; content/demo-script.md; docs/release-notes-v0.1.0.md; docs/devpost-feedback.md; docs/methodology.md; docs/devpost-checklist.md (the Conflicts item 1 resolution and the Elevator pitch section; the Built-with tag `Nebius Token Factory` stays because the tier client integrates Token Factory in the code, and the row says that the tier did not run); docs/devpost-pitch.md (candidate A's Token Factory clause); content/linkedin-posts.template.md (its nebius sentence on line 27 is replaced or removed before the regeneration, because the renderer exits 2 on an unresolved nebius placeholder when no nebius file exists); generated: docs/report/index.html, docs/report/summary.md, docs/report/joules-per-step.svg, content/linkedin-posts.md; the zip assets are rebuilt | `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` | AJ-129 (tier consequences), AJ-133 (the not-run row) | 7 and 20 for the nebius tier |
+| judge (no judge score for some or all steps) | The run files as recorded: the quality of an unjudged step is `N/A` with the reason, never 0, and no joules-per-quality-point figure is claimed for it; the README disclosure of the judge coverage stays. The committed local file already holds 3 steps recorded N/A after RetriesExhaustedException. | docs/devpost-story.md and content/article.md (the quality sentences, if they quote an unjudged step); the README judge disclosure only if the run files change | none (the run files are not edited); if a run file is replaced, `AJ report --in results/ --out docs/report/ --update-readme --render-content`, then `AJ report --verify-readme` | AJ-129 (tier consequences) | none |
+| Pages not live | The Demo URL falls back to the v0.1.0 release, then to the public video URL (prompt section 3); the user pastes the real address into the Try it out field | docs/devpost-checklist.md (the `Demo URL:` line); content/demo-script.md (line 54, the Try it out shot shows the Pages URL; shot 9 is in the minimal cut) | none | AJ-158 (this table; risk RK-2) | none |
+| video not ready | The minimal cut: shots 1, 3, 6 and 9 of content/demo-script.md, planned 65 s (12 + 13 + 30 + 10), uploaded as a public YouTube video and noted here. A missing video is the only item for which no fallback exists. Target: public by 2026-10-30 07:00 UTC, latest 2026-10-30 11:00 UTC. | docs/devpost-checklist.md (a note of the cut, if used) | none | AJ-136 (the minimal cut) | none |
+| feedback placeholders unfilled | The seven `owner: user` placeholders of docs/devpost-feedback.md stay unfilled and are listed in the final report; the user answers the questionnaire in the form, and no opinion is written for the user | none | none | AJ-142 (feedback placeholders), AJ-139 (user actions) | none |
+
+## Timeline
+
+Planning targets (assumed; one calendar, plan.md decisions D-6 and D-7). Every time is in UTC with the PDT equivalent in parentheses (PDT is UTC minus 7 hours). From the M7 exit the git and gh steps (the publication of main, the v0.1.0 tag, the release, the Pages source) are the session's on the user's delegation of 2026-10-27 12:11Z; the Devpost form, the video and the questionnaire are the user's. The build reached M7 on 2026-10-27, two days early, so these targets are upper bounds and the user may act earlier.
+
+- Content freeze: 2026-10-29 17:00 UTC (10:00 PDT)
+- M7 gate passed and main published (the session, on the user's delegation): 2026-10-29 20:00 UTC (13:00 PDT)
+- Pages and the v0.1.0 release live: 2026-10-29 21:00 UTC (14:00 PDT)
+- Video recorded on 2026-10-29 and public by 2026-10-30 07:00 UTC (00:00 PDT)
+- Submission complete by 2026-10-30 14:00 UTC (07:00 PDT)
+- The deadline: 2026-10-30 17:00 UTC (10:00 PDT)
+
+The latest acceptable targets, used only when the evening plan slips:
+
+- Main published by 2026-10-30 07:00 UTC (00:00 PDT)
+- Pages and the release live by 2026-10-30 08:00 UTC (01:00 PDT)
+- Video public by 2026-10-30 11:00 UTC (04:00 PDT)
+- Submission complete by 2026-10-30 14:00 UTC (07:00 PDT)
+
+3 hours of buffer remain between the last target and the deadline. For a user in central Europe the local time on that date is UTC+1 (CET), so the deadline is 18:00 CET and the last target is 15:00 CET.
+
+Delegation (2026-10-27 12:11Z): the user asked the session to run the git and gh steps on their behalf, so the publication of main, the v0.1.0 tag, the GitHub release with the three assets and the Pages source setting are performed by the session at the M7 exit after the CI run on the merged main succeeds, each recorded with its command and exit code in docs/build-log.md; the Devpost form, the video and the questionnaire stay the user's.

@@ -60,7 +60,7 @@ public static partial class DocumentChecks
     /// <returns>The pitch text, or null when the checklist holds no such block.</returns>
     public static string? PitchBlock(string checklist) =>
         LabelledBlocks(checklist)
-            .Where(static block => block.Label != UserActionLabel)
+            .Where(static block => !IsUserActionLabel(block.Label))
             .Select(static block => block.Lines.Where(static line => line.Trim().Length > 0).ToArray())
             .Where(static lines => lines.Length == 1 && lines[0].Length > PitchBlockMinimum)
             .Select(static lines => lines[0])

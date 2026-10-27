@@ -14,6 +14,15 @@ public static partial class DocumentChecks
     /// <summary>The line that precedes every command block the user runs.</summary>
     public const string UserActionLabel = "User action (the builder never runs this):";
 
+    /// <summary>The label a command carries when the user delegated it to the session at the M7 exit (decision of 2026-10-27 12:11Z).</summary>
+    public const string DelegatedUserActionLabel = "User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):";
+
+    /// <summary>Whether a label line is one of the two accepted user-action labels, compared exactly.</summary>
+    /// <param name="label">The label line, trimmed.</param>
+    /// <returns>True for <see cref="UserActionLabel"/> or <see cref="DelegatedUserActionLabel"/>.</returns>
+    public static bool IsUserActionLabel(string? label) =>
+        string.Equals(label, UserActionLabel, StringComparison.Ordinal) || string.Equals(label, DelegatedUserActionLabel, StringComparison.Ordinal);
+
     /// <summary>The release command the third block holds.</summary>
     public const string ReleaseCommand = "gh release create v0.1.0 --repo tomas-rampas/agent-joules --target main --title \"Agent Joules v0.1.0\" --notes-file docs/release-notes-v0.1.0.md";
 
@@ -240,7 +249,7 @@ public static partial class DocumentChecks
             {
                 failures.Add("missing command block: " + key);
             }
-            else if (block.Label != UserActionLabel)
+            else if (!IsUserActionLabel(block.Label))
             {
                 failures.Add("block not marked as user action: " + key);
             }

@@ -33,28 +33,29 @@ None of these attributes energy to an individual agent step of a multi-agent wor
 
 Four run files (local, cloudgpu, nvidia, nebius), each with three tasks x three repeats x four agents, that is thirty-six steps, all ok. Laptop and cloud rows are separate tables and are never averaged or divided by each other. Each table is preceded by its environment header, copied from the run file it names.
 
-GPU: NVIDIA GeForce RTX 3080 Ti Laptop GPU; driver: 616.92; run date (UTC): 2026-10-25; local runtime: nim 1.8.5; model: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 (BF16); file: results/20261025T131930Z-local.json
+GPU: NVIDIA GeForce RTX 3080 Ti Laptop GPU; driver: 616.92; run date (UTC): 2026-10-27; local runtime: nim 1.8.5; model: nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 (BF16); file: results/20261027T095519Z-local.json
 
 | Figure | Value | Label | File |
 |---|---|---|---|
-| Net energy, run total | 33716.77 J | measured | results/20261025T131930Z-local.json |
-| Gross energy, run total | 43061.1 J | measured | results/20261025T131930Z-local.json |
-| Input tokens | 25770 tokens | measured | results/20261025T131930Z-local.json |
-| Output tokens | 17556 tokens | measured | results/20261025T131930Z-local.json |
-| Wall clock | 465607 ms | measured | results/20261025T131930Z-local.json |
-| Cost | 0.0028 EUR | estimated | results/20261025T131930Z-local.json |
-| Idle baseline mean (flag baseline-unstable) | 20.1 W | measured | results/20261025T131930Z-local.json |
-| Net energy per task repeat, median (derived: the sum of the four steps of a task repeat) | 2872.28 J | measured | results/20261025T131930Z-local.json |
-| Net energy per task repeat, minimum (derived) | 2706.95 J | measured | results/20261025T131930Z-local.json |
-| Net energy per task repeat, maximum (derived) | 5738.61 J | measured | results/20261025T131930Z-local.json |
-| Planner share of net energy (derived) | 20.8 % | measured | results/20261025T131930Z-local.json |
-| Researcher share of net energy (derived) | 28.1 % | measured | results/20261025T131930Z-local.json |
-| Reviewer share of net energy (derived) | 27.2 % | measured | results/20261025T131930Z-local.json |
-| Writer share of net energy (derived) | 23.8 % | measured | results/20261025T131930Z-local.json |
+| Net energy, run total | 33134.24 J | measured | results/20261027T095519Z-local.json |
+| Gross energy, run total | 43906.6 J | measured | results/20261027T095519Z-local.json |
+| Input tokens | 25770 tokens | measured | results/20261027T095519Z-local.json |
+| Output tokens | 17556 tokens | measured | results/20261027T095519Z-local.json |
+| Wall clock | 480851 ms | measured | results/20261027T095519Z-local.json |
+| Cost | 0.0028 EUR | estimated | results/20261027T095519Z-local.json |
+| Idle baseline mean (flag baseline-unstable) | 22.4 W | measured | results/20261027T095519Z-local.json |
+| Net energy per task repeat, median (derived: the sum of the four steps of a task repeat) | 2827.00 J | measured | results/20261027T095519Z-local.json |
+| Net energy per task repeat, minimum (derived) | 2628.82 J | measured | results/20261027T095519Z-local.json |
+| Net energy per task repeat, maximum (derived) | 5587.73 J | measured | results/20261027T095519Z-local.json |
+| Planner share of net energy (derived) | 20.8 % | measured | results/20261027T095519Z-local.json |
+| Researcher share of net energy (derived) | 28.2 % | measured | results/20261027T095519Z-local.json |
+| Reviewer share of net energy (derived) | 27.5 % | measured | results/20261027T095519Z-local.json |
+| Writer share of net energy (derived) | 23.6 % | measured | results/20261027T095519Z-local.json |
 
-A per-task-repeat figure is the sum of the four steps of one task and repeat; there are nine task repeats, and the median, minimum and maximum above are taken over the nine task repeats. The shares are derived from the measured step values, each as a share of the run total of 33716.77 J measured (results/20261025T131930Z-local.json). The first step (incident-brief, Planner, repeat one) is a worked example.
+A per-task-repeat figure is the sum of the four steps of one task and repeat; there are nine task repeats, and the median, minimum and maximum above are taken over the nine task repeats. The shares are derived from the measured step values, each as a share of the run total of 33134.24 J measured (results/20261027T095519Z-local.json). The first step (incident-brief, Planner, repeat one) is a worked example.
 
-- Net energy 435.7 J measured, average power 65.7 W measured, latency 8743.6 ms measured, quality 3 model-judged (results/20261025T131930Z-local.json).
+- Net energy 398.0 J measured, average power 65.7 W measured, latency 9022.7 ms measured, quality 3 model-judged (results/20261027T095519Z-local.json).
+- Three of the thirty-six judge calls of this file are N/A after the judge failed on all five attempts (the energy-explainer repeat three Planner, Researcher and Writer steps; the HTTP 429 status was seen in the console at the end of the run, and results/20261027T095519Z-local.json records RetriesExhaustedException and the counts), so their quality is N/A, not zero.
 
 GPU: NVIDIA H100 80GB HBM3; driver: 580.173.02; run date (UTC): 2026-10-26; local runtime: N/A; model: nvidia/nemotron-3-nano (FP8); file: results/20261026T124721Z-cloudgpu.json
 
@@ -110,12 +111,12 @@ Calibration of the two methods on the laptop:
 
 Energy is GPU-board energy only. CPU, memory, storage, network and wall power are not measured, so this is a GPU-only figure.
 
-- The laptop GPU also drives the display, so display compositing load sits in the idle baseline and in every window. The campaign ran with other GPU applications open, and the dashboard in a browser tab adds load of its own, so published runs are recorded without one.
-- The laptop has a software power limit that moves with its power mode. The local run was throttled on every step by the software power cap (results/20261025T131930Z-local.json, measured flags).
+- The laptop GPU also drives the display, so display compositing load sits in the idle baseline and in every window. The published local run (results/20261027T095519Z-local.json, 2026-10-27) was recorded without a browser open and without a dashboard, with the laptop on AC power; the GPU applications open were the Claude desktop app, two Edge WebView2 hosts, explorer, ShareX, Windows Terminal, Widget Board, TextInputHost, ApplicationFrameHost and NahimicSvc64 (no browser and no other chat or messaging application; the two Edge WebView2 hosts render web content on the GPU and are disclosed as such), and 26 dotnet processes of test suites ran on the CPU during the run, which the meter does not read (GPU-board energy only) but which can lengthen a step and so its gross joules, and, through the laptop's shared power and thermal budget, can also lower the GPU's power limit and clocks (inferred: the run-start limit was 78.157 W in results/20261027T095519Z-local.json against 105 W in results/20261025T131930Z-local.json, both measured, and every step was SwPowerCap-throttled, as on 2026-10-25). A dashboard in a browser tab would add load of its own, so published runs are recorded without one.
+- The laptop has a software power limit that moves with its power mode. The local run was throttled on every step (36 of 36) by the software power cap, SwPowerCap, and its embedded probe recorded a power limit of 78.157 W (results/20261027T095519Z-local.json, measured flags).
 - The power limit changes net energy, because a throttled GPU runs below its unthrottled clocks.
 - The sampling method is coarse for short windows, and the driver power reading may be a driver-side average. The counter method does not have this problem, which is why the calibration above exists.
-- The idle baseline of the laptop run is unstable: its coefficient of variation is 0.347 against a limit of 0.1 (results/20261025T131930Z-local.json, measured), so each net value there is read beside that flag.
-- The NIM serves the laptop model fully on the GPU, so offload is 100 percent by construction (measured as `gpuOffloadPercent` in results/20261025T131930Z-local.json). A partly offloaded model would run partly on the CPU, unmeasured.
+- The idle baseline of the laptop run is unstable: its coefficient of variation is 0.307 against a limit of 0.1 (results/20261027T095519Z-local.json, measured), so each net value there is read beside that flag.
+- The NIM serves the laptop model fully on the GPU, so offload is 100 percent by construction (measured as `gpuOffloadPercent` in results/20261027T095519Z-local.json). A partly offloaded model would run partly on the CPU, unmeasured.
 - The hosted tiers have no joules at all. No hosted figure is an energy claim.
 - The cloud tier is a rented VM: its cost is the hourly price times time, and the observed cost comes from the billing page, not from metering. The laptop used NIM 1.8.5 and the cloud NIM 2.1.4, so engine versions differ as well as models and GPUs.
 - Reasoning mode is off on every tier, and some answers stopped at the output cap, so quality describes a possibly truncated answer.

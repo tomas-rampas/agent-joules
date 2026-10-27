@@ -1,0 +1,6045 @@
+{
+  "schemaVersion": "1",
+  "run": {
+    "id": "20261027T095519Z-local",
+    "tier": "local",
+    "tasks": [
+      "incident-brief",
+      "api-migration",
+      "energy-explainer"
+    ],
+    "mode": "serialized",
+    "repeat": 3,
+    "startUtc": "2026-10-27T09:55:19.1062576+00:00",
+    "toolVersion": "1.0.0",
+    "gitCommit": "98e144ae38e6b077f5f74a3ac3c922022e94604e",
+    "status": "completed",
+    "flags": [],
+    "stopReason": null,
+    "selfJudged": false
+  },
+  "environment": {
+    "gpuName": "NVIDIA GeForce RTX 3080 Ti Laptop GPU",
+    "driverVersion": "616.92",
+    "os": "Microsoft Windows 10.0.26200",
+    "dotnetVersion": "10.0.13",
+    "localRuntime": "nim",
+    "runtimeVersion": "1.8.5",
+    "gpuOffloadPercent": 100,
+    "modelLoadSeconds": 0.6872506,
+    "powerSource": "ac",
+    "reasoningMode": "off",
+    "temperature": 0,
+    "provider": "laptop",
+    "instancePreset": null,
+    "region": null,
+    "gpuUuid": "GPU-7687512b-9999-734c-1b71-1858e6882913",
+    "containerImage": null,
+    "containerDigest": null,
+    "precision": "BF16",
+    "cloudCostUsd": {
+      "value": null,
+      "label": "N/A",
+      "reason": "not-cloudgpu"
+    },
+    "energyScope": "GPU-board only",
+    "assumptions": {
+      "electricityPrice": {
+        "value": 0.3,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "gco2ePerKwh": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-configured"
+      }
+    },
+    "models": [
+      {
+        "agent": "Planner",
+        "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+        "baseline": false
+      },
+      {
+        "agent": "Researcher",
+        "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+        "baseline": false
+      },
+      {
+        "agent": "Writer",
+        "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+        "baseline": false
+      },
+      {
+        "agent": "Reviewer",
+        "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+        "baseline": false
+      }
+    ],
+    "cloudCostObservedUtc": null
+  },
+  "probe": {
+    "gpuPresent": true,
+    "name": "NVIDIA GeForce RTX 3080 Ti Laptop GPU",
+    "gpuUuid": "GPU-7687512b-9999-734c-1b71-1858e6882913",
+    "driverVersion": "616.92",
+    "computeCapability": "8.6",
+    "vbiosVersion": "94.03.1b.00.3a",
+    "powerLimitW": 78.157,
+    "migMode": "not-supported",
+    "energyCounterSupported": true,
+    "method": "counter",
+    "sampleRateHz": 10
+  },
+  "baseline": {
+    "meanW": {
+      "value": 22.41930463576157,
+      "label": "measured",
+      "unit": "W"
+    },
+    "stdDevW": {
+      "value": 6.879817705591038,
+      "label": "measured",
+      "unit": "W"
+    },
+    "seconds": 30.0161686,
+    "settleSeconds": 0,
+    "sampleCount": 302,
+    "coefficientOfVariation": 0.30687025388900224,
+    "maxCoefficientOfVariation": 0.1,
+    "flags": [
+      "baseline-unstable"
+    ]
+  },
+  "steps": [
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:55:53.8465818+00:00",
+      "endUtc": "2026-10-27T09:56:02.869382+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 9022.7416,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 2737.494,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 269,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 245,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 600.534,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 398.02409126533473,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 65.6815181145871,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 88.553,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 92,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 3.316867427211125E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 132.6746970884449,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.1056224757370415E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "9aeae8dabe26948ecd83c5d0a4073a7e6c2cf565c0cce051b93cdf5345c7a250",
+      "outputChars": 1154,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:56:02.9215173+00:00",
+      "endUtc": "2026-10-27T09:56:17.1751284+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14253.6096,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 211.1974,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 517,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1231.855,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 912.2803223892055,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 86.05351070069241,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 93.467,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 145,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 7.60233601991005E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 228.07008059730137,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.9005840049775125E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "843a0e50107bd70e8d9b2a50a05461e2f79078f719b413f2112d8f23bd651dd4",
+      "outputChars": 2330,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:56:17.1771561+00:00",
+      "endUtc": "2026-10-27T09:56:25.9337622+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8756.6052,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 204.7114,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 510,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 303,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 681.905,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 485.5681593615035,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 79.81738561718288,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 93.233,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 90,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.0464013280125335E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 161.85605312050117,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.3488004426708446E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "920c88719ccd4d16f3b063a432aa8b1579239b607755582d117afc989922c512",
+      "outputChars": 1416,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:56:25.9502458+00:00",
+      "endUtc": "2026-10-27T09:56:41.3685656+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 15418.3188,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 419.1526,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1092,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1248.121,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 902.4340672971628,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 81.5187669603409,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 87.839,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 156,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 7.520283894143024E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 225.6085168242907,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.880070973535756E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "b4f82df3d84807ef5cbdd3e8fa21ed4eab073281c8db9f0c6a8c16b5b902d399",
+      "outputChars": 2249,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:56:41.5152435+00:00",
+      "endUtc": "2026-10-27T09:56:48.7293634+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 7214.1213,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 127.946,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 269,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 245,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 584.35,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 422.55517836732486,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 82.28785007975046,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 91.457,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 75,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 3.521293153061042E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 140.85172612244162,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.1737643843536807E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "9aeae8dabe26948ecd83c5d0a4073a7e6c2cf565c0cce051b93cdf5345c7a250",
+      "outputChars": 1154,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:56:48.738037+00:00",
+      "endUtc": "2026-10-27T09:57:03.6881254+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14950.087,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 234.1517,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 517,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1239.665,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 904.4636455751527,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 83.46907585812622,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 91.511,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 151,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 7.537197046459609E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 301.48788185838424,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.5123990154865363E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "843a0e50107bd70e8d9b2a50a05461e2f79078f719b413f2112d8f23bd651dd4",
+      "outputChars": 2330,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:03.6900657+00:00",
+      "endUtc": "2026-10-27T09:57:12.2205598+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8530.493,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 216.9253,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 510,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 303,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 744.202,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 552.9359644098115,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 88.28004198764364,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 95.54,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 88,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.6077997034151E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 138.23399110245288,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.151949925853775E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "920c88719ccd4d16f3b063a432aa8b1579239b607755582d117afc989922c512",
+      "outputChars": 1416,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:12.2263374+00:00",
+      "endUtc": "2026-10-27T09:57:26.5396652+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14313.3264,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 316.5529,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1092,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1267.975,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 947.0469384681888,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 88.56917723571561,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 92.285,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 145,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 7.892057820568243E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 236.7617346170472,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.9730144551420607E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "b4f82df3d84807ef5cbdd3e8fa21ed4eab073281c8db9f0c6a8c16b5b902d399",
+      "outputChars": 2249,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:26.5568078+00:00",
+      "endUtc": "2026-10-27T09:57:35.4789626+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8922.1542,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 2246.7551,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 269,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 245,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 695.804,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 495.74359086088117,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 80.05778534891574,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 95.619,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 91,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.131196590507342E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 165.2478636202937,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.3770655301691139E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "9aeae8dabe26948ecd83c5d0a4073a7e6c2cf565c0cce051b93cdf5345c7a250",
+      "outputChars": 1154,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:35.4814009+00:00",
+      "endUtc": "2026-10-27T09:57:48.7650763+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 13283.6729,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 198.0257,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 517,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1247.766,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 949.9417067164113,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 94.305016225544,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 102.017,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 135,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 7.916180889303426E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 237.48542667910283,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.9790452223258564E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "843a0e50107bd70e8d9b2a50a05461e2f79078f719b413f2112d8f23bd651dd4",
+      "outputChars": 2330,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:48.7681831+00:00",
+      "endUtc": "2026-10-27T09:57:56.7395232+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 7971.3295,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 188.996,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 510,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 303,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 750.837,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 572.0939328674638,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 93.54609995019015,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 96.824,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 82,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.7674494405622E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 190.6979776224879,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.5891498135207332E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "920c88719ccd4d16f3b063a432aa8b1579239b607755582d117afc989922c512",
+      "outputChars": 1416,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:57:56.7423065+00:00",
+      "endUtc": "2026-10-27T09:58:10.9446611+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14202.3535,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 295.3922,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1092,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 512,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1299.141,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 980.7050033555165,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 92.19116464280685,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 97.473,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 144,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 8.1725416946293E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 245.17625083887913,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.043135423657325E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "b4f82df3d84807ef5cbdd3e8fa21ed4eab073281c8db9f0c6a8c16b5b902d399",
+      "outputChars": 2249,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:58:10.9549041+00:00",
+      "endUtc": "2026-10-27T09:58:25.9396664+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14984.7607,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 145.3761,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 280,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 589,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1407.567,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1071.5894309584703,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 94.20662512556817,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 98.389,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 152,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 8.929911924653917E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 267.8973577396176,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.2324779811634793E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "7e50c0dd7eb85be3fe2ca26ca59048cf91aaeeefa8e9cd7ace102c8923353e60",
+      "outputChars": 2432,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:58:25.9448807+00:00",
+      "endUtc": "2026-10-27T09:58:46.1148158+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20169.9339,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 282.6475,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 873,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1895.611,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1443.374949954262,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 95.85115752317334,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 160.711,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 204,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012028124582952168,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 360.8437374885655,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 3.007031145738042E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "24998ab9730e1146ff6604e6d2bac43701ebb8396610e38ec85fc70ffc843f8d",
+      "outputChars": 2881,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:58:46.1164736+00:00",
+      "endUtc": "2026-10-27T09:59:06.4591862+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20342.7112,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 244.5506,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 866,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1884.451,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1428.3671964414007,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 92.2462455592655,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 100.908,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 205,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00011903059970345,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 357.09179911035017,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.97576499258625E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "aca096c0c71a2b72de5585ffac447ee693494baf97654f438b2cc64ae8cd62e3",
+      "outputChars": 3046,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:59:06.4620707+00:00",
+      "endUtc": "2026-10-27T09:59:27.3923122+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20930.2398,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 520.8533,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1825,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1968.68,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1499.4229179399704,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 93.7529333499182,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 101.83,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 211,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012495190982833083,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 5,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 299.8845835879941,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.4990381965666164E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "8bdb23965c2d71ebc54e1569249bd7d2773ed85997ae9b7d1be8ba28addd4ad4",
+      "outputChars": 2951,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:59:27.409999+00:00",
+      "endUtc": "2026-10-27T09:59:45.5044132+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 18094.4129,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 2226.1743,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 280,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 589,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1581.481,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1175.8010662830434,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 87.15186479450279,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 101.955,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 182,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 9.798342219025333E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 293.95026657076085,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.449585554756333E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "7e50c0dd7eb85be3fe2ca26ca59048cf91aaeeefa8e9cd7ace102c8923353e60",
+      "outputChars": 2432,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T09:59:45.5083593+00:00",
+      "endUtc": "2026-10-27T10:00:05.8937213+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20385.3601,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 261.6303,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 873,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1927.045,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1469.9915547901123,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 95.1083038216344,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 100.823,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 206,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012249929623250918,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 367.4978886975281,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 3.0624824058127295E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "24998ab9730e1146ff6604e6d2bac43701ebb8396610e38ec85fc70ffc843f8d",
+      "outputChars": 2881,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:00:05.8974653+00:00",
+      "endUtc": "2026-10-27T10:00:26.3219008+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20424.4341,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 235.5509,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 866,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1902.054,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1444.1266816824382,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 94.09433770315604,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 104.288,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 207,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012034389014020334,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 5,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 288.8253363364876,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.406877802804067E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "aca096c0c71a2b72de5585ffac447ee693494baf97654f438b2cc64ae8cd62e3",
+      "outputChars": 3046,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:00:26.3280708+00:00",
+      "endUtc": "2026-10-27T10:00:47.0230215+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20694.9498,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 477.6891,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1825,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1961.861,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1497.8075618521066,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 95.51105625769152,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 101.795,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 209,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012481729682100917,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 374.45189046302664,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 3.120432420525229E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "8bdb23965c2d71ebc54e1569249bd7d2773ed85997ae9b7d1be8ba28addd4ad4",
+      "outputChars": 2951,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:00:47.038433+00:00",
+      "endUtc": "2026-10-27T10:01:01.5689784+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 14530.544,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 118.3474,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 280,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 589,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1421.449,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1095.6269298143084,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 98.92383695737578,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 102.296,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 147,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 9.13022441511925E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 273.9067324535771,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.2825561037798124E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "7e50c0dd7eb85be3fe2ca26ca59048cf91aaeeefa8e9cd7ace102c8923353e60",
+      "outputChars": 2432,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:01:01.5745108+00:00",
+      "endUtc": "2026-10-27T10:01:21.4536402+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 19879.1278,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 235.9216,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 873,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1929.377,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1483.666234293981,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 97.75203512435446,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 105.606,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 201,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012363885285783166,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 370.91655857349525,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 3.0909713214457916E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "24998ab9730e1146ff6604e6d2bac43701ebb8396610e38ec85fc70ffc843f8d",
+      "outputChars": 2881,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:01:21.4552533+00:00",
+      "endUtc": "2026-10-27T10:01:41.038178+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 19582.9235,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 235.5025,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 866,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1913.828,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1474.779072376306,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 98.57046086282995,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 102.525,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 198,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012289825603135917,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 368.6947680940765,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 3.0724564007839793E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "aca096c0c71a2b72de5585ffac447ee693494baf97654f438b2cc64ae8cd62e3",
+      "outputChars": 3046,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:01:41.0420589+00:00",
+      "endUtc": "2026-10-27T10:02:01.1033902+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 20061.3291,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 486.3234,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 1825,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 768,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1975.123,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 1525.3272240059514,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 99.28403949935523,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 103.374,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 202,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 0.00012711060200049583,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 5,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 305.06544480119027,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.5422120400099167E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "8bdb23965c2d71ebc54e1569249bd7d2773ed85997ae9b7d1be8ba28addd4ad4",
+      "outputChars": 2951,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:01.1169429+00:00",
+      "endUtc": "2026-10-27T10:02:12.7509328+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 11633.9896,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 2236.643,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 218,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 1042.858,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 782.009392804844,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 88.59105232928286,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 104.923,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 118,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 6.516744940040367E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 260.6697976016147,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 2.172248313346789E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "6ec28c3d250effda624eaa43a154c7732bcc524fd25bc8ebc92bfecfb9c435eb",
+      "outputChars": 1624,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:12.7534137+00:00",
+      "endUtc": "2026-10-27T10:02:22.0989066+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 9345.4169,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 197.2128,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 608,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 907.643,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 698.1092486710564,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 98.03546744313138,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 100.951,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 95,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.8175770722588E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 232.70308289035214,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.9391923574196E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "4f34503fac0e33434076fc39f7ba9e279e716f0254126f73775cc895e80f01df",
+      "outputChars": 1766,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:22.1039992+00:00",
+      "endUtc": "2026-10-27T10:02:30.4938178+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8389.8176,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 189.2473,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 601,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 322,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 807.111,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 618.9804095338545,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 96.69379341804154,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 99.665,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 86,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.1581700794487836E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 154.74510238346363,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.2895425198621959E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "d14cce828e54cc3e1ba405fe631bbdc1398c8a238568e0f416558d3341e261e1",
+      "outputChars": 1516,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:30.4960208+00:00",
+      "endUtc": "2026-10-27T10:02:38.7146243+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8218.6024,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 289.8739,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 931,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 297,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 770.985,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 586.7164575953503,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 93.3902095488828,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 101.734,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 85,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.889303813294584E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 146.67911439883758,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.222325953323646E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "460d3dbfa4f9ae1987c373d64da0b3e5ad747d991c41b25a6bd4e48e208cdb19",
+      "outputChars": 1410,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:38.7712411+00:00",
+      "endUtc": "2026-10-27T10:02:49.2259325+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 10454.6897,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 68.8039,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 218,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 942.048,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 707.591223351486,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 91.56360562769288,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 98.432,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 107,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.89659352792905E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 235.863741117162,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.96553117597635E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "6ec28c3d250effda624eaa43a154c7732bcc524fd25bc8ebc92bfecfb9c435eb",
+      "outputChars": 1624,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:02:49.2304846+00:00",
+      "endUtc": "2026-10-27T10:03:00.5675564+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 11337.0709,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 205.6673,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 608,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 973.778,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 719.5705782237388,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 85.9519374460926,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 94.35,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 115,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.996421485197825E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 3,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 239.85685940791294,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.9988071617326082E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "4f34503fac0e33434076fc39f7ba9e279e716f0254126f73775cc895e80f01df",
+      "outputChars": 1766,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:00.5707352+00:00",
+      "endUtc": "2026-10-27T10:03:09.2892352+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8718.4988,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 190.7407,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 601,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 322,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 816.675,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 621.1791769782353,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 93.82188607253913,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 101.261,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 89,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.1764931414852913E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 155.29479424455883,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.2941232853713228E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "d14cce828e54cc3e1ba405fe631bbdc1398c8a238568e0f416558d3341e261e1",
+      "outputChars": 1516,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:09.2916501+00:00",
+      "endUtc": "2026-10-27T10:03:18.2697058+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8978.0543,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 278.1443,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 931,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 297,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 781.774,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 580.4777289347654,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 87.03122687897883,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 97.755,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 92,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.8373144077897087E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 145.11943223369136,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.2093286019474272E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "460d3dbfa4f9ae1987c373d64da0b3e5ad747d991c41b25a6bd4e48e208cdb19",
+      "outputChars": 1410,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Planner",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:18.2825879+00:00",
+      "endUtc": "2026-10-27T10:03:28.2775632+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 9994.9735,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 91.9736,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 218,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 952.511,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 728.411731351745,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 95.66308004457186,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 99.424,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 102,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 6.0700977612645416E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "judge-failed: RetriesExhaustedException"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "6ec28c3d250effda624eaa43a154c7732bcc524fd25bc8ebc92bfecfb9c435eb",
+      "outputChars": 1624,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Researcher",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:28.2862247+00:00",
+      "endUtc": "2026-10-27T10:03:38.3322763+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 10046.05,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 179.7968,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 608,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 384,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 982.355,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 757.0981800567226,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 97.44006123448352,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 100.604,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 103,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 6.309151500472692E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "judge-failed: RetriesExhaustedException"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "4f34503fac0e33434076fc39f7ba9e279e716f0254126f73775cc895e80f01df",
+      "outputChars": 1766,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Writer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:38.3382069+00:00",
+      "endUtc": "2026-10-27T10:03:46.7638315+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 8425.6236,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 191.2876,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 601,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 322,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 804.743,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 615.8199902437822,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 96.2552425245531,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 100.998,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 86,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 5.131833252031517E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "judge-failed: RetriesExhaustedException"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "missing-input"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "d14cce828e54cc3e1ba405fe631bbdc1398c8a238568e0f416558d3341e261e1",
+      "outputChars": 1516,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Reviewer",
+      "modelId": "nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1",
+      "tier": "local",
+      "startUtc": "2026-10-27T10:03:46.7663774+00:00",
+      "endUtc": "2026-10-27T10:03:54.7402629+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 7973.8841,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": 269.77,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "inputTokens": {
+        "value": 931,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 297,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": 763.392,
+        "label": "measured",
+        "unit": "J"
+      },
+      "netJoules": {
+        "value": 584.6068114779144,
+        "label": "measured",
+        "unit": "J"
+      },
+      "avgW": {
+        "value": 96.35657442253279,
+        "label": "measured",
+        "unit": "W"
+      },
+      "peakW": {
+        "value": 102.476,
+        "label": "measured",
+        "unit": "W"
+      },
+      "method": "counter",
+      "sampleCount": 82,
+      "sampleRateHz": 10,
+      "cost": {
+        "value": 4.871723428982617E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "quality": {
+        "value": 4,
+        "label": "model-judged"
+      },
+      "qualityReason": null,
+      "joulesPerQualityPoint": {
+        "value": 146.1517028694786,
+        "label": "model-judged"
+      },
+      "costPerQualityPoint": {
+        "value": 1.2179308572456542E-05,
+        "label": "estimated",
+        "currency": "EUR"
+      },
+      "flags": [
+        "throttled"
+      ],
+      "outputSha256": "460d3dbfa4f9ae1987c373d64da0b3e5ad747d991c41b25a6bd4e48e208cdb19",
+      "outputChars": 1410,
+      "throttleReasons": [
+        "SwPowerCap"
+      ]
+    }
+  ],
+  "judge": [
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:03:54.7607342+00:00",
+      "endUtc": "2026-10-27T10:03:55.779985+00:00",
+      "outcome": "ok",
+      "retries": 1,
+      "waitMs": 431,
+      "latencyMs": {
+        "value": 588.2501,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 901,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:03:55.7825893+00:00",
+      "endUtc": "2026-10-27T10:03:56.4026713+00:00",
+      "outcome": "ok",
+      "retries": 1,
+      "waitMs": 228,
+      "latencyMs": {
+        "value": 392.08090000000004,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1216,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:03:56.4028664+00:00",
+      "endUtc": "2026-10-27T10:03:57.1283935+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 725.5262,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 981,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:03:57.1285566+00:00",
+      "endUtc": "2026-10-27T10:04:03.6939988+00:00",
+      "outcome": "ok",
+      "retries": 3,
+      "waitMs": 5657,
+      "latencyMs": {
+        "value": 908.4411,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1208,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:03.6941676+00:00",
+      "endUtc": "2026-10-27T10:04:03.9683195+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 274.1507,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 901,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:03.9684775+00:00",
+      "endUtc": "2026-10-27T10:04:04.9817767+00:00",
+      "outcome": "ok",
+      "retries": 1,
+      "waitMs": 446,
+      "latencyMs": {
+        "value": 567.298,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1216,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:04.9819525+00:00",
+      "endUtc": "2026-10-27T10:04:05.3510854+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 369.132,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 981,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:05.3512961+00:00",
+      "endUtc": "2026-10-27T10:04:07.1610374+00:00",
+      "outcome": "ok",
+      "retries": 2,
+      "waitMs": 1275,
+      "latencyMs": {
+        "value": 534.7407000000001,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1208,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:07.161204+00:00",
+      "endUtc": "2026-10-27T10:04:07.4228292+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 261.6243,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 901,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:07.4230537+00:00",
+      "endUtc": "2026-10-27T10:04:07.7024219+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 279.3674,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1216,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:07.7025917+00:00",
+      "endUtc": "2026-10-27T10:04:07.9307637+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 228.1712,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 981,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "incident-brief",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:07.9309249+00:00",
+      "endUtc": "2026-10-27T10:04:08.1579963+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 227.0703,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1208,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:08.158181+00:00",
+      "endUtc": "2026-10-27T10:04:08.4297551+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 271.573,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1220,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:08.4299212+00:00",
+      "endUtc": "2026-10-27T10:04:08.6658687+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 235.9461,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1429,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:08.6660757+00:00",
+      "endUtc": "2026-10-27T10:04:09.0013721+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 335.2953,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1400,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:09.0015433+00:00",
+      "endUtc": "2026-10-27T10:04:09.24726+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 245.7158,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1396,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "549c6e28c3a25cb836b42c5d6389716b1c38647d0ebdfca6f531b0a55ebc83ed",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:09.2474159+00:00",
+      "endUtc": "2026-10-27T10:04:09.4948743+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 247.4573,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1220,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:09.4950287+00:00",
+      "endUtc": "2026-10-27T10:04:09.8063529+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 311.3226,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1429,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:09.806531+00:00",
+      "endUtc": "2026-10-27T10:04:10.0779673+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 271.4345,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1400,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "549c6e28c3a25cb836b42c5d6389716b1c38647d0ebdfca6f531b0a55ebc83ed",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:10.078145+00:00",
+      "endUtc": "2026-10-27T10:04:10.3196917+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 241.5451,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1396,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:10.3199746+00:00",
+      "endUtc": "2026-10-27T10:04:10.6003181+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 280.3426,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1220,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:10.6004896+00:00",
+      "endUtc": "2026-10-27T10:04:10.9365328+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 336.0422,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1429,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:10.9367017+00:00",
+      "endUtc": "2026-10-27T10:04:11.1745634+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 237.8606,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1400,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "api-migration",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:11.174712+00:00",
+      "endUtc": "2026-10-27T10:04:11.4071038+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 232.3906,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 1396,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "549c6e28c3a25cb836b42c5d6389716b1c38647d0ebdfca6f531b0a55ebc83ed",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:11.4072612+00:00",
+      "endUtc": "2026-10-27T10:04:11.6452983+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 238.0357,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 967,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:11.6454651+00:00",
+      "endUtc": "2026-10-27T10:04:12.3374995+00:00",
+      "outcome": "ok",
+      "retries": 1,
+      "waitMs": 324,
+      "latencyMs": {
+        "value": 368.03319999999997,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 972,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:12.3376663+00:00",
+      "endUtc": "2026-10-27T10:04:12.5923638+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 254.6965,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 907,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 1,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:12.5925061+00:00",
+      "endUtc": "2026-10-27T10:04:12.8297282+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 237.2207,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 886,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:12.8299083+00:00",
+      "endUtc": "2026-10-27T10:04:17.6516662+00:00",
+      "outcome": "ok",
+      "retries": 3,
+      "waitMs": 4285,
+      "latencyMs": {
+        "value": 536.7568000000001,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 967,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:17.6519386+00:00",
+      "endUtc": "2026-10-27T10:04:19.8852189+00:00",
+      "outcome": "ok",
+      "retries": 2,
+      "waitMs": 1935,
+      "latencyMs": {
+        "value": 298.279,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 972,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "e21ef004e72f5ee91147436e546b095269528f2a7dc8cf5395c28183a7eaa9aa",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:19.8853716+00:00",
+      "endUtc": "2026-10-27T10:04:24.4777774+00:00",
+      "outcome": "ok",
+      "retries": 3,
+      "waitMs": 4239,
+      "latencyMs": {
+        "value": 353.40449999999964,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 907,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 2,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:24.4779144+00:00",
+      "endUtc": "2026-10-27T10:04:24.7059711+00:00",
+      "outcome": "ok",
+      "retries": 0,
+      "waitMs": 0,
+      "latencyMs": {
+        "value": 228.0551,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 886,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:24.7061615+00:00",
+      "endUtc": "2026-10-27T10:04:33.509048+00:00",
+      "outcome": "error",
+      "retries": 4,
+      "waitMs": 8627,
+      "latencyMs": {
+        "value": 175.88390000000072,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "outputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": null,
+      "outputChars": null,
+      "throttleReasons": null,
+      "judgedAgent": "Planner"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:33.5165555+00:00",
+      "endUtc": "2026-10-27T10:04:43.6006028+00:00",
+      "outcome": "error",
+      "retries": 4,
+      "waitMs": 8631,
+      "latencyMs": {
+        "value": 1453.0463999999993,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "outputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": null,
+      "outputChars": null,
+      "throttleReasons": null,
+      "judgedAgent": "Researcher"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:43.60093+00:00",
+      "endUtc": "2026-10-27T10:04:54.2829342+00:00",
+      "outcome": "error",
+      "retries": 4,
+      "waitMs": 10500,
+      "latencyMs": {
+        "value": 182.0030999999999,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "outputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": null,
+      "outputChars": null,
+      "throttleReasons": null,
+      "judgedAgent": "Writer"
+    },
+    {
+      "task": "energy-explainer",
+      "repeat": 3,
+      "agent": "Judge",
+      "modelId": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "tier": "nvidia",
+      "startUtc": "2026-10-27T10:04:54.2830923+00:00",
+      "endUtc": "2026-10-27T10:04:55.542764+00:00",
+      "outcome": "ok",
+      "retries": 1,
+      "waitMs": 849,
+      "latencyMs": {
+        "value": 410.6702,
+        "label": "measured",
+        "unit": "ms"
+      },
+      "ttftMs": {
+        "value": null,
+        "label": "N/A",
+        "reason": "buffered-call"
+      },
+      "inputTokens": {
+        "value": 886,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "outputTokens": {
+        "value": 3,
+        "label": "measured",
+        "unit": "tokens"
+      },
+      "grossJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "netJoules": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "avgW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "peakW": {
+        "value": null,
+        "label": "N/A",
+        "reason": "hosted-tier"
+      },
+      "method": null,
+      "sampleCount": null,
+      "sampleRateHz": null,
+      "cost": {
+        "value": null,
+        "label": "N/A",
+        "reason": "free-tier-no-price"
+      },
+      "quality": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "qualityReason": "not-scored",
+      "joulesPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "costPerQualityPoint": {
+        "value": null,
+        "label": "N/A",
+        "reason": "not-scored"
+      },
+      "flags": [],
+      "outputSha256": "72c4af13fb2b9b6dc76ffcfc7096d49ae9f6913c9a9d46a426f28e16df6a249e",
+      "outputChars": 2,
+      "throttleReasons": null,
+      "judgedAgent": "Reviewer"
+    }
+  ],
+  "totals": {
+    "grossJoules": {
+      "value": 43906.55500000001,
+      "label": "measured",
+      "unit": "J"
+    },
+    "netJoules": {
+      "value": 33134.24435054981,
+      "label": "measured",
+      "unit": "J"
+    },
+    "inputTokens": {
+      "value": 25770,
+      "label": "measured",
+      "unit": "tokens"
+    },
+    "outputTokens": {
+      "value": 17556,
+      "label": "measured",
+      "unit": "tokens"
+    },
+    "costByCurrency": {
+      "EUR": {
+        "value": 0.0027611870292124827,
+        "label": "estimated",
+        "currency": "EUR"
+      }
+    },
+    "wallClockMs": {
+      "value": 480851.4456,
+      "label": "measured",
+      "unit": "ms"
+    },
+    "judge": {
+      "inputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "outputTokens": {
+        "value": null,
+        "label": "not-reported",
+        "reason": "provider-omitted-usage"
+      },
+      "costByCurrency": {}
+    },
+    "gco2e": {
+      "value": null,
+      "label": "N/A",
+      "reason": "not-configured"
+    }
+  }
+}

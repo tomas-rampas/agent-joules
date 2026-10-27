@@ -6,42 +6,64 @@
 <title>Agent Joules live dashboard</title>
 <style>
 :root {
-  --bg: #0f1419;
-  --panel: #1a2129;
+  /* colour: the dark theme is the default; every text pair meets 4.5:1 on the panel */
+  --bg: #0d1117;
+  --panel: #161b22;
+  --line: #2a323c;
   --fg: #e6edf3;
   --muted: #9aa7b4;
-  --accent: #58a6ff;
+  --accent: #79c0ff;
   --measured: #3fb950;
-  --estimated: #d29922;
+  --estimated: #e3b341;
   --na: #9aa7b4;
-  --grid: #3a4450;
-  --agent-1: #58a6ff;
-  --agent-2: #f778ba;
-  --agent-3: #bc8cff;
-  --agent-4: #39c5cf;
+  --grid: #232b35;
+  --band: #c9d1d9;
+  --measured-tint: #133122;
+  --estimated-tint: #2d2510;
+  --accent-tint: #11263d;
+  --na-tint: #222b35;
+  --agent-1: #56b4e9;
+  --agent-2: #f0883e;
+  --agent-3: #3ecf9a;
+  --agent-4: #e58cc0;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* spacing on a 4 px base */
   --space-1: 4px;
   --space-2: 8px;
-  --space-3: 16px;
-  --font-size-base: 15px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  /* type scale: 12, 13, 15, 16 and 20 px */
+  --font-size-xs: 12px;
   --font-size-small: 13px;
-  --font-size-value: 22px;
-  --radius: 6px;
+  --font-size-base: 15px;
+  --font-size-lg: 16px;
+  --font-size-value: 20px;
+  --radius: 8px;
+  --radius-pill: 999px;
 }
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #ffffff;
-    --panel: #f6f8fa;
+    --bg: #eef1f5;
+    --panel: #ffffff;
+    --line: #dfe4ea;
     --fg: #1f2328;
     --muted: #57606a;
-    --accent: #0969da;
-    --measured: #1a7f37;
-    --estimated: #8a5a00;
+    --accent: #0550ae;
+    --measured: #176b2d;
+    --estimated: #7a4d00;
     --na: #57606a;
-    --grid: #c8d1da;
-    --agent-1: #0969da;
-    --agent-2: #bf3989;
-    --agent-3: #8250df;
-    --agent-4: #1b7c83;
+    --grid: #e3e8ee;
+    --band: #1f2328;
+    --measured-tint: #d6efdc;
+    --estimated-tint: #faefcf;
+    --accent-tint: #dbeaff;
+    --na-tint: #eaeef2;
+    --agent-1: #0060a0;
+    --agent-2: #a94400;
+    --agent-3: #00714f;
+    --agent-4: #9c3a78;
+    --shadow: 0 1px 2px rgba(31, 35, 40, 0.08);
   }
 }
 * { box-sizing: border-box; }
@@ -49,75 +71,107 @@
 html { color-scheme: dark light; }
 body {
   margin: 0 auto;
-  padding: var(--space-3);
+  padding: var(--space-4);
   max-width: 1600px;
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: var(--font-size-base);
-  line-height: 1.4;
+  line-height: 1.5;
 }
 h1, h2 { margin: 0; font-weight: 600; }
-h1 { font-size: var(--font-size-value); }
-h2 { font-size: var(--font-size-base); }
+h1 { font-size: var(--font-size-value); letter-spacing: -0.01em; }
+h2 { font-size: var(--font-size-lg); }
 .muted { color: var(--muted); }
-#header { background: var(--panel); border-radius: var(--radius); padding: var(--space-3); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+#header {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-4) var(--space-5);
+}
 #header .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-3);
-  margin-top: var(--space-2);
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
   overflow-wrap: anywhere;
 }
 #header .item { min-width: 0; }
+#header .item.wide { flex: 1 1 100%; }
+#header .item > span:not(.hk) { font-weight: 500; }
 .hk { color: var(--muted); font-size: var(--font-size-small); margin-right: var(--space-1); }
 .banner {
-  border: 1px solid var(--estimated);
-  color: var(--estimated);
-  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
-  font-size: var(--font-size-small);
+  background: var(--estimated-tint);
+  color: var(--estimated);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.7;
 }
+#hdr-replay-marker { background: var(--accent-tint); color: var(--accent); }
+#hdr-replay { background: var(--na-tint); color: var(--fg); font-size: var(--font-size-small); font-weight: 500; }
 #agents {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: var(--space-3);
-  margin: var(--space-3) 0;
+  grid-template-columns: repeat(auto-fit, minmax(100%, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-4) 0;
+}
+@media (min-width: 641px) {
+  #agents { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1240px) {
+  #agents { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 #agents-empty { grid-column: 1 / -1; margin: 0; }
 .card {
   min-width: 0;
   background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--agent);
   border-radius: var(--radius);
-  border-left: 4px solid var(--agent);
-  padding: var(--space-3);
+  box-shadow: var(--shadow);
+  padding: var(--space-4);
 }
-.card .head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
-.card .name { font-weight: 600; overflow-wrap: anywhere; }
+.card .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
+.card .name { font-size: var(--font-size-lg); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .pill {
-  border: 1px solid var(--muted);
-  color: var(--muted);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
-  font-size: var(--font-size-small);
+  background: var(--na-tint);
+  color: var(--na);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
 }
 .flag-extra {
   border: 1px dashed var(--fg);
   color: var(--fg);
-  border-radius: var(--radius);
-  padding: 0 var(--space-1);
-  font-size: var(--font-size-small);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  line-height: 1.7;
 }
-.pill.running { color: var(--accent); border-color: var(--accent); }
-.pill.ok { color: var(--measured); border-color: var(--measured); }
-.pill.bad { color: var(--fg); border-style: dashed; border-color: var(--fg); }
-.row { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0; }
-.key { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: var(--font-size-small); }
+.pill.running { color: var(--accent); background: var(--accent-tint); }
+.pill.ok { color: var(--measured); background: var(--measured-tint); }
+.pill.bad { color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+.row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; padding: var(--space-1) 0; }
+.row + .row { border-top: 1px solid var(--line); }
+.key { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: var(--font-size-small); line-height: 1.35; }
 .val {
   flex: 0 0 auto;
   width: 13ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -125,10 +179,13 @@ h2 { font-size: var(--font-size-base); }
 .badge {
   flex: 0 0 auto;
   width: 14ch;
-  border: 1px solid var(--muted);
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   padding: 0 var(--space-1);
-  font-size: var(--font-size-small);
+  background: var(--na-tint);
+  color: var(--na);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  line-height: 1.7;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -142,23 +199,47 @@ h2 { font-size: var(--font-size-base); }
   overflow-wrap: anywhere;
   text-overflow: clip;
 }
-.badge.measured { color: var(--measured); border-color: var(--measured); }
-.badge.estimated { color: var(--estimated); border-color: var(--estimated); }
-.badge.judged { color: var(--accent); border-color: var(--accent); }
-.badge.na { color: var(--na); border-color: var(--na); }
-.badge.notreported { color: var(--na); border: 1px dashed var(--na); }
-#chart { background: var(--panel); border-radius: var(--radius); padding: var(--space-3); min-width: 0; }
+.badge.long { border-radius: var(--radius); line-height: 1.4; padding: 0 var(--space-2); }
+.badge.measured { color: var(--measured); background: var(--measured-tint); font-weight: 600; }
+.badge.estimated { color: var(--estimated); background: var(--estimated-tint); font-weight: 600; }
+.badge.judged { color: var(--accent); background: var(--accent-tint); }
+.badge.na { color: var(--na); background: transparent; }
+.badge.notreported { color: var(--na); background: transparent; border: 1px dashed var(--na); }
+#chart {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-4) var(--space-5);
+}
 #chart .axis { color: var(--muted); font-size: var(--font-size-small); margin: var(--space-1) 0; }
 #axis-x { text-align: center; }
 #canvas { display: block; width: 100%; height: 320px; border-radius: var(--radius); }
-.legend { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-2); font-size: var(--font-size-small); }
-.lg { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; }
-.sw { display: inline-block; width: 18px; height: 10px; border-radius: var(--radius); }
-.sw.dash { height: 0; border-top: 2px dashed var(--muted); border-radius: 0; }
-.sw.band { background: var(--estimated); opacity: 0.2; }
-#footer { margin-top: var(--space-3); color: var(--muted); font-size: var(--font-size-small); overflow-wrap: anywhere; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-3);
+  color: var(--muted);
+  font-size: var(--font-size-small);
+}
+#legend-agents { display: contents; }
+.lg { display: inline-flex; align-items: center; gap: var(--space-1); min-width: 0; color: var(--fg); }
+.sw { display: inline-block; flex: 0 0 auto; width: 16px; height: 8px; border-radius: 4px; }
+.sw.dash { width: 22px; height: 0; border-top: 2px dashed var(--muted); border-radius: 0; }
+.sw.band { width: 22px; height: 12px; border-radius: 3px; background: var(--band); opacity: 0.2; }
+#footer {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+}
 #footer p { margin: var(--space-1) 0; }
-#footer a { color: var(--accent); }
+#footer a { color: var(--accent); text-underline-offset: 3px; }
 </style>
 </head>
 <body>
@@ -166,7 +247,7 @@ h2 { font-size: var(--font-size-base); }
   <h1>Agent Joules</h1>
   <div class="meta">
     <span class="item"><span class="hk">Tier</span><span id="hdr-tier">-</span></span>
-    <span class="item"><span class="hk">Models</span><span id="hdr-models">-</span></span>
+    <span class="item wide"><span class="hk">Models</span><span id="hdr-models">-</span></span>
     <span class="item"><span class="hk">Precision</span><span id="hdr-precision">-</span></span>
     <span class="item"><span class="hk">Mode</span><span id="hdr-mode">-</span></span>
     <span class="item"><span class="hk">Progress</span><span id="hdr-progress">-</span></span>
@@ -603,7 +684,7 @@ function readPalette() {
     fg: get("--fg"),
     muted: get("--muted"),
     grid: get("--grid"),
-    estimated: get("--estimated"),
+    band: get("--band"),
     small: get("--font-size-small"),
     agents: [get("--agent-1"), get("--agent-2"), get("--agent-3"), get("--agent-4")]
   };
@@ -664,7 +745,7 @@ function paintChart() {
   }
 
   // shared-window: a band, clipped to the plot, where two agents are active at once
-  ctx.fillStyle = palette.estimated;
+  ctx.fillStyle = palette.band;
   ctx.globalAlpha = 0.2;
   function band(from, to) {
     const a = Math.max(left, px(from));
@@ -695,6 +776,7 @@ function paintChart() {
   const mean = meanView && isObject(baseline.meanW) && typeof baseline.meanW.value === "number" ? baseline.meanW.value : null;
   if (mean !== null) {
     ctx.strokeStyle = palette.muted;
+    ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 4]);
     ctx.beginPath();
     ctx.moveTo(left, py(mean));
