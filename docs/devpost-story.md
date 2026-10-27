@@ -6,7 +6,7 @@ Before building, I researched prior art. Published work I found includes arXiv 2
 
 ## What it does
 
-Agent Joules is a .NET 10 command line tool and library that meters each step of a Microsoft Agent Framework workflow. It wraps each agent's chat client in metering middleware. For every model call it records tokens, latency and cost, and on a GPU I control it also records joules and watts. A judge model adds a quality score.
+Agent Joules is a hackathon prototype: a .NET 10 command line tool and library that meters each step of a Microsoft Agent Framework workflow. It wraps each agent's chat client in metering middleware. For every model call it records tokens, latency and cost, and on a GPU I control it also records joules and watts. A judge model adds a quality score.
 
 Every metric value carries exactly one of five labels: measured, estimated, model-judged, N/A or not-reported. A missing value is never written as zero.
 

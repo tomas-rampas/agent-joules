@@ -2,7 +2,7 @@
 
 Agent Joules: energy per agent step, measured on your GPUs
 
-Status: Agent Joules is the submission of this repository to the Nebius x NVIDIA Global AI Hackathon on Devpost (submission deadline 2026-10-30 10:00 PDT, 17:00 UTC). The build is specified by [docs/agent-joules.prompt.md](docs/agent-joules.prompt.md). Every measured number comes from a committed file under `results/`; the cloud rental figures and the NIM-attempt figures come from the docs file named in the same paragraph (docs/cloudgpu-run.md, docs/nim-local-attempt.md); the results block below is generated from those files by `report --update-readme`, never typed by hand.
+Status: Agent Joules is a hackathon prototype, the submission of this repository to the Nebius x NVIDIA Global AI Hackathon on Devpost (submission deadline 2026-10-30 10:00 PDT, 17:00 UTC). The build is specified by [docs/agent-joules.prompt.md](docs/agent-joules.prompt.md). Every measured number comes from a committed file under `results/`; the cloud rental figures and the NIM-attempt figures come from the docs file named in the same paragraph (docs/cloudgpu-run.md, docs/nim-local-attempt.md); the results block below is generated from those files by `report --update-readme`, never typed by hand.
 
 ## What it measures
 
@@ -377,7 +377,7 @@ None of these attributes energy to an individual agent step of a multi-agent wor
 
 ## Hackathon submission
 
-The Devpost elevator pitch and project story live in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md). The story is filled from the committed results files (every figure names its file). The technical design is [docs/design/technical-design.md](docs/design/technical-design.md); the delivery plan with milestones, stories, BDD scenarios and the traceability matrix is under [docs/plan/](docs/plan/plan.md).
+The Devpost elevator pitch and project story live in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md). The story is filled from the committed results files (every figure names its file). The technical design is [docs/design/technical-design.md](docs/design/technical-design.md); the delivery plan with milestones, stories, BDD scenarios and the traceability matrix is under [docs/plan/](docs/plan/plan.md). The submitted release is v0.2.0 (https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0), tagged at the final documentation commit, with the CLI build, the results and the report as assets; v0.1.0 marks the M7 exit snapshot.
 
 ## License
 
