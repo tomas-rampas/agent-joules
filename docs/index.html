@@ -195,7 +195,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
 <figcaption>The dashboard during a three-task rehearsal run on the local tier: one card per agent with GPU power now, running net energy, tokens and latency, each value carrying its label, and GPU board power over the last 120 seconds coloured by the active agent above the measured idle baseline. Values tagged estimated are running estimates and never enter results files. The run file of this rehearsal is git-ignored and outside results/, so none of the figures in the image is in a committed results file; the committed runs are in the static report.</figcaption>
 </figure>
 <p style="margin:16px 0 0">Replay without a GPU or key:</p>
-<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261025T133440Z-nebius.json --speed 4 --exit-after 60</code></pre>
+<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261026T124721Z-cloudgpu.json --speed 4 --exit-after 60</code></pre>
 </section>
 
 <section aria-labelledby="h-nn"><h2 id="h-nn" class="sr-only">Nemotron and Nebius</h2>
@@ -223,9 +223,9 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
 <ol class="acts">
 <li><code>dotnet test</code> runs the unit tests.</li>
 <li><code>dotnet run --project src/AgentJoules.Cli -- validate results/</code> checks the committed results files against the schema and prints <code>Validated &lt;n&gt; files</code>.</li>
-<li>Open <code>docs/report/index.html</code>, the committed report page, no script and no server.</li>
+<li>Open the hosted replay at <a href="replay/">replay/</a> (the live dashboard page replaying the committed <code>cloudgpu</code> and <code>local</code> runs in the browser, no key) or <code>docs/report/index.html</code>, the committed report page.</li>
 <li>Run the dashboard replay command:
-<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261025T133440Z-nebius.json --speed 4 --exit-after 60</code></pre></li>
+<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261026T124721Z-cloudgpu.json --speed 4 --exit-after 60</code></pre></li>
 </ol>
 </div>
 </section>

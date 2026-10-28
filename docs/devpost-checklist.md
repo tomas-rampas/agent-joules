@@ -47,7 +47,7 @@ No other conflict was found on 2026-10-26.
 - [ ] elevator pitch (200 characters) -> docs/devpost-pitch.md candidate A (text in Elevator pitch below)
 - [ ] About the project -> docs/devpost-story.md
 - [ ] Built-with tags (25 maximum) -> docs/devpost-checklist.md section Built-with
-- [ ] Try it out links -> https://tomas-rampas.github.io/agent-joules/report/ and https://github.com/tomas-rampas/agent-joules (user) (confirm after Pages is enabled) (2026-10-28: the site root https://tomas-rampas.github.io/agent-joules/ is a landing page for the judges that links to the report; the demo URL stays /report/ by the user's decision of 2026-10-28)
+- [ ] Try it out links -> https://tomas-rampas.github.io/agent-joules/report/ and https://github.com/tomas-rampas/agent-joules (user) (confirm after Pages is enabled) (2026-10-28: the site root https://tomas-rampas.github.io/agent-joules/ is a landing page for the judges that links to the report; the demo URL stays /report/ by the user's decision of 2026-10-28) (2026-10-28: the hosted replay https://tomas-rampas.github.io/agent-joules/replay/ is a third link for the Try it out field; the demo URL stays /report/)
 - [ ] YouTube video link -> (user)
 - [ ] track -> Coding and agentic engineering recommended, the user decides, see Tracks (user)
 - [ ] team members -> (user)

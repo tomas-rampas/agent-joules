@@ -113,8 +113,8 @@ Four actions need neither a GPU nor a key. Run them from the repository root.
 
 1. `dotnet test` runs the unit tests; the integration tests that need a network, a key or a GPU run without their live part because the AGENTJOULES_INTEGRATION gate is closed.
 2. `dotnet run --project src/AgentJoules.Cli -- validate results/` checks the committed results files against the results schema and prints `Validated <n> files`.
-3. Open `docs/report/index.html`, the committed report page, in a browser. It needs no script and no server.
-4. `dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261025T133440Z-nebius.json --speed 4 --exit-after 60` replays the committed `nebius` run on the live dashboard; open the printed `Dashboard:` address in a browser.
+3. Open https://tomas-rampas.github.io/agent-joules/replay/, the live dashboard page replaying the committed `cloudgpu` and `local` runs in the browser (no server, no key), or `docs/report/index.html`, the committed report page, which needs no script and no server.
+4. `dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261026T124721Z-cloudgpu.json --speed 4 --exit-after 60` replays the committed `cloudgpu` run on the live dashboard; open the printed `Dashboard:` address in a browser.
 
 ## How this project uses NVIDIA Nemotron
 
@@ -129,7 +129,7 @@ The quality judge is `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` on the `nvi
 
 ## Where Nebius Token Factory accelerated the workflow
 
-The `nebius` tier calls the Token Factory endpoint, which served `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` for the whole workflow (run file `results/20261025T133440Z-nebius.json`). It gave the workflow a hosted comparison tier with no GPU to own or rent, so the same agents were measured for tokens, latency and cost from a laptop with a key alone. The run file labels tokens and latency `measured` and energy `N/A`, nothing is written as zero, and the same file drives the keyless replay in [Judges without a GPU](#judges-without-a-gpu).
+The `nebius` tier calls the Token Factory endpoint, which served `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` for the whole workflow (run file `results/20261025T133440Z-nebius.json`). It gave the workflow a hosted comparison tier with no GPU to own or rent, so the same agents were measured for tokens, latency and cost from a laptop with a key alone. The run file labels tokens and latency `measured` and energy `N/A`, nothing is written as zero, and the same file replays with the `dashboard --replay` command of [Judges without a GPU](#judges-without-a-gpu), with tokens and latency and the energy cells `N/A`.
 
 ## Other Nebius tools or services used
 

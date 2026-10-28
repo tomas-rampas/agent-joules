@@ -1,0 +1,112 @@
+# Spec: hosted-replay
+
+Status: approved
+Date: 2026-10-28
+
+## Objective
+
+The hackathon judges have no GPU and no key. Today the only interactive artifact of Agent Joules, the live dashboard, reaches them as a screenshot, and the README's keyless replay command names the nebius run, whose power chart is empty by design (a hosted tier has no GPU board to meter). This feature publishes the dashboard page itself on GitHub Pages at `/replay/`, playing two captured event streams of committed runs that carry measured watts on every step: the cloudgpu run on one Nebius AI Cloud H100 and the local run on the laptop GPU served by NIM. The judge sees the real dashboard with a non-empty chart, chooses the run, the speed and a restart, with no server, no key and no clone. Every figure on the page comes from a committed results file through the CLI's own replay, so the honesty rules of the README hold.
+
+Decisions from the interview of 2026-10-28 (user): cloudgpu and local runs only, no nebius capture; cloudgpu plays on load; autoplay with restart and a speed choice; page at docs/replay/index.html; Demo URL stays at /report/; README action 4 switches to the cloudgpu file and the hosted page joins the keyless actions inside the same README section.
+
+## Requirements
+
+### REQ-001: Two captured event streams committed under docs/replay/
+The repository MUST hold two Server-Sent Events captures written by the CLI's own replay server, one per run: `docs/replay/events-cloudgpu.sse` from `results/20261026T124721Z-cloudgpu.json` and `docs/replay/events-local.sse` from `results/20261027T095519Z-local.json`, captured with `--start-delay 0` and read with curl from `/events` until the server exited (the cloudgpu capture by the user at `--speed 1` on 2026-10-28 14:58Z, the local capture by the session at `--speed 4` at 15:48Z; the capture speed does not matter to the player, see REQ-004). The existing `docs/replay/events.sse` (the cloudgpu capture of 2026-10-28 15:59 local) is renamed, not re-captured, unless a re-capture is needed.
+Acceptance: for each file, `grep -c '^data:'` prints 155 and `grep -c run-completed` prints 1; the first data line holds `"type":"snapshot"` and the run id of the named results file; `grep -c 'nvapi-'` prints 0 and the file holds no registered key value (the replay command refuses a file holding one, so a capture that exists proves it); the `atUtc` values are strictly non-decreasing in file order.
+
+### REQ-002: Line endings pinned
+The captures' bytes MUST be committed as captured. `.gitattributes` MUST carry `docs/replay/*.sse -text` so Git never converts their line endings, and the player MUST accept both CRLF and LF records. (Correction 2026-10-28: the captures are LF as the CLI wrote them, 0 CR bytes measured by the security pass and re-measured by the orchestrator; the earlier CRLF claim came from a CR count whose `$''` pattern the orchestrator's shell did not expand.)
+Acceptance: `git check-attr text docs/replay/events-cloudgpu.sse` prints `text: unset`; a unit or Specs check parses a three-record sample in each line-ending form and counts three records in both.
+
+### REQ-003: The dashboard page published at /replay/ with a player in place of the EventSource
+`docs/replay/index.html` MUST be the dashboard page `src/AgentJoules.Dashboard/wwwroot/index.html` with one change in kind (plus a `<title>` naming the page a replay, allowed by this clause, 2026-10-28): the `EventSource` on `/events` is replaced by a player that fetches the chosen capture file, splits it into records, parses each `data:` line and delivers the payloads to the page's existing message handler in file order. The page's rendering code, cards, chart and footer text are otherwise unchanged, except the footer sentence on running estimates, which REQ-015 makes false on this page and which is replaced by a sentence stating that every value is a recorded figure. The page MUST be self-contained: no external script, style, font or image, as the report page and the landing page are.
+Acceptance: a diff of `docs/replay/index.html` against the dashboard page shows changes only inside the script block plus the additions REQ-004 to REQ-010, REQ-014 and REQ-015 name (and the title clause above); `grep -c 'EventSource(' docs/replay/index.html` prints 0 ; `grep -c -E 'https?://' docs/replay/index.html` counts only the repository link the dashboard page already carries; after the Pages build of the commit, `curl -sI https://tomas-rampas.github.io/agent-joules/replay/` and the two capture URLs answer 200.
+
+### REQ-004: Recorded timeline as the time base, speed choice, autoplay
+The player MUST treat the recorded run as its time base, taken from the records themselves, not from the capture clock: every power record carries `sampleSeconds`, the offset from the run start the CLI timeline emitted it at, and the CLI orders same-offset records as run started, baseline, power at a step end, step completed, progress, step started, power at a step start; so a record's recorded offset is the `sampleSeconds` of the first power record at or after it in file order (the records before the first step-started are delivered at once with it on load, REQ-005, whatever offset the player assigns them; the run-completed record takes the last power record's offset). The wait before a record is its offset minus the previous record's offset, divided by the chosen speed. (Revised 2026-10-28 after the measurement that the cloudgpu capture was taken at speed 1 and the local one at speed 4; the earlier `atUtc * 4` rule was wrong for cloudgpu.) The page MUST offer the speeds 1x, 4x and 8x relative to the recorded run, with the default 1x for both runs (user decision 2026-10-28, "run on speed 1"; cloudgpu 50.7 s of steps recorded, local 480.9 s, from the first step at 34.74 s to the last step end at 515.63 s), and MUST start playing on load without a click. The banner MUST state that the page replays a committed run file, name the file, and state the chosen speed relative to the recorded run.
+Acceptance: with the cloudgpu capture at 1x the run-completed record is delivered between 50 and 53 s after the first step-started delivery (recorded: first step at 30.44 s, last step end at 81.16 s); at 4x between 12 and 14 s; with the local capture at 4x between 118 and 122 s (recorded last step end 515.63 s, first step at 34.74 s, the warm-up skipped per REQ-005; the earlier figures 125 to 130 s and "about 8 s" were the orchestrator's estimate, corrected 2026-10-28 by the page round's measurement); the chart axis end and the player's computed 1x total agree within 1 s; the banner text contains `replay`, the capture's results file name and the speed label; the page's `replay` marker from the dashboard page is still shown.
+
+### REQ-005: Warm-up gap skipped
+The leading window before the first `step-started` event (the NIM warm-up, 30.4 s recorded in the cloudgpu run) MUST NOT be waited for: the snapshot, run-started, baseline and any other events before the first `step-started` are delivered at once, and the first `step-started` is delivered within 1 s of them. Later gaps play as recorded. The chart's time axis is whatever the unchanged page draws from the delivered events; no event is dropped or altered to achieve the skip.
+Acceptance: at 4x the first step card turns `running` within 2 s of page load on a local file server; the count of delivered events equals the count of `data:` lines of the capture.
+
+### REQ-006: Run selector, cloudgpu on load
+The page MUST offer a selector with exactly two entries, cloudgpu and local, each labelled with the tier, the GPU name and the first agent model id read from that capture's snapshot (`NVIDIA H100 80GB HBM3` and `nvidia/nemotron-3-nano`; `NVIDIA GeForce RTX 3080 Ti Laptop GPU` and `nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1`), and MUST state that both were served by an NVIDIA NIM container. The cloudgpu capture plays on load. Choosing the other entry resets the page state and starts that capture from its first event.
+Acceptance: the selector has two options whose visible text contains the strings above; on load the header shows `Tier cloudgpu`; after choosing local the header shows `Tier local` and the Planner card's cumulative token counters restart from the new capture's first step, not from the previous run's totals.
+
+### REQ-007: Restart
+A restart control MUST replay the current capture from its first event, resetting the page state, at the chosen speed.
+Acceptance: after the run-completed event, pressing restart shows the first step card `running` within 2 s and the progress line at task 1 of 3, repeat 1 of 3.
+
+### REQ-008: Chart never empty
+For both captures every delivered power event MUST carry a measured watts value, so the board power chart draws four agent series and the idle baseline.
+Acceptance: for each capture, `grep -o '"watts":{[^}]*}' | grep -c measured` equals the count of `"type":"power"` records (72); at the end of the replay the chart's legend entries Planner, Researcher, Writer and Reviewer each have a drawn series (the page's own series elements are non-empty), and the `N/A (hosted-tier)` sentence is absent.
+
+### REQ-009: Content Security Policy and no-script fallback
+`docs/replay/index.html` MUST carry a `<meta http-equiv="Content-Security-Policy">` that allows only its own inline script and style by hash, `connect-src 'self'` for the capture fetch, `img-src 'none'`, `base-uri 'none'`, `form-action 'none'`, in the manner of the dashboard server's header. A `<noscript>` element MUST say that the replay needs JavaScript and link to the report page.
+Acceptance: the meta tag is present with those directives; the script and style hashes match the page's content (the browser console shows no CSP violation when the page runs under Playwright); the `<noscript>` text names `report/`.
+
+### REQ-010: Capture failure shown, nothing fabricated
+If the capture file cannot be fetched or parsed, the page MUST show a visible message naming the file and the failure and MUST leave every value cell at its initial dash. No figure is invented.
+Acceptance: serving the page with the capture file removed shows the message within 5 s and every cumulative token cell still reads `-`.
+
+### REQ-011: Link from the landing page
+The landing page `docs/index.html` MUST link to `replay/` from its judge-actions section, and that section MUST show the replay as one of the keyless actions. The landing page heading count of judge actions is updated to match. (Pinned decision 2026-10-28: the report page `docs/report/index.html` gets no link, because it is written by the `report` command and the Specs compare the regenerated files byte for byte with the committed ones; a generator change is src/, out of scope.)
+Acceptance: `grep -c 'href="replay/"' docs/index.html` prints at least 1; the landing page heading reads the new count of actions and the list has that many items; `docs/report/index.html` is byte-identical to before.
+
+### REQ-012: README keyless actions updated inside the Judges-without-a-GPU section
+In README.md, inside `### Judges without a GPU` only: action 4's replay command names `results/20261026T124721Z-cloudgpu.json` instead of the nebius file, and the hosted replay page joins the list as a keyless action. The section's line count SHOULD stay unchanged (edit action 3 to cover both the report page and the replay page, or edit in place), so the build-log matrix rows that cite README line numbers do not shift. The sentence in `## Where Nebius Token Factory accelerated the workflow` that says the nebius file "drives the keyless replay in Judges without a GPU" becomes false once action 4 names the cloudgpu file; it MUST be reworded to a true statement (for example that the file can be replayed with the same command, with tokens and latency and the energy cells `N/A` (the dashboard page shows no cost cell)).
+Acceptance: `dotnet run --project src/AgentJoules.Cli -- report --verify-readme` exits 0; `grep -c '20261025T133440Z-nebius.json --speed' README.md` prints 0; `grep -c 'agent-joules/replay/' README.md` prints at least 1; the heading `### Judges without a GPU` occurs exactly once; `wc -l README.md` prints 254, or the build-log carries dated clauses on every matrix row whose README line cite shifted.
+
+### REQ-013: Records
+`docs/build-log.md` MUST carry one dated bullet for this feature with the capture commands, the two captures' counts, the Pages URL and the gate record, plus the dated correction clause owed from ea3f959 (its last clause says no unit test reads the files changed after 11:03Z; ReadmeBlockTests.CloudGpuConsequences.cs and LaptopResultsTests.cs read docs/build-log.md). `docs/devpost-checklist.md` Try-it-out row names the replay URL beside the demo URL. `docs/design/technical-design.md` section 2.1 file tree lists `docs/replay/` and, as the drift audit of 2026-10-28 noted, `docs/index.html` and `docs/Infographics.png`.
+Acceptance: `grep -c 'hosted-replay\|docs/replay/' docs/build-log.md` prints at least 1 and the bullet is dated 2026-10-28 or later; `grep -c 'replay/' docs/devpost-checklist.md` prints at least 1; `grep -c 'docs/replay' docs/design/technical-design.md` prints at least 1.
+
+### REQ-014: Whole-run time axis on the hosted page
+The board power chart of the hosted page MUST show the whole recorded run on one fixed time axis, from the first power sample's recorded offset (rounded down to a multiple of 10 s, so the empty warm-up band before the first step is not drawn; user decision 2026-10-28, "remove first 30 seconds where there are no data") to the last step end of the chosen capture (about 30 to 82 s for the cloudgpu run) instead of the dashboard page's sliding 120-second window, so every step stays visible when the replay ends. The chart title text names the window it shows. (User decision 2026-10-28, "make the chart wider": the longer time axis, not a taller plot.)
+Acceptance: at the end of the cloudgpu replay the x axis starts at 30 s and ends at or after the last step's recorded end offset (81.16 s), the first step's series is drawn at its true offset of about 30 s, and the chart subtitle no longer says "over the last 120 seconds".
+
+### REQ-015: Running rows on the hosted page
+The hosted page MUST show the `Running net energy` cell of the active agent as the step's recorded net energy the moment the step starts: the `netJoules` of that step's step-completed record later in the capture, labelled `measured`, shown at once like `GPU power now` (user decision 2026-10-28: no climbing counter, "the API would give the Joule number at once"); the replay holds every record in advance, so the value is the recorded one, never computed. At the step end the page's existing handling fills `Net energy (last step)` and the cumulative row as before. The `Output chunks (running)` row MUST be removed from the cards of the hosted page, because the run file keeps no chunk count (`outputChunks` is null), so no replay can report it. The banner MUST say that the replay shows recorded per-step figures and that the running energy cell shows the step's recorded net energy from the start of the step. (User decision 2026-10-28 after the explanation that the run file keeps per-step aggregates only.)
+Acceptance: during a cloudgpu step at 1x the Running net energy cell shows, within one delivery of the step start, the J value equal to that step's `netJoules` in the capture (within 1 J) with the `measured` badge, and at the step end `Net energy (last step)` shows the same value; the page source contains no `Output chunks` label text; the string `no-progress` never appears on the rendered page; the banner names the recorded net energy.
+
+## Edge cases
+
+### EDGE-001: Hidden tab
+When the tab is in the background, browsers throttle timers. The player MUST deliver every event eventually and in order; on return to the tab the page MUST catch up without skipping events.
+Acceptance: a Playwright run that hides the page for 20 s mid-replay still ends with the run-completed event delivered and 155 events counted.
+
+### EDGE-002: Speed change mid-replay
+Changing the speed during playback MUST apply to the gaps not yet waited and MUST NOT re-deliver or skip events.
+Acceptance: switching 4x to 8x after the tenth step delivers the remaining events once each; the delivered count at the end is 155.
+
+### EDGE-003: Selector change mid-replay
+Choosing the other run during playback MUST cancel the pending deliveries of the current capture before the new one starts, so no event of the old capture lands on the new state.
+Acceptance: after switching mid-replay the header's tier and the agent model line match the new capture from the first delivered event, and no console error appears.
+
+### EDGE-004: Capture served with a Content-Type other than text/event-stream
+GitHub Pages serves `.sse` with a generic type. The player MUST fetch the file as text regardless of the type.
+Acceptance: the Pages URL of each capture answers 200 and the page on Pages plays to run-completed.
+
+### EDGE-005: Pages root and report page unchanged in behaviour
+The landing page and the report page keep their no-script property and their existing CSP; only the links of REQ-011 are added.
+Acceptance: `grep -c '<script' docs/index.html docs/report/index.html` prints 0 for both; the report page's CSP meta line is byte-identical to before.
+
+## Out of scope
+
+- No `--skip` option or any other change to the CLI or to src/; the dashboard page's embedded resource stays as is.
+- No Codespaces, devcontainer or Dockerfile.
+- No change to the Demo URL, which stays https://tomas-rampas.github.io/agent-joules/report/.
+- No change to the v0.2.0 tag or the release assets.
+- No nebius or nvidia capture on the page.
+- No video work.
+- No change to the generated results block of the README.
+
+## Definition of Done
+
+- [ ] Every REQ and EDGE acceptance criterion above is met
+- [ ] Project quality bar passes (format exit 0, build 0 warnings 0 errors, unit tests green, Specs green, `report --verify-readme` exit 0)
+- [ ] No work outside the Requirements (Out of scope respected)
+- [ ] A Playwright run against the local file set confirms REQ-004 to REQ-008 and EDGE-001 to EDGE-003, and a second run against https://tomas-rampas.github.io/agent-joules/replay/ after the Pages build confirms REQ-003 and EDGE-004
+- [ ] The final-state figures of the cloudgpu replay on the hosted page equal the final state of `dashboard --replay results/20261026T124721Z-cloudgpu.json` run locally (Planner, Researcher, Writer, Reviewer cumulative tokens and cumulative net energy)

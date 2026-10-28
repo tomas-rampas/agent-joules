@@ -40,6 +40,8 @@ agent-joules/
   config/appsettings.json  config/prices.json  config/prices.schema.json  config/judge-rubric.md
   tasks/01-incident-brief.json  tasks/02-api-migration.json  tasks/03-energy-explainer.json
   docs/results-schema.json  docs/.nojekyll  docs/report/ (generated)
+  docs/index.html (the landing page)  docs/Infographics.png
+  docs/replay/ (the hosted replay: index.html, events-cloudgpu.sse, events-local.sse)
   .github/workflows/ci.yml
 ```
 
