@@ -247,7 +247,7 @@ None of these attributes energy to an individual agent step of a multi-agent wor
 
 ## Hackathon submission
 
-Demo URL: https://tomas-rampas.github.io/agent-joules/report/ (the static report `docs/report/index.html` written by `report`, published by GitHub Pages from the `docs/` folder at the `/report/` path; the empty `docs/.nojekyll` stops Pages from processing the folder with Jekyll). The pitch and story are in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md), the design in [docs/design/technical-design.md](docs/design/technical-design.md) and the plan in [docs/plan/plan.md](docs/plan/plan.md). The submitted release is v0.2.0 (https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0) with the CLI build, the results and the report as assets; v0.1.0 marks the M7 exit snapshot.
+Demo URL: https://tomas-rampas.github.io/agent-joules/report/ (the static report `docs/report/index.html` written by `report`, published by GitHub Pages from the `docs/` folder at the `/report/` path; the empty `docs/.nojekyll` stops Pages from processing the folder with Jekyll). The site root https://tomas-rampas.github.io/agent-joules/ is a one-page presentation for the judges (`docs/index.html`, no script, no external resource) that links to the report. The pitch and story are in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md), the design in [docs/design/technical-design.md](docs/design/technical-design.md) and the plan in [docs/plan/plan.md](docs/plan/plan.md). The submitted release is v0.2.0 (https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0) with the CLI build, the results and the report as assets; v0.1.0 marks the M7 exit snapshot.
 
 ## License
 

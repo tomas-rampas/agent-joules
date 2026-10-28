@@ -10,7 +10,7 @@ Agent Joules v0.2.0 is the documentation follow-up to v0.1.0. The code of the CL
 - tests/AgentJoules.Specs: the report fixture copies the screenshot into its hermetic workspace, so the AJ-152 determinism scenario stays green with the file present.
 - The first release documentation commit: docs/release-notes-v0.2.0.md (this file), README.md (the Hackathon submission paragraph), docs/devpost-checklist.md, docs/plan/plan.md, docs/plan/stories/M7-hardening-and-submission.md and the docs/build-log.md record name v0.2.0 as the submitted release; v0.1.0 marks the M7 exit snapshot 98cc246.
 - The same commit: the dashboard header label that lists the agent-to-model pairs reads `Agent models` instead of `Models` (the page is embedded in AgentJoules.Dashboard.dll, so the fdd asset carries it), and the README status line and the Devpost story call Agent Joules a hackathon prototype.
-- The second release documentation commit: docs/index.html, a static page that redirects the GitHub Pages site root to report/ (the root answered 404 before it), beside the screenshot replacement above.
+- The second release documentation commit: docs/index.html, a static page that redirects the GitHub Pages site root to report/ (the root answered 404 before it), beside the screenshot replacement above. On 2026-10-28, after this tag, the same path became a judge-facing landing page that links to report/ (docs/build-log.md, the 2026-10-28 landing-page bullet); the tag stays at b96c22e, so the tagged tree keeps the redirect (the release assets never held docs/index.html).
 
 Everything else, the features, the known limitations, the honesty rules and the verification steps, is as described in the v0.1.0 release notes (docs/release-notes-v0.1.0.md at this commit).
 

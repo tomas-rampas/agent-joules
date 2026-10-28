@@ -2,11 +2,248 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=report/">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Joules</title>
-<link rel="canonical" href="report/">
+<meta name="description" content="Agent Joules measures GPU energy, tokens, latency and cost for every step of a Microsoft Agent Framework workflow, across four NVIDIA Nemotron tiers.">
+<style>
+:root{--bg:#070d1a;--bg2:#0b1424;--card:#101a2c;--line:#1e2d44;--txt:#c7d0de;--mut:#9fb0c7;--acc:#7CFF5A;--acc2:#4ade80;--blue:#5aa9ff;--yel:#facc15;--gry:#9aa7ba}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--txt);font:16px/1.6 Inter,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
+a{color:var(--acc2);text-underline-offset:3px}
+a:focus-visible,.btn:focus-visible{outline:3px solid var(--blue);outline-offset:3px;border-radius:4px}
+h1,h2,h3{color:#fff;margin:0;line-height:1.2}
+code{font-family:ui-monospace,"Cascadia Code",Consolas,monospace;font-size:.88em;color:#e6edf7;background:#0a1322;border:1px solid var(--line);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+pre{margin:12px 0 0;background:#0a1322;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;max-width:100%}
+pre code{background:none;border:0;padding:0;white-space:pre;overflow-wrap:normal}
+.top{border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between;align-items:center;padding-top:12px;padding-bottom:12px}
+.eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.top nav{display:flex;gap:20px;flex-wrap:wrap;font-size:.92rem}
+.hero{padding:56px 0 32px;background:radial-gradient(ellipse 50% 70% at 85% 10%,rgba(124,255,90,.13),transparent 70%)}
+.hero h1{font-size:clamp(2.6rem,8vw,4.6rem);font-weight:800;letter-spacing:-.02em}
+.j{color:var(--acc)}
+.sub{font-size:clamp(1.2rem,3vw,1.7rem);font-weight:700;color:#fff;margin:8px 0 12px}
+.lead{max-width:780px;font-size:1.08rem;margin:0 0 24px}
+.btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-block;padding:12px 22px;border-radius:8px;font-weight:700;text-decoration:none;border:1px solid var(--acc2)}
+.btn.p{background:var(--acc);color:#06210a;border-color:var(--acc)}
+.btn.s{color:#fff;background:transparent}
+.status{margin:20px 0 0;font-size:.92rem;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+section{padding:28px 0}
+.sh{display:flex;gap:12px;align-items:baseline;margin-bottom:16px;flex-wrap:wrap}
+.sh .n{color:var(--acc);font-weight:800;font-size:1.1rem}
+.sh h2{font-size:1.25rem;text-transform:uppercase;letter-spacing:.05em;font-weight:800}
+.card h3{font-size:1.05rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:14px}
+.card h3 .n{color:var(--acc);margin-right:8px}
+figure{margin:0}
+figcaption{margin-top:12px;font-size:.92rem;color:var(--mut)}
+img{max-width:100%;height:auto;display:block;border-radius:8px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.note{font-size:.88rem;color:var(--mut);margin:14px 0 0}
+.flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.flow .b{border:1px solid var(--acc2);border-radius:8px;padding:6px 10px;font-weight:700;color:#fff;font-size:.9rem;background:#0a1322}
+.flow .ar{color:var(--acc);font-weight:800}
+.flow .par{display:flex;flex-direction:column;gap:6px}
+.stack{border:1px solid var(--line);background:#0c1626;border-radius:8px;padding:8px 12px;text-align:center;font-size:.9rem;color:#fff;margin-bottom:12px}
+.stack small{display:block;color:var(--mut)}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.tile{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#0c1626;font-size:.88rem}
+.tile b{display:block;color:#fff}
+.tile span{color:var(--mut)}
+.grp{border:1px solid;border-radius:10px;padding:10px;margin-bottom:12px}
+.grp.g{border-color:var(--acc2)}
+.grp.h{border-color:var(--blue)}
+.grp h4{margin:0 0 8px;font-size:.82rem;letter-spacing:.1em;text-transform:uppercase}
+.grp.g h4{color:var(--acc)}
+.grp.h h4{color:var(--blue)}
+.it{border:1px solid var(--line);background:#0c1626;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:.9rem}
+.it b{display:block;color:#fff}
+.it span{color:var(--mut)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0;padding:0;list-style:none}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 11px;font-size:.82rem;color:#e6edf7;background:#0c1626;white-space:nowrap}
+.chip:before{content:"";width:9px;height:9px;border-radius:50%;background:var(--gry)}
+.chip.m:before{background:var(--acc)}.chip.e:before{background:var(--blue)}.chip.y:before{background:var(--yel)}
+.chip.d{border-style:dashed}
+.tier{display:flex;flex-direction:column}
+.tier h3{text-transform:none;letter-spacing:0;font-size:1.25rem;margin-bottom:2px}
+.tier .where{font-size:.85rem;color:var(--mut);margin:0 0 10px}
+.big{font-size:2rem;font-weight:800;color:var(--acc);line-height:1.1;margin:4px 0}
+.big.na{color:var(--gry)}
+.big small{font-size:.8rem;font-weight:600;color:var(--mut);display:block}
+.tier dl{margin:10px 0;font-size:.88rem;display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.tier dt{color:var(--mut)}.tier dd{margin:0;color:#fff;text-align:right;overflow-wrap:anywhere}
+.tier .model{font-size:.85rem;overflow-wrap:anywhere}
+.tier .chips{margin-top:auto}
+ol.acts{margin:0;padding-left:22px}
+ol.acts li{margin-bottom:12px}
+ol.acts pre{margin-top:6px}
+ul.plain{margin:0;padding-left:20px}
+ul.plain li{margin-bottom:10px;overflow-wrap:anywhere}
+.card p{margin:0}
+footer{border-top:1px solid var(--line);margin-top:24px;padding:24px 0 40px;font-size:.92rem}
+footer .wrap{display:flex;flex-wrap:wrap;gap:10px 28px;justify-content:space-between}
+footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
+@media(max-width:1000px){.grid3,.grid2{grid-template-columns:1fr}.grid4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.grid4{grid-template-columns:1fr}.hero{padding-top:36px}}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
 </head>
 <body>
-<p>The Agent Joules demo page is the static report at <a href="report/">report/</a>.</p>
+<header class="top"><div class="wrap">
+<span class="eyebrow">Nebius &times; NVIDIA Global AI Hackathon</span>
+<nav aria-label="Primary"><a href="report/">Static report</a><a href="https://github.com/tomas-rampas/agent-joules">GitHub</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a></nav>
+</div></header>
+
+<main>
+<div class="hero"><div class="wrap">
+<h1>Agent <span class="j">Joules</span></h1>
+<p class="sub">Which agent step burns the most energy?</p>
+<p class="lead">GPU energy per agent step, measured on your GPUs. Agent Joules wraps each agent of a Microsoft Agent Framework workflow in a metered chat client that records tokens, latency and cost for every model call, and on a GPU you control, joules and watts through NVML.</p>
+<div class="btns"><a class="btn p" href="report/">Open the report</a><a class="btn s" href="https://github.com/tomas-rampas/agent-joules">View on GitHub</a></div>
+<p class="status">Hackathon prototype &middot; MIT licensed &middot; Every measured number in the text of this page comes from a committed results file.</p>
+</div></div>
+
+<div class="wrap">
+<section aria-label="Overview infographic">
+<figure class="card">
+<img src="Infographics.png" width="1536" height="1024" alt="Infographic: Agent Joules attributes energy, power, tokens, latency, cost and quality to every step of a Planner, Researcher, Writer, Reviewer workflow, runs across four NVIDIA Nemotron tiers and keeps the evidence reviewable.">
+<figcaption>Agent Joules at a glance</figcaption>
+</figure>
+</section>
+
+<section aria-labelledby="h-how"><h2 id="h-how" class="sr-only">How it works</h2>
+<div class="grid3">
+<article class="card">
+<h3><span class="n">01 /</span>Attribute every step</h3>
+<div class="flow" role="img" aria-label="Planner, then Researcher and Writer, then Reviewer">
+<span class="b">Planner</span><span class="ar">&rarr;</span><span class="par"><span class="b">Researcher</span><span class="b">Writer</span></span><span class="ar">&rarr;</span><span class="b">Reviewer</span></div>
+<div class="stack">.NET 10 &middot; Microsoft Agent Framework<small>one metered chat client per agent</small></div>
+<div class="tiles">
+<div class="tile"><b>Energy</b><span>J</span></div><div class="tile"><b>Power</b><span>W</span></div>
+<div class="tile"><b>Tokens</b><span>in + out</span></div><div class="tile"><b>Latency</b><span>ms</span></div>
+<div class="tile"><b>Cost</b><span>estimated</span></div><div class="tile"><b>Quality</b><span>model-judged</span></div>
+</div>
+<p class="note">NVML reads GPU-board energy. An idle baseline separates gross and net joules. Default metering serializes calls to avoid overlapping energy windows.</p>
+</article>
+
+<article class="card">
+<h3><span class="n">02 /</span>Run across four tiers</h3>
+<div class="grp g"><h4>Energy measured</h4>
+<div class="it"><b>Local GPU</b><span>RTX 3080 Ti Laptop &middot; NVIDIA NIM</span></div>
+<div class="it"><b>Nebius AI Cloud</b><span>NVIDIA H100 80GB &middot; NVIDIA NIM</span></div></div>
+<div class="grp h"><h4>Hosted APIs &middot; energy N/A</h4>
+<div class="it"><b>NVIDIA hosted</b><span>build.nvidia.com</span></div>
+<div class="it"><b>Nebius Token Factory</b><span>hosted NVIDIA Nemotron</span></div></div>
+<p class="note">NVIDIA Nemotron models power all four tiers. Models differ across tiers; results are not an efficiency ranking.</p>
+</article>
+
+<article class="card">
+<h3><span class="n">03 /</span>Make the evidence reviewable</h3>
+<ul class="plain"><li>Committed JSON results</li><li>Static report + live dashboard</li><li>OpenTelemetry metrics</li></ul>
+<ul class="chips" aria-label="Value labels"><li class="chip m">measured</li><li class="chip e">estimated</li><li class="chip y">model-judged</li><li class="chip">N/A</li><li class="chip d">not-reported</li></ul>
+<p class="note">Missing values are never zero. Energy covers the GPU board only.</p>
+</article>
+</div>
+</section>
+
+<section aria-labelledby="res">
+<div class="sh"><h2 id="res">Results</h2></div>
+<p style="margin:0 0 16px">One workflow, three tasks, three repeats per tier. Run totals from the committed results files; energy is GPU-board energy only, judge calls excluded.</p>
+<div class="grid4">
+<article class="card tier">
+<h3>local</h3><p class="where">GPU NVIDIA GeForce RTX 3080 Ti Laptop GPU</p>
+<p class="model"><code>nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1</code> (BF16, NIM 1.8.5)</p>
+<div class="big">33134.2 J<small>net energy</small></div>
+<dl><dt>Run date</dt><dd>2026-10-27</dd><dt>Gross J</dt><dd>43906.6</dd><dt>Input tokens</dt><dd>25770</dd><dt>Output tokens</dt><dd>17556</dd><dt>Cost</dt><dd>0.0028 EUR estimated</dd></dl>
+<ul class="chips"><li class="chip m">measured</li><li class="chip e">estimated</li></ul>
+</article>
+<article class="card tier">
+<h3>cloudgpu</h3><p class="where">GPU NVIDIA H100 80GB HBM3 (Nebius AI Cloud, preset 1gpu-16vcpu-200gb)</p>
+<p class="model"><code>nvidia/nemotron-3-nano</code> (FP8)</p>
+<div class="big">10389.6 J<small>net energy</small></div>
+<dl><dt>Run date</dt><dd>2026-10-26</dd><dt>Gross J</dt><dd>16364.1</dd><dt>Input tokens</dt><dd>25379</dd><dt>Output tokens</dt><dd>15889</dd><dt>Cost</dt><dd>0.0647 USD estimated</dd></dl>
+<ul class="chips"><li class="chip m">measured</li><li class="chip e">estimated</li></ul>
+</article>
+<article class="card tier">
+<h3>nvidia</h3><p class="where">hosted build.nvidia.com</p>
+<p class="model"><code>nvidia/nemotron-3-nano-omni-30b-a3b-reasoning</code></p>
+<div class="big na">N/A<small>net energy (hosted-tier)</small></div>
+<dl><dt>Run date</dt><dd>2026-10-25</dd><dt>Gross J</dt><dd>N/A (hosted-tier)</dd><dt>Input tokens</dt><dd>25550</dd><dt>Output tokens</dt><dd>16548</dd><dt>Cost</dt><dd>N/A (no priced step)</dd></dl>
+<ul class="chips"><li class="chip m">measured</li><li class="chip">N/A</li></ul>
+</article>
+<article class="card tier">
+<h3>nebius</h3><p class="where">hosted Nebius Token Factory</p>
+<p class="model"><code>nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B</code></p>
+<div class="big na">N/A<small>net energy (hosted-tier)</small></div>
+<dl><dt>Run date</dt><dd>2026-10-25</dd><dt>Gross J</dt><dd>N/A (hosted-tier)</dd><dt>Input tokens</dt><dd>26554</dd><dt>Output tokens</dt><dd>16991</dd><dt>Cost</dt><dd>0.0057 USD estimated</dd></dl>
+<ul class="chips"><li class="chip m">measured</li><li class="chip e">estimated</li><li class="chip">N/A</li></ul>
+</article>
+</div>
+<p class="note">Models differ across tiers: local nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1 (BF16), cloudgpu nvidia/nemotron-3-nano (FP8), nvidia nvidia/nemotron-3-nano-omni-30b-a3b-reasoning, nebius nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B. The quality judge is nvidia/nemotron-3-nano-omni-30b-a3b-reasoning on the nvidia tier.</p>
+<p style="margin:10px 0 0"><a href="report/">Full per-step tables and chart in the static report &rarr;</a></p>
+</section>
+
+<section aria-labelledby="dash">
+<div class="sh"><h2 id="dash">The live dashboard</h2></div>
+<figure class="card">
+<img src="report/dashboard.png" width="1906" height="1532" loading="lazy" alt="Agent Joules live dashboard in dark theme: one card per agent with GPU power, net energy, tokens and latency, and a GPU board power chart coloured by active agent.">
+<figcaption>The dashboard during a three-task rehearsal run on the local tier: one card per agent with GPU power now, running net energy, tokens and latency, each value carrying its label, and GPU board power over the last 120 seconds coloured by the active agent above the measured idle baseline. Values tagged estimated are running estimates and never enter results files. The run file of this rehearsal is git-ignored and outside results/, so none of the figures in the image is in a committed results file; the committed runs are in the static report.</figcaption>
+</figure>
+<p style="margin:16px 0 0">Replay without a GPU or key:</p>
+<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261025T133440Z-nebius.json --speed 4 --exit-after 60</code></pre>
+</section>
+
+<section aria-labelledby="h-nn"><h2 id="h-nn" class="sr-only">Nemotron and Nebius</h2>
+<div class="grid2">
+<article class="card">
+<h3>How it uses NVIDIA Nemotron</h3>
+<ul class="plain">
+<li><b>local</b> <code>nvidia/Llama-3.1-Nemotron-Nano-4B-v1.1</code> served by an NVIDIA NIM container on the laptop GPU.</li>
+<li><b>cloudgpu</b> <code>nvidia/nemotron-3-nano</code> served by an NVIDIA NIM container on a Nebius AI Cloud VM with one NVIDIA H100 80GB.</li>
+<li><b>nvidia</b> <code>nvidia/nemotron-3-nano-omni-30b-a3b-reasoning</code> on the hosted build.nvidia.com endpoint.</li>
+<li><b>nebius</b> <code>nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B</code> on the Nebius Token Factory endpoint.</li>
+</ul>
+</article>
+<article class="card">
+<h3>Where Nebius came in</h3>
+<p>The nebius tier calls Nebius Token Factory, which served <code>nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B</code> for the whole workflow: a hosted comparison tier with no GPU to own or rent, measured for tokens, latency and cost from a laptop with a key alone.</p>
+<p style="margin-top:12px">The cloudgpu tier ran on one Nebius AI Cloud GPU VM (preset 1gpu-16vcpu-200gb, region eu-north1) where the NIM container and the NVML meter share one H100; rental 1.509 GPU-hours (estimated) at USD 4.63 per hour (the console price), about USD 7 for the whole rental window (estimated; docs/cloudgpu-run.md), VM deleted after the run.</p>
+</article>
+</div>
+</section>
+
+<section aria-labelledby="judges">
+<div class="sh"><h2 id="judges">Judges without a GPU: four actions, no key needed</h2></div>
+<div class="card">
+<ol class="acts">
+<li><code>dotnet test</code> runs the unit tests.</li>
+<li><code>dotnet run --project src/AgentJoules.Cli -- validate results/</code> checks the committed results files against the schema and prints <code>Validated &lt;n&gt; files</code>.</li>
+<li>Open <code>docs/report/index.html</code>, the committed report page, no script and no server.</li>
+<li>Run the dashboard replay command:
+<pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261025T133440Z-nebius.json --speed 4 --exit-after 60</code></pre></li>
+</ol>
+</div>
+</section>
+
+<section aria-labelledby="honesty">
+<div class="sh"><h2 id="honesty">Honesty rules</h2></div>
+<div class="grid3">
+<article class="card"><h3>Five labels, never zero</h3><p>measured, estimated, model-judged, N/A, not-reported. A missing value is never written as zero.</p></article>
+<article class="card"><h3>Generated, not typed</h3><p>The README results block is generated from the committed results files by <code>report --update-readme</code>.</p></article>
+<article class="card"><h3>GPU board only</h3><p>Energy is GPU-board energy. Judge calls are excluded from workflow totals. Models differ across tiers and are not ranked.</p></article>
+</div>
+</section>
+</div>
+</main>
+
+<footer><div class="wrap">
+<span>Agent Joules &middot; Hackathon prototype &middot; MIT licensed</span>
+<nav aria-label="Footer"><a href="https://github.com/tomas-rampas/agent-joules">Repository</a><a href="report/">Static report</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a><a href="https://github.com/tomas-rampas/agent-joules/blob/main/docs/methodology.md">Methodology</a><a href="https://github.com/tomas-rampas/agent-joules#readme">README</a></nav>
+</div></footer>
 </body>
 </html>
