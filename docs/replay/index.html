@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-4OenSTDjowuyjkf+EqyJearX/ta4dBKK6SaImYVsOp0='; style-src 'sha256-2U1O1PSG9BkIagXqknQTPSGdkpK/1J+D5MqFsq6mgMQ='; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-8EKwmxrw2NrYOYf/EITS/P2P3L9Qa0eE+pKMJGMei94='; style-src 'sha256-2U1O1PSG9BkIagXqknQTPSGdkpK/1J+D5MqFsq6mgMQ='; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Agent Joules dashboard replay</title>
 <style>
 :root {
@@ -280,6 +280,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
     <span class="item"><span class="hk">Mode</span><span id="hdr-mode">-</span></span>
     <span class="item"><span class="hk">Progress</span><span id="hdr-progress">-</span></span>
     <span class="item"><span class="hk">Flags</span><span id="hdr-flags">-</span></span>
+    <span class="item"><span class="hk">Cost (run)</span><span id="hdr-cost">-</span><span id="hdr-cost-badge" class="badge empty"></span></span>
     <span id="hdr-replay-marker" class="banner" hidden>replay</span>
     <span id="hdr-replay" class="banner" hidden>power shown as recorded per-step average</span>
     <span id="hdr-reconnecting" class="banner" hidden>reconnecting</span>
@@ -328,7 +329,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 <footer id="footer">
   <p>Energy is GPU-board energy only.</p>
   <p id="power-note">NVML power on this GPU class (Ampere and newer, except GA100) is a one-second driver average; the chart shows that average at the forwarding interval, not instantaneous power.</p>
-  <p>Every value on this page is a recorded figure of the committed run file; the running net energy cell shows the step's recorded net energy from the start of the step, and no value is estimated during the replay.</p>
+  <p>Every value on this page except the cost sums is a recorded figure of the committed run file; the running net energy cell shows the step's recorded net energy from the start of the step, and the cost rows sum the file's estimated per-step costs.</p>
   <p><a id="repo-link" href="https://github.com/tomas-rampas/agent-joules">Repository README</a></p>
 </footer>
 <script>
@@ -353,6 +354,7 @@ function freshState() {
     agentsOmitted: 0,
     snapshotDegraded: false,
     lastStep: Object.create(null),
+    costs: Object.create(null),
     watts: null,
     sampleSeconds: null,
     points: [],
@@ -378,6 +380,8 @@ const hdr = {
   mode: document.getElementById("hdr-mode"),
   progress: document.getElementById("hdr-progress"),
   flags: document.getElementById("hdr-flags"),
+  cost: document.getElementById("hdr-cost"),
+  costBadge: document.getElementById("hdr-cost-badge"),
   replayMarker: document.getElementById("hdr-replay-marker"),
   replay: document.getElementById("hdr-replay"),
   reconnecting: document.getElementById("hdr-reconnecting")
@@ -511,6 +515,15 @@ function handleStepProgress(item, data) {
 function handleStepCompleted(item, data) {
   if (isObject(data.step) && typeof data.step.agent === "string") {
     state.lastStep[data.step.agent] = { step: data.step, flags: textsOf(data.flags) };
+    const cost = data.step.cost;
+    if (isObject(cost) && typeof cost.value === "number" && Number.isFinite(cost.value) && typeof cost.currency === "string") {
+      const sum = state.costs[data.step.agent];
+      if (sum && sum.currency === cost.currency) {
+        sum.value += cost.value;
+      } else {
+        state.costs[data.step.agent] = { value: cost.value, currency: cost.currency };
+      }
+    }
   }
   applyAgents(data);
 }
@@ -659,6 +672,7 @@ function buildAgentCards(names, configured) {
     ["avg", "Average power (last step)"],
     ["tokens-in", "Input tokens (cumulative)"],
     ["tokens-out", "Output tokens (cumulative)"],
+    ["cost", "Cost (cumulative)"],
     ["latency", "Latency (last step)"],
     ["flags", "Flags"]
   ];
@@ -703,6 +717,36 @@ function show(entry, key, metric) {
   setClass(row.badge, view.label ? "badge " + labelClass(view.label) + (view.note.length > 14 ? " long" : "") : "badge empty");
 }
 
+// A recorded cost: the currency the records name and four significant digits; a dash until there is one.
+function costText(sum) {
+  return sum ? sum.currency + " " + sum.value.toPrecision(4) : "-";
+}
+
+function showCost(valNode, badgeNode, text) {
+  const long = text.length > 13;
+  setText(valNode, text);
+  setText(badgeNode, text === "-" ? "" : "estimated");
+  setClass(badgeNode, text === "-" ? "badge empty" : "badge estimated");
+  if (valNode.id === "") {
+    setClass(valNode, long ? "val long" : "val");
+  }
+}
+
+function runCostText() {
+  const totals = state.completed && isObject(state.completed.totals) ? state.completed.totals.costByCurrency : null;
+  if (!isObject(totals)) {
+    return "-";
+  }
+  const parts = [];
+  Object.keys(totals).forEach(function (key) {
+    const entry = totals[key];
+    if (isObject(entry) && typeof entry.value === "number" && Number.isFinite(entry.value) && typeof entry.currency === "string") {
+      parts.push(costText({ currency: entry.currency, value: entry.value }));
+    }
+  });
+  return parts.length > 0 ? parts.join(", ") : "-";
+}
+
 function paintHeader() {
   const run = state.run;
   const environment = state.environment;
@@ -723,6 +767,7 @@ function paintHeader() {
   const flags = source ? textsOf(source.flags) : [];
   setText(hdr.flags, flags.length > 0 ? flags.join(", ") : "none");
   setText(hdr.progress, progress);
+  showCost(hdr.cost, hdr.costBadge, runCostText());
   hdr.replayMarker.hidden = !state.replay;
   hdr.replay.hidden = !state.replay;
   hdr.reconnecting.hidden = state.connected;
@@ -747,6 +792,7 @@ function paintCards() {
     show(entry, "avg", step ? step.avgW : null);
     show(entry, "tokens-in", agent.cumulativeInputTokens);
     show(entry, "tokens-out", agent.cumulativeOutputTokens);
+    showCost(entry.rows.cost.val, entry.rows.cost.badge, costText(state.costs[agent.agent]));
     show(entry, "latency", step ? step.latencyMs : null);
     const runningFlags = textsOf(agent.flags);
     const flags = runningFlags.length > 0 ? runningFlags : (last ? last.flags : []);

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using AgentJoules.TestSupport;
@@ -178,6 +179,44 @@ public sealed partial class HostedReplayTests
         int end = page.IndexOf(close, start, StringComparison.Ordinal);
         Assert.True(end >= 0, close + " not found");
         return Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(page[start..end])));
+    }
+
+    [Fact]
+    public void REQ_016_the_page_has_the_cost_rows()
+    {
+        string page = ReplayPage();
+
+        Assert.Contains("Cost (cumulative)", page, StringComparison.Ordinal);
+        Assert.Contains("Cost (run)", page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void REQ_016_each_capture_carries_one_currency_of_estimated_step_costs_summing_to_the_run_total()
+    {
+        foreach ((string file, _) in Captures)
+        {
+            string[] data = DataLines(file);
+            var currencies = new HashSet<string>(StringComparer.Ordinal);
+            double sum = 0;
+            int steps = 0;
+            foreach (string line in data.Where(static line => line.Contains("\"type\":\"step-completed\"", StringComparison.Ordinal)))
+            {
+                using JsonDocument record = JsonDocument.Parse(line["data:".Length..]);
+                JsonElement cost = record.RootElement.GetProperty("data").GetProperty("step").GetProperty("cost");
+                Assert.Equal("estimated", cost.GetProperty("label").GetString());
+                Assert.Equal(JsonValueKind.Number, cost.GetProperty("value").ValueKind);
+                _ = currencies.Add(cost.GetProperty("currency").GetString() ?? string.Empty);
+                sum += cost.GetProperty("value").GetDouble();
+                steps++;
+            }
+
+            Assert.Equal(36, steps);
+            string currency = Assert.Single(currencies);
+            using JsonDocument completed = JsonDocument.Parse(data[^1]["data:".Length..]);
+            JsonElement total = completed.RootElement.GetProperty("data").GetProperty("totals").GetProperty("costByCurrency").GetProperty(currency);
+            Assert.Equal("estimated", total.GetProperty("label").GetString());
+            Assert.Equal(total.GetProperty("value").GetDouble(), sum, 9);
+        }
     }
 
     [Fact]

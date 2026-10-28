@@ -86,7 +86,7 @@ Tags: 13
 
 Demo URL: https://tomas-rampas.github.io/agent-joules/report/ because the static report page served by GitHub Pages from the docs folder of main satisfies "a working demo, hosted application, or test build".
 
-The Pages address is inferred from the standard project-pages pattern; the user confirms it after Pages is enabled (see User actions). Fallbacks, in order: the v0.2.0 release (the submitted release), then the public video URL.
+The hosted replay page https://tomas-rampas.github.io/agent-joules/replay/ (the live dashboard replaying the committed cloudgpu and local runs in the browser, no key and no server) is a second satisfier of "a working demo, hosted application, or test build", after the report page. The Pages address is inferred from the standard project-pages pattern; the user confirms it after Pages is enabled (see User actions). Fallbacks, in order: the v0.2.0 release (the submitted release), then the public video URL.
 
 ## Elevator pitch
 
@@ -183,7 +183,7 @@ gh run view <id> --json jobs --jq '.jobs[] | [.name,.conclusion]'
 
 Both runners (`build (windows-latest)` and `build (ubuntu-latest)`) must show `success`. If a runner is red: paste the failing step's name and its last lines to the builder; the builder records the finding in `docs/build-log.md`, prepares the fix as a local commit for you to push, and the submission does not wait for it (REQ-024 says the first run is not a Definition of Done item).
 
-Enable GitHub Pages for the report (Settings, Pages, Deploy from a branch, branch `main`, folder `/docs`), or use the command, then check the address:
+Enable GitHub Pages for the report (the site now serves the landing page, the report and the hosted replay) (Settings, Pages, Deploy from a branch, branch `main`, folder `/docs`), or use the command, then check the address:
 
 User action delegated to the session at the M7 exit (the user's decision of 2026-10-27 12:11Z):
 

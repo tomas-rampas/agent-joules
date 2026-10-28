@@ -96,7 +96,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
 <body>
 <header class="top"><div class="wrap">
 <span class="eyebrow">Nebius &times; NVIDIA Global AI Hackathon</span>
-<nav aria-label="Primary"><a href="report/">Static report</a><a href="https://github.com/tomas-rampas/agent-joules">GitHub</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a></nav>
+<nav aria-label="Primary"><a href="report/">Static report</a><a href="replay/">Hosted replay</a><a href="https://github.com/tomas-rampas/agent-joules">GitHub</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a></nav>
 </div></header>
 
 <main>
@@ -194,7 +194,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
 <img src="report/dashboard.png" width="1906" height="1532" loading="lazy" alt="Agent Joules live dashboard in dark theme: one card per agent with GPU power, net energy, tokens and latency, and a GPU board power chart coloured by active agent.">
 <figcaption>The dashboard during a three-task rehearsal run on the local tier: one card per agent with GPU power now, running net energy, tokens and latency, each value carrying its label, and GPU board power over the last 120 seconds coloured by the active agent above the measured idle baseline. Values tagged estimated are running estimates and never enter results files. The run file of this rehearsal is git-ignored and outside results/, so none of the figures in the image is in a committed results file; the committed runs are in the static report.</figcaption>
 </figure>
-<p style="margin:16px 0 0">Replay without a GPU or key:</p>
+<p style="margin:16px 0 0">To see the page without installing anything, open <a href="replay/">the hosted replay</a>, which plays the committed cloudgpu and local runs in the browser with no key and no server. Replay without a GPU or key:</p>
 <pre><code>dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/20261026T124721Z-cloudgpu.json --speed 4 --exit-after 60</code></pre>
 </section>
 
@@ -243,7 +243,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 20px}
 
 <footer><div class="wrap">
 <span>Agent Joules &middot; Hackathon prototype &middot; MIT licensed</span>
-<nav aria-label="Footer"><a href="https://github.com/tomas-rampas/agent-joules">Repository</a><a href="report/">Static report</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a><a href="https://github.com/tomas-rampas/agent-joules/blob/main/docs/methodology.md">Methodology</a><a href="https://github.com/tomas-rampas/agent-joules#readme">README</a></nav>
+<nav aria-label="Footer"><a href="https://github.com/tomas-rampas/agent-joules">Repository</a><a href="report/">Static report</a><a href="replay/">Hosted replay</a><a href="https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0">Release v0.2.0</a><a href="https://github.com/tomas-rampas/agent-joules/blob/main/docs/methodology.md">Methodology</a><a href="https://github.com/tomas-rampas/agent-joules#readme">README</a></nav>
 </div></footer>
 </body>
 </html>

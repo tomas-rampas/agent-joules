@@ -232,7 +232,7 @@ The steps to regenerate the results files and the report on your own NVIDIA GPU,
 7. `dotnet run --project src/AgentJoules.Cli -- report --update-readme --render-content` writes `docs/report/summary.md`, `docs/report/joules-per-step.svg` and `docs/report/index.html`, the results block of this README and `content/linkedin-posts.md`.
 8. `dotnet run --project src/AgentJoules.Cli -- report --verify-readme` exits 0 when the results block is the generated one.
 9. For the live page: `dotnet run --project src/AgentJoules.Cli -- run --tier local --task energy-explainer --repeat 1 --out artifacts/demo-run --dashboard` serves the dashboard at the printed `Dashboard:` address. The run file lands in the git-ignored `artifacts/demo-run` and is not a published result.
-10. Without a GPU: `dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/<ts>-nebius.json --speed 4 --exit-after 60` replays a committed hosted run on the same page and writes nothing.
+10. Without a GPU: `dotnet run --project src/AgentJoules.Cli -- dashboard --replay results/<ts>-nebius.json --speed 4 --exit-after 60` replays a committed hosted run on the same page and writes nothing, or open https://tomas-rampas.github.io/agent-joules/replay/.
 
 ## Prior art
 
@@ -247,7 +247,7 @@ None of these attributes energy to an individual agent step of a multi-agent wor
 
 ## Hackathon submission
 
-Demo URL: https://tomas-rampas.github.io/agent-joules/report/ (the static report `docs/report/index.html` written by `report`, published by GitHub Pages from the `docs/` folder at the `/report/` path; the empty `docs/.nojekyll` stops Pages from processing the folder with Jekyll). The site root https://tomas-rampas.github.io/agent-joules/ is a one-page presentation for the judges (`docs/index.html`, no script, no external resource) that links to the report. The pitch and story are in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md), the design in [docs/design/technical-design.md](docs/design/technical-design.md) and the plan in [docs/plan/plan.md](docs/plan/plan.md). The submitted release is v0.2.0 (https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0) with the CLI build, the results and the report as assets; v0.1.0 marks the M7 exit snapshot.
+Demo URL: https://tomas-rampas.github.io/agent-joules/report/ (the static report `docs/report/index.html` written by `report`, published by GitHub Pages from the `docs/` folder at the `/report/` path; the empty `docs/.nojekyll` stops Pages from processing the folder with Jekyll). The site root https://tomas-rampas.github.io/agent-joules/ is a one-page presentation for the judges (`docs/index.html`, no script, no external resource) that links to the report and the hosted replay. The pitch and story are in [docs/devpost-pitch.md](docs/devpost-pitch.md) and [docs/devpost-story.md](docs/devpost-story.md), the design in [docs/design/technical-design.md](docs/design/technical-design.md) and the plan in [docs/plan/plan.md](docs/plan/plan.md). The submitted release is v0.2.0 (https://github.com/tomas-rampas/agent-joules/releases/tag/v0.2.0) with the CLI build, the results and the report as assets; v0.1.0 marks the M7 exit snapshot.
 
 ## License
 

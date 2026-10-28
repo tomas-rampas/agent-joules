@@ -87,7 +87,7 @@ A wrong option value exits 2 before anything runs and prints one stderr line `er
 
 ## dashboard
 
-`dashboard --replay <run file>` replays a committed results file on its recorded timeline into the same local dashboard that `run --dashboard` serves, so the live view can be seen without a GPU. The replay runs no agent and writes nothing to disk; it needs no key, and a key variable that is set is used only to mask its value, so a file holding that value is refused with exit 2. The page shows power as the recorded per-step average, with the banner `power shown as recorded per-step average` and a `replay` marker; a hosted step shows N/A, never 0.
+`dashboard --replay <run file>` replays a committed results file on its recorded timeline into the same local dashboard that `run --dashboard` serves, so the live view can be seen without a GPU. The replay runs no agent and writes nothing to disk; it needs no key, and a key variable that is set is used only to mask its value, so a file holding that value is refused with exit 2. The page shows power as the recorded per-step average, with the banner `power shown as recorded per-step average` and a `replay` marker; a hosted step shows N/A, never 0. The same replay is published for the committed cloudgpu and local runs at https://tomas-rampas.github.io/agent-joules/replay/.
 
 Usage: `AJ dashboard --replay <run file> [--speed <factor>] [--exit-after <seconds>] [--start-delay <seconds>] [--dashboard-port <n>]`
 
