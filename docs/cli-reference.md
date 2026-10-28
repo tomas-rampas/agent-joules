@@ -6,7 +6,7 @@ This is the full reference of the `dotnet run --project src/AgentJoules.Cli --` 
 
 The command line has six commands: `probe`, `run`, `report`, `validate`, `calibrate` and `dashboard`. In the usage lines below `AJ` stands for `dotnet run --project src/AgentJoules.Cli --`, run from the repository root; `AJ <command> --help` prints the options of a command and exits 0. A parse error exits 2 and prints one stderr line `error: <message> (ParseError)`.
 
-Note on the dashboard: it is off by default, stores nothing, and a browser on the measured GPU adds compositing load. The published results files were therefore recorded without a browser showing the dashboard, and only the demo recording shows the live page; the published local run of 2026-10-27 ran with no browser open and with the other GPU applications listed in docs/methodology.md.
+Note on the dashboard: it is off by default, stores nothing, and a browser on the measured GPU adds compositing load. The published results files were therefore recorded without a browser showing the dashboard, and only the demo recording shows the live page (2026-10-28: the live page is also published as a replay of two committed runs at https://tomas-rampas.github.io/agent-joules/replay/, docs/replay/index.html, which runs no agent and reads no GPU; the sentence stays true of the live run); the published local run of 2026-10-27 ran with no browser open and with the other GPU applications listed in docs/methodology.md.
 
 ### Exit codes
 
