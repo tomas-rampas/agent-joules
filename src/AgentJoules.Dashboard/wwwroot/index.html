@@ -252,6 +252,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
     <span class="item"><span class="hk">Mode</span><span id="hdr-mode">-</span></span>
     <span class="item"><span class="hk">Progress</span><span id="hdr-progress">-</span></span>
     <span class="item"><span class="hk">Flags</span><span id="hdr-flags">-</span></span>
+    <span class="item"><span class="hk">Cost (run)</span><span id="hdr-cost">-</span><span id="hdr-cost-badge" class="badge empty"></span></span>
     <span id="hdr-replay-marker" class="banner" hidden>replay</span>
     <span id="hdr-replay" class="banner" hidden>power shown as recorded per-step average</span>
     <span id="hdr-reconnecting" class="banner" hidden>reconnecting</span>
@@ -277,7 +278,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-
 <footer id="footer">
   <p>Energy is GPU-board energy only.</p>
   <p id="power-note">NVML power on this GPU class (Ampere and newer, except GA100) is a one-second driver average; the chart shows that average at the forwarding interval, not instantaneous power.</p>
-  <p>Values tagged estimated are running estimates computed from the power samples of the active step; the measured value replaces them when the step completes, and estimates never enter results files.</p>
+  <p>Values tagged estimated are running estimates computed from the power samples of the active step; the measured value replaces them when the step completes, and estimates never enter results files. The cost cells are the exception: they show the estimated step costs and run totals that the results file carries, from the configured prices, and are never replaced.</p>
   <p><a id="repo-link" href="{{repo.url}}">Repository README</a></p>
 </footer>
 <script>
@@ -323,6 +324,8 @@ const hdr = {
   mode: document.getElementById("hdr-mode"),
   progress: document.getElementById("hdr-progress"),
   flags: document.getElementById("hdr-flags"),
+  cost: document.getElementById("hdr-cost"),
+  costBadge: document.getElementById("hdr-cost-badge"),
   replayMarker: document.getElementById("hdr-replay-marker"),
   replay: document.getElementById("hdr-replay"),
   reconnecting: document.getElementById("hdr-reconnecting")
@@ -570,6 +573,7 @@ function buildAgentCards(names, configured) {
     ["chunks", "Output chunks (running)"],
     ["net", "Net energy (last step)"],
     ["cumulative", "Net energy (cumulative)"],
+    ["cost", "Cost (cumulative)"],
     ["avg", "Average power (last step)"],
     ["tokens-in", "Input tokens (cumulative)"],
     ["tokens-out", "Output tokens (cumulative)"],
@@ -617,6 +621,66 @@ function show(entry, key, metric) {
   setClass(row.badge, view.label ? "badge " + labelClass(view.label) + (view.note.length > 14 ? " long" : "") : "badge empty");
 }
 
+// The cost views: { text, label, note } like fmt, with the currency and four significant digits. A dash until there is a cost; never a zero for a missing one.
+function costValueText(currency, value) {
+  return currency + " " + value.toPrecision(4);
+}
+
+// One entry of a cost map per currency through fmt: a numeric entry as "<CUR> <four significant digits>", a null-valued one as its N/A text; the badge is the single label of the entries, or N/A
+// when they differ. emptyView is what a map with no usable entry renders (the sums arrive from the server; the browser adds nothing up).
+function costMapView(map, emptyView) {
+  if (!isObject(map)) {
+    return { text: "-", label: "", note: "" };
+  }
+  if (Object.keys(map).length === 0) {
+    return emptyView;
+  }
+  const texts = [];
+  const labels = [];
+  const notes = [];
+  Object.keys(map).forEach(function (key) {
+    const metric = map[key];
+    const view = fmt(metric);
+    if (view.label === "") {
+      return;
+    }
+    const numeric = metric.value !== null;
+    texts.push(numeric ? costValueText(typeof metric.currency === "string" ? metric.currency : key, metric.value) : view.text);
+    if (labels.indexOf(view.label) < 0) {
+      labels.push(view.label);
+      notes.push(view.note);
+    }
+  });
+  if (texts.length === 0) {
+    // Entries fmt could not read: the malformed-input dash, never a reason the payload does not support.
+    return { text: "-", label: "", note: "" };
+  }
+  return { text: texts.join(", "), label: labels.length === 1 ? labels[0] : "N/A", note: notes.join(", ") };
+}
+
+// A card's cost row: the agent's cumulativeCost map. An empty map is a dash while the agent has no completed step (its cumulative
+// energy is not-reported no-steps) and N/A no-priced-step once it has one, as the header does for a run without a priced step.
+function agentCostView(agent) {
+  const energy = labelled(agent.cumulativeNetJoules);
+  const noSteps = energy === null || (energy.value === null && energy.reason === "no-steps");
+  return costMapView(agent.cumulativeCost, noSteps ? { text: "-", label: "", note: "" } : { text: "N/A", label: "N/A", note: "no-priced-step" });
+}
+
+// The header's run cost: the totals' costByCurrency; a run that completed with an empty map had no priced step (the README block prints the same as N/A (no priced step)).
+function runCostView() {
+  const totals = state.completed && isObject(state.completed.totals) ? state.completed.totals.costByCurrency : null;
+  return costMapView(totals, isObject(totals) ? { text: "N/A", label: "N/A", note: "no-priced-step" } : { text: "-", label: "", note: "" });
+}
+
+function showCostView(valNode, badgeNode, view, rowValue) {
+  setText(valNode, view.text);
+  if (rowValue) {
+    setClass(valNode, view.text.length > 13 ? "val long" : "val");
+  }
+  setText(badgeNode, view.note);
+  setClass(badgeNode, view.label ? "badge " + labelClass(view.label) + (view.note.length > 14 ? " long" : "") : "badge empty");
+}
+
 function paintHeader() {
   const run = state.run;
   const environment = state.environment;
@@ -637,6 +701,7 @@ function paintHeader() {
   const flags = source ? textsOf(source.flags) : [];
   setText(hdr.flags, flags.length > 0 ? flags.join(", ") : "none");
   setText(hdr.progress, progress);
+  showCostView(hdr.cost, hdr.costBadge, runCostView(), false);
   hdr.replayMarker.hidden = !state.replay;
   hdr.replay.hidden = !state.replay;
   hdr.reconnecting.hidden = state.connected;
@@ -659,6 +724,7 @@ function paintCards() {
     show(entry, "chunks", agent.runningOutputChunks);
     show(entry, "net", step ? step.netJoules : null);
     show(entry, "cumulative", agent.cumulativeNetJoules);
+    showCostView(entry.rows.cost.val, entry.rows.cost.badge, agentCostView(agent), true);
     show(entry, "avg", step ? step.avgW : null);
     show(entry, "tokens-in", agent.cumulativeInputTokens);
     show(entry, "tokens-out", agent.cumulativeOutputTokens);

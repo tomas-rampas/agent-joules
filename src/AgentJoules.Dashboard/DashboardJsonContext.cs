@@ -93,6 +93,7 @@ internal sealed record RunCompletedData(RunInfo Run, Totals Totals);
 /// <param name="Configured">True for one of the agents of the configuration; false for any other, which the page marks with a fixed badge (a name can imitate a configured one).</param>
 /// <param name="Status">The status: <c>waiting</c>, <c>running</c>, or the outcome of its latest step.</param>
 /// <param name="CumulativeNetJoules">The net joules over its completed steps of this run, by the rule of the results totals.</param>
+/// <param name="CumulativeCost">The cost over its completed steps by currency, by the rule of <see cref="StepCosts.ByCurrency"/> (the rule of <c>totals.costByCurrency</c>): estimated sums, N/A <c>missing-step-costs</c> entries when a step has no cost, an empty object when none has.</param>
 /// <param name="CumulativeInputTokens">The input tokens over its completed steps.</param>
 /// <param name="CumulativeOutputTokens">The output tokens over its completed steps.</param>
 /// <param name="RunningNetJoules">The running energy estimate of its step in flight, or null when it has none.</param>
@@ -103,6 +104,7 @@ internal sealed record AgentData(
     bool Configured,
     string Status,
     Metric CumulativeNetJoules,
+    IReadOnlyDictionary<string, Metric> CumulativeCost,
     Metric CumulativeInputTokens,
     Metric CumulativeOutputTokens,
     Metric? RunningNetJoules,

@@ -183,6 +183,56 @@ public sealed class DashboardEventSerializationTests
     }
 
     [Fact]
+    public void Cumulative_cost_is_the_per_currency_estimated_sum_of_the_completed_steps()
+    {
+        var snapshot = DashboardFixtures.NewSnapshot();
+        _ = snapshot.Apply(new StepCompletedEvent(Origin, false, Reading(agent: "Writer", cost: Metric.Estimated(0.25, "USD"))));
+
+        string payload = snapshot.Apply(new StepCompletedEvent(Origin, false, Reading(agent: "Writer", cost: Metric.Estimated(0.5, "USD"))));
+
+        JsonElement cost = AgentOf(payload, "Writer").GetProperty("cumulativeCost");
+        Assert.Single(cost.EnumerateObject());
+        AssertCurrencyMetric(cost.GetProperty("USD"), 0.75, "estimated", "USD");
+        string snapshotPayload = snapshot.ToSnapshotPayload(Origin);
+        AssertCurrencyMetric(AgentOf(snapshotPayload, "Writer").GetProperty("cumulativeCost").GetProperty("USD"), 0.75, "estimated", "USD");
+        foreach (JsonElement agent in Parse(snapshotPayload).GetProperty("data").GetProperty("agents").EnumerateArray())
+        {
+            Assert.Equal(JsonValueKind.Object, agent.GetProperty("cumulativeCost").ValueKind);
+        }
+    }
+
+    [Fact]
+    public void Cumulative_cost_of_an_agent_without_steps_is_an_empty_object()
+    {
+        var snapshot = DashboardFixtures.NewSnapshot();
+
+        string payload = snapshot.Apply(new StepCompletedEvent(Origin, false, Reading(agent: "Writer", cost: Metric.Estimated(0.5, "USD"))));
+
+        JsonElement planner = AgentOf(payload, "Planner").GetProperty("cumulativeCost");
+        Assert.Equal(JsonValueKind.Object, planner.ValueKind);
+        Assert.Empty(planner.EnumerateObject());
+    }
+
+    [Fact]
+    public void Cumulative_cost_with_an_unpriced_step_is_na_missing_step_costs()
+    {
+        var snapshot = DashboardFixtures.NewSnapshot();
+        _ = snapshot.Apply(new StepCompletedEvent(Origin, false, Reading(agent: "Writer", cost: Metric.Estimated(0.5, "USD"))));
+
+        string payload = snapshot.Apply(new StepCompletedEvent(Origin, false, Reading(agent: "Writer")));
+
+        JsonElement usd = AgentOf(payload, "Writer").GetProperty("cumulativeCost").GetProperty("USD");
+        AssertMetric(usd, null, "N/A", reason: "missing-step-costs");
+    }
+
+    private static void AssertCurrencyMetric(JsonElement metric, double value, string label, string currency)
+    {
+        Assert.Equal(label, metric.GetProperty("label").GetString());
+        Assert.Equal(value, metric.GetProperty("value").GetDouble(), 9);
+        Assert.Equal(currency, metric.GetProperty("currency").GetString());
+    }
+
+    [Fact]
     public void Cumulative_of_a_measured_and_a_not_reported_step_takes_the_label_and_reason_of_the_lacking_step()
     {
         var snapshot = DashboardFixtures.NewSnapshot();
@@ -851,7 +901,8 @@ public sealed class DashboardEventSerializationTests
         ReadingFlags flags = ReadingFlags.None,
         string? qualityReason = null,
         string? outputText = null,
-        string? judgedAgent = null) =>
+        string? judgedAgent = null,
+        Metric? cost = null) =>
         new(
             task: task,
             repeat: 1,
@@ -869,7 +920,7 @@ public sealed class DashboardEventSerializationTests
             netJoules: netJoules ?? Metric.Measured(60, "J"),
             avgW: Metric.Measured(90, "W"),
             peakW: Metric.Measured(110, "W"),
-            cost: Metric.NotReported("not-priced"),
+            cost: cost ?? Metric.NotReported("not-priced"),
             retries: 0,
             waitMs: 0,
             flags: flags,

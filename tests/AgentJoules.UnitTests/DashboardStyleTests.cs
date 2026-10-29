@@ -80,7 +80,7 @@ public sealed class DashboardStyleTests
 
         // The header: title, tier, model IDs with precision, mode, progress, flags and the two badges.
         Assert.Contains("Agent Joules", text, StringComparison.Ordinal);
-        foreach (string id in new[] { "hdr-tier", "hdr-models", "hdr-precision", "hdr-mode", "hdr-progress", "hdr-flags", "hdr-replay", "hdr-reconnecting" })
+        foreach (string id in new[] { "hdr-tier", "hdr-models", "hdr-precision", "hdr-mode", "hdr-progress", "hdr-flags", "hdr-cost", "hdr-cost-badge", "hdr-replay", "hdr-reconnecting" })
         {
             Assert.Contains($"id=\"{id}\"", page, StringComparison.Ordinal);
         }

@@ -58,7 +58,7 @@ public static class RunAssembler
     public const string BilledAfterRunReason = "billed-after-run";
 
     /// <summary>The reason of every currency of <c>costByCurrency</c> when at least one step carries no cost: a partial sum would understate the run.</summary>
-    public const string MissingStepCostsReason = "missing-step-costs";
+    public const string MissingStepCostsReason = StepCosts.MissingStepCostsReason;
 
     /// <summary>The reason of a sum over the steps of a run that holds no step yet (a shutdown before the first step finished).</summary>
     public const string NoStepsReason = "no-steps";
@@ -111,7 +111,7 @@ public static class RunAssembler
             net,
             Sum(steps, static step => step.InputTokens, TokenCounts.TokenUnit),
             Sum(steps, static step => step.OutputTokens, TokenCounts.TokenUnit),
-            CostByCurrency(steps),
+            StepCosts.ByCurrency(steps),
             wallClockMs is { } measured ? Metric.Measured(measured, MillisecondUnit) : Metric.NotReported(NoStepsReason),
             JudgeTotalsOf(judge),
             CostCalculator.EstimateEmissions(net, cost?.GCo2ePerKwh));
@@ -606,33 +606,6 @@ public static class RunAssembler
         return Metric.Measured(sum, unit);
     }
 
-    // The costs per currency, in ordinal currency order, under the all-steps rule: the sums when every step carries an estimated cost; every currency seen N/A missing-step-costs when at
-    // least one step lacks one (a partial sum would understate the run); empty when no step carries a cost (M2: every cost is N/A).
-    private static Dictionary<string, Metric> CostByCurrency(IReadOnlyList<StepReading> steps)
-    {
-        var sums = new SortedDictionary<string, double>(StringComparer.Ordinal);
-        bool missing = false;
-        foreach (StepReading step in steps)
-        {
-            if (step.Cost is { Label: MetricLabel.Estimated, Currency: { } currency, Value: { } value })
-            {
-                sums[currency] = (sums.TryGetValue(currency, out double sum) ? sum : 0.0) + value;
-            }
-            else
-            {
-                missing = true;
-            }
-        }
-
-        var costs = new Dictionary<string, Metric>(StringComparer.Ordinal);
-        foreach ((string currency, double sum) in sums)
-        {
-            costs[currency] = missing ? Metric.NotApplicable(MissingStepCostsReason) : Metric.Estimated(sum, currency);
-        }
-
-        return costs;
-    }
-
     // The judge totals: N/A not-scored while no judge reading exists, otherwise the same sums as the steps (M3).
     private static JudgeTotals JudgeTotalsOf(IReadOnlyList<StepReading> judge) =>
         judge.Count == 0
@@ -640,5 +613,5 @@ public static class RunAssembler
             : new JudgeTotals(
                 Sum(judge, static step => step.InputTokens, TokenCounts.TokenUnit),
                 Sum(judge, static step => step.OutputTokens, TokenCounts.TokenUnit),
-                CostByCurrency(judge));
+                StepCosts.ByCurrency(judge));
 }

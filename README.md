@@ -153,7 +153,7 @@ Judge disclosure: the quality judge is `nvidia/nemotron-3-nano-omni-30b-a3b-reas
 Coverage is not complete in every file: the judge failed after 5 attempts (RetriesExhaustedException) for 3 of 36 steps in `results/20261027T095519Z-local.json` and for 3 of 36 in `results/20261026T124721Z-cloudgpu.json`, there is no score for 2 of 36 steps in `results/20261025T133440Z-nebius.json`, and all 36 are judged in `results/20261025T135121Z-nvidia.json`; those steps are `N/A` with the reason recorded, never 0.
 Self-judging (`run.selfJudged`) is true in `results/20261025T135121Z-nvidia.json` because the tier's own model is the judge, and false in the other three files.
 
-The live dashboard (`--dashboard`) shows one-second driver averages and running estimates labelled `estimated`; estimates never enter a results file. A browser on the measured GPU adds compositing load, so published results files are recorded without a browser showing the dashboard, and a replay (`dashboard --replay`) runs no agent, writes nothing and needs no key.
+The live dashboard (`--dashboard`) shows one-second driver averages and running estimates labelled `estimated`; estimates never enter a results file; the cost cells (amended 2026-10-29) show the results file's estimated costs. A browser on the measured GPU adds compositing load, so published results files are recorded without a browser showing the dashboard, and a replay (`dashboard --replay`) runs no agent, writes nothing and needs no key.
 
 ## NIM-local outcome
 

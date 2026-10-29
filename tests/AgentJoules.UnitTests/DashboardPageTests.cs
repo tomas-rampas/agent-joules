@@ -284,6 +284,51 @@ public sealed class DashboardPageTests
         Assert.Contains("addPoint(state.sampleSeconds, state.watts.value);", handler, StringComparison.Ordinal);
     }
 
+    // ---- REQ-017: the cost surfaces of the live page ----
+
+    [Fact]
+    public void Page_shows_the_cumulative_cost_row_and_the_run_cost_item()
+    {
+        string page = DashboardPage.Render(null);
+        string script = DashboardPageRules.Script(page);
+
+        Assert.Contains("Cost (cumulative)", page, StringComparison.Ordinal);
+        Assert.Contains("Cost (run)", page, StringComparison.Ordinal);
+        Assert.Contains("[\"cumulative\", \"Net energy (cumulative)\"],\n    [\"cost\", \"Cost (cumulative)\"],", script, StringComparison.Ordinal);
+        string agentCostView = DashboardPageRules.FunctionBody(script, "agentCostView");
+        Assert.Contains("cumulativeCost", agentCostView, StringComparison.Ordinal);
+        Assert.Contains("energy.reason === \"no-steps\"", agentCostView, StringComparison.Ordinal);
+        Assert.Contains("noSteps ? { text: \"-\", label: \"\", note: \"\" } : { text: \"N/A\", label: \"N/A\", note: \"no-priced-step\" }", agentCostView, StringComparison.Ordinal);
+        Assert.Contains("isObject(totals) ? { text: \"N/A\", label: \"N/A\", note: \"no-priced-step\" } : { text: \"-\", label: \"\", note: \"\" }", DashboardPageRules.FunctionBody(script, "runCostView"), StringComparison.Ordinal);
+        Assert.Contains("if (view.label === \"\") {", DashboardPageRules.FunctionBody(script, "costMapView"), StringComparison.Ordinal);
+        Assert.Contains("value.toPrecision(4)", DashboardPageRules.FunctionBody(script, "costValueText"), StringComparison.Ordinal);
+        Assert.Contains("return currency + \" \" + value.toPrecision(4);", DashboardPageRules.FunctionBody(script, "costValueText"), StringComparison.Ordinal);
+        string costMapView = DashboardPageRules.FunctionBody(script, "costMapView");
+        Assert.Contains("if (Object.keys(map).length === 0) {\n    return emptyView;\n  }", costMapView, StringComparison.Ordinal);
+        Assert.Equal(1, costMapView.Split("return emptyView;").Length - 1);
+        Assert.Equal(2, costMapView.Split("return { text: \"-\", label: \"\", note: \"\" };").Length - 1);
+        Assert.Contains("The cost cells are the exception: they show the estimated step costs and run totals that the results file carries, from the configured prices, and are never replaced.", page, StringComparison.Ordinal);
+        Assert.Contains("showCostView(entry.rows.cost.val, entry.rows.cost.badge, agentCostView(agent), true);", DashboardPageRules.FunctionBody(script, "paintCards"), StringComparison.Ordinal);
+        Assert.Contains("showCostView(hdr.cost, hdr.costBadge, runCostView(), false);", DashboardPageRules.FunctionBody(script, "paintHeader"), StringComparison.Ordinal);
+        Assert.Contains("if (!isObject(map)) {\n    return { text: \"-\", label: \"\", note: \"\" };\n  }", costMapView, StringComparison.Ordinal);
+        Assert.Contains("texts.push(numeric ? costValueText(typeof metric.currency === \"string\" ? metric.currency : key, metric.value) : view.text);", costMapView, StringComparison.Ordinal);
+        Assert.Contains("if (labels.indexOf(view.label) < 0) {", costMapView, StringComparison.Ordinal);
+        Assert.Contains("return { text: texts.join(\", \"), label: labels.length === 1 ? labels[0] : \"N/A\", note: notes.join(\", \") };", costMapView, StringComparison.Ordinal);
+        Assert.Contains("setClass(valNode, view.text.length > 13 ? \"val long\" : \"val\");", DashboardPageRules.FunctionBody(script, "showCostView"), StringComparison.Ordinal);
+        Assert.Equal("\n  return currency + \" \" + value.toPrecision(4);\n", DashboardPageRules.FunctionBody(script, "costValueText"));
+        Assert.Equal("\n  if (!isObject(map)) {\n    return { text: \"-\", label: \"\", note: \"\" };\n  }\n  if (Object.keys(map).length === 0) {\n    return emptyView;\n  }\n  const texts = [];\n  const labels = [];\n  const notes = [];\n  Object.keys(map).forEach(function (key) {\n    const metric = map[key];\n    const view = fmt(metric);\n    if (view.label === \"\") {\n      return;\n    }\n    const numeric = metric.value !== null;\n    texts.push(numeric ? costValueText(typeof metric.currency === \"string\" ? metric.currency : key, metric.value) : view.text);\n    if (labels.indexOf(view.label) < 0) {\n      labels.push(view.label);\n      notes.push(view.note);\n    }\n  });\n  if (texts.length === 0) {\n    // Entries fmt could not read: the malformed-input dash, never a reason the payload does not support.\n    return { text: \"-\", label: \"\", note: \"\" };\n  }\n  return { text: texts.join(\", \"), label: labels.length === 1 ? labels[0] : \"N/A\", note: notes.join(\", \") };\n", DashboardPageRules.FunctionBody(script, "costMapView"));
+        Assert.Equal("\n  const energy = labelled(agent.cumulativeNetJoules);\n  const noSteps = energy === null || (energy.value === null && energy.reason === \"no-steps\");\n  return costMapView(agent.cumulativeCost, noSteps ? { text: \"-\", label: \"\", note: \"\" } : { text: \"N/A\", label: \"N/A\", note: \"no-priced-step\" });\n", DashboardPageRules.FunctionBody(script, "agentCostView"));
+        Assert.Equal("\n  const totals = state.completed && isObject(state.completed.totals) ? state.completed.totals.costByCurrency : null;\n  return costMapView(totals, isObject(totals) ? { text: \"N/A\", label: \"N/A\", note: \"no-priced-step\" } : { text: \"-\", label: \"\", note: \"\" });\n", DashboardPageRules.FunctionBody(script, "runCostView"));
+        Assert.Equal("\n  setText(valNode, view.text);\n  if (rowValue) {\n    setClass(valNode, view.text.length > 13 ? \"val long\" : \"val\");\n  }\n  setText(badgeNode, view.note);\n  setClass(badgeNode, view.label ? \"badge \" + labelClass(view.label) + (view.note.length > 14 ? \" long\" : \"\") : \"badge empty\");\n", DashboardPageRules.FunctionBody(script, "showCostView"));
+
+        // The browser sums nothing: the step-completed handler never touches a cost.
+        Assert.DoesNotContain("addStepCost", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("cost", DashboardPageRules.FunctionBody(script, "handleStepCompleted"), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("|| 0", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("?? 0", page, StringComparison.Ordinal);
+        Assert.DoesNotContain("innerHTML", page, StringComparison.Ordinal);
+    }
+
     // ---- criterion 12 and the footer ----
 
     [Fact]

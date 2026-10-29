@@ -193,6 +193,7 @@ public sealed class DashboardSnapshot(SecretRedactor redactor)
                 TierOptions.KnownAgentNames.Contains(agent, StringComparer.Ordinal),
                 StatusOf(agent),
                 Sum(steps, static step => step.NetJoules, JouleUnit),
+                StepCosts.ByCurrency(steps),
                 Sum(steps, static step => step.InputTokens, TokenCounts.TokenUnit),
                 Sum(steps, static step => step.OutputTokens, TokenCounts.TokenUnit),
                 running is null ? null : RunningEnergy(running),
